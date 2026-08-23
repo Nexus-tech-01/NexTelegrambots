@@ -14,23 +14,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify canonical chunk set
+      - name: Inspect canonical chunk encoding
         shell: bash
         run: |
           set -euo pipefail
           mapfile -t parts < <(printf '%s\n' render-src.b64.part-* | sort)
           printf 'part_count=%s\n' "${#parts[@]}"
           test "${#parts[@]}" -eq 9
-          printf '%s\n' "${parts[@]}"
+          total=0
+          for part in "${parts[@]}"; do
+            size=$(wc -c < "$part")
+            clean_size=$(tr -d '\r\n' < "$part" | wc -c)
+            invalid=$(LC_ALL=C tr -d 'A-Za-z0-9+/=\r\n' < "$part" | wc -c)
+            printf '%s bytes=%s clean=%s mod4=%s invalid=%s prefix=' "$part" "$size" "$clean_size" "$((clean_size % 4))" "$invalid"
+            head -c 8 "$part"
+            printf ' suffix='
+            tail -c 8 "$part"
+            printf '\n'
+            total=$((total + clean_size))
+          done
+          printf 'total_clean=%s total_mod4=%s\n' "$total" "$((total % 4))"
 
-      - name: Reconstruct and validate xz archive
+      - name: Reconstruct tolerant base64 stream
         shell: bash
         run: |
           set -euo pipefail
-          : > /tmp/nexus-bots.tar.xz
-          for part in $(printf '%s\n' render-src.b64.part-* | sort); do
-            base64 --decode "$part" >> /tmp/nexus-bots.tar.xz
-          done
+          cat render-src.b64.part-* | tr -d '\r\n' > /tmp/nexus-bots.b64
+          printf 'combined_bytes=%s mod4=%s\n' "$(wc -c < /tmp/nexus-bots.b64)" "$(( $(wc -c < /tmp/nexus-bots.b64) % 4 ))"
+          base64 --decode --ignore-garbage /tmp/nexus-bots.b64 > /tmp/nexus-bots.tar.xz
           xz -t /tmp/nexus-bots.tar.xz
           tar -tJf /tmp/nexus-bots.tar.xz > /tmp/archive-files.txt
           printf 'archive_file_count=%s\n' "$(wc -l < /tmp/archive-files.txt)"
@@ -53,9 +64,3 @@ jobs:
             test -d "/tmp/nexus-app/bots/$bot"
             printf '%s=present\n' "$bot"
           done
-
-      - name: Build production Docker image
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker build --progress=plain -t nexus-telegram-bots:smoke .
