@@ -14,77 +14,47 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Inspect legacy chunk set
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          parts=(nexus-bots-src.tar.xz.b64.part-*)
-          printf 'legacy_part_count=%s\n' "${#parts[@]}"
-          test "${#parts[@]}" -gt 0
-          for part in "${parts[@]}"; do
-            size=$(wc -c < "$part")
-            clean_size=$(tr -d '\r\n' < "$part" | wc -c)
-            invalid=$(LC_ALL=C tr -d 'A-Za-z0-9+/=\r\n' < "$part" | wc -c)
-            digest=$(sha256sum "$part" | cut -d' ' -f1)
-            printf '%s bytes=%s clean=%s mod4=%s invalid=%s sha256=%s prefix=' "$part" "$size" "$clean_size" "$((clean_size % 4))" "$invalid" "$digest"
-            head -c 8 "$part"
-            printf ' suffix='
-            tail -c 8 "$part"
-            printf '\n'
-          done
-
-      - name: Try contiguous legacy reconstruction
+      - name: Recover readable legacy tar prefix
         shell: bash
         run: |
           set +e
-          cat nexus-bots-src.tar.xz.b64.part-* | tr -d '\r\n' > /tmp/legacy-contiguous.b64
-          base64 --decode /tmp/legacy-contiguous.b64 > /tmp/legacy-contiguous.tar.xz 2>/tmp/contiguous.err
-          b64_rc=$?
-          xz -t /tmp/legacy-contiguous.tar.xz 2>/tmp/contiguous-xz.err
-          xz_rc=$?
-          printf 'contiguous_base64_rc=%s contiguous_xz_rc=%s\n' "$b64_rc" "$xz_rc"
-          cat /tmp/contiguous.err /tmp/contiguous-xz.err || true
-          if [ "$b64_rc" -eq 0 ] && [ "$xz_rc" -eq 0 ]; then
-            echo contiguous_valid=true
-            tar -tJf /tmp/legacy-contiguous.tar.xz | head -n 20
-          else
-            echo contiguous_valid=false
-          fi
+          cat nexus-bots-src.tar.xz.b64.part-* | tr -d '\r\n' | base64 --decode > /tmp/legacy.tar.xz
+          xz -dc /tmp/legacy.tar.xz > /tmp/legacy-recovered.tar 2>/tmp/legacy-xz.err
+          printf 'legacy_decompress_rc=%s recovered_bytes=%s\n' "$?" "$(wc -c < /tmp/legacy-recovered.tar)"
+          cat /tmp/legacy-xz.err || true
+          tar -tf /tmp/legacy-recovered.tar > /tmp/legacy-files.txt 2>/tmp/legacy-tar.err
+          printf 'legacy_tar_rc=%s recovered_entries=%s\n' "$?" "$(wc -l < /tmp/legacy-files.txt)"
+          tail -n 30 /tmp/legacy-files.txt || true
+          cat /tmp/legacy-tar.err || true
+          for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do
+            grep -q "^./bots/$bot/" /tmp/legacy-files.txt && echo "legacy_$bot=present" || echo "legacy_$bot=missing"
+          done
+          for required in './scripts/orchestrator.mjs' './scripts/preflight.mjs' './scripts/install-all.mjs' './scripts/build-all.mjs'; do
+            grep -Fxq "$required" /tmp/legacy-files.txt && echo "legacy_$required=present" || echo "legacy_$required=missing"
+          done
           exit 0
 
-      - name: Try independently decoded legacy reconstruction
+      - name: Recover readable canonical tar prefix
         shell: bash
         run: |
           set +e
-          : > /tmp/legacy-independent.tar.xz
-          bad=0
-          for part in $(printf '%s\n' nexus-bots-src.tar.xz.b64.part-* | sort); do
-            base64 --decode "$part" >> /tmp/legacy-independent.tar.xz 2>/tmp/part.err
-            rc=$?
-            printf '%s decode_rc=%s\n' "$part" "$rc"
-            if [ "$rc" -ne 0 ]; then cat /tmp/part.err; bad=1; fi
+          cat render-src.b64.part-* | tr -d '\r\n' > /tmp/canonical.b64
+          rem=$(( $(wc -c < /tmp/canonical.b64) % 4 ))
+          if [ "$rem" -ne 0 ]; then printf '%*s' "$((4-rem))" '' | tr ' ' '=' >> /tmp/canonical.b64; fi
+          base64 --decode /tmp/canonical.b64 > /tmp/canonical.tar.xz 2>/tmp/canonical-b64.err
+          printf 'canonical_base64_rc=%s encoded_bytes=%s\n' "$?" "$(wc -c < /tmp/canonical.b64)"
+          cat /tmp/canonical-b64.err || true
+          xz -dc /tmp/canonical.tar.xz > /tmp/canonical-recovered.tar 2>/tmp/canonical-xz.err
+          printf 'canonical_decompress_rc=%s recovered_bytes=%s\n' "$?" "$(wc -c < /tmp/canonical-recovered.tar)"
+          cat /tmp/canonical-xz.err || true
+          tar -tf /tmp/canonical-recovered.tar > /tmp/canonical-files.txt 2>/tmp/canonical-tar.err
+          printf 'canonical_tar_rc=%s recovered_entries=%s\n' "$?" "$(wc -l < /tmp/canonical-files.txt)"
+          tail -n 30 /tmp/canonical-files.txt || true
+          cat /tmp/canonical-tar.err || true
+          for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do
+            grep -q "^./bots/$bot/" /tmp/canonical-files.txt && echo "canonical_$bot=present" || echo "canonical_$bot=missing"
           done
-          xz -t /tmp/legacy-independent.tar.xz 2>/tmp/independent-xz.err
-          xz_rc=$?
-          printf 'independent_bad_part=%s independent_xz_rc=%s\n' "$bad" "$xz_rc"
-          cat /tmp/independent-xz.err || true
-          if [ "$bad" -eq 0 ] && [ "$xz_rc" -eq 0 ]; then
-            echo independent_valid=true
-            tar -tJf /tmp/legacy-independent.tar.xz > /tmp/archive-files.txt
-            printf 'archive_file_count=%s\n' "$(wc -l < /tmp/archive-files.txt)"
-            for required in \
-              './scripts/orchestrator.mjs' \
-              './scripts/preflight.mjs' \
-              './scripts/install-all.mjs' \
-              './scripts/build-all.mjs' \
-              './bots/nexdownloader/requirements.txt'; do
-              grep -Fxq "$required" /tmp/archive-files.txt && echo "$required=present" || echo "$required=missing"
-            done
-            for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do
-              grep -q "^./bots/$bot/" /tmp/archive-files.txt && echo "$bot=present" || echo "$bot=missing"
-            done
-          else
-            echo independent_valid=false
-          fi
+          for required in './scripts/orchestrator.mjs' './scripts/preflight.mjs' './scripts/install-all.mjs' './scripts/build-all.mjs'; do
+            grep -Fxq "$required" /tmp/canonical-files.txt && echo "canonical_$required=present" || echo "canonical_$required=missing"
+          done
           exit 0
