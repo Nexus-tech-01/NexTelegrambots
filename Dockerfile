@@ -10,20 +10,24 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Full NexusBots production source bundle.
-# Each stored part is decoded independently, then the binary pieces are joined.
-# This avoids corrupting the xz stream when base64 chunks contain their own boundaries.
-COPY nexus-bots-src.tar.xz.b64.part-* /tmp/
+# Canonical NexusBots v1.2.0 Render source bundle.
+# The base64 files are contiguous chunks of one encoded xz archive, so they
+# must be concatenated first and decoded once.
+COPY render-src.b64.part-* /tmp/
 RUN set -eux; \
-    : > /tmp/nexus-bots.tar.xz; \
-    for f in /tmp/nexus-bots-src.tar.xz.b64.part-*; do \
-      base64 -d "$f" >> /tmp/nexus-bots.tar.xz; \
-    done; \
+    test "$(find /tmp -maxdepth 1 -name 'render-src.b64.part-*' | wc -l)" -eq 9; \
+    cat /tmp/render-src.b64.part-* | base64 -d > /tmp/nexus-bots.tar.xz; \
     xz -t /tmp/nexus-bots.tar.xz; \
     tar -xJf /tmp/nexus-bots.tar.xz -C /app; \
-    rm -f /tmp/nexus-bots-src.tar.xz.b64.part-* /tmp/nexus-bots.tar.xz
+    test -f /app/scripts/orchestrator.mjs; \
+    test -f /app/scripts/preflight.mjs; \
+    test -f /app/scripts/install-all.mjs; \
+    test -f /app/scripts/build-all.mjs; \
+    test -f /app/bots/nexdownloader/requirements.txt; \
+    rm -f /tmp/render-src.b64.part-* /tmp/nexus-bots.tar.xz
 
-# Private repository deployment environment.
+# Private deployment environment. Render runtime environment variables can
+# override these values without changing the image.
 COPY .env /app/.env
 
 RUN python3 -m pip install --break-system-packages --no-cache-dir -r bots/nexdownloader/requirements.txt
