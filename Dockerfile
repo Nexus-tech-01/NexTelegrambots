@@ -10,11 +10,11 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Full NexusBots v1.2.0 production source bundle.
-COPY render-src.b64.part-* /tmp/
-RUN cat /tmp/render-src.b64.part-* | base64 -d > /tmp/nexus-bots.tar.xz \
+# Full NexusBots production source bundle (complete 12-part archive).
+COPY nexus-bots-src.tar.xz.b64.part-* /tmp/
+RUN cat /tmp/nexus-bots-src.tar.xz.b64.part-* | base64 -d > /tmp/nexus-bots.tar.xz \
  && tar -xJf /tmp/nexus-bots.tar.xz -C /app \
- && rm -f /tmp/render-src.b64.part-* /tmp/nexus-bots.tar.xz
+ && rm -f /tmp/nexus-bots-src.tar.xz.b64.part-* /tmp/nexus-bots.tar.xz
 
 # Private repository deployment environment.
 COPY .env /app/.env
