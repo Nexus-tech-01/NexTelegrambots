@@ -1,0 +1,40 @@
+name: Runtime branch smoke
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect runtime candidate without secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/recover
+          if compgen -G 'runtime-final/part-*' >/dev/null; then
+            cat runtime-final/part-* > /tmp/candidate.tar.xz
+            echo "candidate=runtime-final"
+          elif compgen -G 'runtime-v2.b64.part-*' >/dev/null; then
+            cat runtime-v2.b64.part-* | base64 --decode > /tmp/candidate.tar.xz
+            echo "candidate=runtime-v2-decode-once"
+          else
+            echo 'candidate files missing'
+            exit 2
+          fi
+          echo "candidate_bytes=$(wc -c < /tmp/candidate.tar.xz)"
+          xz -t /tmp/candidate.tar.xz
+          tar -tJf /tmp/candidate.tar.xz > /tmp/files.txt
+          echo "archive_entries=$(wc -l < /tmp/files.txt)"
+          tar -xJf /tmp/candidate.tar.xz -C /tmp/recover
+          for f in scripts/orchestrator.mjs scripts/preflight.mjs scripts/install-all.mjs scripts/build-all.mjs; do
+            test -f "/tmp/recover/$f" && echo "$f=present" || { echo "$f=missing"; exit 3; }
+          done
+          for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do
+            test -d "/tmp/recover/bots/$bot" && echo "$bot=$(find "/tmp/recover/bots/$bot" -type f | wc -l)" || { echo "$bot=missing"; exit 4; }
+          done
