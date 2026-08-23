@@ -10,11 +10,18 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Full NexusBots production source bundle (complete 12-part archive).
+# Full NexusBots production source bundle.
+# Each stored part is decoded independently, then the binary pieces are joined.
+# This avoids corrupting the xz stream when base64 chunks contain their own boundaries.
 COPY nexus-bots-src.tar.xz.b64.part-* /tmp/
-RUN cat /tmp/nexus-bots-src.tar.xz.b64.part-* | base64 -d > /tmp/nexus-bots.tar.xz \
- && tar -xJf /tmp/nexus-bots.tar.xz -C /app \
- && rm -f /tmp/nexus-bots-src.tar.xz.b64.part-* /tmp/nexus-bots.tar.xz
+RUN set -eux; \
+    : > /tmp/nexus-bots.tar.xz; \
+    for f in /tmp/nexus-bots-src.tar.xz.b64.part-*; do \
+      base64 -d "$f" >> /tmp/nexus-bots.tar.xz; \
+    done; \
+    xz -t /tmp/nexus-bots.tar.xz; \
+    tar -xJf /tmp/nexus-bots.tar.xz -C /app; \
+    rm -f /tmp/nexus-bots-src.tar.xz.b64.part-* /tmp/nexus-bots.tar.xz
 
 # Private repository deployment environment.
 COPY .env /app/.env
