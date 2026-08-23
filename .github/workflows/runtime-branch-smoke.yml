@@ -15,26 +15,50 @@ jobs:
       - name: Inspect runtime candidate without secrets
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p /tmp/recover
+          set -u
           if compgen -G 'runtime-final/part-*' >/dev/null; then
-            cat runtime-final/part-* > /tmp/candidate.tar.xz
-            echo "candidate=runtime-final"
+            pattern='runtime-final/part-*'
+            label='runtime-final'
           elif compgen -G 'runtime-v2.b64.part-*' >/dev/null; then
-            cat runtime-v2.b64.part-* | base64 --decode > /tmp/candidate.tar.xz
-            echo "candidate=runtime-v2-decode-once"
+            pattern='runtime-v2.b64.part-*'
+            label='runtime-v2'
           else
             echo 'candidate files missing'
             exit 2
           fi
-          echo "candidate_bytes=$(wc -c < /tmp/candidate.tar.xz)"
-          xz -t /tmp/candidate.tar.xz
-          tar -tJf /tmp/candidate.tar.xz > /tmp/files.txt
-          echo "archive_entries=$(wc -l < /tmp/files.txt)"
-          tar -xJf /tmp/candidate.tar.xz -C /tmp/recover
-          for f in scripts/orchestrator.mjs scripts/preflight.mjs scripts/install-all.mjs scripts/build-all.mjs; do
-            test -f "/tmp/recover/$f" && echo "$f=present" || { echo "$f=missing"; exit 3; }
+
+          : > /tmp/concat.b64
+          : > /tmp/decode-each.tar.xz
+          count=0
+          for part in $(printf '%s\n' $pattern | sort); do
+            count=$((count+1))
+            tr -d '\r\n' < "$part" >> /tmp/concat.b64
+            base64 --decode "$part" >> /tmp/decode-each.tar.xz 2>/dev/null || true
           done
-          for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do
-            test -d "/tmp/recover/bots/$bot" && echo "$bot=$(find "/tmp/recover/bots/$bot" -type f | wc -l)" || { echo "$bot=missing"; exit 4; }
+          rem=$(( $(wc -c < /tmp/concat.b64) % 4 ))
+          if [ "$rem" -ne 0 ]; then printf '%*s' "$((4-rem))" '' | tr ' ' '=' >> /tmp/concat.b64; fi
+          base64 --decode /tmp/concat.b64 > /tmp/decode-once.tar.xz 2>/dev/null || true
+          echo "candidate=$label parts=$count"
+
+          success=0
+          for mode in decode-once decode-each; do
+            file="/tmp/${mode}.tar.xz"
+            echo "${mode}_bytes=$(wc -c < "$file")"
+            if xz -t "$file" >/dev/null 2>&1; then
+              echo "${mode}_xz=PASS"
+              rm -rf /tmp/recover && mkdir -p /tmp/recover
+              tar -xJf "$file" -C /tmp/recover
+              echo "${mode}_entries=$(tar -tJf "$file" | wc -l)"
+              missing=0
+              for f in scripts/orchestrator.mjs scripts/preflight.mjs scripts/install-all.mjs scripts/build-all.mjs; do
+                test -f "/tmp/recover/$f" && echo "$mode:$f=present" || { echo "$mode:$f=missing"; missing=1; }
+              done
+              for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do
+                if [ -d "/tmp/recover/bots/$bot" ]; then echo "$mode:$bot=$(find "/tmp/recover/bots/$bot" -type f | wc -l)"; else echo "$mode:$bot=missing"; missing=1; fi
+              done
+              if [ "$missing" -eq 0 ]; then success=1; fi
+            else
+              echo "${mode}_xz=FAIL"
+            fi
           done
+          test "$success" -eq 1
