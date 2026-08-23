@@ -14,47 +14,50 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Recover readable legacy tar prefix
+      - name: Validate canonical parts 00 through 07
         shell: bash
         run: |
-          set +e
-          cat nexus-bots-src.tar.xz.b64.part-* | tr -d '\r\n' | base64 --decode > /tmp/legacy.tar.xz
-          xz -dc /tmp/legacy.tar.xz > /tmp/legacy-recovered.tar 2>/tmp/legacy-xz.err
-          printf 'legacy_decompress_rc=%s recovered_bytes=%s\n' "$?" "$(wc -c < /tmp/legacy-recovered.tar)"
-          cat /tmp/legacy-xz.err || true
-          tar -tf /tmp/legacy-recovered.tar > /tmp/legacy-files.txt 2>/tmp/legacy-tar.err
-          printf 'legacy_tar_rc=%s recovered_entries=%s\n' "$?" "$(wc -l < /tmp/legacy-files.txt)"
-          tail -n 30 /tmp/legacy-files.txt || true
-          cat /tmp/legacy-tar.err || true
-          for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do
-            grep -q "^./bots/$bot/" /tmp/legacy-files.txt && echo "legacy_$bot=present" || echo "legacy_$bot=missing"
-          done
-          for required in './scripts/orchestrator.mjs' './scripts/preflight.mjs' './scripts/install-all.mjs' './scripts/build-all.mjs'; do
-            grep -Fxq "$required" /tmp/legacy-files.txt && echo "legacy_$required=present" || echo "legacy_$required=missing"
-          done
-          exit 0
-
-      - name: Recover readable canonical tar prefix
-        shell: bash
-        run: |
-          set +e
-          cat render-src.b64.part-* | tr -d '\r\n' > /tmp/canonical.b64
+          set -euo pipefail
+          test "$(git hash-object render-src.b64.part-07)" = "$(git hash-object render-src.b64.part-08)"
+          cat render-src.b64.part-0{0,1,2,3,4,5,6,7} | tr -d '\r\n' > /tmp/canonical.b64
           rem=$(( $(wc -c < /tmp/canonical.b64) % 4 ))
           if [ "$rem" -ne 0 ]; then printf '%*s' "$((4-rem))" '' | tr ' ' '=' >> /tmp/canonical.b64; fi
-          base64 --decode /tmp/canonical.b64 > /tmp/canonical.tar.xz 2>/tmp/canonical-b64.err
-          printf 'canonical_base64_rc=%s encoded_bytes=%s\n' "$?" "$(wc -c < /tmp/canonical.b64)"
-          cat /tmp/canonical-b64.err || true
-          xz -dc /tmp/canonical.tar.xz > /tmp/canonical-recovered.tar 2>/tmp/canonical-xz.err
-          printf 'canonical_decompress_rc=%s recovered_bytes=%s\n' "$?" "$(wc -c < /tmp/canonical-recovered.tar)"
-          cat /tmp/canonical-xz.err || true
-          tar -tf /tmp/canonical-recovered.tar > /tmp/canonical-files.txt 2>/tmp/canonical-tar.err
-          printf 'canonical_tar_rc=%s recovered_entries=%s\n' "$?" "$(wc -l < /tmp/canonical-files.txt)"
-          tail -n 30 /tmp/canonical-files.txt || true
-          cat /tmp/canonical-tar.err || true
-          for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do
-            grep -q "^./bots/$bot/" /tmp/canonical-files.txt && echo "canonical_$bot=present" || echo "canonical_$bot=missing"
+          base64 --decode /tmp/canonical.b64 > /tmp/nexus-bots.tar.xz
+          xz -t /tmp/nexus-bots.tar.xz
+          tar -tJf /tmp/nexus-bots.tar.xz > /tmp/archive-files.txt
+          printf 'archive_file_count=%s\n' "$(wc -l < /tmp/archive-files.txt)"
+          head -n 10 /tmp/archive-files.txt
+          tail -n 20 /tmp/archive-files.txt
+
+      - name: Verify runtime and five bots
+        shell: bash
+        run: |
+          set -euo pipefail
+          for required in \
+            'package.json' \
+            'scripts/orchestrator.mjs' \
+            'scripts/preflight.mjs' \
+            'scripts/install-all.mjs' \
+            'scripts/build-all.mjs'; do
+            grep -Fxq "$required" /tmp/archive-files.txt
+            echo "$required=present"
           done
-          for required in './scripts/orchestrator.mjs' './scripts/preflight.mjs' './scripts/install-all.mjs' './scripts/build-all.mjs'; do
-            grep -Fxq "$required" /tmp/canonical-files.txt && echo "canonical_$required=present" || echo "canonical_$required=missing"
+          for pattern in \
+            'bots/nexcanal-manager/' \
+            'bots/nexdownloader/' \
+            'bots/nexgame/' \
+            'bots/nexgroup-manager/' \
+            'bots/nexstick/'; do
+            grep -q "^${pattern}" /tmp/archive-files.txt
+            echo "$pattern=present"
           done
-          exit 0
+
+      - name: Extract source and run production build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/nexus-app
+          tar -xJf /tmp/nexus-bots.tar.xz -C /tmp/nexus-app
+          cd /tmp/nexus-app
+          node scripts/install-all.mjs
+          node scripts/build-all.mjs
