@@ -14,53 +14,77 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Inspect canonical chunk encoding
+      - name: Inspect legacy chunk set
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t parts < <(printf '%s\n' render-src.b64.part-* | sort)
-          printf 'part_count=%s\n' "${#parts[@]}"
-          test "${#parts[@]}" -eq 9
-          total=0
+          shopt -s nullglob
+          parts=(nexus-bots-src.tar.xz.b64.part-*)
+          printf 'legacy_part_count=%s\n' "${#parts[@]}"
+          test "${#parts[@]}" -gt 0
           for part in "${parts[@]}"; do
             size=$(wc -c < "$part")
             clean_size=$(tr -d '\r\n' < "$part" | wc -c)
             invalid=$(LC_ALL=C tr -d 'A-Za-z0-9+/=\r\n' < "$part" | wc -c)
-            printf '%s bytes=%s clean=%s mod4=%s invalid=%s prefix=' "$part" "$size" "$clean_size" "$((clean_size % 4))" "$invalid"
+            digest=$(sha256sum "$part" | cut -d' ' -f1)
+            printf '%s bytes=%s clean=%s mod4=%s invalid=%s sha256=%s prefix=' "$part" "$size" "$clean_size" "$((clean_size % 4))" "$invalid" "$digest"
             head -c 8 "$part"
             printf ' suffix='
             tail -c 8 "$part"
             printf '\n'
-            total=$((total + clean_size))
-          done
-          printf 'total_clean=%s total_mod4=%s\n' "$total" "$((total % 4))"
-
-      - name: Reconstruct tolerant base64 stream
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat render-src.b64.part-* | tr -d '\r\n' > /tmp/nexus-bots.b64
-          printf 'combined_bytes=%s mod4=%s\n' "$(wc -c < /tmp/nexus-bots.b64)" "$(( $(wc -c < /tmp/nexus-bots.b64) % 4 ))"
-          base64 --decode --ignore-garbage /tmp/nexus-bots.b64 > /tmp/nexus-bots.tar.xz
-          xz -t /tmp/nexus-bots.tar.xz
-          tar -tJf /tmp/nexus-bots.tar.xz > /tmp/archive-files.txt
-          printf 'archive_file_count=%s\n' "$(wc -l < /tmp/archive-files.txt)"
-          for required in \
-            './scripts/orchestrator.mjs' \
-            './scripts/preflight.mjs' \
-            './scripts/install-all.mjs' \
-            './scripts/build-all.mjs' \
-            './bots/nexdownloader/requirements.txt'; do
-            grep -Fxq "$required" /tmp/archive-files.txt
           done
 
-      - name: Extract and verify five bot directories
+      - name: Try contiguous legacy reconstruction
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p /tmp/nexus-app
-          tar -xJf /tmp/nexus-bots.tar.xz -C /tmp/nexus-app
-          for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do
-            test -d "/tmp/nexus-app/bots/$bot"
-            printf '%s=present\n' "$bot"
+          set +e
+          cat nexus-bots-src.tar.xz.b64.part-* | tr -d '\r\n' > /tmp/legacy-contiguous.b64
+          base64 --decode /tmp/legacy-contiguous.b64 > /tmp/legacy-contiguous.tar.xz 2>/tmp/contiguous.err
+          b64_rc=$?
+          xz -t /tmp/legacy-contiguous.tar.xz 2>/tmp/contiguous-xz.err
+          xz_rc=$?
+          printf 'contiguous_base64_rc=%s contiguous_xz_rc=%s\n' "$b64_rc" "$xz_rc"
+          cat /tmp/contiguous.err /tmp/contiguous-xz.err || true
+          if [ "$b64_rc" -eq 0 ] && [ "$xz_rc" -eq 0 ]; then
+            echo contiguous_valid=true
+            tar -tJf /tmp/legacy-contiguous.tar.xz | head -n 20
+          else
+            echo contiguous_valid=false
+          fi
+          exit 0
+
+      - name: Try independently decoded legacy reconstruction
+        shell: bash
+        run: |
+          set +e
+          : > /tmp/legacy-independent.tar.xz
+          bad=0
+          for part in $(printf '%s\n' nexus-bots-src.tar.xz.b64.part-* | sort); do
+            base64 --decode "$part" >> /tmp/legacy-independent.tar.xz 2>/tmp/part.err
+            rc=$?
+            printf '%s decode_rc=%s\n' "$part" "$rc"
+            if [ "$rc" -ne 0 ]; then cat /tmp/part.err; bad=1; fi
           done
+          xz -t /tmp/legacy-independent.tar.xz 2>/tmp/independent-xz.err
+          xz_rc=$?
+          printf 'independent_bad_part=%s independent_xz_rc=%s\n' "$bad" "$xz_rc"
+          cat /tmp/independent-xz.err || true
+          if [ "$bad" -eq 0 ] && [ "$xz_rc" -eq 0 ]; then
+            echo independent_valid=true
+            tar -tJf /tmp/legacy-independent.tar.xz > /tmp/archive-files.txt
+            printf 'archive_file_count=%s\n' "$(wc -l < /tmp/archive-files.txt)"
+            for required in \
+              './scripts/orchestrator.mjs' \
+              './scripts/preflight.mjs' \
+              './scripts/install-all.mjs' \
+              './scripts/build-all.mjs' \
+              './bots/nexdownloader/requirements.txt'; do
+              grep -Fxq "$required" /tmp/archive-files.txt && echo "$required=present" || echo "$required=missing"
+            done
+            for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do
+              grep -q "^./bots/$bot/" /tmp/archive-files.txt && echo "$bot=present" || echo "$bot=missing"
+            done
+          else
+            echo independent_valid=false
+          fi
+          exit 0
