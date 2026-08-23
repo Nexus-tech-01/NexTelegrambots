@@ -31,10 +31,8 @@ RUN set -eux; \
     for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do test -d "/app/bots/$bot"; done; \
     rm -f /tmp/render-src.b64.part-* /tmp/nexus-bots.tar.xz
 
-# Private deployment environment. Render runtime environment variables can
-# override these values without changing the image.
-COPY .env /app/.env
-
+# Secrets are supplied only through Render environment variables.
+# Never COPY a repository .env file into the image.
 RUN python3 -m pip install --break-system-packages --no-cache-dir -r bots/nexdownloader/requirements.txt
 RUN node scripts/install-all.mjs && node scripts/build-all.mjs
 
