@@ -1,9 +1,9 @@
 name: Render bundle smoke
 
 on:
-  push:
+  pull_request:
     branches:
-      - diag/render-bundle-smoke
+      - main
 
 permissions:
   contents: read
