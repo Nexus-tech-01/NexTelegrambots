@@ -1,0 +1,52 @@
+name: Render bundle smoke
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  bundle-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify canonical chunk set
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t parts < <(printf '%s\n' render-src.b64.part-* | sort)
+          printf 'part_count=%s\n' "${#parts[@]}"
+          test "${#parts[@]}" -eq 9
+          printf '%s\n' "${parts[@]}"
+
+      - name: Reconstruct and validate xz archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat render-src.b64.part-* | base64 --decode > /tmp/nexus-bots.tar.xz
+          xz -t /tmp/nexus-bots.tar.xz
+          tar -tJf /tmp/nexus-bots.tar.xz > /tmp/archive-files.txt
+          printf 'archive_file_count=%s\n' "$(wc -l < /tmp/archive-files.txt)"
+          for required in \
+            './scripts/orchestrator.mjs' \
+            './scripts/preflight.mjs' \
+            './scripts/install-all.mjs' \
+            './scripts/build-all.mjs' \
+            './bots/nexdownloader/requirements.txt'; do
+            grep -Fxq "$required" /tmp/archive-files.txt
+          done
+
+      - name: Extract and verify five bot directories
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/nexus-app
+          tar -xJf /tmp/nexus-bots.tar.xz -C /tmp/nexus-app
+          for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do
+            test -d "/tmp/nexus-app/bots/$bot"
+            printf '%s=present\n' "$bot"
+          done
