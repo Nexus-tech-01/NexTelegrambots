@@ -11,12 +11,16 @@ RUN apt-get update \
 WORKDIR /app
 
 # Canonical NexusBots v1.2.0 Render source bundle.
-# The base64 files are contiguous chunks of one encoded xz archive, so they
-# must be concatenated first and decoded once.
+# Each stored part is an independently base64-encoded binary slice of the
+# final xz archive. Decode every part in lexical order, then join the binary
+# slices before validating and extracting the archive.
 COPY render-src.b64.part-* /tmp/
 RUN set -eux; \
     test "$(find /tmp -maxdepth 1 -name 'render-src.b64.part-*' | wc -l)" -eq 9; \
-    cat /tmp/render-src.b64.part-* | base64 -d > /tmp/nexus-bots.tar.xz; \
+    : > /tmp/nexus-bots.tar.xz; \
+    for f in $(printf '%s\n' /tmp/render-src.b64.part-* | sort); do \
+      base64 -d "$f" >> /tmp/nexus-bots.tar.xz; \
+    done; \
     xz -t /tmp/nexus-bots.tar.xz; \
     tar -xJf /tmp/nexus-bots.tar.xz -C /app; \
     test -f /app/scripts/orchestrator.mjs; \
@@ -24,6 +28,7 @@ RUN set -eux; \
     test -f /app/scripts/install-all.mjs; \
     test -f /app/scripts/build-all.mjs; \
     test -f /app/bots/nexdownloader/requirements.txt; \
+    for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do test -d "/app/bots/$bot"; done; \
     rm -f /tmp/render-src.b64.part-* /tmp/nexus-bots.tar.xz
 
 # Private deployment environment. Render runtime environment variables can
