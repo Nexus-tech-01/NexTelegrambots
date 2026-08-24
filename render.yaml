@@ -1,4 +1,16 @@
+databases:
+  - name: nexus-telegram-bots-postgres
+    plan: free
+    databaseName: nexus_bots
+    ipAllowList: []
+
 services:
+  - type: keyvalue
+    name: nexus-telegram-bots-redis
+    plan: free
+    ipAllowList: []
+    maxmemoryPolicy: noeviction
+
   - type: web
     name: nexus-telegram-bots
     runtime: docker
@@ -10,3 +22,81 @@ services:
       name: nexus-bots-data
       mountPath: /var/data
       sizeGB: 1
+    envVars:
+      - key: NEXCANAL__DATABASE_URL
+        fromDatabase:
+          name: nexus-telegram-bots-postgres
+          property: connectionString
+      - key: NEXDOWNLOADER__DATABASE_URL
+        fromDatabase:
+          name: nexus-telegram-bots-postgres
+          property: connectionString
+      - key: NEXGAME__REDIS_URL
+        fromService:
+          name: nexus-telegram-bots-redis
+          type: keyvalue
+          property: connectionString
+
+      # New internal seeds. These replace historically exposed webhook/payment secrets.
+      - key: NEXUS_WEBHOOK_SEED_V2
+        generateValue: true
+      - key: NEXUS_PAYMENT_SIGNING_SEED_V2
+        generateValue: true
+
+      # Third-party/user credentials are never committed. On an existing Blueprint,
+      # add/rotate these in the Render dashboard because sync:false is only prompted
+      # during initial Blueprint creation.
+      - key: NEXUS_MONGODB_URI
+        sync: false
+      - key: NEXUS_MONGODB_DB_NAME
+        value: nexus_bots
+      - key: NEXGAME__BOT_TOKEN
+        sync: false
+      - key: NEXGAME__INTERNAL_OWNER_IDS
+        sync: false
+      - key: NEXCANAL__BOT_TOKEN
+        sync: false
+      - key: NEXCANAL__NEXCANAL_INTERNAL_ADMIN_IDS
+        sync: false
+      - key: NEXDOWNLOADER__BOT_TOKEN
+        sync: false
+      - key: NEXDOWNLOADER__OWNER_TELEGRAM_ID
+        sync: false
+      - key: NEXGROUP__TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: NEXGROUP__TELEGRAM_API_ID
+        sync: false
+      - key: NEXGROUP__TELEGRAM_API_HASH
+        sync: false
+      - key: NEXGROUP__NEXGROUP_OWNER_ID
+        sync: false
+      - key: NEXSTICK__BOT_TOKEN
+        sync: false
+      - key: NEXSTICK__ADMIN_IDS
+        sync: false
+
+      # Official Nexus spaces for NexDownloader membership gating.
+      - key: NEXDOWNLOADER__REQUIRED_CHAT_1
+        value: "@Tresortelegramgroup"
+      - key: NEXDOWNLOADER__REQUIRED_CHAT_1_LABEL
+        value: "Tresor Telegram Group"
+      - key: NEXDOWNLOADER__REQUIRED_CHAT_1_URL
+        value: "https://t.me/Tresortelegramgroup"
+      - key: NEXDOWNLOADER__REQUIRED_CHAT_1_KIND
+        value: GROUP
+      - key: NEXDOWNLOADER__REQUIRED_CHAT_2
+        value: "@thenexusorigin"
+      - key: NEXDOWNLOADER__REQUIRED_CHAT_2_LABEL
+        value: "Nexus Origin"
+      - key: NEXDOWNLOADER__REQUIRED_CHAT_2_URL
+        value: "https://t.me/thenexusorigin"
+      - key: NEXDOWNLOADER__REQUIRED_CHAT_2_KIND
+        value: CHANNEL
+      - key: NEXDOWNLOADER__REQUIRED_CHAT_3
+        value: "@hackergrouptel"
+      - key: NEXDOWNLOADER__REQUIRED_CHAT_3_LABEL
+        value: "Nexus Tech"
+      - key: NEXDOWNLOADER__REQUIRED_CHAT_3_URL
+        value: "https://t.me/hackergrouptel"
+      - key: NEXDOWNLOADER__REQUIRED_CHAT_3_KIND
+        value: GROUP
