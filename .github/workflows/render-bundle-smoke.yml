@@ -18,6 +18,7 @@ jobs:
         shell: bash
         run: |
           set -u
+          : > /tmp/recovery-summary.txt
           test_bundle() {
             label="$1"
             pattern="$2"
@@ -35,37 +36,69 @@ jobs:
             rem=$(( $(wc -c < "$text") % 4 ))
             if [ "$rem" -ne 0 ]; then printf '%*s' "$((4-rem))" '' | tr ' ' '=' >> "$text"; fi
             base64 --decode "$text" > "$one" 2>/dev/null || true
-            echo "${label}_parts=${count}"
+            echo "${label}_parts=${count}" | tee -a /tmp/recovery-summary.txt
             for mode in decode-once decode-each; do
               file="/tmp/${label}-${mode}.tar.xz"
               set +e
               xz -t "$file" >/dev/null 2>&1
               ok=$?
               set -e
-              echo "${label}_${mode}_xz_status=${ok}"
+              echo "${label}_${mode}_xz_status=${ok}" | tee -a /tmp/recovery-summary.txt
               dir="/tmp/${label}-${mode}-recover"
               mkdir -p "$dir"
               set +e
               xz -dc "$file" 2>/dev/null | tar -x -C "$dir" 2>/dev/null
               extract=$?
               set -e
-              echo "${label}_${mode}_partial_extract_status=${extract}"
+              echo "${label}_${mode}_partial_extract_status=${extract}" | tee -a /tmp/recovery-summary.txt
               for f in scripts/orchestrator.mjs scripts/preflight.mjs scripts/install-all.mjs scripts/build-all.mjs; do
                 if [ -f "$dir/$f" ]; then echo "${label}_${mode}_${f}=present"; else echo "${label}_${mode}_${f}=missing"; fi
-              done
+              done | tee -a /tmp/recovery-summary.txt
               for bot in nexgame nexcanal nexdownloader nexgroup nexstick nexcanal-manager nexgroup-manager; do
                 if [ -d "$dir/bots/$bot" ]; then
                   echo "${label}_${mode}_${bot}_files=$(find "$dir/bots/$bot" -type f | wc -l)"
                 else
                   echo "${label}_${mode}_${bot}_files=0"
                 fi
-              done
-              echo "${label}_${mode}_total_files=$(find "$dir" -type f | wc -l)"
+              done | tee -a /tmp/recovery-summary.txt
+              echo "${label}_${mode}_total_files=$(find "$dir" -type f | wc -l)" | tee -a /tmp/recovery-summary.txt
             done
           }
 
           test_bundle canonical 'render-src.b64.part-*'
           test_bundle legacy 'nexus-bots-src.tar.xz.b64.part-*'
+
+      - name: Package sanitized recovered source trees
+        if: always()
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p recovery
+          cp /tmp/recovery-summary.txt recovery/summary.txt || true
+          for dir in /tmp/*-recover; do
+            [ -d "$dir" ] || continue
+            name=$(basename "$dir")
+            mkdir -p "recovery/$name"
+            tar -C "$dir" \
+              --exclude='.env' \
+              --exclude='.env.*' \
+              --exclude='node_modules' \
+              --exclude='*.pem' \
+              --exclude='*.key' \
+              --exclude='*.p12' \
+              --exclude='*.pfx' \
+              -cf - . | tar -C "recovery/$name" -xf -
+          done
+          find recovery -type f -print | sort > recovery/files.txt
+
+      - name: Upload sanitized partial recovery
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-bundle-partial-recovery
+          path: recovery/
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Keep validation red until a bundle is fully valid
         shell: bash
