@@ -1,0 +1,62 @@
+name: Verify five-bot runtime
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches:
+      - repair/five-bots-final-v2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify exact runtime parts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t parts < <(printf '%s\n' runtime-src.b64.part-* | sort)
+          test "${#parts[@]}" -eq 58
+          for i in $(seq -w 0 57); do
+            test -f "runtime-src.b64.part-$i"
+          done
+
+      - name: Rebuild and verify source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > /tmp/nexus-bots-src.tar.xz
+          for f in $(printf '%s\n' runtime-src.b64.part-* | sort); do
+            base64 -d "$f" >> /tmp/nexus-bots-src.tar.xz
+          done
+          echo "3272a12b20c8d1d75519c8db728ab76d4c09c2c6541611acedabb7f093a69946  /tmp/nexus-bots-src.tar.xz" | sha256sum -c -
+          xz -t /tmp/nexus-bots-src.tar.xz
+          mkdir -p /tmp/runtime
+          tar -xJf /tmp/nexus-bots-src.tar.xz -C /tmp/runtime
+          test -f /tmp/runtime/scripts/orchestrator.mjs
+          test -f /tmp/runtime/scripts/preflight.mjs
+          test -f /tmp/runtime/scripts/install-all.mjs
+          test -f /tmp/runtime/scripts/build-all.mjs
+          test -f /tmp/runtime/bots/nexdownloader/requirements.txt
+          for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do
+            test -f "/tmp/runtime/bots/$bot/package.json"
+          done
+
+      - name: Reject committed secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find . -type f \( -name '.env' -o -name '*.pem' -o -name '*.key' \) -not -path './.git/*' | grep -q .; then
+            echo 'Forbidden secret-bearing file found in repository.' >&2
+            exit 1
+          fi
+
+      - name: Docker build
+        run: docker build --pull --no-cache -t nexus-telegram-bots:verify .
