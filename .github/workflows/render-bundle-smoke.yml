@@ -18,19 +18,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t parts < <(printf '%s\n' render-src.b64.part-* | sort)
+          mapfile -t parts < <(printf '%s\n' runtime-src.b64.part-* | sort)
           printf 'part_count=%s\n' "${#parts[@]}"
-          test "${#parts[@]}" -eq 9
-          printf '%s\n' "${parts[@]}"
+          test "${#parts[@]}" -eq 58
+          for i in $(seq -w 0 57); do
+            test -f "runtime-src.b64.part-$i"
+          done
 
       - name: Reconstruct and validate xz archive
         shell: bash
         run: |
           set -euo pipefail
-          cat render-src.b64.part-* | base64 --decode > /tmp/nexus-bots.tar.xz
-          xz -t /tmp/nexus-bots.tar.xz
-          tar -tJf /tmp/nexus-bots.tar.xz > /tmp/archive-files.txt
-          printf 'archive_file_count=%s\n' "$(wc -l < /tmp/archive-files.txt)"
+          : > /tmp/nexus-bots-src.tar.xz
+          for f in $(printf '%s\n' runtime-src.b64.part-* | sort); do
+            base64 -d "$f" >> /tmp/nexus-bots-src.tar.xz
+          done
+          echo "3272a12b20c8d1d75519c8db728ab76d4c09c2c6541611acedabb7f093a69946  /tmp/nexus-bots-src.tar.xz" | sha256sum -c -
+          xz -t /tmp/nexus-bots-src.tar.xz
+          tar -tJf /tmp/nexus-bots-src.tar.xz > /tmp/archive-files.txt
           for required in \
             './scripts/orchestrator.mjs' \
             './scripts/preflight.mjs' \
@@ -45,8 +50,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/nexus-app
-          tar -xJf /tmp/nexus-bots.tar.xz -C /tmp/nexus-app
+          tar -xJf /tmp/nexus-bots-src.tar.xz -C /tmp/nexus-app
           for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do
-            test -d "/tmp/nexus-app/bots/$bot"
+            test -f "/tmp/nexus-app/bots/$bot/package.json"
             printf '%s=present\n' "$bot"
           done
+
+      - name: Docker build
+        run: docker build --pull --no-cache -t nexus-telegram-bots:smoke .
