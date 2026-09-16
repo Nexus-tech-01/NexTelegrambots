@@ -15,7 +15,7 @@ export async function db(){
     indexed = true;
     await Promise.all([
       d.collection('bots').createIndex({slug:1},{unique:true}),
-      d.collection('bots').createIndex({apiKeyHash:1},{unique:true}),
+      d.collection('bots').createIndex({apiKeyHash:1},{unique:true,sparse:true}),
       d.collection('destinations').createIndex({botId:1,chatId:1},{unique:true}),
       d.collection('deliveries').createIndex({botId:1,status:1,availableAt:1})
     ]).catch(e=>{indexed=false;throw e});
@@ -60,15 +60,23 @@ export function permission(type,status,r={}){
 }
 
 async function authenticatedBot(r){
+  const d=await db();
+  const fleet=String(process.env.NEXCONTROL_FLEET_KEY||'').trim();
+  const suppliedFleet=String(r.headers['x-nexcontrol-fleet-key']||'').trim();
+  const slug=String(r.headers['x-nexcontrol-bot']||'').trim().toLowerCase();
+  if(fleet&&suppliedFleet&&slug&&crypto.timingSafeEqual(Buffer.from(hash(fleet)),Buffer.from(hash(suppliedFleet)))){
+    const now=new Date();
+    return d.collection('bots').findOneAndUpdate({slug},{$setOnInsert:{displayName:slug,enabled:true,createdAt:now},$set:{updatedAt:now}},{upsert:true,returnDocument:'after'});
+  }
   const key=r.headers['x-nexcontrol-key']||String(r.headers.authorization||'').replace(/^Bearer\s+/i,'');
-  return key?(await db()).collection('bots').findOne({apiKeyHash:hash(key),enabled:true}):null;
+  return key?d.collection('bots').findOne({apiKeyHash:hash(key),enabled:true}):null;
 }
 
 export async function botApi(r,s,p){
   const b=await authenticatedBot(r);if(!b)return json(s,401,{error:'unauthorized'});
   const d=await db(),q=await body(r),now=new Date();
   if(p==='/api/v1/heartbeat'){
-    await d.collection('bots').updateOne({_id:b._id},{$set:{lastHeartbeatAt:now,version:q.version,username:q.username,updatedAt:now}});
+    await d.collection('bots').updateOne({_id:b._id},{$set:{lastHeartbeatAt:now,version:q.version,username:q.username,displayName:q.displayName||b.displayName||b.slug,updatedAt:now}});
     return json(s,200,{ok:true});
   }
   if(p==='/api/v1/destinations/known'){
@@ -99,7 +107,9 @@ export async function botApi(r,s,p){
     if(!ObjectId.isValid(q.jobId))return json(s,400,{error:'bad_job'});
     const z=await d.collection('deliveries').findOne({_id:new ObjectId(q.jobId),botId:b._id});
     if(!z)return json(s,404,{error:'not_found'});
-    await d.collection('deliveries').updateOne({_id:z._id},{$set:{status:q.ok?'sent':'failed',sentAt:q.ok?now:undefined,error:q.ok?undefined:String(q.error||'error'),updatedAt:now},$unset:{claimedAt:'',claimExpiresAt:''}});
+    const retryable=!q.ok&&q.retryable===true&&Number(z.attempts||0)<5;
+    const retrySeconds=Math.max(2,Math.min(3600,Number(q.retryAfterSeconds||15)));
+    await d.collection('deliveries').updateOne({_id:z._id},retryable?{$set:{status:'pending',availableAt:new Date(Date.now()+retrySeconds*1000),error:String(q.error||'retry'),updatedAt:now},$unset:{claimedAt:'',claimExpiresAt:''}}:{$set:{status:q.ok?'sent':'failed',sentAt:q.ok?now:undefined,error:q.ok?undefined:String(q.error||'error'),updatedAt:now},$unset:{claimedAt:'',claimExpiresAt:''}});
     const left=await d.collection('deliveries').countDocuments({campaignId:z.campaignId,status:{$in:['pending','claimed']}});
     if(!left)await d.collection('campaigns').updateOne({_id:z.campaignId},{$set:{status:'completed'}});
     return json(s,200,{ok:true});
