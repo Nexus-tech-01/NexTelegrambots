@@ -4,7 +4,7 @@ import { X } from '../lib/core.mjs';
 function nav(active=''){
   const item=(href,label,key)=>`<a href="${href}"${active===key?' aria-current="page"':''}>${label}</a>`;
   return `<header class="top"><a class="brand" href="/">NEXCONTROL<sup>01</sup></a><button class="menu-btn" aria-label="Menu"><span class="menu-icon"></span></button></header>
-  <aside class="overlay"><div class="overlay-inner"><nav>${item('/','Control','home')}${item('/bots','Bots','bots')}${item('/destinations','Destinations','destinations')}${item('/campaigns','Campagnes','campaigns')}${item('/campaigns/new','Publier','compose')}</nav><div class="overlay-side"><p>Centre de commande pour toute la flotte Nex. Contrôle, publications, permissions et automatisations depuis une seule interface.</p><form method="post" action="/api/admin/logout"><button class="logout">Déconnexion</button></form></div></div></aside>`;
+  <aside class="overlay"><div class="overlay-inner"><nav>${item('/','Control','home')}${item('/bots','Bots','bots')}${item('/destinations','Destinations','destinations')}${item('/campaigns','Campagnes','campaigns')}${item('/campaigns/new','Publier','compose')}${item('/server','Server','server')}</nav><div class="overlay-side"><p>Centre de commande pour toute la flotte Nex. Contrôle, publications, permissions, fichiers, logs et automatisations depuis une seule interface.</p><form method="post" action="/api/admin/logout"><button class="logout">Déconnexion</button></form></div></div></aside>`;
 }
 
 export function page(title,content,active=''){
