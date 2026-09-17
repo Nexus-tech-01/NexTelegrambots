@@ -1,0 +1,21 @@
+name: NexControl hotfix v61.08.1
+on:
+  push:
+    branches:
+      - feature/nexcontrol-v1
+    paths:
+      - '.github/workflows/nexcontrol-hotfix-61081.yml'
+permissions:
+  contents: read
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      NXC_SESSION: eyJleHAiOjE3ODk2NzI3MTM1MjR9.QVpgA6CL5Tg8T3c-P6wxza6vGrzOHixmb2E2Yf_vUxM
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/nexcontrol-v1
+      - name: Apply verified NexCanal and NexGroup hotfix
+        run: node .hotfix/v61081/apply.mjs
