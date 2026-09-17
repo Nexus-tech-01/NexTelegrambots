@@ -1,0 +1,29 @@
+{
+  "controlUrl": "https://nexcontrol-ochre.vercel.app",
+  "agentSlug": "nexus-main",
+  "agentName": "Nexus Main Server",
+  "pollMs": 2500,
+  "heartbeatMs": 30000,
+  "maxReadBytes": 1048576,
+  "maxSearchFiles": 2000,
+  "roots": {
+    "nexgroup": "./bots/nexgroup",
+    "nexcanal": "./bots/nexcanal",
+    "nexgame": "./bots/nexgame",
+    "nexdownloader": "./bots/nexdownloader",
+    "nexstick": "./bots/nexstick",
+    "nexwhisper": "./bots/nexwhisper",
+    "stacy": "./bots/stacy"
+  },
+  "logFiles": {
+    "launcher": "./logs/launcher.log"
+  },
+  "safeChecks": {
+    "node-check": {"command":"node","args":["--check","{file}"]},
+    "npm-test": {"command":"npm","args":["test"],"cwdRoot":"{root}"}
+  },
+  "restartHook": {
+    "mode": "file",
+    "path": "./.nexcontrol/control/restart.json"
+  }
+}
