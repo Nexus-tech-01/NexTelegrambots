@@ -16,7 +16,7 @@
     "stacy": "./bots/stacy"
   },
   "logFiles": {
-    "launcher": "./logs/launcher.log"
+    "launcher": "./.nexcontrol/logs/launcher.log"
   },
   "safeChecks": {
     "node-check": {"command":"node","args":["--check","{file}"]},
