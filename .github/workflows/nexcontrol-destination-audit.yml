@@ -1,0 +1,55 @@
+name: NexControl destination audit
+
+on:
+  push:
+    paths:
+      - '.github/workflows/nexcontrol-destination-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      NXC_BASE: https://nexcontrol-ochre.vercel.app
+      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
+      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    steps:
+      - name: Audit NexControl destinations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, json, time, base64, urllib.request, urllib.error, urllib.parse, http.cookiejar, hmac, hashlib, re
+          base=os.environ['NXC_BASE'].rstrip('/')
+          admin=os.environ.get('NXC_ADMIN_PASSWORD','')
+          secret=os.environ.get('NXC_SESSION_SECRET','')
+          jar=http.cookiejar.CookieJar()
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          cookie=''
+          if secret:
+              exp=int(time.time()*1000)+20*60*1000
+              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
+              sig=base64.urlsafe_b64encode(hmac.new(secret.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
+              cookie=payload+'.'+sig
+          elif admin:
+              data=urllib.parse.urlencode({'password':admin}).encode()
+              op.open(urllib.request.Request(base+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=30).read()
+          else:
+              raise SystemExit('NO_NEXCONTROL_CREDENTIAL')
+          def get(path):
+              h={}
+              if cookie: h['Cookie']='nexcontrol_session='+cookie
+              with op.open(urllib.request.Request(base+path,headers=h),timeout=30) as r:
+                  return r.read().decode('utf-8','replace')
+          for path in ['/bots','/destinations']:
+              txt=get(path)
+              txt=re.sub(r'<script[\s\S]*?</script>',' ',txt,flags=re.I)
+              txt=re.sub(r'<style[\s\S]*?</style>',' ',txt,flags=re.I)
+              txt=re.sub(r'<[^>]+>',' ',txt)
+              txt=re.sub(r'\s+',' ',txt)
+              print('PAGE',path)
+              print(txt[:30000])
+          PY
