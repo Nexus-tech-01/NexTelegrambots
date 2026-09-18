@@ -1,0 +1,42 @@
+name: NexControl Telegram probe
+
+on:
+  push:
+    paths:
+      - ".github/workflows/nexcontrol-telegram-test.yml"
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    env:
+      TOKEN: ${{ secrets.NEXCANAL__BOT_TOKEN || secrets.NEXCANAL_BOT_TOKEN || secrets.BOT_TOKEN }}
+    steps:
+      - name: Verify token
+        shell: bash
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "NO_NEXCANAL_TOKEN_SECRET"
+            exit 2
+          fi
+          echo "TOKEN_PRESENT"
+      - name: Probe managed candidate channels
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.parse, urllib.request
+          token=os.environ["TOKEN"]
+          chats=["@thenexusorigin","@thenexnews","@tresor_universe","@inconnuboysensei","@Tresortelegramgroup"]
+          for chat in chats:
+              url=f"https://api.telegram.org/bot{token}/getChat?chat_id={urllib.parse.quote(chat)}"
+              try:
+                  with urllib.request.urlopen(url, timeout=20) as r:
+                      j=json.load(r)
+                  if j.get("ok"):
+                      x=j["result"]
+                      print(json.dumps({"query":chat,"id":x.get("id"),"type":x.get("type"),"title":x.get("title"),"username":x.get("username"),"description":x.get("description")},ensure_ascii=False))
+                  else:
+                      print(json.dumps({"query":chat,"ok":False,"description":j.get("description")},ensure_ascii=False))
+              except Exception as e:
+                  print(json.dumps({"query":chat,"error":type(e).__name__+":"+str(e)},ensure_ascii=False))
+          PY
