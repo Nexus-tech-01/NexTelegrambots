@@ -19,11 +19,28 @@
     "launcher": "./.nexcontrol/logs/launcher.log"
   },
   "safeChecks": {
-    "node-check": {"command":"node","args":["--check","{file}"]},
-    "npm-test": {"command":"npm","args":["test"],"cwdRoot":"{root}"}
+    "node-check": {
+      "command": "node",
+      "args": [
+        "--check",
+        "{file}"
+      ]
+    },
+    "npm-test": {
+      "command": "npm",
+      "args": [
+        "test"
+      ],
+      "cwdRoot": "{root}"
+    }
   },
   "restartHook": {
     "mode": "file",
     "path": "./.nexcontrol/control/restart.json"
-  }
+  },
+  "controlUrls": [
+    "https://nexcontrol-ochre.vercel.app",
+    "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol"
+  ],
+  "primaryReprobeMs": 300000
 }
