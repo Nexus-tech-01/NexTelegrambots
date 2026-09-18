@@ -1,11 +1,11 @@
 name: Deploy NexDownloader v61.11
 
 on:
-  push:
+  pull_request:
     branches:
       - main
     paths:
-      - '.github/workflows/deploy-nexdownloader-v61-11.yml'
+      - '.deploy/v61.11-trigger'
 
 permissions:
   contents: read
