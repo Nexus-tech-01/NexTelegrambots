@@ -32,6 +32,14 @@
         "test"
       ],
       "cwdRoot": "{root}"
+    },
+    "git-status": {
+      "command": "git",
+      "args": [
+        "status",
+        "--short"
+      ],
+      "cwdRoot": "{root}"
     }
   },
   "restartHook": {
@@ -42,5 +50,15 @@
     "https://nexcontrol-ochre.vercel.app",
     "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol"
   ],
-  "primaryReprobeMs": 300000
+  "primaryReprobeMs": 300000,
+  "allowExec": true,
+  "execAllowlist": [
+    "node",
+    "npm",
+    "npx",
+    "git",
+    "python3",
+    "pip3",
+    "pm2"
+  ]
 }
