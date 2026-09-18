@@ -1,3 +1,4 @@
+// NexControl proxy build 61.12
 const TARGET='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol';
 
 function outboundHeaders(req,path){
