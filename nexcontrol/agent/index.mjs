@@ -126,10 +126,55 @@ async function runCheck(p){
   const spec=cfg.safeChecks?.[p.check];if(!spec)throw new Error('Unknown check');const file=p.file?lexical(p.root,p.file).out:null,root=p.root?rootBase(p.root):process.cwd(),sub=x=>String(x).replaceAll('{file}',file||'').replaceAll('{root}',root),command=sub(spec.command),args=(spec.args||[]).map(sub),cwd=spec.cwdRoot?sub(spec.cwdRoot):root;
   return await new Promise((resolve,reject)=>{const cp=spawn(command,args,{cwd,stdio:['ignore','pipe','pipe'],shell:false,env:{...process.env,NO_COLOR:'1'}});let stdout='',stderr='';const cap=s=>s.length>200000?s.slice(-200000):s;cp.stdout.on('data',d=>stdout=cap(stdout+d));cp.stderr.on('data',d=>stderr=cap(stderr+d));const t=setTimeout(()=>{cp.kill('SIGKILL');reject(new Error('Check timeout'))},Math.min(120000,Math.max(1000,Number(p.timeoutMs||60000))));cp.on('error',reject);cp.on('close',code=>{clearTimeout(t);resolve({check:p.check,command,args,code,ok:code===0,stdout,stderr})})});
 }
+
+async function statPath(p){
+  const {out}=await safe(p.root,p.path||'.'),st=await fs.lstat(out);
+  return{root:p.root,path:p.path||'.',type:st.isDirectory()?'dir':st.isFile()?'file':st.isSymbolicLink()?'symlink':'other',size:st.size,mode:(st.mode&0o777).toString(8),mtime:st.mtime.toISOString(),ctime:st.ctime.toISOString()};
+}
+async function hashFile(p){
+  const {out}=await safe(p.root,p.path),st=await fs.stat(out);if(!st.isFile())throw new Error('Not a file');if(st.size>MAX_READ*16)throw new Error('File too large to hash');
+  const data=await fs.readFile(out);return{root:p.root,path:p.path,bytes:data.length,sha256:sha(data)};
+}
+async function chmodPath(p){
+  const {out}=await safe(p.root,p.path);const mode=Number.parseInt(String(p.mode||''),8);if(!Number.isInteger(mode)||mode<0||mode>0o777)throw new Error('Invalid mode');
+  await fs.chmod(out,mode);return{root:p.root,path:p.path,mode:mode.toString(8)};
+}
+async function runProcess(command,args,{cwd=process.cwd(),timeoutMs=60000,maxOutput=200000,env={}}={}){
+  return await new Promise((resolve,reject)=>{const cp=spawn(command,args,{cwd,stdio:['ignore','pipe','pipe'],shell:false,env:{...process.env,...env,NO_COLOR:'1'}});let stdout='',stderr='';const cap=x=>x.length>maxOutput?x.slice(-maxOutput):x;cp.stdout.on('data',d=>stdout=cap(stdout+d));cp.stderr.on('data',d=>stderr=cap(stderr+d));const t=setTimeout(()=>{cp.kill('SIGKILL');reject(new Error('Process timeout'))},Math.min(180000,Math.max(1000,Number(timeoutMs)||60000)));cp.on('error',e=>{clearTimeout(t);reject(e)});cp.on('close',code=>{clearTimeout(t);resolve({command,args,code,ok:code===0,stdout,stderr})})});
+}
+async function systemInfo(){
+  return{hostname:os.hostname(),platform:process.platform,arch:process.arch,release:os.release(),nodeVersion:process.version,pid:process.pid,agentUptime:process.uptime(),hostUptime:os.uptime(),loadavg:os.loadavg(),cpus:os.cpus().map(x=>({model:x.model,speed:x.speed})),memory:{total:os.totalmem(),free:os.freemem(),rss:process.memoryUsage().rss},cwd:process.cwd()};
+}
+async function processList(p){
+  if(process.platform==='win32')throw new Error('process.list is not supported on Windows');
+  const r=await runProcess('ps',['-eo','pid,ppid,stat,%cpu,%mem,etime,args','--sort=-%cpu'],{timeoutMs:p.timeoutMs||15000,maxOutput:300000});
+  return{...r,stdout:r.stdout.split(/\r?\n/).slice(0,Math.min(500,Math.max(20,Number(p.limit||200)))).join('\n')};
+}
+function gitName(x,label){const v=String(x||'');if(!/^[A-Za-z0-9._\/-]+$/.test(v))throw new Error('Invalid '+label);return v}
+async function gitStatus(p){const cwd=rootBase(p.root);return runProcess('git',['status','--porcelain=v1','--branch'],{cwd,timeoutMs:p.timeoutMs||30000});}
+async function gitDiff(p){const cwd=rootBase(p.root),args=['diff','--no-ext-diff','--unified=3'];if(p.path){const rel=lexical(p.root,p.path).rel;args.push('--',rel)}return runProcess('git',args,{cwd,timeoutMs:p.timeoutMs||30000,maxOutput:400000});}
+async function gitSync(p){
+  const cwd=rootBase(p.root),remote=gitName(p.remote||'origin','remote'),branch=p.branch?gitName(p.branch,'branch'):null;
+  const fetch=await runProcess('git',['fetch',remote,'--prune'],{cwd,timeoutMs:p.timeoutMs||120000,maxOutput:300000});if(!fetch.ok)return{stage:'fetch',fetch};
+  const args=branch?['merge','--ff-only',remote+'/'+branch]:['pull','--ff-only'];
+  const sync=await runProcess('git',args,{cwd,timeoutMs:p.timeoutMs||120000,maxOutput:300000});return{stage:'sync',fetch,sync,ok:sync.ok};
+}
+async function runtimeExec(p){
+  if(cfg.allowExec!==true)throw new Error('runtime.exec disabled by agent config');
+  const command=String(p.command||'').trim(),allow=new Set((cfg.execAllowlist||[]).map(String));if(!command||!allow.has(command))throw new Error('Executable not allowed');
+  const args=Array.isArray(p.args)?p.args.slice(0,100).map(x=>String(x).slice(0,4000)):[];
+  const cwd=p.root?rootBase(p.root):process.cwd();
+  return runProcess(command,args,{cwd,timeoutMs:p.timeoutMs||60000,maxOutput:500000});
+}
+async function runtimeSignal(p){
+  const pid=Number(p.pid),signal=String(p.signal||'SIGTERM');if(!Number.isInteger(pid)||pid<=1)throw new Error('Invalid pid');if(!['SIGTERM','SIGINT','SIGHUP','SIGUSR1','SIGUSR2'].includes(signal))throw new Error('Signal not allowed');
+  process.kill(pid,signal);return{pid,signal,sent:true};
+}
+
 async function tailLogs(p){const f=cfg.logFiles?.[p.log];if(!f)throw new Error('Unknown log');const out=path.resolve(String(f)),st=await fs.stat(out),bytes=Math.min(st.size,Math.max(1024,Math.min(512000,Number(p.bytes||100000)))),h=await fs.open(out,'r'),buf=Buffer.alloc(bytes);await h.read(buf,0,bytes,st.size-bytes);await h.close();return{log:p.log,bytes,content:buf.toString('utf8')}}
 async function restart(p){if(cfg.restartHook?.mode!=='file')throw new Error('Restart hook not configured');const hook=path.resolve(cfg.restartHook.path);await fs.mkdir(path.dirname(hook),{recursive:true});await fs.writeFile(hook,JSON.stringify({target:p.target||'all',reason:p.reason||'NexControl',requestedAt:new Date().toISOString(),nonce:crypto.randomUUID()},null,2));return{queued:true,target:p.target||'all',hook}}
-async function execute(job){switch(job.kind){case'fs.list':return listDir(job.payload);case'fs.read':return readFile(job.payload);case'fs.search':return searchFiles(job.payload);case'fs.write':return writeFile(job.payload);case'fs.mkdir':return mkdir(job.payload);case'fs.move':return move(job.payload);case'fs.delete':return remove(job.payload);case'fs.rollback':return rollback(job.payload);case'check.run':return runCheck(job.payload);case'logs.tail':return tailLogs(job.payload);case'runtime.restart':return restart(job.payload);default:throw new Error(`Unsupported job kind: ${job.kind}`)}}
-async function heartbeat(){return api('/api/v1/agent/heartbeat',{displayName:NAME,version:'0.3.0',hostname:os.hostname(),platform:`${process.platform}/${process.arch}`,nodeVersion:process.version,pid:process.pid,uptime:process.uptime(),memory:process.memoryUsage(),capabilities:{jobs:['fs.list','fs.read','fs.search','fs.write','fs.mkdir','fs.move','fs.delete','fs.rollback','check.run','logs.tail','runtime.restart'],safeChecks:Object.keys(cfg.safeChecks||{}),logs:Object.keys(cfg.logFiles||{})},roots:Object.keys(roots).map(key=>({key,path:roots[key]}))})}
+async function execute(job){switch(job.kind){case'fs.list':return listDir(job.payload);case'fs.read':return readFile(job.payload);case'fs.search':return searchFiles(job.payload);case'fs.write':return writeFile(job.payload);case'fs.mkdir':return mkdir(job.payload);case'fs.move':return move(job.payload);case'fs.delete':return remove(job.payload);case'fs.rollback':return rollback(job.payload);case'fs.stat':return statPath(job.payload);case'fs.hash':return hashFile(job.payload);case'fs.chmod':return chmodPath(job.payload);case'check.run':return runCheck(job.payload);case'logs.tail':return tailLogs(job.payload);case'system.info':return systemInfo();case'process.list':return processList(job.payload);case'git.status':return gitStatus(job.payload);case'git.diff':return gitDiff(job.payload);case'git.sync':return gitSync(job.payload);case'runtime.exec':return runtimeExec(job.payload);case'runtime.signal':return runtimeSignal(job.payload);case'runtime.restart':return restart(job.payload);default:throw new Error(`Unsupported job kind: ${job.kind}`)}}
+async function heartbeat(){return api('/api/v1/agent/heartbeat',{displayName:NAME,version:'0.3.0',hostname:os.hostname(),platform:`${process.platform}/${process.arch}`,nodeVersion:process.version,pid:process.pid,uptime:process.uptime(),memory:process.memoryUsage(),capabilities:{jobs:['fs.list','fs.read','fs.search','fs.write','fs.mkdir','fs.move','fs.delete','fs.rollback','fs.stat','fs.hash','fs.chmod','check.run','logs.tail','system.info','process.list','git.status','git.diff','git.sync','runtime.exec','runtime.signal','runtime.restart'],safeChecks:Object.keys(cfg.safeChecks||{}),logs:Object.keys(cfg.logFiles||{})},roots:Object.keys(roots).map(key=>({key,path:roots[key]}))})}
 
 let stopped=false;process.on('SIGINT',()=>stopped=true);process.on('SIGTERM',()=>stopped=true);let nextHeartbeat=0;
 while(!stopped){
