@@ -11,8 +11,22 @@ const cfgPath=path.resolve(process.env.NEXCONTROL_AGENT_CONFIG||'./nexcontrol/ag
 const cfg=JSON.parse(await fs.readFile(cfgPath,'utf8'));
 const KEY=String(process.env.NEXCONTROL_AGENT_KEY||process.env.NEXCONTROL_FLEET_KEY||'').trim();
 if(!KEY)throw new Error('NEXCONTROL_AGENT_KEY/NEXCONTROL_FLEET_KEY missing');
-const CONTROL=String(process.env.NEXCONTROL_URL||process.env.NEXCONTROL_BASE_URL||cfg.controlUrl||'').replace(/\/$/,'');
-if(!CONTROL)throw new Error('NexControl URL missing');
+const BUILTIN_FALLBACK='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol';
+const cleanUrl=value=>String(value||'').trim().replace(/\/$/,'');
+const splitUrls=value=>String(value||'').split(/[\s,;]+/).map(cleanUrl).filter(Boolean);
+const configuredUrls=[
+  ...splitUrls(process.env.NEXCONTROL_URLS),
+  cleanUrl(process.env.NEXCONTROL_URL),
+  cleanUrl(process.env.NEXCONTROL_BASE_URL),
+  ...(Array.isArray(cfg.controlUrls)?cfg.controlUrls.map(cleanUrl):[]),
+  cleanUrl(cfg.controlUrl),
+  BUILTIN_FALLBACK,
+].filter(Boolean);
+const CONTROL_URLS=[...new Set(configuredUrls)].filter(url=>{try{return new URL(url).protocol==='https:'}catch{return false}});
+if(!CONTROL_URLS.length)throw new Error('NexControl URL missing');
+let activeControlIndex=0;
+let lastControlSwitchAt=0;
+const CONTROL_REPROBE_MS=Math.max(30000,Number(process.env.NEXCONTROL_PRIMARY_REPROBE_MS||cfg.primaryReprobeMs||300000));
 const SLUG=String(process.env.NEXCONTROL_AGENT_SLUG||cfg.agentSlug||os.hostname()).toLowerCase();
 const NAME=process.env.NEXCONTROL_AGENT_NAME||cfg.agentName||SLUG;
 const POLL_MS=Math.max(1000,Number(cfg.pollMs||2500));
@@ -25,11 +39,29 @@ await fs.mkdir(BACKUP_DIR,{recursive:true});
 const roots=Object.fromEntries(Object.entries(cfg.roots||{}).map(([k,v])=>[k,path.resolve(String(v))]));
 if(!Object.keys(roots).length)throw new Error('No roots configured');
 
-async function api(endpoint,body={}){
-  const r=await fetch(CONTROL+endpoint,{method:'POST',headers:{'content-type':'application/json','x-nexcontrol-agent':SLUG,'x-nexcontrol-agent-key':KEY},body:JSON.stringify(body),signal:AbortSignal.timeout(30000)});
+async function requestControl(base,endpoint,body={}){
+  const r=await fetch(base+endpoint,{method:'POST',headers:{'content-type':'application/json','x-nexcontrol-agent':SLUG,'x-nexcontrol-agent-key':KEY,'x-nexcontrol-path':endpoint},body:JSON.stringify(body),signal:AbortSignal.timeout(30000)});
   const text=await r.text();let data={};try{data=text?JSON.parse(text):{}}catch{data={raw:text}}
-  if(!r.ok)throw new Error(`${endpoint}: HTTP ${r.status} ${data?.error||text}`);
+  if(!r.ok){const error=new Error(`${new URL(base).host}${endpoint}: HTTP ${r.status} ${data?.error||text}`);error.status=r.status;throw error}
   return data;
+}
+async function api(endpoint,body={}){
+  if(activeControlIndex>0&&Date.now()-lastControlSwitchAt>=CONTROL_REPROBE_MS)activeControlIndex=0;
+  const order=[];
+  for(let offset=0;offset<CONTROL_URLS.length;offset++)order.push((activeControlIndex+offset)%CONTROL_URLS.length);
+  const failures=[];
+  for(const index of order){
+    const base=CONTROL_URLS[index];
+    try{
+      const data=await requestControl(base,endpoint,body);
+      if(index!==activeControlIndex){
+        activeControlIndex=index;lastControlSwitchAt=Date.now();
+        console.warn('[NexControlAgent] control plane switched to',new URL(base).host);
+      }
+      return data;
+    }catch(error){failures.push(`${new URL(base).host}: ${String(error?.message||error).slice(0,300)}`)}
+  }
+  throw new Error(`${endpoint}: all NexControl endpoints failed — ${failures.join(' | ')}`);
 }
 function rootBase(root){const base=roots[root];if(!base)throw new Error(`Unknown root: ${root}`);return base}
 function lexical(root,rel='.'){
@@ -97,7 +129,7 @@ async function runCheck(p){
 async function tailLogs(p){const f=cfg.logFiles?.[p.log];if(!f)throw new Error('Unknown log');const out=path.resolve(String(f)),st=await fs.stat(out),bytes=Math.min(st.size,Math.max(1024,Math.min(512000,Number(p.bytes||100000)))),h=await fs.open(out,'r'),buf=Buffer.alloc(bytes);await h.read(buf,0,bytes,st.size-bytes);await h.close();return{log:p.log,bytes,content:buf.toString('utf8')}}
 async function restart(p){if(cfg.restartHook?.mode!=='file')throw new Error('Restart hook not configured');const hook=path.resolve(cfg.restartHook.path);await fs.mkdir(path.dirname(hook),{recursive:true});await fs.writeFile(hook,JSON.stringify({target:p.target||'all',reason:p.reason||'NexControl',requestedAt:new Date().toISOString(),nonce:crypto.randomUUID()},null,2));return{queued:true,target:p.target||'all',hook}}
 async function execute(job){switch(job.kind){case'fs.list':return listDir(job.payload);case'fs.read':return readFile(job.payload);case'fs.search':return searchFiles(job.payload);case'fs.write':return writeFile(job.payload);case'fs.mkdir':return mkdir(job.payload);case'fs.move':return move(job.payload);case'fs.delete':return remove(job.payload);case'fs.rollback':return rollback(job.payload);case'check.run':return runCheck(job.payload);case'logs.tail':return tailLogs(job.payload);case'runtime.restart':return restart(job.payload);default:throw new Error(`Unsupported job kind: ${job.kind}`)}}
-async function heartbeat(){return api('/api/v1/agent/heartbeat',{displayName:NAME,version:'0.2.0',hostname:os.hostname(),platform:`${process.platform}/${process.arch}`,nodeVersion:process.version,pid:process.pid,uptime:process.uptime(),memory:process.memoryUsage(),capabilities:{jobs:['fs.list','fs.read','fs.search','fs.write','fs.mkdir','fs.move','fs.delete','fs.rollback','check.run','logs.tail','runtime.restart'],safeChecks:Object.keys(cfg.safeChecks||{}),logs:Object.keys(cfg.logFiles||{})},roots:Object.keys(roots).map(key=>({key,path:roots[key]}))})}
+async function heartbeat(){return api('/api/v1/agent/heartbeat',{displayName:NAME,version:'0.3.0',hostname:os.hostname(),platform:`${process.platform}/${process.arch}`,nodeVersion:process.version,pid:process.pid,uptime:process.uptime(),memory:process.memoryUsage(),capabilities:{jobs:['fs.list','fs.read','fs.search','fs.write','fs.mkdir','fs.move','fs.delete','fs.rollback','check.run','logs.tail','runtime.restart'],safeChecks:Object.keys(cfg.safeChecks||{}),logs:Object.keys(cfg.logFiles||{})},roots:Object.keys(roots).map(key=>({key,path:roots[key]}))})}
 
 let stopped=false;process.on('SIGINT',()=>stopped=true);process.on('SIGTERM',()=>stopped=true);let nextHeartbeat=0;
 while(!stopped){
