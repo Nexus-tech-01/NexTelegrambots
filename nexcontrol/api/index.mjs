@@ -1,44 +1,66 @@
-import { body, botApi, createCampaign, env, isAdmin, json, newSession, redirect, registerBot } from '../lib/core.mjs';
-import { agentApi, agentControlConfigured, createAgentJob, getAgentJob } from '../lib/agent-control.mjs';
-import { loginPage } from '../ui/layout.mjs';
-import { bots, campaigns, compose, destinations, home } from '../ui/pages.mjs';
-import { serverPage } from '../ui/server.mjs';
+const TARGET='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol';
 
-function html(res,status,content){res.statusCode=status;res.setHeader('content-type','text/html; charset=utf-8');return res.end(content)}
+function outboundHeaders(req,path){
+  const h=new Headers();
+  for(const [k,v] of Object.entries(req.headers||{})){
+    const key=String(k).toLowerCase();
+    if(['host','content-length','connection','transfer-encoding','keep-alive','upgrade','proxy-connection','te','trailer'].includes(key))continue;
+    if(v==null)continue;
+    if(Array.isArray(v)){for(const x of v)h.append(key,String(x));}
+    else h.set(key,String(v));
+  }
+  h.set('x-nexcontrol-path',path);
+  h.set('accept-encoding','identity');
+  return h;
+}
+
+function outboundBody(req,headers){
+  if(req.method==='GET'||req.method==='HEAD')return undefined;
+  const b=req.body;
+  if(b==null)return undefined;
+  if(Buffer.isBuffer(b)||typeof b==='string')return b;
+  const ct=String(headers.get('content-type')||'').toLowerCase();
+  if(ct.includes('application/x-www-form-urlencoded')){
+    return new URLSearchParams(Object.entries(b).map(([k,v])=>[k,String(v??'')])).toString();
+  }
+  if(ct.includes('application/json')||typeof b==='object'){
+    headers.set('content-type','application/json');
+    return JSON.stringify(b);
+  }
+  return String(b);
+}
 
 export default async function handler(req,res){
   try{
-    const url=new URL(req.url,'http://nexcontrol.local'),path=url.pathname;
-    if(path==='/api/health')return json(res,200,{ok:true,agentControl:agentControlConfigured()});
-    if(path.startsWith('/api/v1/agent/'))return agentApi(req,res,path);
-    if(path.startsWith('/api/v1/'))return botApi(req,res,path);
-    if(path==='/login'&&req.method==='GET')return html(res,200,loginPage());
-    if(path==='/api/admin/login'){
-      const q=await body(req);
-      if(String(q.password)!==String(env('ADMIN_PASSWORD')))return redirect(res,'/login');
-      res.setHeader('set-cookie',`nexcontrol_session=${newSession()}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800; Secure`);
-      const dashboard=await home();
-      const navigationFix=`<script>try{history.replaceState(null,'','/')}catch(e){}</script>`;
-      return html(res,200,dashboard.includes('</body>')?dashboard.replace('</body>',`${navigationFix}</body>`):dashboard+navigationFix);
+    const u=new URL(req.url,'https://nexcontrol.local');
+    const headers=outboundHeaders(req,u.pathname);
+    const body=outboundBody(req,headers);
+    const upstream=await fetch(TARGET+u.search,{
+      method:req.method,
+      headers,
+      body,
+      redirect:'manual',
+      signal:AbortSignal.timeout(30000)
+    });
+
+    res.statusCode=upstream.status;
+    const skip=new Set(['content-length','transfer-encoding','connection','content-encoding']);
+    for(const [k,v] of upstream.headers){
+      if(!skip.has(k.toLowerCase()))res.setHeader(k,v);
     }
-    if(!isAdmin(req))return path.startsWith('/api/')?json(res,401,{error:'unauthorized'}):redirect(res,'/login');
-    if(path==='/api/admin/logout'){
-      res.setHeader('set-cookie','nexcontrol_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Secure');
-      return redirect(res,'/login');
+    if(typeof upstream.headers.getSetCookie==='function'){
+      const cookies=upstream.headers.getSetCookie();
+      if(cookies?.length)res.setHeader('set-cookie',cookies);
+    }else{
+      const cookie=upstream.headers.get('set-cookie');
+      if(cookie)res.setHeader('set-cookie',cookie);
     }
-    if(path==='/api/admin/bots')return registerBot(req,res);
-    if(path==='/api/admin/campaigns')return createCampaign(req,res);
-    if(path==='/api/admin/agent/jobs'&&req.method==='POST')return createAgentJob(req,res);
-    if(path==='/api/admin/agent/jobs'&&req.method==='GET')return getAgentJob(req,res,url);
-    if(path==='/')return html(res,200,await home());
-    if(path==='/bots')return html(res,200,await bots());
-    if(path==='/destinations')return html(res,200,await destinations(url));
-    if(path==='/campaigns')return html(res,200,await campaigns());
-    if(path==='/campaigns/new')return html(res,200,await compose());
-    if(path==='/server')return html(res,200,await serverPage(url));
-    return json(res,404,{error:'not_found'});
+    const buf=Buffer.from(await upstream.arrayBuffer());
+    res.end(buf);
   }catch(error){
-    console.error('[NexControl]',error);
-    return json(res,500,{error:'internal_error'});
+    console.error('[NexControl proxy]',error);
+    res.statusCode=502;
+    res.setHeader('content-type','application/json; charset=utf-8');
+    res.end(JSON.stringify({error:'upstream_unavailable'}));
   }
 }
