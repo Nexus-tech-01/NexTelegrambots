@@ -101,8 +101,10 @@ export async function setNexMetaRuntime(patch) {
   return nexMetaAction('set_runtime', patch);
 }
 
-export async function nexMetaPage() {
-  return nexMetaAction('probe_page');
+export async function nexMetaPage(pageId) {
+  return nexMetaAction('probe_page', {
+    ...(pageId ? { pageId } : {})
+  });
 }
 
 export async function nexMetaConversations(payload = {}) {
@@ -137,10 +139,43 @@ export async function publishNexMetaPost(payload) {
   return nexMetaAction('publish_page_post', payload);
 }
 
-export async function sendNexMetaMessage(psid, text) {
+export async function sendNexMetaMessage(
+  psid,
+  text,
+  pageId
+) {
   return nexMetaAction('send_text', {
     psid,
-    text
+    text,
+    ...(pageId ? { pageId } : {})
+  });
+}
+
+export async function sendNexMetaMedia(
+  psid,
+  mediaType,
+  url,
+  pageId
+) {
+  return nexMetaAction('send_media', {
+    psid,
+    mediaType,
+    url,
+    ...(pageId ? { pageId } : {})
+  });
+}
+
+export async function sendNexMetaQuickReplies(
+  psid,
+  text,
+  quickReplies,
+  pageId
+) {
+  return nexMetaAction('send_quick_replies', {
+    psid,
+    text,
+    quickReplies,
+    ...(pageId ? { pageId } : {})
   });
 }
 
@@ -186,59 +221,100 @@ export async function doctorAllNexMetaPages() {
 }
 
 
-export async function configureDefaultNexMetaMessengerProfile() {
-  return nexMetaAction('configure_default_messenger_profile');
+export async function configureDefaultNexMetaMessengerProfile(pageId) {
+  return nexMetaAction('configure_default_messenger_profile', {
+    ...(pageId ? { pageId } : {})
+  });
 }
 
-export async function configureNexMetaMessengerProfile(profile) {
+export async function configureNexMetaMessengerProfile(
+  profile,
+  pageId
+) {
   return nexMetaAction('configure_messenger_profile', {
-    profile
+    profile,
+    ...(pageId ? { pageId } : {})
   });
 }
 
-export async function inspectNexMetaMessengerProfile(fields) {
+export async function inspectNexMetaMessengerProfile(
+  fields,
+  pageId
+) {
   return nexMetaAction('inspect_messenger_profile', {
-    ...(Array.isArray(fields) ? { fields } : {})
+    ...(Array.isArray(fields) ? { fields } : {}),
+    ...(pageId ? { pageId } : {})
   });
 }
 
-export async function deleteNexMetaMessengerProfileFields(fields) {
+export async function deleteNexMetaMessengerProfileFields(
+  fields,
+  pageId
+) {
   return nexMetaAction('delete_messenger_profile_fields', {
-    fields
+    fields,
+    ...(pageId ? { pageId } : {})
   });
 }
 
 
-export async function getNexMetaMessengerUserProfile(psid) {
-  return nexMetaAction('get_messenger_user_profile', { psid });
+export async function getNexMetaMessengerUserProfile(
+  psid,
+  pageId
+) {
+  return nexMetaAction('get_messenger_user_profile', {
+    psid,
+    ...(pageId ? { pageId } : {})
+  });
 }
 
-export async function moderateNexMetaConversation(psid, moderationAction) {
+export async function moderateNexMetaConversation(
+  psid,
+  moderationAction,
+  pageId
+) {
   return nexMetaAction('moderate_conversation', {
     psid,
-    moderationAction
+    moderationAction,
+    ...(pageId ? { pageId } : {})
   });
 }
 
-export async function sendNexMetaTemplate(psid, template) {
+export async function sendNexMetaTemplate(
+  psid,
+  template,
+  pageId
+) {
   return nexMetaAction('send_template', {
     psid,
-    template
+    template,
+    ...(pageId ? { pageId } : {})
   });
 }
 
-export async function sendNexMetaButtonTemplate(psid, text, buttons) {
+export async function sendNexMetaButtonTemplate(
+  psid,
+  text,
+  buttons,
+  pageId
+) {
   return nexMetaAction('send_button_template', {
     psid,
     text,
-    buttons
+    buttons,
+    ...(pageId ? { pageId } : {})
   });
 }
 
-export async function sendNexMetaImageGallery(psid, imageUrls) {
+export async function sendNexMetaImageGallery(
+  psid,
+  imageUrls,
+  pageId
+) {
   return nexMetaAction('send_image_gallery', {
     psid,
-    imageUrls
+    imageUrls,
+    ...(pageId ? { pageId } : {})
   });
 }
 
