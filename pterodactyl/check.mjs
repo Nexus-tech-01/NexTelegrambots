@@ -56,7 +56,6 @@ for (const name of [
   'NEXMETA_APP_SECRET',
   'NEXMETA_VERIFY_TOKEN',
   'NEXMETA_TOKEN_ENCRYPTION_KEY',
-  'NEXMETA_CONNECT_KEY',
   'NEXMETA_CONTROL_KEY'
 ]) {
   add(
@@ -67,6 +66,20 @@ for (const name of [
       : 'Missing'
   );
 }
+
+const connectKey = String(
+  process.env.NEXMETA_CONNECT_KEY || ''
+).trim();
+
+add(
+  'nexmeta_connect_key',
+  connectKey.length >= 24,
+  connectKey
+    ? connectKey.length >= 24
+      ? 'Configured'
+      : 'Too short; use at least 24 characters'
+    : 'Missing'
+);
 
 await fileCheck(
   'telegram_orchestrator',
