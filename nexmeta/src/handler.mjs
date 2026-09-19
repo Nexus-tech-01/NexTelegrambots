@@ -246,14 +246,17 @@ ${disabled ? '' : `
 }
 
 async function ownerConnect(req, res) {
+  const connectKeyReady =
+    config.connectKey.length >= 24;
+
   if (req.method === 'GET') {
-    res.statusCode = config.connectKey ? 200 : 503;
+    res.statusCode = connectKeyReady ? 200 : 503;
     res.setHeader('content-type', 'text/html; charset=utf-8');
     res.setHeader('cache-control', 'no-store');
     res.setHeader('x-robots-tag', 'noindex, nofollow');
     return res.end(
       connectPageHtml({
-        disabled: !config.connectKey
+        disabled: !connectKeyReady
       })
     );
   }
@@ -264,7 +267,7 @@ async function ownerConnect(req, res) {
     });
   }
 
-  if (!config.connectKey) {
+  if (!connectKeyReady) {
     return writeJson(res, 503, {
       error: 'owner_connect_disabled'
     });
