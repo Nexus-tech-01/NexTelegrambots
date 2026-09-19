@@ -27,7 +27,7 @@ function mediaTokenKey() {
     .digest();
 }
 
-function sealMediaItem(item) {
+export function sealMediaItem(item) {
   const key = mediaTokenKey();
   if (!key) return null;
 
@@ -56,7 +56,7 @@ function sealMediaItem(item) {
   ].join('.');
 }
 
-function openMediaToken(token) {
+export function openMediaToken(token) {
   const value = String(token || '');
   const parts = value.split('.');
 
@@ -506,16 +506,30 @@ export async function serveRemoteMedia(req, res, token) {
       }
     });
 
-    body.on('error', error => {
+    await new Promise((resolve, reject) => {
+      let settled = false;
+
+      const finish = error => {
+        if (settled) return;
+        settled = true;
+
+        if (error) reject(error);
+        else resolve();
+      };
+
+      body.once('end', () => finish());
+      body.once('error', error => finish(error));
+      res.once('close', () => finish());
+
+      body.pipe(res);
+    }).catch(error => {
       if (!res.headersSent) {
         res.statusCode = 502;
         res.end('Media relay failed');
-      } else {
+      } else if (!res.destroyed) {
         res.destroy(error);
       }
     });
-
-    body.pipe(res);
   } finally {
     clearTimeout(timer);
   }
