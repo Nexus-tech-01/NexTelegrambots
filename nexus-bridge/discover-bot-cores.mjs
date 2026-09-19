@@ -6,10 +6,23 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 
-const ROOT = process.env.NEXUS_BOTS_ROOT || '/app/bots';
-const OUTPUT =
+const NEXUS_ROOT = path.resolve(
+  process.env.NEXUS_ROOT ||
+  process.cwd()
+);
+
+const ROOT = path.resolve(
+  process.env.NEXUS_BOTS_ROOT ||
+  path.join(NEXUS_ROOT, 'bots')
+);
+
+const OUTPUT = path.resolve(
   process.env.NEXUS_BRIDGE_DISCOVERY_FILE ||
-  '/app/nexus-bridge/discovery.json';
+  path.join(
+    NEXUS_ROOT,
+    'nexus-bridge/discovery.json'
+  )
+);
 
 const BOT_NAMES = [
   'nexgame',
@@ -232,7 +245,10 @@ async function inspectBot(name) {
 }
 
 async function inspectOrchestrator() {
-  const file = '/app/scripts/orchestrator.mjs';
+  const file = path.join(
+    NEXUS_ROOT,
+    'scripts/orchestrator.mjs'
+  );
 
   try {
     const source = await readFile(file, 'utf8');
@@ -299,6 +315,7 @@ const orchestrator = await inspectOrchestrator();
 
 const report = {
   generatedAt: new Date().toISOString(),
+  nexusRoot: NEXUS_ROOT,
   root: ROOT,
   orchestrator,
   bots
