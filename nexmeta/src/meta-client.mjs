@@ -1,6 +1,9 @@
 import crypto from 'node:crypto';
 import { config, assertGraphConfig } from './config.mjs';
-import { getActivePageCredential } from './token-vault.mjs';
+import {
+  getActivePageCredential,
+  getPageCredential
+} from './token-vault.mjs';
 
 function graphBase() {
   assertGraphConfig();
@@ -101,8 +104,11 @@ async function graphRequest(
   return data;
 }
 
-async function activePagePath(edge = '') {
-  const credential = await getActivePageCredential();
+async function pagePath(edge = '', pageId) {
+  const id = String(pageId || '').trim();
+  const credential = id
+    ? await getPageCredential(id)
+    : await getActivePageCredential();
 
   return {
     credential,
@@ -112,8 +118,8 @@ async function activePagePath(edge = '') {
   };
 }
 
-export async function getPageProfile() {
-  const { credential, path } = await activePagePath();
+export async function getPageProfile(pageId) {
+  const { credential, path } = await pagePath('', pageId);
 
   return graphRequest(path, {
     credential,
@@ -123,10 +129,15 @@ export async function getPageProfile() {
   });
 }
 
-export async function sendText(psid, text, messagingType = 'RESPONSE') {
+export async function sendText(
+  psid,
+  text,
+  messagingType = 'RESPONSE',
+  pageId
+) {
   if (!psid || !text) throw new Error('psid and text are required');
 
-  const { credential, path } = await activePagePath('messages');
+  const { credential, path } = await pagePath('messages', pageId);
 
   return graphRequest(path, {
     credential,
@@ -139,13 +150,19 @@ export async function sendText(psid, text, messagingType = 'RESPONSE') {
   });
 }
 
-export async function sendMedia(psid, type, url, messagingType = 'RESPONSE') {
+export async function sendMedia(
+  psid,
+  type,
+  url,
+  messagingType = 'RESPONSE',
+  pageId
+) {
   if (!psid || !url) throw new Error('psid and url are required');
   if (!['image', 'audio', 'video', 'file'].includes(type)) {
     throw new Error('unsupported media type');
   }
 
-  const { credential, path } = await activePagePath('messages');
+  const { credential, path } = await pagePath('messages', pageId);
 
   return graphRequest(path, {
     credential,
@@ -170,7 +187,8 @@ export async function sendQuickReplies(
   psid,
   text,
   quickReplies,
-  messagingType = 'RESPONSE'
+  messagingType = 'RESPONSE',
+  pageId
 ) {
   if (!psid || !text) throw new Error('psid and text are required');
 
@@ -193,7 +211,7 @@ export async function sendQuickReplies(
     throw new Error('each quick reply needs title and payload');
   }
 
-  const { credential, path } = await activePagePath('messages');
+  const { credential, path } = await pagePath('messages', pageId);
 
   return graphRequest(path, {
     credential,
@@ -209,12 +227,12 @@ export async function sendQuickReplies(
   });
 }
 
-export async function senderAction(psid, action) {
+export async function senderAction(psid, action, pageId) {
   if (!['mark_seen', 'typing_on', 'typing_off'].includes(action)) {
     throw new Error('unsupported sender action');
   }
 
-  const { credential, path } = await activePagePath('messages');
+  const { credential, path } = await pagePath('messages', pageId);
 
   return graphRequest(path, {
     credential,
@@ -226,8 +244,15 @@ export async function senderAction(psid, action) {
   });
 }
 
-export async function listConversations({ limit = 25, after } = {}) {
-  const { credential, path } = await activePagePath('conversations');
+export async function listConversations({
+  limit = 25,
+  after,
+  pageId
+} = {}) {
+  const { credential, path } = await pagePath(
+    'conversations',
+    pageId
+  );
 
   return graphRequest(path, {
     credential,
@@ -283,7 +308,10 @@ export async function publishPagePost({
     throw new Error('invalid scheduledPublishTime');
   }
 
-  const { credential, path } = await activePagePath('feed');
+  const { credential, path } = await pagePath(
+    'feed',
+    arguments[0]?.pageId
+  );
 
   return graphRequest(path, {
     credential,
@@ -390,7 +418,10 @@ export async function moderateConversation(psid, action) {
     throw new Error('unsupported moderation action');
   }
 
-  const { credential, path } = await activePagePath('moderate_conversations');
+  const { credential, path } = await pagePath(
+    'moderate_conversations',
+    arguments[2]
+  );
 
   return graphRequest(path, {
     credential,
@@ -405,14 +436,15 @@ export async function moderateConversation(psid, action) {
 export async function sendTemplate(
   psid,
   templatePayload,
-  messagingType = 'RESPONSE'
+  messagingType = 'RESPONSE',
+  pageId
 ) {
   if (!psid) throw new Error('psid is required');
   if (!templatePayload || typeof templatePayload !== 'object') {
     throw new Error('templatePayload is required');
   }
 
-  const { credential, path } = await activePagePath('messages');
+  const { credential, path } = await pagePath('messages', pageId);
 
   return graphRequest(path, {
     credential,
@@ -448,21 +480,23 @@ export async function sendButtonTemplate(
       text: String(text).slice(0, 640),
       buttons
     },
-    messagingType
+    messagingType,
+    arguments[4]
   );
 }
 
 export async function sendImageGallery(
   psid,
   imageUrls,
-  messagingType = 'RESPONSE'
+  messagingType = 'RESPONSE',
+  pageId
 ) {
   if (!psid) throw new Error('psid is required');
   if (!Array.isArray(imageUrls) || imageUrls.length < 1 || imageUrls.length > 30) {
     throw new Error('imageUrls must contain between 1 and 30 images');
   }
 
-  const { credential, path } = await activePagePath('messages');
+  const { credential, path } = await pagePath('messages', pageId);
 
   return graphRequest(path, {
     credential,
