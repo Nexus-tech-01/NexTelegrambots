@@ -1,6 +1,10 @@
 import crypto from 'node:crypto';
 import { config } from './config.mjs';
-import { getActivePageCredential } from './token-vault.mjs';
+import {
+  getActivePageCredential,
+  getPageCredential,
+  listConnectedPages
+} from './token-vault.mjs';
 
 function graphUrl(path) {
   if (!config.graphVersion) throw new Error('NEXMETA_GRAPH_VERSION missing');
@@ -126,12 +130,21 @@ export function defaultNexusMessengerProfile() {
   };
 }
 
+async function resolveCredential(pageId) {
+  const id = String(pageId || '').trim();
+
+  return id
+    ? getPageCredential(id)
+    : getActivePageCredential();
+}
+
 async function profileRequest({
   method = 'GET',
   fields,
-  body
+  body,
+  pageId
 } = {}) {
-  const credential = await getActivePageCredential();
+  const credential = await resolveCredential(pageId);
   const url = new URL(
     graphUrl(`${credential.pageId}/messenger_profile`)
   );
@@ -143,7 +156,7 @@ async function profileRequest({
   const proof = appSecretProof(credential.pageAccessToken);
   if (proof) url.searchParams.set('appsecret_proof', proof);
 
-  return readJson(
+  const result = await readJson(
     await fetch(url, {
       method,
       headers: {
@@ -157,27 +170,78 @@ async function profileRequest({
     }),
     'Messenger Profile API'
   );
+
+  return {
+    pageId: credential.pageId,
+    result
+  };
 }
 
-export async function configureMessengerProfile(profile) {
+export async function configureMessengerProfile(
+  profile,
+  { pageId } = {}
+) {
   const payload = profile && typeof profile === 'object'
     ? profile
     : defaultNexusMessengerProfile();
 
-  return profileRequest({
+  const response = await profileRequest({
     method: 'POST',
-    body: payload
+    body: payload,
+    pageId
   });
-}
-
-export async function configureDefaultNexusMessengerProfile() {
-  const profile = defaultNexusMessengerProfile();
-  const result = await configureMessengerProfile(profile);
 
   return {
-    success: result?.result === 'success' || result?.success !== false,
+    pageId: response.pageId,
+    success:
+      response.result?.result === 'success' ||
+      response.result?.success !== false,
+    result: response.result
+  };
+}
+
+export async function configureDefaultNexusMessengerProfile(
+  { pageId } = {}
+) {
+  const profile = defaultNexusMessengerProfile();
+  const result = await configureMessengerProfile(
+    profile,
+    { pageId }
+  );
+
+  return {
+    ...result,
     profile
   };
+}
+
+export async function configureAllDefaultNexusMessengerProfiles() {
+  const pages = await listConnectedPages();
+  const results = [];
+
+  if (!pages.length) {
+    const single = await configureDefaultNexusMessengerProfile();
+    return [single];
+  }
+
+  for (const page of pages) {
+    try {
+      results.push(
+        await configureDefaultNexusMessengerProfile({
+          pageId: page.pageId
+        })
+      );
+    } catch (error) {
+      results.push({
+        pageId: page.pageId,
+        success: false,
+        error: String(error?.message || error).slice(0, 500),
+        metaCode: error?.metaCode ?? null
+      });
+    }
+  }
+
+  return results;
 }
 
 export async function inspectMessengerProfile(
@@ -186,18 +250,23 @@ export async function inspectMessengerProfile(
     'greeting',
     'ice_breakers',
     'persistent_menu'
-  ]
+  ],
+  { pageId } = {}
 ) {
   const normalized = [...new Set(
     fields.map(value => String(value || '').trim()).filter(Boolean)
   )];
 
   return profileRequest({
-    fields: normalized
+    fields: normalized,
+    pageId
   });
 }
 
-export async function deleteMessengerProfileFields(fields) {
+export async function deleteMessengerProfileFields(
+  fields,
+  { pageId } = {}
+) {
   if (!Array.isArray(fields) || !fields.length) {
     throw new Error('fields are required');
   }
@@ -206,6 +275,7 @@ export async function deleteMessengerProfileFields(fields) {
     method: 'DELETE',
     body: {
       fields: [...new Set(fields.map(String))]
-    }
+    },
+    pageId
   });
 }
