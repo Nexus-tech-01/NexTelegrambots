@@ -28,6 +28,13 @@ import { processWebhookPayload } from './processor.mjs';
 import { createIdentityLinkCode } from './identity-link.mjs';
 import { createMetaOAuthStart } from './meta-oauth.mjs';
 import {
+  configureCompleteWebhookStack,
+  inspectAppWebhooks,
+  subscribePageToApp,
+  inspectPageSubscriptions,
+  unsubscribePageFromApp
+} from './meta-webhooks.mjs';
+import {
   listConnectedPages,
   activateConnectedPage,
   removeConnectedPage,
@@ -40,6 +47,11 @@ export const CONTROL_CAPABILITIES = Object.freeze([
   'list_connected_pages',
   'activate_connected_page',
   'remove_connected_page',
+  'configure_webhooks',
+  'inspect_app_webhooks',
+  'subscribe_page_webhooks',
+  'inspect_page_webhooks',
+  'unsubscribe_page_webhooks',
   'probe_page',
   'metrics',
   'recent_audit',
@@ -168,6 +180,32 @@ export async function executeControlAction(body) {
           requireString(body.pageId, 'pageId', 300)
         )
       };
+
+    case 'configure_webhooks':
+      return configureCompleteWebhookStack({
+        fields: Array.isArray(body.fields) ? body.fields : undefined
+      });
+
+    case 'inspect_app_webhooks':
+      return inspectAppWebhooks();
+
+    case 'subscribe_page_webhooks':
+      return subscribePageToApp(
+        requireString(body.pageId, 'pageId', 300),
+        {
+          fields: Array.isArray(body.fields) ? body.fields : undefined
+        }
+      );
+
+    case 'inspect_page_webhooks':
+      return inspectPageSubscriptions(
+        requireString(body.pageId, 'pageId', 300)
+      );
+
+    case 'unsubscribe_page_webhooks':
+      return unsubscribePageFromApp(
+        requireString(body.pageId, 'pageId', 300)
+      );
 
     case 'probe_page':
       return getPageProfile();
