@@ -4,6 +4,9 @@ import { beginPairing, cleanupPairings, pairingStatus, submitPairingCode, submit
 import { attachConnectedClient, loadSavedRuntimes, runtimeStatus, stopRuntimes } from './runtime.mjs';
 import { listAccounts, patchSettings, closeStore } from './store.mjs';
 import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
+import { loadBotToken } from './secrets.mjs';
+import { ensureNexAiBot } from './bot-factory.mjs';
+import { ensureAnalyticsIndex } from './analytics-indexer.mjs';
 
 assertCoreConfig();
 
@@ -24,7 +27,7 @@ async function route(req,res){
   const url=new URL(req.url,'http://127.0.0.1');
   try{
     if(req.method==='GET'&&url.pathname==='/health'){
-      return json(res,200,{ok:true,service:'nexaccount',botConfigured:!!cfg.botToken,botUsername:cfg.botUsername||null,runtimes:runtimeStatus()});
+      return json(res,200,{ok:true,service:'nexaccount',botConfigured:!!(await loadBotToken()),botUsername:cfg.botUsername||null,runtimes:runtimeStatus()});
     }
     if(req.method==='GET'&&url.pathname==='/accounts'){
       return json(res,200,{ok:true,accounts:await listAccounts(),runtimes:runtimeStatus()});
@@ -34,7 +37,20 @@ async function route(req,res){
     }
     if(req.method==='POST'&&url.pathname==='/pair/start'){
       const q=await body(req);
-      const state=await beginPairing(q.phone,attachConnectedClient);
+      const state=await beginPairing(q.phone,async(client,account)=>{
+        await attachConnectedClient(client,account);
+        if(!(await loadBotToken())){
+          try{
+            const made=await ensureNexAiBot(client,account);
+            if(made.created){
+              console.log('[NexAccount] NexAI created @'+made.username);
+              await startInlineBot();
+            }
+          }catch(e){
+            console.error('[NexAccount BotFactory]',String(e?.message||e));
+          }
+        }
+      });
       return json(res,200,{ok:true,...state});
     }
     if(req.method==='POST'&&url.pathname==='/pair/code'){
@@ -51,7 +67,7 @@ async function route(req,res){
       const q=await body(req);
       if(!q.telegramUserId)return json(res,400,{ok:false,error:'telegramUserId required'});
       const allowed={};
-      for(const key of ['style','prefix','autoReact','autoJoin','welcome','goodbye','antilink']){
+      for(const key of ['language','style','prefix','autoReact','autoJoin','welcome','goodbye','antilink']){
         if(q[key]!==undefined)allowed[key]=q[key];
       }
       const settings=await patchSettings(q.telegramUserId,allowed);
@@ -75,8 +91,13 @@ server.listen(cfg.port,cfg.host,async()=>{
 const cleanup=setInterval(cleanupPairings,60000);
 cleanup.unref();
 
+ensureAnalyticsIndex({maxAgeMs:0,waitForFirst:false}).catch(e=>console.error('[NexAI analytics]',e));
+const analyticsRefresh=setInterval(()=>ensureAnalyticsIndex({maxAgeMs:0,waitForFirst:false}).catch(e=>console.error('[NexAI analytics]',e)),5*60*1000);
+analyticsRefresh.unref();
+
 async function shutdown(){
   clearInterval(cleanup);
+  clearInterval(analyticsRefresh);
   try{server.close()}catch{}
   await stopInlineBot();
   await stopRuntimes();
