@@ -1,4 +1,8 @@
 const clean = value => String(value ?? '').trim();
+const csv = value => clean(value)
+  .split(',')
+  .map(item => item.trim().toLowerCase())
+  .filter(Boolean);
 
 export const config = {
   port: Number(process.env.PORT || 8788),
@@ -20,7 +24,11 @@ export const config = {
 
   controlKey: clean(process.env.NEXMETA_CONTROL_KEY),
   nexusGatewayUrl: clean(process.env.NEXUS_COMMAND_GATEWAY_URL),
-  nexusGatewayKey: clean(process.env.NEXUS_COMMAND_GATEWAY_KEY)
+  nexusGatewayKey: clean(process.env.NEXUS_COMMAND_GATEWAY_KEY),
+  requiredNexusServices: csv(
+    process.env.NEXMETA_REQUIRED_NEXUS_SERVICES ||
+    'nexdownloader,nexgame,nexstick,nexgroup,nexcanal'
+  )
 };
 
 export function metaConfigured() {
