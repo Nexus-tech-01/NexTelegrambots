@@ -92,3 +92,35 @@ test('dispatches to preferred Nexus service', async () => {
   assert.equal(result.handledBy, 'nexgame');
   assert.equal(result.reply.text, 'game:/game');
 });
+
+
+test('handles signed system probes without service adapters', async () => {
+  const envelope = {
+    version: 2,
+    source: {
+      platform: 'facebook',
+      surface: 'system',
+      pageId: null
+    },
+    user: {
+      externalId: null,
+      nexusUserId: null
+    },
+    routing: {
+      intent: 'probe',
+      preferredService: 'bridge'
+    },
+    event: {
+      type: 'system_probe',
+      id: null,
+      timestamp: Date.now(),
+      text: ''
+    }
+  };
+
+  const result = await dispatchNexusEnvelope(envelope);
+
+  assert.equal(result.probe, true);
+  assert.equal(result.handledBy, 'nexus-bridge');
+  assert.equal(result.reply, null);
+});
