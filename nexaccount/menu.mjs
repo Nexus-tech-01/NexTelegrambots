@@ -1,9 +1,12 @@
-import { cfg } from './config.mjs';
+import { cfg, isOwnerId } from './config.mjs';
 import { CATEGORY_ICONS, CATEGORY_LABELS, CATEGORY_ORDER, commandsByCategory } from './commands.mjs';
-import { getStyle, listStyles, renderDipperHeader, resolveStyleImage } from './styles.mjs';
-import { categoryLabel, tr } from './i18n.mjs';
+import { getStyle, listStyles, renderDipperHeader, resolveStyleImage, toSmallCaps } from './styles.mjs';
 
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
+const FALLBACK_EMOJI={
+  GENERAL:'🏠',AI:'🧠',DOWNLOAD:'📥',GROUP:'🛡️',TOOLS:'🛠️',STICKERS:'🎴',
+  GAMES:'🎮',PROTECTION:'🛡️',ANIME:'🌸',SEARCH:'🔎',PREMIUM:'👑',OWNER:'🔮'
+};
 
 export function expandableEntities(text,commandSpans=[]){
   const entities=[{type:'expandable_blockquote',offset:0,length:utf16len(text)}];
@@ -13,10 +16,12 @@ export function expandableEntities(text,commandSpans=[]){
   return entities;
 }
 
-function commandText(lines){
+function commandText(lines,styleId=1){
   let text='',spans=[];
   for(const line of lines){
     const command='/'+line.name;
+    const prefix=styleId===1?'┃➻ ':'• ';
+    text+=prefix;
     const start=text.length;
     text+=command;
     spans.push({start,text:command});
@@ -26,46 +31,81 @@ function commandText(lines){
   return {text,spans};
 }
 
+function localized(settings,fr,en){
+  return String(settings?.language||'fr').toLowerCase().startsWith('en')?en:fr;
+}
+
 export async function menuModel({account,settings,commands,view='home',category=null}){
-  const lang=settings.language==='en'?'en':'fr';
   const groups=commandsByCategory(commands);
   const style=await getStyle(settings.style||1);
+  const owner=isOwnerId(account.telegramUserId);
+  const visible=c=>!c.hidden&&(!c.ownerOnly||owner);
   const header=await renderDipperHeader(style.id,{
     botName:'NEXAI',
-    ownerName:account.username?'@'+account.username:(account.firstName||'Utilisateur'),
-    rank:account.premium?'premium':'utilisateur',
+    ownerName:account.username?'@'+account.username:(account.firstName||localized(settings,'Utilisateur','User')),
+    rank:owner?'owner':account.premium?'premium':'free',
     prefix:settings.prefix||'.',
-    count:commands.size
+    count:[...commands.values()].filter(c=>!c.hidden).length
   });
   let body=header,spans=[];
+
   if(view==='category'&&category){
-    const list=(groups[category]||[]).filter(c=>!c.ownerOnly);
-    body+='\n'+categoryLabel(lang,category)+'\n\n';
-    const visible=list.map(c=>({name:c.name,suffix:c.premium&&!account.premium?'  · Premium':''}));
-    const ct=commandText(visible);
+    const list=(groups[category]||[]).filter(visible);
+    const label=toSmallCaps(CATEGORY_LABELS[category]||category);
+    if(style.id===1){
+      body=[
+        '╭╼━• '+(FALLBACK_EMOJI[category]||'🔮')+' '+label+' •━━━━',
+        '┃ 🔮 '+localized(settings,'ᴀʀᴄᴀɴᴇ','ᴀʀᴄᴀɴᴇ')+' : '+label,
+        '┃ 📜 '+localized(settings,'ᴄᴏᴍᴍᴀɴᴅᴇѕ','ᴄᴏᴍᴍᴀɴᴅѕ')+' : '+list.length,
+        '╰━━━━━━━━━━━━━━','','♰ '+localized(settings,'ᴄᴏᴍᴍᴀɴᴅᴇѕ','ᴄᴏᴍᴍᴀɴᴅѕ'),''
+      ].join('\n');
+    }else{
+      body+='\n'+label+'\n\n';
+    }
+    const visibleCommands=list.map(c=>({
+      name:c.name,
+      suffix:c.premium&&!account.premium?'  · 👑 '+toSmallCaps('Premium'):''
+    }));
+    const ct=commandText(visibleCommands,style.id);
     const shift=body.length;
     body+=ct.text;
     spans.push(...ct.spans.map(x=>({...x,start:x.start+shift})));
+    if(style.id===1){
+      body+='\n'+localized(settings,'🌑 ѕéʟᴇᴄᴛɪᴏɴɴᴇ ᴜɴᴇ ᴄᴏᴍᴍᴀɴᴅᴇ.','🌑 ѕᴇʟᴇᴄᴛ ᴀ ᴄᴏᴍᴍᴀɴᴅ.')+
+        '\n\n♛ ɴᴇxᴀɪ × ɴᴇxᴛᴇᴄʜ ♛';
+    }else if(style.exactFooter){
+      try{body+='\n'+style.exactFooter()}catch{}
+    }
   }else{
-    if(style.tagline)body+='\n'+style.tagline+'\n';
+    if(style.id===1){
+      body+='\n♰ '+localized(settings,'ᴄʜᴏɪѕɪѕ ᴛᴏɴ ᴀʀᴄᴀɴᴇ','ᴄʜᴏᴏѕᴇ ʏᴏᴜʀ ᴀʀᴄᴀɴᴇ')+
+        '\n\n🌑 '+localized(settings,"ʟ'ᴏᴍʙʀᴇ ᴏʙѕᴇʀᴠᴇ.","ᴛʜᴇ ѕʜᴀᴅᴏᴡ ᴡᴀᴛᴄʜᴇѕ.")+
+        '\n🔮 '+localized(settings,'ʟᴇ ѕᴀɴᴄᴛᴜᴀɪʀᴇ ᴇѕᴛ ᴏᴜᴠᴇʀᴛ.','ᴛʜᴇ ѕᴀɴᴄᴛᴜᴀʀʏ ɪѕ ᴏᴘᴇɴ.')+
+        '\n\n♛ ɴᴇxᴀɪ × ɴᴇxᴛᴇᴄʜ ♛';
+    }else{
+      if(style.tagline)body+='\n'+toSmallCaps(style.tagline)+'\n';
+      if(style.exactFooter){try{body+='\n'+style.exactFooter()}catch{}}
+      body+='\n'+toSmallCaps('Powered by Nextech');
+    }
   }
-  if(style.exactFooter){
-    try{body+='\n'+style.exactFooter()}catch{}
-  }
-  body+='\n'+tr(lang,'powered');
+
   const buttons=[];
   if(view==='home'){
-    const cats=CATEGORY_ORDER.filter(cat=>(groups[cat]||[]).some(c=>!c.ownerOnly));
+    const cats=CATEGORY_ORDER.filter(cat=>(groups[cat]||[]).some(visible));
     for(let i=0;i<cats.length;i+=2){
-      buttons.push(cats.slice(i,i+2).map(cat=>button(categoryLabel(lang,cat),'cat:'+cat,'primary',CATEGORY_ICONS[cat])));
+      buttons.push(cats.slice(i,i+2).map(cat=>{
+        const id=emojiId(CATEGORY_ICONS[cat]);
+        const label=toSmallCaps(CATEGORY_LABELS[cat]||cat);
+        return button((id?'':(FALLBACK_EMOJI[cat]||'')+' ')+label,'cat:'+cat,'primary',CATEGORY_ICONS[cat]);
+      }));
     }
     const links=[];
-    if(cfg.nextechUrl)links.push(urlButton('Nextech',cfg.nextechUrl,'success','nextech'));
-    if(cfg.nexnewsUrl)links.push(urlButton('NexNews',cfg.nexnewsUrl,'success','news'));
-    if(cfg.darkUniverseUrl)links.push(urlButton('Dark Universe',cfg.darkUniverseUrl,'success','dark'));
+    if(cfg.nextechUrl)links.push(urlButton('ɴᴇxᴛᴇᴄʜ',cfg.nextechUrl,'success','nextech'));
+    if(cfg.nexnewsUrl)links.push(urlButton('ɴᴇxɴᴇᴡѕ',cfg.nexnewsUrl,'success','news'));
+    if(cfg.darkUniverseUrl)links.push(urlButton('ᴅᴀʀᴋ ᴜɴɪᴠᴇʀѕᴇ',cfg.darkUniverseUrl,'success','dark'));
     if(links.length)buttons.push(links);
   }else{
-    buttons.push([button(tr(lang,'menu'),'menu:home','primary','back')]);
+    buttons.push([button('↩ '+toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back')]);
   }
   const text=body.trim();
   return {
@@ -77,21 +117,21 @@ export async function menuModel({account,settings,commands,view='home',category=
 }
 
 export async function stylesModel({account,settings}){
-  const lang=settings.language==='en'?'en':'fr';
   const styles=(await listStyles()).filter(s=>s.id>0);
-  let text='NEXAI · '+tr(lang,'styles_title')+'\n\n',spans=[];
+  let text='🔮 ɴᴇxᴀɪ • ѕᴛʏʟᴇѕ\n\n',spans=[];
   for(const s of styles){
     const command='/style'+s.id;
     const start=text.length;
     text+=command;
     spans.push({start,text:command});
-    text+=' · '+s.name+(Number(settings.style)===s.id?' · '+tr(lang,'active'):'')+'\n';
+    text+=' • '+toSmallCaps(s.name)+(Number(settings.style)===s.id?' • '+toSmallCaps(localized(settings,'Actif','Active')):'')+'\n';
   }
-  text+='\n'+tr(lang,'style_hint')+'\n'+tr(lang,'powered');
+  text+='\n'+toSmallCaps(localized(settings,'Utilise aussi .style <numéro>.','You can also use .style <number>.'))+
+    '\n♛ ɴᴇxᴀɪ × ɴᴇxᴛᴇᴄʜ ♛';
   return {
     text,
     entities:expandableEntities(text,spans),
-    reply_markup:{inline_keyboard:[[button(tr(lang,'menu'),'menu:home','primary','back')]]},
+    reply_markup:{inline_keyboard:[[button('↩ '+toSmallCaps('Menu'),'menu:home','primary','back')]]},
     photoUrl:await resolveStyleImage(settings.style||1,cfg.defaultMenuImage)
   };
 }
