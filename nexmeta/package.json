@@ -3,13 +3,15 @@
   "version": "0.4.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/server.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "start:pterodactyl": "node ../pterodactyl/start.mjs"
   },
   "dependencies": {
-    "@vercel/functions": "^2.2.0",
     "mongodb": "^6.9.0"
   }
 }
