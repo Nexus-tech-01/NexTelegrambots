@@ -5,6 +5,7 @@ import { attachConnectedClient, loadSavedRuntimes, runtimeStatus, stopRuntimes }
 import { listAccounts, patchSettings, closeStore } from './store.mjs';
 import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
 import { loadBotToken } from './secrets.mjs';
+import { ensureNexAiBot } from './bot-factory.mjs';
 
 assertCoreConfig();
 
@@ -35,7 +36,20 @@ async function route(req,res){
     }
     if(req.method==='POST'&&url.pathname==='/pair/start'){
       const q=await body(req);
-      const state=await beginPairing(q.phone,attachConnectedClient);
+      const state=await beginPairing(q.phone,async(client,account)=>{
+        await attachConnectedClient(client,account);
+        if(account.premium===true && !(await loadBotToken())){
+          try{
+            const made=await ensureNexAiBot(client,account);
+            if(made.created){
+              console.log('[NexAccount] NexAI created @'+made.username);
+              await startInlineBot();
+            }
+          }catch(e){
+            console.error('[NexAccount BotFactory]',String(e?.message||e));
+          }
+        }
+      });
       return json(res,200,{ok:true,...state});
     }
     if(req.method==='POST'&&url.pathname==='/pair/code'){
