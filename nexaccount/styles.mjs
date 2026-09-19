@@ -1,0 +1,137 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import vm from 'node:vm';
+import { fileURLToPath } from 'node:url';
+
+const HERE=path.dirname(fileURLToPath(import.meta.url));
+const generatedPath=path.join(HERE,'generated','dipper-styles.json');
+const vendorMenuPath=path.join(HERE,'vendor','dipper-menu.js.txt');
+
+const toSmallCaps=text=>{
+  const n='abcdefghijklmnopqrstuvwxyz0123456789';
+  const s='ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ0123456789';
+  return String(text??'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split('').map(c=>{const i=n.indexOf(c);return i<0?c:s[i]}).join('');
+};
+const toBSC=toSmallCaps;
+
+let cache;
+
+function extractStylesObject(source){
+  const marker='const STYLES =';
+  const start=source.indexOf(marker);
+  if(start<0)return null;
+  const open=source.indexOf('{',start);
+  if(open<0)return null;
+  let depth=0,quote=null,esc=false,lineComment=false,blockComment=false;
+  for(let i=open;i<source.length;i++){
+    const c=source[i],n=source[i+1];
+    if(lineComment){if(c==='\n')lineComment=false;continue}
+    if(blockComment){if(c==='*'&&n==='/'){blockComment=false;i++}continue}
+    if(quote){
+      if(esc){esc=false;continue}
+      if(c==='\\'){esc=true;continue}
+      if(c===quote){quote=null;continue}
+      continue;
+    }
+    if(c==='/'&&n==='/'){lineComment=true;i++;continue}
+    if(c==='/'&&n==='*'){blockComment=true;i++;continue}
+    if(c==='"'||c==="'"||c.charCodeAt(0)===96){quote=c;continue}
+    if(c==='{')depth++;
+    if(c==='}'){
+      depth--;
+      if(depth===0)return source.slice(open,i+1);
+    }
+  }
+  return null;
+}
+
+async function loadExactDipperStyles(){
+  try{
+    const source=await fs.readFile(vendorMenuPath,'utf8');
+    const objectSource=extractStylesObject(source);
+    if(!objectSource)return {};
+    return vm.runInNewContext('('+objectSource+')',{toSmallCaps,toBSC},{timeout:1000})||{};
+  }catch{return {}}
+}
+
+export async function loadStyleCatalog(){
+  if(cache)return cache;
+  let generated={themes:{},images:{}};
+  try{generated=JSON.parse(await fs.readFile(generatedPath,'utf8'))}catch{}
+  const exact=await loadExactDipperStyles();
+  const themes={};
+  const ids=new Set([...Object.keys(generated.themes||{}),...Object.keys(exact||{})].map(Number).filter(n=>Number.isInteger(n)&&n>0));
+  for(const id of [...ids].sort((a,b)=>a-b)){
+    const meta=generated.themes?.[id]||generated.themes?.[String(id)]||{};
+    const old=exact?.[id];
+    themes[id]={
+      id,
+      name:meta.name||old?.nom||('Style '+id),
+      botName:meta.botName||'NEXAI',
+      mark:meta.mark||'✦',
+      accent:meta.accent||'',
+      separator:meta.separator||'',
+      tagline:meta.tagline||'',
+      signature:meta.signature||'Nextech',
+      images:generated.images?.[id]||generated.images?.[String(id)]||[],
+      exactHeader:typeof old?.header==='function'?old.header:null,
+      exactFooter:typeof old?.footer==='function'?old.footer:null
+    };
+  }
+  cache={themes,maxStyle:Math.max(0,...Object.keys(themes).map(Number))};
+  return cache;
+}
+
+export async function getStyle(id){
+  const {themes}=await loadStyleCatalog();
+  const n=Number(id);
+  return themes[n]||themes[1]||{id:1,name:'Dark',botName:'NEXAI',mark:'✦',images:[]};
+}
+
+export async function listStyles(){
+  const {themes}=await loadStyleCatalog();
+  return Object.values(themes).sort((a,b)=>a.id-b.id);
+}
+
+export async function renderDipperHeader(styleId,{botName='NEXAI',ownerName='Utilisateur',rank='utilisateur',prefix='.',count=0}={}){
+  const s=await getStyle(styleId);
+  if(s.exactHeader){
+    try{return s.exactHeader(botName,ownerName,rank,prefix,count)}catch{}
+  }
+  return [
+    s.separator||s.mark,
+    s.botName||botName,
+    s.separator||s.mark,
+    '👤 Utilisateur : '+ownerName,
+    '🎖️ Rang : '+rank,
+    '⌁ Préfixe : [ '+prefix+' ]',
+    '📜 Commandes : '+count,
+    s.separator||s.mark,
+    '',
+    s.tagline?('_'+s.tagline+'_ '+(s.accent||'')):''
+  ].filter(Boolean).join('\n')+'\n';
+}
+
+const directImageCache=new Map();
+
+export async function resolveStyleImage(styleId,fallback=''){
+  const s=await getStyle(styleId);
+  const urls=[...(s.images||[])].filter(Boolean);
+  if(fallback)urls.push(fallback);
+  for(const url of urls){
+    if(directImageCache.has(url))return directImageCache.get(url);
+    if(!/^https?:\/\//i.test(url))continue;
+    if(!/https?:\/\/(?:www\.)?ibb\.co\//i.test(url)){
+      directImageCache.set(url,url);
+      return url;
+    }
+    try{
+      const res=await fetch(url,{headers:{'user-agent':'Mozilla/5.0'},signal:AbortSignal.timeout(6000)});
+      const html=await res.text();
+      const m=html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)/i)||html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+      const v=m?.[1]?.replace(/&amp;/g,'&')||'';
+      if(v){directImageCache.set(url,v);return v}
+    }catch{}
+  }
+  return fallback||'';
+}
