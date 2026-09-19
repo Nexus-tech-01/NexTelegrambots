@@ -4,6 +4,7 @@ import { beginPairing, cleanupPairings, pairingStatus, submitPairingCode, submit
 import { attachConnectedClient, loadSavedRuntimes, runtimeStatus, stopRuntimes } from './runtime.mjs';
 import { listAccounts, patchSettings, closeStore } from './store.mjs';
 import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
+import { loadBotToken } from './secrets.mjs';
 
 assertCoreConfig();
 
@@ -24,7 +25,7 @@ async function route(req,res){
   const url=new URL(req.url,'http://127.0.0.1');
   try{
     if(req.method==='GET'&&url.pathname==='/health'){
-      return json(res,200,{ok:true,service:'nexaccount',botConfigured:!!cfg.botToken,botUsername:cfg.botUsername||null,runtimes:runtimeStatus()});
+      return json(res,200,{ok:true,service:'nexaccount',botConfigured:!!(await loadBotToken()),botUsername:cfg.botUsername||null,runtimes:runtimeStatus()});
     }
     if(req.method==='GET'&&url.pathname==='/accounts'){
       return json(res,200,{ok:true,accounts:await listAccounts(),runtimes:runtimeStatus()});
