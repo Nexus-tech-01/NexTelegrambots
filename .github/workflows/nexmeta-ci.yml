@@ -1,0 +1,38 @@
+name: NexMeta CI
+
+on:
+  push:
+    branches:
+      - feature/nexmeta-v1
+    paths:
+      - "nexmeta/**"
+      - ".github/workflows/nexmeta-ci.yml"
+  pull_request:
+    paths:
+      - "nexmeta/**"
+      - ".github/workflows/nexmeta-ci.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: nexmeta
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: nexmeta/package-lock.json
+      - run: npm install --package-lock-only
+      - run: npm ci
+      - run: npm test
+      - run: |
+          node --check src/config.mjs
+          node --check src/security.mjs
+          node --check src/store.mjs
+          node --check src/normalizer.mjs
+          node --check src/meta-client.mjs
+          node --check src/router.mjs
+          node --check src/server.mjs
