@@ -7,14 +7,48 @@ import { menuModel, stylesModel } from './menu.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { observeUser, recordEvent } from './analytics.mjs';
 import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
-import { beginPairing, submitPairingCode, submitPairingPassword, pairingStatus, cancelPairing } from './pairing.mjs';
 import { attachConnectedClient } from './runtime.mjs';
 import { toSmallCaps } from './styles.mjs';
 
 const commands=commandMap();
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
-const pairingByUser=new Map();
+const webPairUsers=new Map();
 let bot;
+
+function rememberWebPair(userId){
+  webPairUsers.set(String(userId),Date.now()+10*60*1000);
+}
+
+function webPairActive(userId){
+  const key=String(userId);
+  const until=Number(webPairUsers.get(key)||0);
+  if(until>Date.now())return true;
+  webPairUsers.delete(key);
+  return false;
+}
+
+function connectMarkup(lang){
+  return {
+    inline_keyboard:[[
+      {
+        text:lang==='en'?'Open secure connection':'Ouvrir la connexion sécurisée',
+        url:cfg.connectUrl
+      }
+    ]]
+  };
+}
+
+async function sendPairLink(ctx,lang){
+  rememberWebPair(ctx.from.id);
+  const t=lang==='en'
+    ? 'Telegram invalidates login codes when they are sent inside another Telegram chat.\n\nOpen the secure NexAI page below, enter your phone number there, then enter the Telegram code on that page — never in this bot chat.'
+    : 'Telegram invalide les codes de connexion lorsqu’ils sont envoyés dans un autre chat Telegram.\n\nOuvre la page sécurisée NexAI ci-dessous, saisis ton numéro là-bas, puis entre le code Telegram sur cette page — jamais dans le chat du bot.';
+  return ctx.reply(t,{
+    entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}],
+    reply_markup:connectMarkup(lang),
+    link_preview_options:{is_disabled:true}
+  });
+}
 
 function accountForId(accounts,id){
   return accounts.find(a=>String(a.telegramUserId)===String(id))||null;
@@ -171,66 +205,6 @@ async function sendOwner(ctx,kind,args=[]){
   return ctx.reply(text,{entities:ownerEntities(text)});
 }
 
-function pairingErrorMessage(state,lang){
-  const code=String(state?.errorCode||state?.error||'').toUpperCase();
-  if(!code)return '';
-  const en=lang==='en';
-  if(code.includes('PHONE_CODE_INVALID'))return en
-    ? '❌ Telegram rejected this code. Send the latest login code you received.'
-    : '❌ Telegram a refusé ce code. Envoie le dernier code de connexion reçu.';
-  if(code.includes('PHONE_CODE_EXPIRED'))return en
-    ? '❌ This Telegram login code has expired. Start again with /pair.'
-    : '❌ Ce code Telegram a expiré. Relance la connexion avec /pair.';
-  if(code.includes('PHONE_CODE_EMPTY'))return en
-    ? '❌ The code was empty. Send the complete Telegram login code.'
-    : '❌ Le code était vide. Envoie le code Telegram complet.';
-  if(code.includes('PASSWORD_HASH_INVALID'))return en
-    ? '❌ Incorrect Telegram 2FA password. Try again.'
-    : '❌ Mot de passe Telegram 2FA incorrect. Réessaie.';
-  if(code.includes('FLOOD_WAIT'))return en
-    ? '❌ Telegram temporarily limited login attempts. Try again later with /pair.'
-    : '❌ Telegram a temporairement limité les tentatives. Réessaie plus tard avec /pair.';
-  if(code.includes('PHONE_NUMBER_INVALID'))return en
-    ? '❌ Telegram rejected this phone number. Check it and restart with /pair.'
-    : '❌ Telegram a refusé ce numéro. Vérifie-le puis relance /pair.';
-  return en
-    ? '❌ Telegram authentication error: '+String(state?.error||state?.errorCode||'unknown')
-    : '❌ Erreur d’authentification Telegram : '+String(state?.error||state?.errorCode||'inconnue');
-}
-
-async function pairReply(ctx,state,lang){
-  if(state.stage==='code'){
-    const err=pairingErrorMessage(state,lang);
-    const prompt=lang==='en'
-      ? '🔐 ѕᴇɴᴅ ᴛʜᴇ ᴛᴇʟᴇɢʀᴀᴍ ʟᴏɢɪɴ ᴄᴏᴅᴇ.\n/cancel'
-      : '🔐 ᴇɴᴠᴏɪᴇ ʟᴇ ᴄᴏᴅᴇ ᴅᴇ ᴄᴏɴɴᴇxɪᴏɴ ᴛᴇʟᴇɢʀᴀᴍ.\n/cancel';
-    const t=(err?err+'\n\n':'')+prompt;
-    return ctx.reply(t,{entities:quotedEntities(t,['/cancel'])});
-  }
-  if(state.stage==='password'){
-    const err=pairingErrorMessage(state,lang);
-    const prompt=lang==='en'
-      ? '🔑 2ғᴀ ɪѕ ᴇɴᴀʙʟᴇᴅ. ѕᴇɴᴅ ʏᴏᴜʀ ᴛᴇʟᴇɢʀᴀᴍ ᴘᴀѕѕᴡᴏʀᴅ.\n/cancel'
-      : '🔑 ʟᴀ 2ғᴀ ᴇѕᴛ ᴀᴄᴛɪᴠᴇ. ᴇɴᴠᴏɪᴇ ᴛᴏɴ ᴍᴏᴛ ᴅᴇ ᴘᴀѕѕᴇ ᴛᴇʟᴇɢʀᴀᴍ.\n/cancel';
-    const t=(err?err+'\n\n':'')+prompt;
-    return ctx.reply(t,{entities:quotedEntities(t,['/cancel'])});
-  }
-  if(state.stage==='connected'){
-    pairingByUser.delete(String(ctx.from.id));
-    const t=lang==='en'?'✅ ɴᴇxᴀᴄᴄᴏᴜɴᴛ • ᴄᴏɴɴᴇᴄᴛᴇᴅ\n\nᴜѕᴇ .ᴍᴇɴᴜ ғʀᴏᴍ ʏᴏᴜʀ ᴘᴇʀѕᴏɴᴀʟ ᴀᴄᴄᴏᴜɴᴛ.':'✅ ɴᴇxᴀᴄᴄᴏᴜɴᴛ • ᴄᴏɴɴᴇᴄᴛé\n\nᴜᴛɪʟɪѕᴇ .ᴍᴇɴᴜ ᴅᴇᴘᴜɪѕ ᴛᴏɴ ᴄᴏᴍᴘᴛᴇ ᴘᴇʀѕᴏɴɴᴇʟ.';
-    return ctx.reply(t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
-  }
-  if(state.stage==='error'||state.stage==='missing'){
-    pairingByUser.delete(String(ctx.from.id));
-    const err=pairingErrorMessage(state,lang);
-    const base=lang==='en'
-      ? '❌ ᴄᴏɴɴᴇᴄᴛɪᴏɴ ғᴀɪʟᴇᴅ. ᴜѕᴇ /pair ᴛᴏ ѕᴛᴀʀᴛ ᴀɢᴀɪɴ.'
-      : '❌ éᴄʜᴇᴄ ᴅᴇ ʟᴀ ᴄᴏɴɴᴇxɪᴏɴ. ᴜᴛɪʟɪѕᴇ /pair ᴘᴏᴜʀ ʀᴇᴄᴏᴍᴍᴇɴᴄᴇʀ.';
-    const t=(err?err+'\n\n':'')+base;
-    return ctx.reply(t,{entities:quotedEntities(t,['/pair'])});
-  }
-}
-
 export async function startInlineBot(){
   const token=await loadBotToken();
   if(!token){
@@ -262,30 +236,13 @@ export async function startInlineBot(){
   bot.command('pair',async ctx=>{
     if(ctx.chat?.type!=='private')return;
     const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
-    const phone=String(ctx.match||'').trim();
-    if(!phone){
-      const t=lang==='en'?'ᴜѕᴀɢᴇ : /pair +229XXXXXXXX':'ᴜѕᴀɢᴇ : /pair +229XXXXXXXX';
-      return ctx.reply(t,{entities:quotedEntities(t,['/pair'])});
-    }
-    const old=pairingByUser.get(String(ctx.from.id));
-    if(old)await cancelPairing(old).catch(()=>{});
-    try{
-      const state=await beginPairing(phone,async(client,account)=>attachConnectedClient(client,account),ctx.from.id);
-      pairingByUser.set(String(ctx.from.id),state.id);
-      return pairReply(ctx,state,lang);
-    }catch(e){
-      console.error('[NexAI pair]',String(e.message||e));
-      const t=lang==='en'?'❌ ᴜɴᴀʙʟᴇ ᴛᴏ ѕᴛᴀʀᴛ ᴘᴀɪʀɪɴɢ.':'❌ ɪᴍᴘᴏѕѕɪʙʟᴇ ᴅᴇ ᴅéᴍᴀʀʀᴇʀ ʟᴀ ᴄᴏɴɴᴇxɪᴏɴ.';
-      return ctx.reply(t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
-    }
+    return sendPairLink(ctx,lang);
   });
 
   bot.command('cancel',async ctx=>{
-    const id=pairingByUser.get(String(ctx.from.id));
-    if(id)await cancelPairing(id).catch(()=>{});
-    pairingByUser.delete(String(ctx.from.id));
+    webPairUsers.delete(String(ctx.from.id));
     const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
-    const t=lang==='en'?'✦ ᴘᴀɪʀɪɴɢ ᴄᴀɴᴄᴇʟʟᴇᴅ.':'✦ ᴄᴏɴɴᴇxɪᴏɴ ᴀɴɴᴜʟéᴇ.';
+    const t=lang==='en'?'✦ ᴄᴏɴɴᴇᴄᴛɪᴏɴ ᴘʀᴏᴍᴘᴛ ᴄʟᴏѕᴇᴅ.':'✦ ᴘᴀʀᴄᴏᴜʀѕ ᴅᴇ ᴄᴏɴɴᴇxɪᴏɴ ғᴇʀᴍé.';
     return ctx.reply(t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
   });
 
@@ -301,30 +258,22 @@ export async function startInlineBot(){
 
   bot.on('message:text',async ctx=>{
     if(ctx.chat?.type!=='private')return;
-    const pairingId=pairingByUser.get(String(ctx.from.id));
-    if(!pairingId)return;
-    if(String(ctx.message.text||'').startsWith('/'))return;
-    const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
-    const state=pairingStatus(pairingId);
-    try{
-      if(state.stage==='code'){
-        const value=String(ctx.message.text||'').trim();
-        await ctx.deleteMessage().catch(()=>{});
-        return pairReply(ctx,await submitPairingCode(pairingId,value),lang);
-      }
-      if(state.stage==='password'){
-        const value=String(ctx.message.text||'');
-        await ctx.deleteMessage().catch(()=>{});
-        return pairReply(ctx,await submitPairingPassword(pairingId,value),lang);
-      }
-      return pairReply(ctx,state,lang);
-    }catch(e){
+    const text=String(ctx.message.text||'').trim();
+    if(text.startsWith('/'))return;
+
+    // Telegram automatically invalidates account login codes sent as messages
+    // to any Telegram chat. Protect users who still try the legacy DM flow.
+    if(webPairActive(ctx.from.id)&&/^[0-9-]{5,12}$/.test(text)){
       await ctx.deleteMessage().catch(()=>{});
-      console.error('[NexAI pair input]',String(e.message||e));
-      const fresh=pairingStatus(pairingId);
-      if(fresh.stage==='error'||fresh.stage==='missing')return pairReply(ctx,fresh,lang);
-      const t=lang==='en'?'❌ ɪɴᴠᴀʟɪᴅ ᴠᴀʟᴜᴇ. ᴛʀʏ ᴀɢᴀɪɴ ᴏʀ /cancel.':'❌ ᴠᴀʟᴇᴜʀ ɪɴᴠᴀʟɪᴅᴇ. ʀéᴇѕѕᴀɪᴇ ᴏᴜ /cancel.';
-      return ctx.reply(t,{entities:quotedEntities(t,['/cancel'])});
+      const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
+      const t=lang==='en'
+        ? 'That login code is now unusable because it was sent in a Telegram chat. Request a new code from the secure page and enter it only there.'
+        : 'Ce code est maintenant inutilisable parce qu’il a été envoyé dans un chat Telegram. Demande un nouveau code depuis la page sécurisée et saisis-le uniquement là-bas.';
+      return ctx.reply(t,{
+        entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}],
+        reply_markup:connectMarkup(lang),
+        link_preview_options:{is_disabled:true}
+      });
     }
   });
 
