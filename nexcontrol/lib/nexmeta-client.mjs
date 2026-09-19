@@ -184,3 +184,26 @@ export async function doctorNexMetaPage(pageId) {
 export async function doctorAllNexMetaPages() {
   return nexMetaAction('doctor_all_pages');
 }
+
+
+export async function configureDefaultNexMetaMessengerProfile() {
+  return nexMetaAction('configure_default_messenger_profile');
+}
+
+export async function configureNexMetaMessengerProfile(profile) {
+  return nexMetaAction('configure_messenger_profile', {
+    profile
+  });
+}
+
+export async function inspectNexMetaMessengerProfile(fields) {
+  return nexMetaAction('inspect_messenger_profile', {
+    ...(Array.isArray(fields) ? { fields } : {})
+  });
+}
+
+export async function deleteNexMetaMessengerProfileFields(fields) {
+  return nexMetaAction('delete_messenger_profile_fields', {
+    fields
+  });
+}
