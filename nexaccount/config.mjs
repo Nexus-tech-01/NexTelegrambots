@@ -1,5 +1,8 @@
 import crypto from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
+const HERE=path.dirname(fileURLToPath(import.meta.url));
 const pick=(...names)=>{
   for(const name of names){
     const value=String(process.env[name]??'').trim();
@@ -25,8 +28,17 @@ export const cfg={
   autoReact:pick('NEXAI_AUTO_REACT')!=='0',
   autoJoin:pick('NEXAI_AUTO_JOIN')!=='0',
   ownerName:pick('NEXAI_OWNER_NAME','OWNER_NAME')||'Trésor',
+  ownerTelegramId:pick('NEXAI_OWNER_TELEGRAM_ID','NEXUS_OWNER_TELEGRAM_ID','NEXDOWNLOADER__OWNER_TELEGRAM_ID','NEXWHISPER__OWNER_TELEGRAM_ID'),
+  creatorUsername:pick('NEXAI_CREATOR_USERNAME','NEXUS_CREATOR_USERNAME')||'tresor20001',
+  creatorDisplayName:pick('NEXAI_CREATOR_DISPLAY_NAME')||'⏤͟͟͞͞𝄞ᬼ⃟𝐌ꝛ⥔𝕿𝖗𝖊𝖘𝖔𝖗✧ ⃞.',
+  creatorImagePath:pick('NEXAI_CREATOR_IMAGE_PATH')||path.join(HERE,'assets','creator.jpg'),
   defaultMenuImage:pick('NEXAI_DEFAULT_MENU_IMAGE_URL')
 };
+cfg.creatorUrl='https://t.me/'+cfg.creatorUsername.replace(/^@/,'');
+
+export function isOwnerId(id){
+  return Boolean(cfg.ownerTelegramId)&&String(id)===String(cfg.ownerTelegramId);
+}
 
 export function assertCoreConfig(){
   const missing=[];
