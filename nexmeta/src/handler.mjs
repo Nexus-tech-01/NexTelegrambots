@@ -37,6 +37,13 @@ function writeHtml(res, status, title, message) {
   res.statusCode = status;
   res.setHeader('content-type', 'text/html; charset=utf-8');
   res.setHeader('cache-control', 'no-store');
+  res.setHeader('referrer-policy', 'no-referrer');
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('x-frame-options', 'DENY');
+  res.setHeader(
+    'content-security-policy',
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"
+  );
   res.end(`<!doctype html>
 <html lang="fr">
 <head>
