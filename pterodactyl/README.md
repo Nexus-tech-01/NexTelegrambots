@@ -194,3 +194,38 @@ The readiness report therefore distinguishes:
 - adapter production-ready
 
 and does not falsely mark the complete Nexus bridge ready while required adapters/features remain incomplete.
+
+
+## Live smoke test
+
+After `sh pterodactyl/start.sh` is running, execute:
+
+```sh
+node pterodactyl/smoke-meta.mjs
+```
+
+The smoke test verifies:
+
+1. `/health/meta` is NexMeta and healthy
+2. `/connect/meta` is reachable
+3. Meta webhook verification returns the expected challenge
+4. a webhook with a fake signature is rejected with HTTP 401
+5. the private status endpoint authenticates correctly
+6. `connection_readiness` reports ready
+
+Do not start the Facebook OAuth flow until this test passes.
+
+## Safe migration behavior
+
+Missing NexMeta configuration or a failed NexMeta dependency installation does **not** intentionally take the Telegram bots offline.
+
+The public supervisor reserves the public port first, then starts Telegram and NexMeta on separate internal ports.
+
+If NexMeta cannot be started for the current boot:
+
+- Telegram continues through the existing orchestrator
+- Meta routes return HTTP 503 with `nexmeta_unavailable`
+- `/health/all` reports the problem
+- fix the environment/dependencies and restart the Pterodactyl server
+
+This avoids turning a Meta rollout problem into a regression for the existing Telegram bots.
