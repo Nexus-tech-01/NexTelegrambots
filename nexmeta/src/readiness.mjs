@@ -123,11 +123,11 @@ export async function deploymentReadiness() {
     ),
     check(
       'page_webhook_subscription',
-      pages.subscribedPages > 0 || pages.staticFallbackConfigured,
+      pages.subscribedPages > 0,
       pages.subscribedPages > 0
         ? `${pages.subscribedPages} Page(s) subscribed`
         : pages.staticFallbackConfigured
-          ? 'Static Page: subscription state not stored in vault'
+          ? 'Static Page configured, but webhook subscription is not confirmed'
           : pageStateError
             ? `Webhook state unavailable: ${pageStateError}`
             : 'No Page webhook subscription confirmed'
