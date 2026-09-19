@@ -9,9 +9,11 @@ import { listStyles } from './styles.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { recordEvent } from './analytics.mjs';
 import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
+import { handleCompatCommand } from './compat.mjs';
 
 const commands=commandMap();
 const runtimes=new Map();
+const spamWindows=new Map();
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 function randomLong(){
@@ -115,7 +117,10 @@ async function joinTarget(client,target){
 
 async function proxyCommand(client,peer,cmd,args){
   const botEntity=await client.getInputEntity(cmd.proxy);
-  const sent=await client.sendMessage(botEntity,{message:'/'+cmd.name+(args.length?' '+args.join(' '):'')});
+  const body=cmd.proxyMode==='chat'
+    ? String(args.join(' ')||cmd.name)
+    : '/'+cmd.name+(args.length?' '+args.join(' '):'');
+  const sent=await client.sendMessage(botEntity,{message:body});
   const deadline=Date.now()+25000;
   while(Date.now()<deadline){
     await sleep(900);
@@ -172,7 +177,13 @@ async function handleCommand(runtime,event,parsed){
   if(parsed.name==='menu')return sendInline(client,peer,'menu');
 
   const cmd=commands.get(parsed.name);
-  if(!cmd)return false;
+  if(!cmd){
+    const settings=await settingsFor(account.telegramUserId);
+    const chatId=String(event.chatId||event.message?.chatId||event.message?.peerId?.channelId||event.message?.peerId?.chatId||'global');
+    const custom=settings.groupPolicies?.[chatId]?.customCommands?.[parsed.name];
+    if(custom){await sendText(client,peer,String(custom));return true}
+    return false;
+  }
   if(cmd.ownerOnly&&!isOwnerId(account.telegramUserId))return true;
 
   const name=cmd.aliasFor||cmd.name;
@@ -186,10 +197,16 @@ async function handleCommand(runtime,event,parsed){
     return true;
   }
   if(cmd.proxy){
-    try{await proxyCommand(client,peer,{...cmd,name},parsed.args)}
+    const proxyName=cmd.sourceCommand||name;
+    try{await proxyCommand(client,peer,{...cmd,name:proxyName},parsed.args)}
     catch(e){await sendText(client,peer,'Erreur '+name+' : '+String(e.message||e))}
     return true;
   }
+
+  const compatHandled=await handleCompatCommand({
+    runtime,event,name,args:parsed.args,cmd,sendText,proxyCommand,sendInline
+  });
+  if(compatHandled)return true;
 
   switch(name){
     case 'ping':{
@@ -217,7 +234,7 @@ async function handleCommand(runtime,event,parsed){
       }catch(e){await sendText(client,peer,'Impossible de quitter ce chat : '+String(e.errorMessage||e.message||e))}
       return true;
     default:
-      await sendText(client,peer,'La commande '+name+' est enregistrée dans NexAI mais son adaptateur Telegram n’est pas encore chargé.');
+      await sendText(client,peer,'NexAI a reconnu .'+name+', mais cette action ne possède pas de traduction Telegram sûre pour ce contexte. Utilise .menu pour voir sa catégorie ou une commande équivalente.');
       return true;
   }
 }
@@ -244,13 +261,42 @@ async function maybeAutoReact(runtime,event){
   await client.invoke(new Api.messages.SendReaction({peer,msgId:event.message.id,reaction:[new Api.ReactionEmoji({emoticon})]})).catch(()=>{});
 }
 
-async function maybeAntiLink(runtime,event){
+async function maybeAutoModerate(runtime,event){
   const {client,account}=runtime;
+  const message=event.message;if(!message)return;
   const settings=await settingsFor(account.telegramUserId);
-  if(!settings.antilink?.enabled)return;
-  const text=textOf(event.message);
-  if(!/(?:https?:\/\/|t\.me\/|telegram\.me\/|www\.)/i.test(text))return;
-  try{await client.deleteMessages(event.message.peerId,[event.message.id],{revoke:true})}catch{}
+  const chatId=String(event.chatId||message.chatId||message.peerId?.channelId||message.peerId?.chatId||'global');
+  const policy=settings.groupPolicies?.[chatId]||{};
+  const text=textOf(message);
+  const sender=String(message.senderId||event.senderId||'');
+  if(Array.isArray(policy.whitelist)&&policy.whitelist.map(String).includes(sender))return;
+  let remove=Array.isArray(policy.blacklist)&&policy.blacklist.map(String).includes(sender);
+  if(!remove&&policy.antilink&&/(?:https?:\/\/|t\.me\/|telegram\.me\/|www\.)/i.test(text))remove=true;
+  if(!remove&&policy.antitag&&/@[A-Za-z0-9_]{3,}/.test(text))remove=true;
+  if(!remove&&policy.antigroupmention&&(text.match(/@[A-Za-z0-9_]{3,}/g)||[]).length>=5)remove=true;
+  if(!remove&&policy.antibadword){
+    const bad=Array.isArray(policy.badwords)?policy.badwords:[];
+    if(bad.some(w=>w&&text.toLowerCase().includes(String(w).toLowerCase())))remove=true;
+  }
+  if(!remove&&policy.antispam&&sender){
+    const key=account.telegramUserId+':'+chatId+':'+sender,now=Date.now();
+    const recent=(spamWindows.get(key)||[]).filter(t=>now-t<10000);recent.push(now);spamWindows.set(key,recent);
+    if(recent.length>5)remove=true;
+  }
+  if(remove){try{await client.deleteMessages(message.peerId,[message.id],{revoke:true})}catch{}}
+}
+
+async function maybeServiceGreeting(runtime,event){
+  const {client,account}=runtime;const message=event.message,action=message?.action;if(!action)return;
+  const settings=await settingsFor(account.telegramUserId);
+  const chatId=String(event.chatId||message.chatId||message.peerId?.channelId||message.peerId?.chatId||'global');
+  const policy=settings.groupPolicies?.[chatId]||{};
+  const kind=String(action.className||action.constructor?.name||'');
+  if(/ChatAddUser|ChatJoinedByLink|ChatJoinedByRequest/i.test(kind)&&policy.welcome){
+    await sendText(client,message.peerId,String(policy.welcomeText||'Bienvenue dans le groupe.')).catch(()=>{});
+  }else if(/ChatDeleteUser/i.test(kind)&&policy.goodbye){
+    await sendText(client,message.peerId,String(policy.goodbyeText||'À bientôt.')).catch(()=>{});
+  }
 }
 
 async function runAutoJoin(runtime){
@@ -279,7 +325,8 @@ export async function attachConnectedClient(client,account){
 
   client.addEventHandler(async event=>{
     try{
-      await maybeAntiLink(runtime,event);
+      await maybeAutoModerate(runtime,event);
+      await maybeServiceGreeting(runtime,event);
       await maybeAutoReact(runtime,event);
     }catch(e){console.error('[NexAccount incoming]',id,e)}
   },new NewMessage({incoming:true}));
