@@ -1,5 +1,4 @@
 import { decryptPairingEnvelope, pairingPublicKey } from './secure-rpc.mjs';
-import { createWebPairing, webPairingStatus } from './web-pairing.mjs';
 
 const port=Number(process.env.NEXACCOUNT_PORT||3491);
 const base='http://127.0.0.1:'+port;
@@ -58,15 +57,8 @@ try{
       if(!args[0])throw new Error('pair id required');
       out=await call('GET','/pair/status?id='+encodeURIComponent(args[0]));
       break;
-    case 'web-pair-start':
-      out=await call('POST','/web-pair/start',{});
-      break;
-    case 'web-pair-status':
-      if(!args[0])throw new Error('web pair id required');
-      out=await call('GET','/web-pair/status?id='+encodeURIComponent(args[0]));
-      break;
     default:
-      throw new Error('usage: cli.mjs health|accounts|public-key|secure ENVELOPE|pair-status ID|web-pair-start|web-pair-status ID');
+      throw new Error('usage: cli.mjs health|accounts|public-key|secure ENVELOPE|pair-status ID');
   }
   process.stdout.write(JSON.stringify(out));
 }catch(e){
