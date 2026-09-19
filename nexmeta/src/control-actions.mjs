@@ -25,6 +25,7 @@ import {
   markWebhookReplay
 } from './store.mjs';
 import { processWebhookPayload } from './processor.mjs';
+import { createIdentityLinkCode } from './identity-link.mjs';
 import { config } from './config.mjs';
 
 export const CONTROL_CAPABILITIES = Object.freeze([
@@ -36,6 +37,7 @@ export const CONTROL_CAPABILITIES = Object.freeze([
   'set_runtime',
   'list_webhook_events',
   'replay_webhook',
+  'create_link_code',
   'link_identity',
   'unlink_identity',
   'send_text',
@@ -176,6 +178,12 @@ export async function executeControlAction(body) {
           ...result
         };
       }
+
+    case 'create_link_code':
+      return createIdentityLinkCode({
+        nexusUserId: requireString(body.nexusUserId, 'nexusUserId', 500),
+        ttlSeconds: body.ttlSeconds
+      });
 
     case 'link_identity':
       return linkIdentity({
