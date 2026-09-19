@@ -46,7 +46,7 @@ jobs:
             node --check "$f"
           done
 
-      - name: Deploy through NexControl Agent
+      - name: Validate command registry\n        run: node nexaccount/scripts/validate-registry.mjs\n\n      - name: Deploy through NexControl Agent
         shell: bash
         run: |
           set -euo pipefail
