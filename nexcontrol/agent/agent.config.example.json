@@ -56,5 +56,6 @@
     "ffprobe",
     "yt-dlp",
     "gallery-dl"
-  ]
+  ],
+  "allowDependencyInstall": true
 }
