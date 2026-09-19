@@ -1,6 +1,7 @@
 import { cfg } from './config.mjs';
 import { CATEGORY_ICONS, CATEGORY_LABELS, CATEGORY_ORDER, commandsByCategory } from './commands.mjs';
 import { getStyle, listStyles, renderDipperHeader, resolveStyleImage } from './styles.mjs';
+import { categoryLabel, tr } from './i18n.mjs';
 
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
 
@@ -26,6 +27,7 @@ function commandText(lines){
 }
 
 export async function menuModel({account,settings,commands,view='home',category=null}){
+  const lang=settings.language==='en'?'en':'fr';
   const groups=commandsByCategory(commands);
   const style=await getStyle(settings.style||1);
   const header=await renderDipperHeader(style.id,{
@@ -38,7 +40,7 @@ export async function menuModel({account,settings,commands,view='home',category=
   let body=header,spans=[];
   if(view==='category'&&category){
     const list=(groups[category]||[]).filter(c=>!c.ownerOnly);
-    body+='\n'+(CATEGORY_LABELS[category]||category)+'\n\n';
+    body+='\n'+categoryLabel(lang,category)+'\n\n';
     const visible=list.map(c=>({name:c.name,suffix:c.premium&&!account.premium?'  · Premium':''}));
     const ct=commandText(visible);
     const shift=body.length;
@@ -50,12 +52,12 @@ export async function menuModel({account,settings,commands,view='home',category=
   if(style.exactFooter){
     try{body+='\n'+style.exactFooter()}catch{}
   }
-  body+='\nPowered by Nextech';
+  body+='\n'+tr(lang,'powered');
   const buttons=[];
   if(view==='home'){
     const cats=CATEGORY_ORDER.filter(cat=>(groups[cat]||[]).some(c=>!c.ownerOnly));
     for(let i=0;i<cats.length;i+=2){
-      buttons.push(cats.slice(i,i+2).map(cat=>button(CATEGORY_LABELS[cat]||cat,'cat:'+cat,'primary',CATEGORY_ICONS[cat])));
+      buttons.push(cats.slice(i,i+2).map(cat=>button(categoryLabel(lang,cat),'cat:'+cat,'primary',CATEGORY_ICONS[cat])));
     }
     const links=[];
     if(cfg.nextechUrl)links.push(urlButton('Nextech',cfg.nextechUrl,'success','nextech'));
@@ -63,7 +65,7 @@ export async function menuModel({account,settings,commands,view='home',category=
     if(cfg.darkUniverseUrl)links.push(urlButton('Dark Universe',cfg.darkUniverseUrl,'success','dark'));
     if(links.length)buttons.push(links);
   }else{
-    buttons.push([button('MENU','menu:home','primary','back')]);
+    buttons.push([button(tr(lang,'menu'),'menu:home','primary','back')]);
   }
   const text=body.trim();
   return {
@@ -75,20 +77,21 @@ export async function menuModel({account,settings,commands,view='home',category=
 }
 
 export async function stylesModel({account,settings}){
+  const lang=settings.language==='en'?'en':'fr';
   const styles=(await listStyles()).filter(s=>s.id>0);
-  let text='NEXAI · STYLES\n\n',spans=[];
+  let text='NEXAI · '+tr(lang,'styles_title')+'\n\n',spans=[];
   for(const s of styles){
     const command='/style'+s.id;
     const start=text.length;
     text+=command;
     spans.push({start,text:command});
-    text+=' · '+s.name+(Number(settings.style)===s.id?' · ACTIF':'')+'\n';
+    text+=' · '+s.name+(Number(settings.style)===s.id?' · '+tr(lang,'active'):'')+'\n';
   }
-  text+='\nTu peux aussi utiliser .style <numéro>.\nPowered by Nextech';
+  text+='\n'+tr(lang,'style_hint')+'\n'+tr(lang,'powered');
   return {
     text,
     entities:expandableEntities(text,spans),
-    reply_markup:{inline_keyboard:[[button('MENU','menu:home','primary','back')]]},
+    reply_markup:{inline_keyboard:[[button(tr(lang,'menu'),'menu:home','primary','back')]]},
     photoUrl:await resolveStyleImage(settings.style||1,cfg.defaultMenuImage)
   };
 }
