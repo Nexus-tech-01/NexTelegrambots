@@ -410,7 +410,7 @@ async function control(req, res, url, path) {
     return writeJson(res, 200, {
       ok: true,
       service: 'nexmeta',
-      version: '0.4.0',
+      version: '0.5.0',
       metaConfigured: metaConfigured(),
       oauthConfigured: oauthConfigured(),
       ownerConnectConfigured:
@@ -484,7 +484,7 @@ export async function handleRequest(req, res) {
       return writeJson(res, 200, {
         ok: true,
         service: 'nexmeta',
-        version: '0.4.0',
+        version: '0.5.0',
         metaConfigured: metaConfigured(),
         oauthConfigured: oauthConfigured(),
         ownerConnectConfigured:
