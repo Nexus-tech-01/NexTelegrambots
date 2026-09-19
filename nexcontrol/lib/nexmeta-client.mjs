@@ -36,10 +36,13 @@ async function request(path, options = {}) {
   }
 
   if (!response.ok) {
-    const error = new Error(data?.message || data?.error || `NexMeta HTTP ${response.status}`);
+    const error = new Error(
+      data?.message || data?.error || `NexMeta HTTP ${response.status}`
+    );
     error.status = response.status;
     error.code = data?.error;
     error.metaCode = data?.metaCode;
+    error.metaSubcode = data?.metaSubcode;
     throw error;
   }
 
@@ -72,4 +75,47 @@ export async function nexMetaRuntimeSettings() {
 
 export async function setNexMetaRuntime(patch) {
   return nexMetaAction('set_runtime', patch);
+}
+
+export async function nexMetaPage() {
+  return nexMetaAction('probe_page');
+}
+
+export async function nexMetaConversations(payload = {}) {
+  return nexMetaAction('list_conversations', payload);
+}
+
+export async function nexMetaConversationMessages(conversationId, payload = {}) {
+  return nexMetaAction('list_conversation_messages', {
+    conversationId,
+    ...payload
+  });
+}
+
+export async function createNexMetaLinkCode(nexusUserId, ttlSeconds = 600) {
+  return nexMetaAction('create_link_code', {
+    nexusUserId,
+    ttlSeconds
+  });
+}
+
+export async function nexMetaWebhookEvents(payload = {}) {
+  return nexMetaAction('list_webhook_events', payload);
+}
+
+export async function replayNexMetaWebhook(eventKey) {
+  return nexMetaAction('replay_webhook', {
+    eventKey
+  });
+}
+
+export async function publishNexMetaPost(payload) {
+  return nexMetaAction('publish_page_post', payload);
+}
+
+export async function sendNexMetaMessage(psid, text) {
+  return nexMetaAction('send_text', {
+    psid,
+    text
+  });
 }
