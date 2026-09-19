@@ -121,24 +121,23 @@ function page(res){
 }
 export async function handleNexAiPublic(req,res,u){
   if(req.method==='GET'&&(u.pathname==='/nexai/connect'||u.pathname==='/nexai/connect/')){page(res);return true;}
-  if(req.method==='GET'&&u.pathname==='/nexai/assets/hero'){await serveAsset(res,'hero',5,'image/webp');return true;}
-  if(req.method==='GET'&&u.pathname==='/nexai/assets/music'){await serveAsset(res,'music',8,'audio/mpeg');return true;}
+  if(req.method==='GET'&&u.pathname==='/nexai/assets/hero'){await serveAsset(res,'hero',1,'image/webp');return true;}
+  if(req.method==='GET'&&u.pathname==='/nexai/assets/music'){await serveAsset(res,'music',1,'audio/mpeg');return true;}
   if(!u.pathname.startsWith('/api/nexai/'))return false;
   try{
-    if(req.method==='GET'&&u.pathname==='/api/nexai/key'){
-      const r=await agentCli(req,['public-key'],20000);
+    if(req.method==='POST'&&u.pathname==='/api/nexai/pair/start'){
+      const r=await agentCli(req,['web-pair-start'],20000);
+      json(res,r.status,r.json);return true;
+    }
+    if(req.method==='GET'&&u.pathname==='/api/nexai/pair/status'){
+      const id=String(u.searchParams.get('id')||'');
+      if(!/^[0-9a-f-]{20,50}$/i.test(id)){json(res,400,{ok:false,error:'invalid_pair_id'});return true;}
+      const r=await agentCli(req,['web-pair-status',id],20000);
       json(res,r.status,r.json);return true;
     }
     if(req.method==='GET'&&u.pathname==='/api/nexai/health'){
       const r=await agentCli(req,['health'],20000);
       json(res,r.status,{ok:r.status===200});return true;
-    }
-    if(req.method==='POST'&&u.pathname==='/api/nexai/secure'){
-      const q=await body(req);
-      const envelope=String(q.envelope||'');
-      if(!/^[A-Za-z0-9+/=]{100,2000}$/.test(envelope)){json(res,400,{ok:false,error:'invalid_envelope'});return true;}
-      const r=await agentCli(req,['secure',envelope],45000);
-      json(res,r.status,r.json);return true;
     }
     json(res,404,{ok:false,error:'not_found'});return true;
   }catch(e){
