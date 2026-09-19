@@ -34,12 +34,18 @@ jobs:
           node --input-type=module - <<'NODE'
           import {loadStyleCatalog} from './nexaccount/styles.mjs';
           import {menuModel,stylesModel} from './nexaccount/menu.mjs';
-          import {commandMap} from './nexaccount/commands.mjs';
+          import {commandMap,registrySummary} from './nexaccount/commands.mjs';
           const c=await loadStyleCatalog();
           if(c.maxStyle<20)throw new Error('Dipper styles missing');
+          const registry=commandMap();
+          const summary=registrySummary(registry);
+          if(summary.total<500)throw new Error('NexAI registry below 500 commands: '+summary.total);
+          if(summary.dipper<300)throw new Error('Dipper command import unexpectedly low: '+summary.dipper);
+          if(summary.unresolved.length)throw new Error('Unrouted commands: '+summary.unresolved.join(', '));
+          console.log('registry',summary);
           const account={telegramUserId:'123',username:'test',firstName:'Test',premium:true};
           const settings={style:1,prefix:'.'};
-          const menu=await menuModel({account,settings,commands:commandMap()});
+          const menu=await menuModel({account,settings,commands:registry});
           const styles=await stylesModel({account,settings});
           if(!menu.entities.some(x=>x.type==='expandable_blockquote'))throw new Error('expandable quote missing');
           if(!styles.entities.some(x=>x.type==='bot_command'))throw new Error('style commands missing');
