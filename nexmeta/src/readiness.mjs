@@ -132,7 +132,8 @@ export async function deploymentReadiness() {
     'oauth_redirect',
     'token_encryption',
     'nexcontrol_machine_key',
-    'active_page'
+    'active_page',
+    'page_webhook_subscription'
   ]);
 
   const bridgeCheckNames = new Set([
