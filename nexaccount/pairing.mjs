@@ -26,14 +26,16 @@ function safeError(e){
   return String(e?.errorMessage||e?.message||e||'Unknown error').slice(0,1000);
 }
 
-export async function beginPairing(phone,onConnected){
+export async function beginPairing(phone,onConnected,expectedTelegramUserId=''){
   const normalized=String(phone||'').replace(/[\s()-]/g,'');
-  if(!/^\+?[0-9]{7,16}$/.test(normalized))throw new Error('Numéro Telegram invalide');
+  if(!/^\+?[0-9]{7,16}$/.test(normalized))throw new Error('Invalid Telegram phone number');
+
   const id=crypto.randomUUID();
   const code=deferred(),password=deferred();
   const state={
     id,phone:normalized,stage:'starting',error:'',client:null,
-    resolveCode:code.resolve,resolvePassword:password.resolve,
+    resolveCode:code.resolve,rejectCode:code.reject,
+    resolvePassword:password.resolve,rejectPassword:password.reject,
     createdAt:Date.now()
   };
   pending.set(id,state);
@@ -58,13 +60,28 @@ export async function beginPairing(phone,onConnected){
         },
         onError:e=>{state.error=safeError(e)}
       });
+
       const me=await client.getMe();
-      const saved=await saveAccount({me,session:client.session.save(),phone:normalized});
+      if(expectedTelegramUserId&&String(me.id)!==String(expectedTelegramUserId)){
+        throw new Error('Connected Telegram account does not match this NexAI DM');
+      }
+
+      const saved=await saveAccount({
+        me,
+        session:client.session.save(),
+        phone:normalized
+      });
+
       state.stage='connected';
       state.account=saved;
+
       try{
-        await client.sendMessage('me',{message:'NexAccount connecté.\n\nLe moteur personnel est maintenant actif sur ce compte.\nCommande : .menu'});
+        const savedMessage=saved.preferredLanguage==='en'
+          ? 'NexAccount connected.\n\nYour personal engine is now active on this account.\nCommand: .menu'
+          : 'NexAccount connecté.\n\nLe moteur personnel est maintenant actif sur ce compte.\nCommande : .menu';
+        await client.sendMessage('me',{message:savedMessage});
       }catch{}
+
       await onConnected?.(client,saved);
       return saved;
     }catch(e){
@@ -82,10 +99,12 @@ export async function beginPairing(phone,onConnected){
 
 export async function submitPairingCode(id,value){
   const state=pending.get(String(id));
-  if(!state)throw new Error('Pairing expiré ou introuvable');
+  if(!state)throw new Error('Pairing expired or not found');
   if(state.stage!=='code')return pairingStatus(id);
+
   const code=String(value||'').replace(/\s+/g,'');
-  if(!/^[0-9A-Za-z-]{3,16}$/.test(code))throw new Error('Code Telegram invalide');
+  if(!/^[0-9A-Za-z-]{3,16}$/.test(code))throw new Error('Invalid Telegram code');
+
   state.stage='verifying_code';
   state.resolveCode(code);
   await waitStage(state,['password','connected','error'],20000);
@@ -94,12 +113,26 @@ export async function submitPairingCode(id,value){
 
 export async function submitPairingPassword(id,value){
   const state=pending.get(String(id));
-  if(!state)throw new Error('Pairing expiré ou introuvable');
+  if(!state)throw new Error('Pairing expired or not found');
   if(state.stage!=='password')return pairingStatus(id);
+
   state.stage='verifying_password';
   state.resolvePassword(String(value||''));
   await waitStage(state,['connected','error'],20000);
   return pairingStatus(id);
+}
+
+export async function cancelPairing(id){
+  const state=pending.get(String(id));
+  if(!state)return {id:String(id),stage:'missing'};
+
+  state.stage='cancelled';
+  const err=new Error('Pairing cancelled');
+  try{state.rejectCode?.(err)}catch{}
+  try{state.rejectPassword?.(err)}catch{}
+  try{await state.client?.disconnect()}catch{}
+  pending.delete(String(id));
+  return {id:String(id),stage:'cancelled'};
 }
 
 export function pairingStatus(id){
