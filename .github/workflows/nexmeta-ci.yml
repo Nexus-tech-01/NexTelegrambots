@@ -32,6 +32,8 @@ jobs:
           node --check src/security.mjs
           node --check src/store.mjs
           node --check src/normalizer.mjs
+          node --check src/token-vault.mjs
+          node --check src/meta-oauth.mjs
           node --check src/meta-client.mjs
           node --check src/router.mjs
           node --check src/identity-link.mjs
