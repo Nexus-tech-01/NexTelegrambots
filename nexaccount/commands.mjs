@@ -22,6 +22,13 @@ export const CORE_COMMANDS=[
   C('hidetag','GROUP',{description:'Mention silencieuse'}),
   C('welcome','GROUP',{description:'Réglage welcome'}),
   C('goodbye','GROUP',{description:'Réglage goodbye'}),
+  C('channels','CHANNEL',{description:'Lister les chaînes du compte'}),
+  C('post','CHANNEL',{description:'Publier dans une chaîne'}),
+  C('forward','CHANNEL',{description:'Transférer une publication'}),
+  C('schedule','CHANNEL',{description:'Programmer une publication'}),
+  C('drafts','CHANNEL',{description:'Brouillons de publication'}),
+  C('story','CHANNEL',{description:'Publier une Story',premium:true}),
+
   C('antilink','PROTECTION',{description:'Protection anti-liens'}),
   C('antispam','PROTECTION',{description:'Protection anti-spam'}),
   C('antiraid','PROTECTION',{description:'Protection anti-raid'}),
