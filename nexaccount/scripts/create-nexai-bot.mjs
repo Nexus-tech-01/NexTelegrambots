@@ -2,9 +2,19 @@ import { TelegramClient } from 'teleproto';
 import { StringSession } from 'teleproto/sessions/index.js';
 import { saveBotToken } from '../secrets.mjs';
 import { cfg } from '../config.mjs';
+import { listAccounts, accountWithSession } from '../store.mjs';
 
-const session=String(process.env.NEXGROUP__TELEGRAM_MTPROTO_SESSION||process.env.NEXACCOUNT_BOOTSTRAP_SESSION||'').trim();
-if(!session)throw new Error('No MTProto bootstrap session available');
+let session=String(process.env.NEXGROUP__TELEGRAM_MTPROTO_SESSION||process.env.NEXACCOUNT_BOOTSTRAP_SESSION||'').trim();
+let bootstrapAccount=null;
+if(!session){
+  const accounts=await listAccounts();
+  const chosen=accounts.find(a=>a.premium===true)||accounts[0];
+  if(chosen){
+    bootstrapAccount=await accountWithSession(chosen.telegramUserId);
+    session=String(bootstrapAccount?.session||'').trim();
+  }
+}
+if(!session)throw new Error('Pair at least one Telegram account before creating NexAI');
 if(!cfg.apiId||!cfg.apiHash)throw new Error('Telegram API credentials missing');
 
 const client=new TelegramClient(new StringSession(session),cfg.apiId,cfg.apiHash,{connectionRetries:5});
@@ -64,5 +74,5 @@ await configure('/setinline','Search NexAI commands…').catch(()=>{});
 await configure('/setdescription','NexAI · personal Telegram automation powered by Nextech.').catch(()=>{});
 await configure('/setabouttext','NexAI · powered by Nextech.').catch(()=>{});
 
-console.log('NEXAI_CREATED @'+username);
+console.log('NEXAI_CREATED @'+username+(bootstrapAccount?.premium?' owner=premium':''));
 await client.disconnect();
