@@ -78,6 +78,21 @@ async function collection() {
   return pages;
 }
 
+function publicPage(item) {
+  return {
+    pageId: item.pageId,
+    name: item.name,
+    tasks: item.tasks || [],
+    active: item.active === true,
+    webhookSubscribed: item.webhookSubscribed === true,
+    webhookFields: item.webhookFields || [],
+    webhookSubscribedAt: item.webhookSubscribedAt || null,
+    webhookError: item.webhookError || null,
+    createdAt: item.createdAt || null,
+    updatedAt: item.updatedAt || null
+  };
+}
+
 export async function storeConnectedPages(items = []) {
   const pages = await collection();
   const now = new Date();
@@ -106,7 +121,9 @@ export async function storeConnectedPages(items = []) {
         $set: page,
         $setOnInsert: {
           createdAt: now,
-          active: false
+          active: false,
+          webhookSubscribed: false,
+          webhookFields: []
         }
       },
       { upsert: true }
@@ -140,14 +157,7 @@ export async function listConnectedPages() {
     .sort({ active: -1, name: 1 })
     .toArray();
 
-  return items.map(item => ({
-    pageId: item.pageId,
-    name: item.name,
-    tasks: item.tasks || [],
-    active: item.active === true,
-    createdAt: item.createdAt || null,
-    updatedAt: item.updatedAt || null
-  }));
+  return items.map(publicPage);
 }
 
 export async function activateConnectedPage(pageId) {
@@ -211,6 +221,36 @@ export async function removeConnectedPage(pageId) {
   return true;
 }
 
+export async function getPageCredential(pageId) {
+  const id = String(pageId || '').trim();
+  if (!id) throw new Error('pageId is required');
+
+  if (config.tokenEncryptionKey) {
+    const pages = await collection();
+    const item = await pages.findOne({ pageId: id });
+
+    if (item?.token) {
+      return {
+        pageId: item.pageId,
+        pageAccessToken: decryptSecret(item.token),
+        source: 'vault'
+      };
+    }
+  }
+
+  if (config.pageId === id && config.pageAccessToken) {
+    return {
+      pageId: config.pageId,
+      pageAccessToken: config.pageAccessToken,
+      source: 'environment'
+    };
+  }
+
+  const error = new Error('connected_page_not_found');
+  error.status = 404;
+  throw error;
+}
+
 export async function getActivePageCredential() {
   if (config.tokenEncryptionKey) {
     const pages = await collection();
@@ -236,6 +276,34 @@ export async function getActivePageCredential() {
   throw new Error('No active Meta Page credential is configured');
 }
 
+export async function markPageWebhookState(
+  pageId,
+  {
+    subscribed,
+    fields = [],
+    error = null
+  }
+) {
+  const id = String(pageId || '').trim();
+  if (!id) throw new Error('pageId is required');
+
+  const pages = await collection();
+  const now = new Date();
+
+  await pages.updateOne(
+    { pageId: id },
+    {
+      $set: {
+        webhookSubscribed: Boolean(subscribed),
+        webhookFields: Array.isArray(fields) ? fields.map(String) : [],
+        webhookSubscribedAt: subscribed ? now : null,
+        webhookError: error ? String(error).slice(0, 1000) : null,
+        updatedAt: now
+      }
+    }
+  );
+}
+
 export async function connectedPageState() {
   let pages = [];
 
@@ -246,6 +314,7 @@ export async function connectedPageState() {
   return {
     connectedPages: pages.length,
     activePage: pages.find(page => page.active) || null,
+    subscribedPages: pages.filter(page => page.webhookSubscribed).length,
     staticFallbackConfigured: Boolean(config.pageId && config.pageAccessToken)
   };
 }
