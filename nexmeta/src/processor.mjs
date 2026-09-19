@@ -37,6 +37,53 @@ function extractLinkCode(text) {
   return command ? command[1] : null;
 }
 
+export function splitMessengerText(value, maxLength = 2000) {
+  const text = String(value ?? '');
+  const max = Math.max(200, Math.min(2000, Number(maxLength) || 2000));
+
+  if (!text) return [];
+  if (text.length <= max) return [text];
+
+  const chunks = [];
+  let rest = text;
+
+  while (rest.length > max) {
+    let cut = max;
+
+    const prevCode = rest.charCodeAt(cut - 1);
+    const nextCode = rest.charCodeAt(cut);
+
+    if (
+      prevCode >= 0xD800 &&
+      prevCode <= 0xDBFF &&
+      nextCode >= 0xDC00 &&
+      nextCode <= 0xDFFF
+    ) {
+      cut -= 1;
+    }
+
+    const window = rest.slice(0, cut);
+    const preferred = [
+      window.lastIndexOf('\n\n'),
+      window.lastIndexOf('\n'),
+      window.lastIndexOf(' ')
+    ].find(index => index >= Math.floor(max * 0.55));
+
+    if (preferred !== undefined) {
+      cut = preferred + 1;
+    }
+
+    const chunk = rest.slice(0, cut).trimEnd();
+    if (chunk) chunks.push(chunk);
+
+    rest = rest.slice(cut).trimStart();
+  }
+
+  if (rest) chunks.push(rest);
+
+  return chunks;
+}
+
 async function saveOutbound(event, sent, {
   text = '',
   media = null
@@ -60,6 +107,38 @@ async function sendAndSave(event, text) {
   return sent;
 }
 
+async function sendTextReply(event, text, quickReplies = []) {
+  const chunks = splitMessengerText(text);
+
+  if (!chunks.length) return [];
+
+  const sent = [];
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index];
+    const isLast = index === chunks.length - 1;
+
+    if (isLast && quickReplies.length) {
+      const message = await sendQuickReplies(
+        event.senderId,
+        chunk,
+        quickReplies
+      );
+
+      await saveOutbound(event, message, {
+        text: chunk
+      });
+
+      sent.push(message);
+      continue;
+    }
+
+    sent.push(await sendAndSave(event, chunk));
+  }
+
+  return sent;
+}
+
 async function renderNexusReply(event, result) {
   if (!result || result.silent) return;
 
@@ -67,18 +146,12 @@ async function renderNexusReply(event, result) {
     ? result.quickReplies
     : [];
 
-  if (result.text && quickReplies.length) {
-    const sent = await sendQuickReplies(
-      event.senderId,
+  if (result.text) {
+    await sendTextReply(
+      event,
       result.text,
       quickReplies
     );
-
-    await saveOutbound(event, sent, {
-      text: result.text
-    });
-  } else if (result.text) {
-    await sendAndSave(event, result.text);
   }
 
   if (result.template && typeof result.template === 'object') {
