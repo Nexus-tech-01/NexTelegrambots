@@ -332,3 +332,8 @@ export async function configureAllDefaultNexMetaMessengerProfiles() {
 export async function nexMetaBridgeStatus() {
   return nexMetaAction('bridge_status');
 }
+
+
+export async function nexMetaConnectionReadiness() {
+  return nexMetaAction('connection_readiness');
+}
