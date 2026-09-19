@@ -7,13 +7,14 @@ const HERE=path.dirname(fileURLToPath(import.meta.url));
 const generatedPath=path.join(HERE,'generated','dipper-styles.json');
 const vendorMenuPath=path.join(HERE,'vendor','dipper-menu.js.txt');
 
-const toSmallCaps=text=>{
+export const toSmallCaps=text=>{
   const n='abcdefghijklmnopqrstuvwxyz0123456789';
-  const s='ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ0123456789';
-  return String(text??'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split('').map(c=>{const i=n.indexOf(c);return i<0?c:s[i]}).join('');
+  const s='ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀѕᴛᴜᴠᴡxʏᴢ0123456789';
+  return String(text??'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split('').map(c=>{
+    const i=n.indexOf(c);return i<0?c:s[i];
+  }).join('');
 };
 const toBSC=toSmallCaps;
-
 let cache;
 
 function extractStylesObject(source){
@@ -37,10 +38,7 @@ function extractStylesObject(source){
     if(c==='/'&&n==='*'){blockComment=true;i++;continue}
     if(c==='"'||c==="'"||c.charCodeAt(0)===96){quote=c;continue}
     if(c==='{')depth++;
-    if(c==='}'){
-      depth--;
-      if(depth===0)return source.slice(open,i+1);
-    }
+    if(c==='}'){depth--;if(depth===0)return source.slice(open,i+1)}
   }
   return null;
 }
@@ -95,25 +93,36 @@ export async function listStyles(){
 
 export async function renderDipperHeader(styleId,{botName='NEXAI',ownerName='Utilisateur',rank='utilisateur',prefix='.',count=0}={}){
   const s=await getStyle(styleId);
+  if(s.id===1){
+    const countLabel=Number(count)>=400?'400+':String(count);
+    return [
+      '╭╼━• 🔮 '+toSmallCaps(botName)+' •━━━━',
+      '┃ 🔮 ᴠɪɢɪʟᴀɴᴄᴇ : 🟢',
+      '┃ 👤 ᴘèʟᴇʀɪɴ : '+toSmallCaps(ownerName),
+      '┃ ⚜️ ʀᴀɴɢ : '+toSmallCaps(rank),
+      '┃ ⚡ ɪɴᴄᴀɴᴛᴀᴛɪᴏɴ : [ '+prefix+' ]',
+      '┃ 📜 ᴀʀᴄᴀɴᴇѕ : '+countLabel,
+      '╰━━━━━━━━━━━━━━',
+      ''
+    ].join('\n');
+  }
   if(s.exactHeader){
     try{return s.exactHeader(botName,ownerName,rank,prefix,count)}catch{}
   }
   return [
     s.separator||s.mark,
-    s.botName||botName,
+    toSmallCaps(s.botName||botName),
     s.separator||s.mark,
-    '👤 Utilisateur : '+ownerName,
-    '🎖️ Rang : '+rank,
-    '⌁ Préfixe : [ '+prefix+' ]',
-    '📜 Commandes : '+count,
-    s.separator||s.mark,
-    '',
-    s.tagline?('_'+s.tagline+'_ '+(s.accent||'')):''
+    '👤 '+toSmallCaps('Utilisateur')+' : '+toSmallCaps(ownerName),
+    '🎖️ '+toSmallCaps('Rang')+' : '+toSmallCaps(rank),
+    '⌁ '+toSmallCaps('Préfixe')+' : [ '+prefix+' ]',
+    '📜 '+toSmallCaps('Commandes')+' : '+count,
+    s.separator||s.mark,'',
+    s.tagline?(toSmallCaps(s.tagline)+' '+(s.accent||'')):''
   ].filter(Boolean).join('\n')+'\n';
 }
 
 const directImageCache=new Map();
-
 export async function resolveStyleImage(styleId,fallback=''){
   const s=await getStyle(styleId);
   const urls=[...(s.images||[])].filter(Boolean);
@@ -122,8 +131,7 @@ export async function resolveStyleImage(styleId,fallback=''){
     if(directImageCache.has(url))return directImageCache.get(url);
     if(!/^https?:\/\//i.test(url))continue;
     if(!/https?:\/\/(?:www\.)?ibb\.co\//i.test(url)){
-      directImageCache.set(url,url);
-      return url;
+      directImageCache.set(url,url);return url;
     }
     try{
       const res=await fetch(url,{headers:{'user-agent':'Mozilla/5.0'},signal:AbortSignal.timeout(6000)});
