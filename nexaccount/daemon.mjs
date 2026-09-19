@@ -6,6 +6,7 @@ import { listAccounts, patchSettings, closeStore } from './store.mjs';
 import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { ensureNexAiBot } from './bot-factory.mjs';
+import { ensureAnalyticsIndex } from './analytics-indexer.mjs';
 
 assertCoreConfig();
 
@@ -38,7 +39,7 @@ async function route(req,res){
       const q=await body(req);
       const state=await beginPairing(q.phone,async(client,account)=>{
         await attachConnectedClient(client,account);
-        if(account.premium===true && !(await loadBotToken())){
+        if(!(await loadBotToken())){
           try{
             const made=await ensureNexAiBot(client,account);
             if(made.created){
@@ -66,7 +67,7 @@ async function route(req,res){
       const q=await body(req);
       if(!q.telegramUserId)return json(res,400,{ok:false,error:'telegramUserId required'});
       const allowed={};
-      for(const key of ['style','prefix','autoReact','autoJoin','welcome','goodbye','antilink']){
+      for(const key of ['language','style','prefix','autoReact','autoJoin','welcome','goodbye','antilink']){
         if(q[key]!==undefined)allowed[key]=q[key];
       }
       const settings=await patchSettings(q.telegramUserId,allowed);
@@ -90,8 +91,13 @@ server.listen(cfg.port,cfg.host,async()=>{
 const cleanup=setInterval(cleanupPairings,60000);
 cleanup.unref();
 
+ensureAnalyticsIndex({maxAgeMs:0,waitForFirst:false}).catch(e=>console.error('[NexAI analytics]',e));
+const analyticsRefresh=setInterval(()=>ensureAnalyticsIndex({maxAgeMs:0,waitForFirst:false}).catch(e=>console.error('[NexAI analytics]',e)),5*60*1000);
+analyticsRefresh.unref();
+
 async function shutdown(){
   clearInterval(cleanup);
+  clearInterval(analyticsRefresh);
   try{server.close()}catch{}
   await stopInlineBot();
   await stopRuntimes();
