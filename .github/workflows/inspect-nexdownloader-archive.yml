@@ -1,0 +1,71 @@
+name: Inspect NexDownloader Archive
+
+on:
+  push:
+    branches: [feature/nexdownloader-inline]
+    paths:
+      - '.github/workflows/inspect-nexdownloader-archive.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack source bundle and build inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/nexus-src
+          mkdir -p /tmp/nexus-src
+          cat nexus-bots-src.tar.xz.b64.part-* | base64 -d > /tmp/nexus-src.tar.xz
+          tar -xJf /tmp/nexus-src.tar.xz -C /tmp/nexus-src
+          OUT=.deploy/nexdownloader-inline-inventory.txt
+          mkdir -p .deploy
+          {
+            echo '=== TREE (downloader related) ==='
+            find /tmp/nexus-src -maxdepth 6 -type f | sed 's#^/tmp/nexus-src/##' | grep -Ei 'nex.?down|downloader|package\.json|requirements|shazam|music|lyric|telegram' | head -n 600 || true
+            echo
+            echo '=== DIRECTORIES ==='
+            find /tmp/nexus-src -maxdepth 4 -type d | sed 's#^/tmp/nexus-src/##' | grep -Ei 'nex.?down|downloader' | head -n 200 || true
+            echo
+            echo '=== INLINE SEARCH ==='
+            grep -RInE --exclude-dir=node_modules --exclude-dir=.git --exclude='*.env' 'inline_query|answerInlineQuery|inlineQuery|InlineQueryResult|switch_inline' /tmp/nexus-src 2>/dev/null | head -n 400 || true
+            echo
+            echo '=== TELEGRAM HANDLER SEARCH ==='
+            grep -RInE --exclude-dir=node_modules --exclude-dir=.git --exclude='*.env' 'bot\.on|callback_query|message:text|hears\(|command\(|TelegramBot|grammy|telegraf' /tmp/nexus-src 2>/dev/null | grep -Ei 'nex.?down|downloader|/src/' | head -n 600 || true
+            echo
+            echo '=== MUSIC / SHAZAM / LYRICS SEARCH ==='
+            grep -RInE --exclude-dir=node_modules --exclude-dir=.git --exclude='*.env' 'searchMusic|music search|shazam|lyrics|yt-dlp|gallery-dl|audio' /tmp/nexus-src 2>/dev/null | grep -Ei 'nex.?down|downloader|/src/' | head -n 800 || true
+            echo
+            echo '=== PACKAGE FILES ==='
+            while IFS= read -r p; do
+              case "$p" in
+                */node_modules/*) continue;;
+              esac
+              if grep -qiE 'downloader|shazam|yt-dlp|telegram' "$p" 2>/dev/null; then
+                echo "--- ${p#/tmp/nexus-src/} ---"
+                sed -n '1,260p' "$p"
+              fi
+            done < <(find /tmp/nexus-src -type f -name package.json | head -n 50)
+            echo
+            echo '=== LIKELY ENTRY FILE EXCERPTS ==='
+            while IFS= read -r p; do
+              echo "--- ${p#/tmp/nexus-src/} ---"
+              sed -n '1,360p' "$p"
+            done < <(find /tmp/nexus-src -type f \( -name 'index.js' -o -name 'index.mjs' -o -name 'bot.js' -o -name 'app.js' -o -name 'main.js' \) | grep -Ei 'nex.?down|downloader' | head -n 30)
+          } > "$OUT"
+          echo "Inventory bytes: $(wc -c < "$OUT")"
+          sed -n '1,120p' "$OUT"
+      - name: Commit inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "nextech-inline-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add .deploy/nexdownloader-inline-inventory.txt
+          git commit -m "chore: inventory NexDownloader inline integration" || exit 0
+          git push
