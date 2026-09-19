@@ -3,6 +3,9 @@ import { pathToFileURL } from 'node:url';
 import {
   registerRemoteMedia
 } from '../media-registry.mjs';
+import {
+  createDirectNexDownloaderHandler
+} from '../nexdownloader-direct-core.mjs';
 
 const nexusRoot = path.resolve(
   process.env.NEXUS_ROOT ||
@@ -34,9 +37,6 @@ const {
 const {
   inspectUrl
 } = platformsModule;
-import {
-  createDirectNexDownloaderHandler
-} from '../nexdownloader-direct-core.mjs';
 
 export const adapterManifest = Object.freeze({
   version: '0.2.0',
