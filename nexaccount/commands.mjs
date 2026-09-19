@@ -131,7 +131,12 @@ export const CATEGORY_ORDER=['GENERAL','AI','DOWNLOAD','GROUP','TOOLS','STICKERS
 export const CATEGORY_LABELS={GENERAL:'GENERAL',AI:'AI',DOWNLOAD:'DOWNLOAD',GROUP:'GROUP',TOOLS:'TOOLS',STICKERS:'STICKERS',GAMES:'GAMES',PROTECTION:'PROTECTION',ANIME:'ANIME',SEARCH:'SEARCH',PREMIUM:'PREMIUM',OWNER:'OWNER',ALIASES:'ALIASES'};
 export const CATEGORY_ICONS={GENERAL:'general',AI:'ai',DOWNLOAD:'download',GROUP:'group',TOOLS:'tools',STICKERS:'sticker',GAMES:'games',PROTECTION:'shield',ANIME:'anime',SEARCH:'search',PREMIUM:'premium',OWNER:'owner',ALIASES:'tools'};
 
-const normalize=value=>String(value||'').trim().toLowerCase();
+const normalize=value=>{
+  const token=String(value||'').normalize('NFKC').trim().toLowerCase();
+  if(!token||[...token].length>64||/[\s/@]/u.test(token))return '';
+  if(!/^[\p{L}\p{N}_-]+$/u.test(token))return '';
+  return token;
+};
 
 function dipperEntry(spec){
   const name=normalize(spec.name);
