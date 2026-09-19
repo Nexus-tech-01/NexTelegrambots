@@ -1,4 +1,6 @@
 import http from 'node:http';
+import crypto from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import {
   createNexusBridgeHandler
@@ -34,6 +36,20 @@ const adapterState = await loadNexusAdapters({
     process.env.NEXUS_ADAPTER_DIR ||
     '/app/nexus-bridge/adapters'
 });
+
+let discovery = null;
+
+try {
+  discovery = JSON.parse(
+    await readFile(
+      process.env.NEXUS_BRIDGE_DISCOVERY_FILE ||
+      '/app/nexus-bridge/discovery.json',
+      'utf8'
+    )
+  );
+} catch {
+  discovery = null;
+}
 
 const seenEvents = new Map();
 const dedupTtlMs = Math.max(
@@ -210,7 +226,14 @@ const server = http.createServer(async (req, res) => {
     const authorization = String(req.headers.authorization || '');
     const suppliedKey = authorization.replace(/^Bearer\s+/i, '').trim();
 
-    if (!sharedKey || suppliedKey !== sharedKey) {
+    const left = Buffer.from(suppliedKey);
+    const right = Buffer.from(sharedKey);
+    const authorized =
+      Boolean(sharedKey) &&
+      left.length === right.length &&
+      crypto.timingSafeEqual(left, right);
+
+    if (!authorized) {
       res.statusCode = 401;
       res.setHeader('content-type', 'application/json; charset=utf-8');
       res.setHeader('cache-control', 'no-store');
@@ -229,7 +252,23 @@ const server = http.createServer(async (req, res) => {
       childExited,
       outerPort,
       innerPort,
-      adapters: adapterState.status
+      adapters: adapterState.status,
+      discovery: discovery
+        ? {
+            generatedAt: discovery.generatedAt || null,
+            bots: Array.isArray(discovery.bots)
+              ? discovery.bots.map(bot => ({
+                  name: bot.name,
+                  present: bot.present === true,
+                  package: bot.package || null,
+                  scannedFiles: bot.scannedFiles || 0,
+                  candidates: Array.isArray(bot.candidates)
+                    ? bot.candidates.slice(0, 20)
+                    : []
+                }))
+              : []
+          }
+        : null
     }));
     return;
   }
