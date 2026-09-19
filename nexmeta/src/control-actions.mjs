@@ -28,6 +28,10 @@ import { processWebhookPayload } from './processor.mjs';
 import { createIdentityLinkCode } from './identity-link.mjs';
 import { createMetaOAuthStart } from './meta-oauth.mjs';
 import {
+  diagnoseMetaPage,
+  diagnoseAllMetaPages
+} from './meta-diagnostics.mjs';
+import {
   configureCompleteWebhookStack,
   inspectAppWebhooks,
   subscribePageToApp,
@@ -52,6 +56,8 @@ export const CONTROL_CAPABILITIES = Object.freeze([
   'subscribe_page_webhooks',
   'inspect_page_webhooks',
   'unsubscribe_page_webhooks',
+  'doctor_page',
+  'doctor_all_pages',
   'probe_page',
   'metrics',
   'recent_audit',
@@ -206,6 +212,14 @@ export async function executeControlAction(body) {
       return unsubscribePageFromApp(
         requireString(body.pageId, 'pageId', 300)
       );
+
+    case 'doctor_page':
+      return diagnoseMetaPage(
+        requireString(body.pageId, 'pageId', 300)
+      );
+
+    case 'doctor_all_pages':
+      return diagnoseAllMetaPages();
 
     case 'probe_page':
       return getPageProfile();
