@@ -256,6 +256,51 @@ export async function unlinkIdentity({
     : null;
 }
 
+export async function resolveIdentity({
+  platform = 'facebook',
+  pageId,
+  externalUserId
+}) {
+  const db = await database();
+
+  const item = await db.collection('identities').findOne(
+    {
+      platform: String(platform),
+      pageId: String(pageId),
+      externalUserId: String(externalUserId)
+    },
+    {
+      projection: {
+        _id: 0,
+        platform: 1,
+        pageId: 1,
+        externalUserId: 1,
+        nexusUserId: 1,
+        linkedAt: 1,
+        lastSeenAt: 1
+      }
+    }
+  );
+
+  return item
+    ? {
+        platform: item.platform,
+        pageId: item.pageId,
+        externalUserId: item.externalUserId,
+        nexusUserId: item.nexusUserId || null,
+        linkedAt: item.linkedAt || null,
+        lastSeenAt: item.lastSeenAt || null
+      }
+    : {
+        platform: String(platform),
+        pageId: String(pageId),
+        externalUserId: String(externalUserId),
+        nexusUserId: null,
+        linkedAt: null,
+        lastSeenAt: null
+      };
+}
+
 export async function saveMessage(message) {
   if (!message.externalMessageId) return;
   const db = await database();
