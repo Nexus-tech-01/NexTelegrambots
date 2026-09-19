@@ -32,6 +32,12 @@ import {
   diagnoseAllMetaPages
 } from './meta-diagnostics.mjs';
 import {
+  configureMessengerProfile,
+  configureDefaultNexusMessengerProfile,
+  inspectMessengerProfile,
+  deleteMessengerProfileFields
+} from './messenger-profile.mjs';
+import {
   configureCompleteWebhookStack,
   inspectAppWebhooks,
   subscribePageToApp,
@@ -58,6 +64,10 @@ export const CONTROL_CAPABILITIES = Object.freeze([
   'unsubscribe_page_webhooks',
   'doctor_page',
   'doctor_all_pages',
+  'configure_default_messenger_profile',
+  'configure_messenger_profile',
+  'inspect_messenger_profile',
+  'delete_messenger_profile_fields',
   'probe_page',
   'metrics',
   'recent_audit',
@@ -220,6 +230,24 @@ export async function executeControlAction(body) {
 
     case 'doctor_all_pages':
       return diagnoseAllMetaPages();
+
+    case 'configure_default_messenger_profile':
+      return configureDefaultNexusMessengerProfile();
+
+    case 'configure_messenger_profile':
+      return configureMessengerProfile(
+        body.profile && typeof body.profile === 'object'
+          ? body.profile
+          : null
+      );
+
+    case 'inspect_messenger_profile':
+      return inspectMessengerProfile(
+        Array.isArray(body.fields) ? body.fields : undefined
+      );
+
+    case 'delete_messenger_profile_fields':
+      return deleteMessengerProfileFields(body.fields);
 
     case 'probe_page':
       return getPageProfile();
