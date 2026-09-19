@@ -41,8 +41,11 @@ jobs:
           node --check src/router.mjs
           node --check src/identity-link.mjs
           node --check src/processor.mjs
+          node --check src/readiness.mjs
           node --check src/control-actions.mjs
           node --check src/handler.mjs
           node --check src/server.mjs
           node --check api/index.mjs
           node --check ../nexcontrol/lib/nexmeta-client.mjs
+          node --check ../nexcontrol/ui/meta-page.mjs
+          node --check ../nexcontrol/api/index.mjs
