@@ -286,7 +286,9 @@ export async function executeControlAction(body) {
       );
 
     case 'probe_page':
-      return getPageProfile();
+      return getPageProfile(
+        optionalString(body.pageId, 300)
+      );
 
     case 'metrics':
       return getMetrics();
@@ -363,63 +365,79 @@ export async function executeControlAction(body) {
     case 'send_text':
       return sendText(
         requireString(body.psid, 'psid', 300),
-        requireString(body.text, 'text', 2000)
+        requireString(body.text, 'text', 2000),
+        'RESPONSE',
+        optionalString(body.pageId, 300)
       );
 
     case 'send_media':
       return sendMedia(
         requireString(body.psid, 'psid', 300),
         requireString(body.mediaType, 'mediaType', 20),
-        requireString(body.url, 'url', 5000)
+        requireString(body.url, 'url', 5000),
+        'RESPONSE',
+        optionalString(body.pageId, 300)
       );
 
     case 'send_quick_replies':
       return sendQuickReplies(
         requireString(body.psid, 'psid', 300),
         requireString(body.text, 'text', 2000),
-        body.quickReplies
+        body.quickReplies,
+        'RESPONSE',
+        optionalString(body.pageId, 300)
       );
 
     case 'send_template':
       return sendTemplate(
         requireString(body.psid, 'psid', 300),
-        body.template
+        body.template,
+        'RESPONSE',
+        optionalString(body.pageId, 300)
       );
 
     case 'send_button_template':
       return sendButtonTemplate(
         requireString(body.psid, 'psid', 300),
         requireString(body.text, 'text', 640),
-        body.buttons
+        body.buttons,
+        'RESPONSE',
+        optionalString(body.pageId, 300)
       );
 
     case 'send_image_gallery':
       return sendImageGallery(
         requireString(body.psid, 'psid', 300),
-        body.imageUrls
+        body.imageUrls,
+        'RESPONSE',
+        optionalString(body.pageId, 300)
       );
 
     case 'get_messenger_user_profile':
       return getMessengerUserProfile(
-        requireString(body.psid, 'psid', 300)
+        requireString(body.psid, 'psid', 300),
+        optionalString(body.pageId, 300)
       );
 
     case 'moderate_conversation':
       return moderateConversation(
         requireString(body.psid, 'psid', 300),
-        requireString(body.moderationAction, 'moderationAction', 40)
+        requireString(body.moderationAction, 'moderationAction', 40),
+        optionalString(body.pageId, 300)
       );
 
     case 'sender_action':
       return senderAction(
         requireString(body.psid, 'psid', 300),
-        requireString(body.senderAction, 'senderAction', 30)
+        requireString(body.senderAction, 'senderAction', 30),
+        optionalString(body.pageId, 300)
       );
 
     case 'list_conversations':
       return listConversations({
         limit: body.limit,
-        after: optionalString(body.after, 2000)
+        after: optionalString(body.after, 2000),
+        pageId: optionalString(body.pageId, 300)
       });
 
     case 'list_conversation_messages':
@@ -427,59 +445,75 @@ export async function executeControlAction(body) {
         requireString(body.conversationId, 'conversationId', 500),
         {
           limit: body.limit,
-          after: optionalString(body.after, 2000)
+          after: optionalString(body.after, 2000),
+          pageId: optionalString(body.pageId, 300)
         }
       );
 
     case 'get_message':
-      return getMessage(requireString(body.messageId, 'messageId', 500));
+      return getMessage(
+        requireString(body.messageId, 'messageId', 500),
+        optionalString(body.pageId, 300)
+      );
 
     case 'publish_page_post':
       return publishPagePost({
         message: optionalString(body.message, 63206) || '',
         link: optionalString(body.link, 5000),
         published: body.published !== false,
-        scheduledPublishTime: body.scheduledPublishTime
+        scheduledPublishTime: body.scheduledPublishTime,
+        pageId: optionalString(body.pageId, 300)
       });
 
     case 'edit_page_post':
       return editObjectMessage(
         requireString(body.objectId, 'objectId', 500),
-        requireString(body.message, 'message', 63206)
+        requireString(body.message, 'message', 63206),
+        optionalString(body.pageId, 300)
       );
 
     case 'delete_page_post':
-      return deleteObject(requireString(body.objectId, 'objectId', 500));
+      return deleteObject(
+        requireString(body.objectId, 'objectId', 500),
+        optionalString(body.pageId, 300)
+      );
 
     case 'list_comments':
       return listComments(
         requireString(body.objectId, 'objectId', 500),
         {
           limit: body.limit,
-          after: optionalString(body.after, 2000)
+          after: optionalString(body.after, 2000),
+          pageId: optionalString(body.pageId, 300)
         }
       );
 
     case 'reply_comment':
       return replyToComment(
         requireString(body.commentId, 'commentId', 500),
-        requireString(body.message, 'message', 8000)
+        requireString(body.message, 'message', 8000),
+        optionalString(body.pageId, 300)
       );
 
     case 'hide_comment':
       return setCommentHidden(
         requireString(body.commentId, 'commentId', 500),
-        true
+        true,
+        optionalString(body.pageId, 300)
       );
 
     case 'unhide_comment':
       return setCommentHidden(
         requireString(body.commentId, 'commentId', 500),
-        false
+        false,
+        optionalString(body.pageId, 300)
       );
 
     case 'delete_comment':
-      return deleteObject(requireString(body.commentId, 'commentId', 500));
+      return deleteObject(
+        requireString(body.commentId, 'commentId', 500),
+        optionalString(body.pageId, 300)
+      );
 
     default:
       {
