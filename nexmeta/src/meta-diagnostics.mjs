@@ -102,7 +102,7 @@ async function debugAccessToken(pageAccessToken) {
   return data?.data || {};
 }
 
-function capabilityMatrix(scopes) {
+export function capabilityMatrix(scopes) {
   const granted = new Set(scopes.map(String));
   const matrix = {};
 
