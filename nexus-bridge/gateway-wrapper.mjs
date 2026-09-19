@@ -118,6 +118,7 @@ function autoService(envelope) {
 const bridge = createNexusBridgeHandler({
   sharedKey,
   services: adapterState.services,
+  serviceStatus: adapterState.status,
   resolveAuto: autoService,
   claimEvent,
   releaseEvent
