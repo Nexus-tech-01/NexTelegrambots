@@ -11,7 +11,7 @@ async function database() {
 
   indexesPromise ??= Promise.all([
     db.collection('webhook_events').createIndex({ eventKey: 1 }, { unique: true }),
-    db.collection('webhook_events').createIndex({ receivedAt: -1 }),
+    db.collection('webhook_events').createIndex({ status: 1, receivedAt: -1 }),
     db.collection('messages').createIndex(
       { platform: 1, pageId: 1, externalMessageId: 1 },
       { unique: true, sparse: true }
@@ -43,8 +43,10 @@ export async function persistWebhook({ eventKey, raw, objectType }) {
       raw,
       status: 'received',
       receivedAt: now,
-      updatedAt: now
+      updatedAt: now,
+      replayCount: 0
     });
+
     return { duplicate: false };
   } catch (error) {
     if (error?.code === 11000) return { duplicate: true };
@@ -54,6 +56,7 @@ export async function persistWebhook({ eventKey, raw, objectType }) {
 
 export async function markWebhookProcessed(eventKey, status = 'processed', error = null) {
   const db = await database();
+
   await db.collection('webhook_events').updateOne(
     { eventKey },
     {
@@ -65,6 +68,94 @@ export async function markWebhookProcessed(eventKey, status = 'processed', error
       }
     }
   );
+}
+
+export async function getWebhookEvent(eventKey) {
+  const db = await database();
+  const item = await db.collection('webhook_events').findOne({
+    eventKey: String(eventKey)
+  });
+
+  if (!item) return null;
+
+  return {
+    eventKey: item.eventKey,
+    objectType: item.objectType,
+    raw: item.raw,
+    status: item.status,
+    error: item.error || null,
+    receivedAt: item.receivedAt,
+    processedAt: item.processedAt || null,
+    replayCount: Number(item.replayCount || 0),
+    lastReplayAt: item.lastReplayAt || null
+  };
+}
+
+export async function listWebhookEvents({
+  status,
+  limit = 50
+} = {}) {
+  const db = await database();
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+  const filter = {};
+
+  if (status) {
+    const allowed = new Set(['received', 'processed', 'failed']);
+    if (!allowed.has(String(status))) throw new Error('invalid webhook status');
+    filter.status = String(status);
+  }
+
+  const items = await db.collection('webhook_events')
+    .find(filter, {
+      projection: {
+        raw: 0
+      }
+    })
+    .sort({ receivedAt: -1 })
+    .limit(safeLimit)
+    .toArray();
+
+  return items.map(item => ({
+    eventKey: item.eventKey,
+    objectType: item.objectType,
+    status: item.status,
+    error: item.error || null,
+    receivedAt: item.receivedAt,
+    processedAt: item.processedAt || null,
+    replayCount: Number(item.replayCount || 0),
+    lastReplayAt: item.lastReplayAt || null
+  }));
+}
+
+export async function markWebhookReplay(eventKey) {
+  const db = await database();
+  const now = new Date();
+
+  const result = await db.collection('webhook_events').findOneAndUpdate(
+    { eventKey: String(eventKey) },
+    {
+      $set: {
+        status: 'received',
+        error: null,
+        lastReplayAt: now,
+        updatedAt: now
+      },
+      $inc: {
+        replayCount: 1
+      }
+    },
+    {
+      returnDocument: 'after'
+    }
+  );
+
+  return result
+    ? {
+        eventKey: result.eventKey,
+        raw: result.raw,
+        replayCount: Number(result.replayCount || 0)
+      }
+    : null;
 }
 
 export async function upsertIdentity({ platform, externalUserId, pageId }) {
@@ -190,6 +281,7 @@ export async function saveMessage(message) {
 
 export async function audit(action, actor, details = {}) {
   const db = await database();
+
   await db.collection('audit_logs').insertOne({
     action,
     actor,
@@ -203,7 +295,14 @@ export async function recentAudit(limit = 50) {
   const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
 
   const items = await db.collection('audit_logs')
-    .find({}, { projection: { action: 1, actor: 1, details: 1, createdAt: 1 } })
+    .find({}, {
+      projection: {
+        action: 1,
+        actor: 1,
+        details: 1,
+        createdAt: 1
+      }
+    })
     .sort({ createdAt: -1 })
     .limit(safeLimit)
     .toArray();
@@ -220,11 +319,13 @@ export async function recentAudit(limit = 50) {
 export async function getMetrics() {
   const db = await database();
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const stuckBefore = new Date(Date.now() - 2 * 60 * 1000);
 
   const [
     webhookTotal,
     webhook24h,
     webhookFailed,
+    webhookStuck,
     messagesTotal,
     messages24h,
     inbound24h,
@@ -233,10 +334,20 @@ export async function getMetrics() {
     linkedIdentities
   ] = await Promise.all([
     db.collection('webhook_events').countDocuments(),
-    db.collection('webhook_events').countDocuments({ receivedAt: { $gte: since } }),
-    db.collection('webhook_events').countDocuments({ status: 'failed' }),
+    db.collection('webhook_events').countDocuments({
+      receivedAt: { $gte: since }
+    }),
+    db.collection('webhook_events').countDocuments({
+      status: 'failed'
+    }),
+    db.collection('webhook_events').countDocuments({
+      status: 'received',
+      receivedAt: { $lte: stuckBefore }
+    }),
     db.collection('messages').countDocuments(),
-    db.collection('messages').countDocuments({ createdAt: { $gte: since } }),
+    db.collection('messages').countDocuments({
+      createdAt: { $gte: since }
+    }),
     db.collection('messages').countDocuments({
       createdAt: { $gte: since },
       direction: 'inbound'
@@ -255,6 +366,7 @@ export async function getMetrics() {
     webhookTotal,
     webhook24h,
     webhookFailed,
+    webhookStuck,
     messagesTotal,
     messages24h,
     inbound24h,
@@ -266,12 +378,15 @@ export async function getMetrics() {
 
 export async function getRuntimeSettings({ force = false } = {}) {
   const now = Date.now();
+
   if (!force && runtimeCache.value && runtimeCache.expiresAt > now) {
     return runtimeCache.value;
   }
 
   const db = await database();
-  const doc = await db.collection('settings').findOne({ _id: 'runtime' });
+  const doc = await db.collection('settings').findOne({
+    _id: 'runtime'
+  });
 
   const value = {
     inboundEnabled: doc?.inboundEnabled !== false,
@@ -317,7 +432,11 @@ export async function setRuntimeSettings(patch = {}) {
     { upsert: true }
   );
 
-  runtimeCache = { value: null, expiresAt: 0 };
+  runtimeCache = {
+    value: null,
+    expiresAt: 0
+  };
+
   return getRuntimeSettings({ force: true });
 }
 
