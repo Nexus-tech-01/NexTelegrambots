@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    { "source": "/health", "destination": "/api?__route=health" },
+    { "source": "/webhooks/meta", "destination": "/api?__route=webhook" },
+    { "source": "/internal/v1/status", "destination": "/api?__route=status" },
+    { "source": "/internal/v1/actions", "destination": "/api?__route=actions" }
+  ]
+}
