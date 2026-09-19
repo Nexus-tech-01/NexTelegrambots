@@ -31,11 +31,9 @@ export async function beginPairing(phone,onConnected,expectedTelegramUserId=''){
   if(!/^\+?[0-9]{7,16}$/.test(normalized))throw new Error('Invalid Telegram phone number');
 
   const id=crypto.randomUUID();
-  const code=deferred(),password=deferred();
   const state={
     id,phone:normalized,stage:'starting',error:'',client:null,
-    resolveCode:code.resolve,rejectCode:code.reject,
-    resolvePassword:password.resolve,rejectPassword:password.reject,
+    codeWaiter:null,passwordWaiter:null,
     createdAt:Date.now()
   };
   pending.set(id,state);
@@ -51,12 +49,16 @@ export async function beginPairing(phone,onConnected,expectedTelegramUserId=''){
       await client.start({
         phoneNumber:async()=>normalized,
         phoneCode:async()=>{
+          const next=deferred();
+          state.codeWaiter=next;
           state.stage='code';
-          return code.promise;
+          try{return await next.promise}finally{if(state.codeWaiter===next)state.codeWaiter=null}
         },
         password:async()=>{
+          const next=deferred();
+          state.passwordWaiter=next;
           state.stage='password';
-          return password.promise;
+          try{return await next.promise}finally{if(state.passwordWaiter===next)state.passwordWaiter=null}
         },
         onError:e=>{state.error=safeError(e)}
       });
@@ -105,9 +107,11 @@ export async function submitPairingCode(id,value){
   const code=String(value||'').replace(/\s+/g,'');
   if(!/^[0-9A-Za-z-]{3,16}$/.test(code))throw new Error('Invalid Telegram code');
 
+  const waiter=state.codeWaiter;
+  if(!waiter)throw new Error('Telegram code input is not ready');
   state.stage='verifying_code';
-  state.resolveCode(code);
-  await waitStage(state,['password','connected','error'],20000);
+  waiter.resolve(code);
+  await waitStage(state,['code','password','connected','error'],20000);
   return pairingStatus(id);
 }
 
@@ -116,9 +120,11 @@ export async function submitPairingPassword(id,value){
   if(!state)throw new Error('Pairing expired or not found');
   if(state.stage!=='password')return pairingStatus(id);
 
+  const waiter=state.passwordWaiter;
+  if(!waiter)throw new Error('Telegram 2FA input is not ready');
   state.stage='verifying_password';
-  state.resolvePassword(String(value||''));
-  await waitStage(state,['connected','error'],20000);
+  waiter.resolve(String(value||''));
+  await waitStage(state,['password','connected','error'],20000);
   return pairingStatus(id);
 }
 
@@ -128,8 +134,8 @@ export async function cancelPairing(id){
 
   state.stage='cancelled';
   const err=new Error('Pairing cancelled');
-  try{state.rejectCode?.(err)}catch{}
-  try{state.rejectPassword?.(err)}catch{}
+  try{state.codeWaiter?.reject?.(err)}catch{}
+  try{state.passwordWaiter?.reject?.(err)}catch{}
   try{await state.client?.disconnect()}catch{}
   pending.delete(String(id));
   return {id:String(id),stage:'cancelled'};
