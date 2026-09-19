@@ -414,7 +414,27 @@ async function runtimeSignal(p){
 async function tailLogs(p){const f=cfg.logFiles?.[p.log];if(!f)throw new Error('Unknown log');const out=path.resolve(String(f)),st=await fs.stat(out),bytes=Math.min(st.size,Math.max(1024,Math.min(512000,Number(p.bytes||100000)))),h=await fs.open(out,'r'),buf=Buffer.alloc(bytes);await h.read(buf,0,bytes,st.size-bytes);await h.close();return{log:p.log,bytes,content:buf.toString('utf8')}}
 async function restart(p){if(cfg.restartHook?.mode!=='file')throw new Error('Restart hook not configured');const hook=path.resolve(cfg.restartHook.path);await fs.mkdir(path.dirname(hook),{recursive:true});await fs.writeFile(hook,JSON.stringify({target:p.target||'all',reason:p.reason||'NexControl',requestedAt:new Date().toISOString(),nonce:crypto.randomUUID()},null,2));return{queued:true,target:p.target||'all',hook}}
 async function execute(job){switch(job.kind){case'fs.list':return listDir(job.payload);case'fs.tree':return fsTree(job.payload);case'fs.read':return readFile(job.payload);case'fs.search':return searchFiles(job.payload);case'fs.compare':return compareFiles(job.payload);case'fs.write':return writeFile(job.payload);case'fs.mkdir':return mkdir(job.payload);case'fs.move':return move(job.payload);case'fs.copy':return copyPath(job.payload);case'fs.delete':return remove(job.payload);case'fs.rollback':return rollback(job.payload);case'fs.stat':return statPath(job.payload);case'fs.hash':return hashFile(job.payload);case'fs.chmod':return chmodPath(job.payload);case'backup.snapshot':return backupSnapshot(job.payload);case'deploy.pipeline':return deployPipeline(job.payload);case'deploy.patchPipeline':return deployPatchPipeline(job.payload);case'check.run':return runCheck(job.payload);case'logs.tail':return tailLogs(job.payload);case'logs.search':return searchLogs(job.payload);case'system.info':return systemInfo();case'process.list':return processList(job.payload);case'disk.usage':return diskUsage(job.payload);case'runtime.versions':return runtimeVersions(job.payload);case'dependency.npmList':return npmList(job.payload);case'dependency.npmInstall':return npmInstallSafe(job.payload);case'http.check':return httpCheck(job.payload);case'runtime.envKeys':return envKeys();case'runtime.envCheck':return envCheck(job.payload);case'git.status':return gitStatus(job.payload);case'git.diff':return gitDiff(job.payload);case'git.log':return gitLog(job.payload);case'git.branches':return gitBranches(job.payload);case'git.checkout':return gitCheckout(job.payload);case'git.commit':return gitCommit(job.payload);case'git.sync':return gitSync(job.payload);case'runtime.exec':return runtimeExec(job.payload);case'runtime.signal':return runtimeSignal(job.payload);case'runtime.restart':return restart(job.payload);default:throw new Error(`Unsupported job kind: ${job.kind}`)}}
-async function heartbeat(){return api('/api/v1/agent/heartbeat',{displayName:NAME,version:'0.6.1',hostname:os.hostname(),platform:`${process.platform}/${process.arch}`,nodeVersion:process.version,pid:process.pid,uptime:process.uptime(),memory:process.memoryUsage(),capabilities:{jobs:["fs.list","fs.tree","fs.read","fs.search","fs.compare","fs.write","fs.mkdir","fs.move","fs.copy","fs.delete","fs.rollback","fs.stat","fs.hash","fs.chmod","backup.snapshot","deploy.pipeline","deploy.patchPipeline","check.run","logs.tail","logs.search","system.info","process.list","disk.usage","http.check","runtime.envKeys","runtime.envCheck","runtime.versions","dependency.npmList","dependency.npmInstall","git.status","git.diff","git.log","git.branches","git.checkout","git.commit","git.sync","runtime.exec","runtime.signal","runtime.restart"],safeChecks:Object.keys(cfg.safeChecks||{}),logs:Object.keys(cfg.logFiles||{})},roots:Object.keys(roots).map(key=>({key,path:roots[key]}))})}
+async function heartbeat(){return api('/api/v1/agent/heartbeat',{displayName:NAME,version:'0.6.3',hostname:os.hostname(),platform:`${process.platform}/${process.arch}`,nodeVersion:process.version,pid:process.pid,uptime:process.uptime(),memory:process.memoryUsage(),capabilities:{jobs:["fs.list","fs.tree","fs.read","fs.search","fs.compare","fs.write","fs.mkdir","fs.move","fs.copy","fs.delete","fs.rollback","fs.stat","fs.hash","fs.chmod","backup.snapshot","deploy.pipeline","deploy.patchPipeline","check.run","logs.tail","logs.search","system.info","process.list","disk.usage","http.check","runtime.envKeys","runtime.envCheck","runtime.versions","dependency.npmList","dependency.npmInstall","git.status","git.diff","git.log","git.branches","git.checkout","git.commit","git.sync","runtime.exec","runtime.signal","runtime.restart"],safeChecks:Object.keys(cfg.safeChecks||{}),logs:Object.keys(cfg.logFiles||{})},roots:Object.keys(roots).map(key=>({key,path:roots[key]}))})}
+
+async function ensureNexAccountRuntime(){
+  try{
+    const nexusRoot=roots.nexus;
+    if(!nexusRoot)return;
+    const bootstrap=path.join(nexusRoot,'bots','nexaccount','bootstrap.mjs');
+    try{await fs.access(bootstrap)}catch{return}
+    const result=await runProcess(process.execPath,[bootstrap],{
+      cwd:nexusRoot,
+      timeoutMs:30000,
+      maxOutput:40000
+    });
+    if(!result.ok)console.error('[NexControlAgent] NexAccount bootstrap failed:',result.stderr||result.stdout);
+    else if(result.stdout)console.log('[NexControlAgent]',result.stdout.trim());
+  }catch(error){
+    console.error('[NexControlAgent] NexAccount supervisor:',String(error?.message||error));
+  }
+}
+
+await ensureNexAccountRuntime();
 
 let stopped=false;process.on('SIGINT',()=>stopped=true);process.on('SIGTERM',()=>stopped=true);let nextHeartbeat=0;
 while(!stopped){
