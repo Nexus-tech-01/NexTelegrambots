@@ -35,6 +35,7 @@ export const config = {
   tokenEncryptionKey: clean(process.env.NEXMETA_TOKEN_ENCRYPTION_KEY),
 
   controlKey: clean(process.env.NEXMETA_CONTROL_KEY),
+  connectKey: clean(process.env.NEXMETA_CONNECT_KEY),
   nexusGatewayUrl: clean(process.env.NEXUS_COMMAND_GATEWAY_URL),
   nexusGatewayKey: clean(process.env.NEXUS_COMMAND_GATEWAY_KEY),
   requiredNexusServices: csv(
