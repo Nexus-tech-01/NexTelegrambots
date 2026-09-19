@@ -49,8 +49,12 @@ export async function deploymentReadiness() {
     ? gatewayProbe.availableServices
     : [];
 
+  const readyServices = Array.isArray(gatewayProbe.readyServices)
+    ? gatewayProbe.readyServices
+    : [];
+
   const missingServices = requiredServices.filter(
-    service => !availableServices.includes(service)
+    service => !readyServices.includes(service)
   );
 
   const checks = [
@@ -160,7 +164,7 @@ export async function deploymentReadiness() {
         ? 'Bridge receiver is not live'
         : missingServices.length
           ? `Missing adapters: ${missingServices.join(', ')}`
-          : `All required adapters loaded: ${requiredServices.join(', ')}`
+          : `All required adapters production-ready: ${requiredServices.join(', ')}`
     )
   ];
 
@@ -207,8 +211,12 @@ export async function deploymentReadiness() {
       status: gatewayProbe.status ?? null,
       handledBy: gatewayProbe.handledBy ?? null,
       availableServices,
+      readyServices,
       requiredServices,
-      missingServices
+      missingServices,
+      serviceStatus: Array.isArray(gatewayProbe.serviceStatus)
+        ? gatewayProbe.serviceStatus
+        : []
     },
     checks
   };
