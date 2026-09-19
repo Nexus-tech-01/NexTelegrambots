@@ -29,7 +29,11 @@ if (innerPort === outerPort) {
   throw new Error('NEXUS_INNER_GATEWAY_PORT must differ from PORT');
 }
 
-const adapterState = await loadNexusAdapters();
+const adapterState = await loadNexusAdapters({
+  directory:
+    process.env.NEXUS_ADAPTER_DIR ||
+    '/app/nexus-bridge/adapters'
+});
 
 const seenEvents = new Map();
 const dedupTtlMs = Math.max(
