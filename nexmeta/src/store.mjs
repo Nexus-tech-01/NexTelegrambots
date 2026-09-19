@@ -12,11 +12,11 @@ async function database() {
     db.collection('webhook_events').createIndex({ eventKey: 1 }, { unique: true }),
     db.collection('webhook_events').createIndex({ receivedAt: -1 }),
     db.collection('messages').createIndex(
-      { platform: 1, externalMessageId: 1 },
+      { platform: 1, pageId: 1, externalMessageId: 1 },
       { unique: true, sparse: true }
     ),
     db.collection('identities').createIndex(
-      { platform: 1, externalUserId: 1 },
+      { platform: 1, pageId: 1, externalUserId: 1 },
       { unique: true }
     ),
     db.collection('audit_logs').createIndex({ createdAt: -1 })
@@ -61,9 +61,9 @@ export async function upsertIdentity({ platform, externalUserId, pageId }) {
   const db = await database();
   const now = new Date();
   await db.collection('identities').updateOne(
-    { platform, externalUserId },
+    { platform, pageId, externalUserId },
     {
-      $set: { pageId, lastSeenAt: now, updatedAt: now },
+      $set: { lastSeenAt: now, updatedAt: now },
       $setOnInsert: { createdAt: now, nexusUserId: null }
     },
     { upsert: true }
@@ -74,7 +74,11 @@ export async function saveMessage(message) {
   if (!message.externalMessageId) return;
   const db = await database();
   await db.collection('messages').updateOne(
-    { platform: message.platform, externalMessageId: message.externalMessageId },
+    {
+      platform: message.platform,
+      pageId: message.pageId,
+      externalMessageId: message.externalMessageId
+    },
     {
       $setOnInsert: { ...message, createdAt: new Date() },
       $set: { updatedAt: new Date() }
