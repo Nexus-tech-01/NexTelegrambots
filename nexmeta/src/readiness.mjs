@@ -1,7 +1,10 @@
 import {
   config,
   metaConfigured,
-  oauthConfigured
+  oauthConfigured,
+  tokenEncryptionKeyValid,
+  publicHttpsConfigured,
+  graphVersionValid
 } from './config.mjs';
 import { connectedPageState } from './token-vault.mjs';
 import { probeNexusGateway } from './router.mjs';
@@ -11,6 +14,90 @@ function check(name, ok, detail) {
     name,
     ok: Boolean(ok),
     detail: String(detail || '')
+  };
+}
+
+export async function connectionReadiness() {
+  const checks = [
+    check(
+      'mongodb',
+      Boolean(config.mongoUri),
+      config.mongoUri
+        ? 'MongoDB URI configured'
+        : 'NEXUS_MONGODB_URI missing'
+    ),
+    check(
+      'public_https',
+      publicHttpsConfigured(),
+      publicHttpsConfigured()
+        ? config.publicBaseUrl
+        : 'NEXUS_PUBLIC_BASE_URL must be a valid HTTPS URL'
+    ),
+    check(
+      'graph_version',
+      graphVersionValid(),
+      graphVersionValid()
+        ? config.graphVersion
+        : 'NEXMETA_GRAPH_VERSION must look like vN.N'
+    ),
+    check(
+      'meta_app_id',
+      Boolean(config.appId),
+      config.appId
+        ? 'Configured'
+        : 'NEXMETA_APP_ID missing'
+    ),
+    check(
+      'meta_app_secret',
+      Boolean(config.appSecret),
+      config.appSecret
+        ? 'Configured server-side'
+        : 'NEXMETA_APP_SECRET missing'
+    ),
+    check(
+      'verify_token',
+      Boolean(config.verifyToken),
+      config.verifyToken
+        ? 'Configured'
+        : 'NEXMETA_VERIFY_TOKEN missing'
+    ),
+    check(
+      'token_encryption',
+      tokenEncryptionKeyValid(),
+      tokenEncryptionKeyValid()
+        ? '32-byte encryption key valid'
+        : 'NEXMETA_TOKEN_ENCRYPTION_KEY must decode to 32 bytes'
+    ),
+    check(
+      'owner_connect_key',
+      config.connectKey.length >= 24,
+      config.connectKey.length >= 24
+        ? 'Owner connection page enabled'
+        : 'NEXMETA_CONNECT_KEY must contain at least 24 characters'
+    ),
+    check(
+      'oauth_redirect',
+      Boolean(config.oauthRedirectUri),
+      config.oauthRedirectUri ||
+        'OAuth redirect URI unavailable'
+    )
+  ];
+
+  const ready = checks.every(item => item.ok);
+
+  return {
+    version: 1,
+    ready,
+    oauthConfigured: oauthConfigured(),
+    urls: config.publicBaseUrl
+      ? {
+          connect: `${config.publicBaseUrl}/connect/meta`,
+          oauthCallback: config.oauthRedirectUri,
+          webhook: `${config.publicBaseUrl}/webhooks/meta`,
+          health: `${config.publicBaseUrl}/health/meta`
+        }
+      : null,
+    checks
   };
 }
 
