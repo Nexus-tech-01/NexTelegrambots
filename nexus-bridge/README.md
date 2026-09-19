@@ -80,6 +80,8 @@ A service adapter receives the Nexus envelope, not a fake Telegram Update.
 
 Do not emulate Telegram user/chat IDs.
 
+Use `envelope.user.nexusUserId` when present as the stable cross-platform Nexus identity. If it is `null`, the service must treat the caller as an unpaired Facebook identity rather than guessing a Telegram account.
+
 Each bot should expose its reusable domain operation through an adapter layer.
 
 Example:
