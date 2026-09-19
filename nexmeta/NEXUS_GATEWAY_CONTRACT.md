@@ -60,7 +60,8 @@ Example Messenger message:
     "pageId": "123"
   },
   "user": {
-    "externalId": "456"
+    "externalId": "456",
+    "nexusUserId": "nx_123"
   },
   "routing": {
     "intent": "download",
@@ -91,7 +92,8 @@ Example Facebook Page feed change:
     "pageId": "123"
   },
   "user": {
-    "externalId": "facebook-user-id"
+    "externalId": "facebook-user-id",
+    "nexusUserId": null
   },
   "routing": {
     "intent": "page_event",
@@ -136,6 +138,8 @@ The gateway may override the hint if a different Nexus service is more appropria
 Facebook Messenger IDs are Page-scoped.
 
 The gateway must not assume that `user.externalId` is a Telegram ID.
+
+When Messenger pairing has already succeeded, `user.nexusUserId` contains the stable Nexus identity. Otherwise it is `null`. Page feed/change events do not automatically inherit a Nexus identity.
 
 NexMeta stores platform identity links separately. A future common Nexus identity service can resolve:
 
