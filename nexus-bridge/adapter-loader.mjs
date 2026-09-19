@@ -8,6 +8,7 @@ export const DEFAULT_NEXUS_SERVICES = Object.freeze([
   'nexstick',
   'nexgroup',
   'nexcanal',
+  'nexwhisper',
   'nexai',
   'auto'
 ]);
