@@ -62,13 +62,20 @@ export function renderMetaPage({
   status = {},
   metrics = {},
   pages = [],
-  readiness = {}
+  readiness = {},
+  loadErrors = []
 } = {}) {
   const runtime = status.runtime || {};
   const pageState = status.pages || {};
   const active = pageState.activePage;
   const readinessChecks = Array.isArray(readiness.checks)
     ? readiness.checks
+    : [];
+
+  const errors = Array.isArray(loadErrors)
+    ? loadErrors.filter(
+        item => Array.isArray(item) && item[1]
+      )
     : [];
 
   return `<!doctype html>
@@ -101,6 +108,23 @@ ${css}
     </div>
     <p class="page-sub">OAuth, Pages, webhooks, Messenger, permissions, reprise d’événements et coupe-circuit — sans exposer les tokens Meta au navigateur.</p>
   </div>
+
+  ${errors.length ? `
+    <section class="section" style="padding-bottom:0">
+      <article class="panel" style="border-color:rgba(255,180,180,.28)">
+        <div class="eyebrow">Partial load warning</div>
+        <h2 style="font-size:32px;letter-spacing:-.05em;margin:12px 0 18px">NexMeta répond partiellement.</h2>
+        <div style="display:grid;gap:8px">
+          ${errors.map(([name,message]) => `
+            <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;border-top:1px solid var(--line);padding-top:10px">
+              <strong style="text-transform:uppercase;font-size:11px;letter-spacing:.08em">${X(name)}</strong>
+              <span class="muted" style="font-size:12px">${X(message)}</span>
+            </div>
+          `).join('')}
+        </div>
+      </article>
+    </section>
+  ` : ''}
 
   <section class="stats">
     <div class="stat">
