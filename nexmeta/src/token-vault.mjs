@@ -78,11 +78,18 @@ async function collection() {
   return pages;
 }
 
+export function hasMessagingTask(tasks = []) {
+  return Array.isArray(tasks) && tasks.some(
+    task => /MESSAG/i.test(String(task))
+  );
+}
+
 function publicPage(item) {
   return {
     pageId: item.pageId,
     name: item.name,
     tasks: item.tasks || [],
+    messagingTask: hasMessagingTask(item.tasks || []),
     active: item.active === true,
     webhookSubscribed: item.webhookSubscribed === true,
     webhookFields: item.webhookFields || [],
@@ -111,6 +118,7 @@ export async function storeConnectedPages(items = []) {
       pageId,
       name: String(item?.name || pageId),
       tasks: Array.isArray(item?.tasks) ? item.tasks.map(String) : [],
+      messagingTask: hasMessagingTask(item?.tasks || []),
       token: encryptSecret(token),
       updatedAt: now
     };
@@ -132,7 +140,8 @@ export async function storeConnectedPages(items = []) {
     stored.push({
       pageId,
       name: page.name,
-      tasks: page.tasks
+      tasks: page.tasks,
+      messagingTask: page.messagingTask
     });
   }
 
