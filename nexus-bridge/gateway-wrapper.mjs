@@ -256,6 +256,11 @@ const server = http.createServer(async (req, res) => {
       discovery: discovery
         ? {
             generatedAt: discovery.generatedAt || null,
+            orchestrator:
+              discovery.orchestrator &&
+              typeof discovery.orchestrator === 'object'
+                ? discovery.orchestrator
+                : null,
             bots: Array.isArray(discovery.bots)
               ? discovery.bots.map(bot => ({
                   name: bot.name,
