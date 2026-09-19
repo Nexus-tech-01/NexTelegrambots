@@ -183,6 +183,12 @@ export async function probeNexusGateway() {
       handledBy: data?.handledBy || null,
       availableServices: Array.isArray(data?.services?.available)
         ? data.services.available.map(String).sort()
+        : [],
+      readyServices: Array.isArray(data?.services?.ready)
+        ? data.services.ready.map(String).sort()
+        : [],
+      serviceStatus: Array.isArray(data?.services?.status)
+        ? data.services.status
         : []
     };
   } catch (error) {
@@ -191,7 +197,9 @@ export async function probeNexusGateway() {
       latencyMs: Date.now() - startedAt,
       status: Number(error?.status) || null,
       error: String(error?.message || 'gateway_probe_failed').slice(0, 160),
-      availableServices: []
+      availableServices: [],
+      readyServices: [],
+      serviceStatus: []
     };
   }
 }
