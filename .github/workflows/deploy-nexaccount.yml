@@ -35,8 +35,18 @@ jobs:
           repository: Tresor562/DIPPER-
           path: _dipper
 
-      - name: Sync Dipper styles
+      - name: Sync Dipper styles and commands
         run: node nexaccount/scripts/sync-dipper.mjs _dipper nexaccount
+
+      - name: Validate 500+ routed NexAI commands
+        run: |
+          node --input-type=module - <<'NODE'
+          import {commandMap,registrySummary} from './nexaccount/commands.mjs';
+          const summary=registrySummary(commandMap());
+          console.log('NEXAI_REGISTRY',summary);
+          if(summary.total<500)throw new Error('NexAI registry below 500 commands: '+summary.total);
+          if(summary.unresolved.length)throw new Error('Unrouted commands: '+summary.unresolved.join(', '));
+          NODE
 
       - name: Syntax checks
         shell: bash
