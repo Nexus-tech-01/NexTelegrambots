@@ -30,6 +30,7 @@ import {
   markWebhookReplay
 } from './store.mjs';
 import { processWebhookPayload } from './processor.mjs';
+import { deploymentReadiness } from './readiness.mjs';
 import { createIdentityLinkCode } from './identity-link.mjs';
 import { createMetaOAuthStart } from './meta-oauth.mjs';
 import {
@@ -75,6 +76,7 @@ export const CONTROL_CAPABILITIES = Object.freeze([
   'delete_messenger_profile_fields',
   'probe_page',
   'metrics',
+  'deployment_readiness',
   'recent_audit',
   'runtime_settings',
   'set_runtime',
@@ -268,6 +270,9 @@ export async function executeControlAction(body) {
 
     case 'metrics':
       return getMetrics();
+
+    case 'deployment_readiness':
+      return deploymentReadiness();
 
     case 'recent_audit':
       return recentAudit(body.limit);
