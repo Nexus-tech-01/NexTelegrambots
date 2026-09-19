@@ -12,7 +12,10 @@ fi
 
 if [ ! -f nexmeta/node_modules/mongodb/package.json ]; then
   echo "[Pterodactyl] Installing NexMeta production dependencies..."
-  npm --prefix nexmeta install --omit=dev --no-audit --no-fund
+  if ! npm --prefix nexmeta install --omit=dev --no-audit --no-fund; then
+    echo "[Pterodactyl] WARNING: NexMeta dependency installation failed."
+    echo "[Pterodactyl] Telegram runtime will still be allowed to start."
+  fi
 fi
 
 node --check pterodactyl/start.mjs
@@ -25,6 +28,9 @@ if [ -f nexus-bridge/discover-bot-cores.mjs ]; then
   node nexus-bridge/discover-bot-cores.mjs ||     echo "[Pterodactyl] Core discovery warning: continuing without discovery report."
 fi
 
-node pterodactyl/check.mjs
+if ! node pterodactyl/check.mjs; then
+  echo "[Pterodactyl] WARNING: NexMeta connection prerequisites are incomplete."
+  echo "[Pterodactyl] Telegram runtime will still start; /connect/meta stays unavailable until configuration is fixed."
+fi
 
 exec node pterodactyl/start.mjs
