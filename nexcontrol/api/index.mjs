@@ -91,7 +91,23 @@ function injectMetaNavigation(upstream,buffer){
   return Buffer.from(html,'utf8');
 }
 
-function copyUpstreamResponse(upstream,res,buffer){
+function readCookie(req,name){
+  const raw=String(req.headers.cookie||'');
+  for(const part of raw.split(';')){
+    const [key,...rest]=part.trim().split('=');
+    if(key===name){
+      try{return decodeURIComponent(rest.join('='))}catch{return rest.join('=')}
+    }
+  }
+  return null;
+}
+
+function safeLocalPath(value){
+  const path=String(value||'').trim();
+  return path.startsWith('/')&&!path.startsWith('//')&&!path.includes('\\');
+}
+
+function copyUpstreamResponse(upstream,res,buffer,{location,setCookieExtra}={}){
   buffer=injectMetaNavigation(upstream,buffer);
   res.statusCode=upstream.status;
 
@@ -103,16 +119,24 @@ function copyUpstreamResponse(upstream,res,buffer){
   ]);
 
   for(const [k,v] of upstream.headers){
-    if(!skip.has(k.toLowerCase()))res.setHeader(k,v);
+    if(!skip.has(k.toLowerCase())){
+      if(location&&k.toLowerCase()==='location')continue;
+      res.setHeader(k,v);
+    }
   }
 
+  if(location)res.setHeader('location',location);
+
+  let cookies=[];
   if(typeof upstream.headers.getSetCookie==='function'){
-    const cookies=upstream.headers.getSetCookie();
-    if(cookies?.length)res.setHeader('set-cookie',cookies);
+    cookies=upstream.headers.getSetCookie()||[];
   }else{
     const cookie=upstream.headers.get('set-cookie');
-    if(cookie)res.setHeader('set-cookie',cookie);
+    if(cookie)cookies=[cookie];
   }
+
+  if(setCookieExtra)cookies.push(setCookieExtra);
+  if(cookies.length)res.setHeader('set-cookie',cookies);
 
   res.end(buffer);
 }
@@ -130,7 +154,26 @@ async function proxyUpstream(req,res,path,search=''){
   });
 
   const buf=Buffer.from(await upstream.arrayBuffer());
-  copyUpstreamResponse(upstream,res,buf);
+
+  const returnTo=readCookie(req,'nexcontrol_return_to');
+  const loginSucceeded=
+    path==='/api/admin/login'&&
+    req.method==='POST'&&
+    upstream.status>=300&&
+    upstream.status<400&&
+    safeLocalPath(returnTo);
+
+  copyUpstreamResponse(
+    upstream,
+    res,
+    buf,
+    loginSucceeded
+      ? {
+          location:returnTo,
+          setCookieExtra:'nexcontrol_return_to=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax'
+        }
+      : {}
+  );
 }
 
 async function probeAdminSession(req){
@@ -181,7 +224,11 @@ async function metaPage(req,res,url){
 
   if(!auth.authenticated){
     res.statusCode=303;
-    res.setHeader('location','/?next=%2Fmeta');
+    res.setHeader(
+      'set-cookie',
+      'nexcontrol_return_to=%2Fmeta; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax'
+    );
+    res.setHeader('location','/');
     return res.end();
   }
 
