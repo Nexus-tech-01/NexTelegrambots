@@ -1,0 +1,82 @@
+name: Inspect NexDownloader Archive v2
+
+on:
+  push:
+    branches: [feature/nexdownloader-inline]
+    paths:
+      - '.github/workflows/inspect-nexdownloader-archive-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      BRANCH: ${{ github.ref_name }}
+    steps:
+      - name: Clone without checkout action
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp
+          rm -rf repo
+          git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" clone --depth=1 --branch "$BRANCH" "https://github.com/$REPO.git" repo
+      - name: Inspect bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/repo
+          rm -rf /tmp/nexus-src
+          mkdir -p /tmp/nexus-src
+          cat nexus-bots-src.tar.xz.b64.part-* | base64 -d > /tmp/nexus-src.tar.xz
+          xz -t /tmp/nexus-src.tar.xz
+          tar -xJf /tmp/nexus-src.tar.xz -C /tmp/nexus-src
+          OUT=.deploy/nexdownloader-inline-inventory.txt
+          mkdir -p .deploy
+          {
+            echo '=== TREE ==='
+            find /tmp/nexus-src -maxdepth 7 -type f | sed 's#^/tmp/nexus-src/##' | grep -Ei 'nex.?down|downloader|package\.json|requirements|shazam|music|lyric|telegram' | head -n 1000 || true
+            echo
+            echo '=== DIRECTORIES ==='
+            find /tmp/nexus-src -maxdepth 6 -type d | sed 's#^/tmp/nexus-src/##' | grep -Ei 'nex.?down|downloader' | head -n 300 || true
+            echo
+            echo '=== INLINE SEARCH ==='
+            grep -RInE --exclude-dir=node_modules --exclude-dir=.git --exclude='*.env' 'inline_query|answerInlineQuery|inlineQuery|InlineQueryResult|switch_inline' /tmp/nexus-src 2>/dev/null | head -n 500 || true
+            echo
+            echo '=== HANDLER SEARCH ==='
+            grep -RInE --exclude-dir=node_modules --exclude-dir=.git --exclude='*.env' 'bot\.on|callback_query|message:text|hears\(|command\(|TelegramBot|grammy|telegraf' /tmp/nexus-src 2>/dev/null | grep -Ei 'nex.?down|downloader|/src/' | head -n 1000 || true
+            echo
+            echo '=== MUSIC SEARCH ==='
+            grep -RInE --exclude-dir=node_modules --exclude-dir=.git --exclude='*.env' 'searchMusic|music search|shazam|lyrics|yt-dlp|gallery-dl|audio' /tmp/nexus-src 2>/dev/null | grep -Ei 'nex.?down|downloader|/src/' | head -n 1200 || true
+            echo
+            echo '=== PACKAGE FILES ==='
+            find /tmp/nexus-src -type f -name package.json -not -path '*/node_modules/*' -print0 | while IFS= read -r -d '' p; do
+              if grep -qiE 'downloader|shazam|yt-dlp|telegram' "$p" 2>/dev/null; then
+                echo "--- ${p#/tmp/nexus-src/} ---"
+                sed -n '1,320p' "$p"
+              fi
+            done
+            echo
+            echo '=== LIKELY ENTRY FILES ==='
+            find /tmp/nexus-src -type f \( -name 'index.js' -o -name 'index.mjs' -o -name 'bot.js' -o -name 'bot.mjs' -o -name 'app.js' -o -name 'main.js' \) -print0 | while IFS= read -r -d '' p; do
+              if printf '%s' "$p" | grep -qiE 'nex.?down|downloader'; then
+                echo "--- ${p#/tmp/nexus-src/} ---"
+                sed -n '1,500p' "$p"
+              fi
+            done
+          } > "$OUT"
+          wc -c "$OUT"
+      - name: Commit inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/repo
+          git config user.name "nextech-inline-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add .deploy/nexdownloader-inline-inventory.txt
+          git commit -m "chore: inventory NexDownloader inline integration" || exit 0
+          git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" push origin "$BRANCH"
