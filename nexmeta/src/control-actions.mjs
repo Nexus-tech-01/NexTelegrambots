@@ -26,10 +26,20 @@ import {
 } from './store.mjs';
 import { processWebhookPayload } from './processor.mjs';
 import { createIdentityLinkCode } from './identity-link.mjs';
-import { config } from './config.mjs';
+import { createMetaOAuthStart } from './meta-oauth.mjs';
+import {
+  listConnectedPages,
+  activateConnectedPage,
+  removeConnectedPage,
+  getActivePageCredential
+} from './token-vault.mjs';
 
 export const CONTROL_CAPABILITIES = Object.freeze([
   'status',
+  'oauth_start',
+  'list_connected_pages',
+  'activate_connected_page',
+  'remove_connected_page',
   'probe_page',
   'metrics',
   'recent_audit',
@@ -96,6 +106,7 @@ export function controlAuditMetadata(body) {
     action,
     target:
       safeAuditTarget(body?.psid) ||
+      safeAuditTarget(body?.pageId) ||
       safeAuditTarget(body?.objectId) ||
       safeAuditTarget(body?.commentId) ||
       safeAuditTarget(body?.conversationId) ||
@@ -126,11 +137,38 @@ async function assertMetaWritesEnabled(action) {
   }
 }
 
+async function resolvePageId(explicitPageId) {
+  const provided = optionalString(explicitPageId, 300);
+  if (provided) return provided;
+  return (await getActivePageCredential()).pageId;
+}
+
 export async function executeControlAction(body) {
   const action = requireString(body?.action, 'action', 80);
   await assertMetaWritesEnabled(action);
 
   switch (action) {
+    case 'oauth_start':
+      return createMetaOAuthStart({
+        actor: 'nexcontrol',
+        ttlSeconds: body.ttlSeconds
+      });
+
+    case 'list_connected_pages':
+      return listConnectedPages();
+
+    case 'activate_connected_page':
+      return activateConnectedPage(
+        requireString(body.pageId, 'pageId', 300)
+      );
+
+    case 'remove_connected_page':
+      return {
+        removed: await removeConnectedPage(
+          requireString(body.pageId, 'pageId', 300)
+        )
+      };
+
     case 'probe_page':
       return getPageProfile();
 
@@ -188,7 +226,7 @@ export async function executeControlAction(body) {
     case 'link_identity':
       return linkIdentity({
         platform: optionalString(body.platform, 40) || 'facebook',
-        pageId: optionalString(body.pageId, 300) || config.pageId,
+        pageId: await resolvePageId(body.pageId),
         externalUserId: requireString(body.externalUserId, 'externalUserId', 500),
         nexusUserId: requireString(body.nexusUserId, 'nexusUserId', 500)
       });
@@ -196,7 +234,7 @@ export async function executeControlAction(body) {
     case 'unlink_identity':
       return unlinkIdentity({
         platform: optionalString(body.platform, 40) || 'facebook',
-        pageId: optionalString(body.pageId, 300) || config.pageId,
+        pageId: await resolvePageId(body.pageId),
         externalUserId: requireString(body.externalUserId, 'externalUserId', 500)
       });
 
