@@ -56,13 +56,40 @@ export function metaConfigured() {
   );
 }
 
+export function tokenEncryptionKeyValid(value = config.tokenEncryptionKey) {
+  const key = clean(value);
+
+  if (/^[a-f0-9]{64}$/i.test(key)) {
+    return true;
+  }
+
+  try {
+    return Buffer.from(key, 'base64').length === 32;
+  } catch {
+    return false;
+  }
+}
+
+export function publicHttpsConfigured() {
+  try {
+    const url = new URL(config.publicBaseUrl);
+    return url.protocol === 'https:' && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+export function graphVersionValid() {
+  return /^v\d+\.\d+$/.test(config.graphVersion);
+}
+
 export function oauthConfigured() {
   return Boolean(
-    config.graphVersion &&
+    graphVersionValid() &&
     config.appId &&
     config.appSecret &&
     config.oauthRedirectUri &&
-    config.tokenEncryptionKey
+    tokenEncryptionKeyValid()
   );
 }
 
@@ -81,11 +108,31 @@ export function assertGraphConfig() {
 
 export function assertOAuthConfig() {
   const missing = [];
-  if (!config.graphVersion) missing.push('NEXMETA_GRAPH_VERSION');
+  if (!config.graphVersion) {
+    missing.push('NEXMETA_GRAPH_VERSION');
+  } else if (!graphVersionValid()) {
+    missing.push('NEXMETA_GRAPH_VERSION(valid vN.N)');
+  }
   if (!config.appId) missing.push('NEXMETA_APP_ID');
   if (!config.appSecret) missing.push('NEXMETA_APP_SECRET');
-  if (!config.oauthRedirectUri) missing.push('NEXMETA_OAUTH_REDIRECT_URI');
-  if (!config.tokenEncryptionKey) missing.push('NEXMETA_TOKEN_ENCRYPTION_KEY');
+  if (!config.oauthRedirectUri) {
+    missing.push('NEXMETA_OAUTH_REDIRECT_URI');
+  } else {
+    try {
+      const redirect = new URL(config.oauthRedirectUri);
+      if (redirect.protocol !== 'https:') {
+        missing.push('NEXMETA_OAUTH_REDIRECT_URI(https)');
+      }
+    } catch {
+      missing.push('NEXMETA_OAUTH_REDIRECT_URI(valid URL)');
+    }
+  }
+
+  if (!config.tokenEncryptionKey) {
+    missing.push('NEXMETA_TOKEN_ENCRYPTION_KEY');
+  } else if (!tokenEncryptionKeyValid()) {
+    missing.push('NEXMETA_TOKEN_ENCRYPTION_KEY(32 bytes)');
+  }
 
   if (missing.length) {
     throw new Error(`Meta OAuth config missing: ${missing.join(', ')}`);
