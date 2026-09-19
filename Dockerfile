@@ -44,7 +44,9 @@ RUN node --check /app/nexus-bridge/receiver.mjs \
 # Secrets are supplied only through Render environment variables.
 # Never COPY a repository .env file into the image.
 RUN python3 -m pip install --break-system-packages --no-cache-dir -r bots/nexdownloader/requirements.txt
-RUN node scripts/install-all.mjs && node scripts/build-all.mjs
+RUN node scripts/install-all.mjs \
+ && node scripts/build-all.mjs \
+ && node /app/nexus-bridge/discover-bot-cores.mjs
 
 EXPOSE 10000
 
