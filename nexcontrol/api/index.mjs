@@ -1,3 +1,4 @@
+import { handleNexAiPublic } from '../nexai-public.mjs';
 // NexControl proxy build 61.12.1-recovery + NexAccount control surface
 const TARGET='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol';
 const AGENT='nexus-main';
@@ -116,7 +117,8 @@ async function handleNexAccount(req,res,u){
 export default async function handler(req,res){
   try{
     const u=new URL(req.url,'https://nexcontrol.local');
-    if(await handleNexAccount(req,res,u))return;
+    if(await handleNexAiPublic(req,res,u))return;
+  if(await handleNexAccount(req,res,u))return;
     const headers=outboundHeaders(req,u.pathname);
     const body=outboundBody(req,headers);
     const upstream=await fetch(TARGET+u.search,{
