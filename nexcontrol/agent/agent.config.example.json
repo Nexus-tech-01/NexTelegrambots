@@ -1,12 +1,18 @@
 {
   "controlUrl": "https://nexcontrol-ochre.vercel.app",
+  "controlUrls": [
+    "https://nexcontrol-ochre.vercel.app",
+    "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol"
+  ],
+  "primaryReprobeMs": 300000,
   "agentSlug": "nexus-main",
   "agentName": "Nexus Main Server",
   "pollMs": 2500,
   "heartbeatMs": 30000,
-  "maxReadBytes": 1048576,
-  "maxSearchFiles": 2000,
+  "maxReadBytes": 4194304,
+  "maxSearchFiles": 8000,
   "roots": {
+    "nexus": ".",
     "nexgroup": "./bots/nexgroup",
     "nexcanal": "./bots/nexcanal",
     "nexgame": "./bots/nexgame",
@@ -38,9 +44,17 @@
     "mode": "file",
     "path": "./.nexcontrol/control/restart.json"
   },
-  "controlUrls": [
-    "https://nexcontrol-ochre.vercel.app",
-    "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol"
-  ],
-  "primaryReprobeMs": 300000
+  "allowExec": true,
+  "execAllowlist": [
+    "node",
+    "npm",
+    "npx",
+    "git",
+    "python3",
+    "pip3",
+    "ffmpeg",
+    "ffprobe",
+    "yt-dlp",
+    "gallery-dl"
+  ]
 }
