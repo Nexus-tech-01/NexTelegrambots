@@ -8,6 +8,26 @@ import {
   registerRemoteMedia
 } from '../media-registry.mjs';
 
+export const adapterManifest = Object.freeze({
+  version: '0.1.0',
+  mode: 'direct-media',
+  productionReady: false,
+  capabilities: [
+    'tiktok_direct_video',
+    'tiktok_direct_images',
+    'generic_page_direct_media',
+    'optional_cobalt_direct_media',
+    'temporary_public_media_relay'
+  ],
+  missing: [
+    'yt_dlp_local_file_delivery',
+    'gallery_dl_local_file_delivery',
+    'full_audio_conversion',
+    'full_video_conversion',
+    'telegram_job_queue_parity'
+  ]
+});
+
 const URL_PATTERN = /https?:\/\/[^\s<>"'\])}]+/i;
 
 function envBoolean(name, fallback = false) {
