@@ -9,8 +9,78 @@ import {
   audit,
   getRuntimeSettings
 } from './store.mjs';
+import { consumeIdentityLinkCode } from './identity-link.mjs';
 import { routeInbound } from './router.mjs';
 import { sendText, senderAction } from './meta-client.mjs';
+
+function extractLinkCode(text) {
+  const value = String(text ?? '').trim().toUpperCase();
+
+  const direct = value.match(/^(NXM-[A-Z0-9]{9})$/);
+  if (direct) return direct[1];
+
+  const command = value.match(/^(?:\/?LINK|\/?LIER)\s+(NXM-[A-Z0-9]{9})$/);
+  return command ? command[1] : null;
+}
+
+async function sendAndSave(event, text) {
+  const sent = await sendText(event.senderId, text);
+
+  await saveMessage({
+    platform: 'facebook',
+    surface: 'messenger',
+    pageId: event.pageId,
+    externalUserId: event.senderId,
+    externalMessageId: sent?.message_id || null,
+    direction: 'outbound',
+    text,
+    timestamp: new Date()
+  });
+
+  return sent;
+}
+
+async function tryIdentityLink(event) {
+  if (event.type !== 'message') return false;
+
+  const code = extractLinkCode(event.text);
+  if (!code) return false;
+
+  const result = await consumeIdentityLinkCode({
+    code,
+    pageId: event.pageId,
+    externalUserId: event.senderId,
+    platform: 'facebook'
+  });
+
+  if (!result) {
+    await sendAndSave(
+      event,
+      'Ce code de liaison est invalide, expiré ou déjà utilisé. Génère un nouveau code depuis ton compte Nexus puis réessaie.'
+    );
+
+    await audit('nexmeta.identity.link_failed', 'messenger', {
+      pageId: event.pageId,
+      externalUserId: event.senderId,
+      reason: 'invalid_expired_or_used_code'
+    });
+
+    return true;
+  }
+
+  await sendAndSave(
+    event,
+    'Compte Nexus lié avec succès. Tes accès et ta progression peuvent maintenant être partagés avec les services Nexus compatibles.'
+  );
+
+  await audit('nexmeta.identity.linked', 'messenger', {
+    pageId: event.pageId,
+    externalUserId: event.senderId,
+    nexusUserId: result.nexusUserId
+  });
+
+  return true;
+}
 
 export async function processInboundEvent(event) {
   if (!event.senderId) return;
@@ -61,28 +131,23 @@ export async function processInboundEvent(event) {
   ]);
 
   try {
+    if (await tryIdentityLink(event)) return;
+
     const result = await routeInbound(event);
 
     if (result?.text) {
-      const sent = await sendText(event.senderId, result.text);
-
-      await saveMessage({
-        platform: 'facebook',
-        surface: 'messenger',
-        pageId: event.pageId,
-        externalUserId: event.senderId,
-        externalMessageId: sent?.message_id || null,
-        direction: 'outbound',
-        text: result.text,
-        timestamp: new Date()
-      });
+      await sendAndSave(event, result.text);
     }
   } finally {
     await senderAction(event.senderId, 'typing_off').catch(() => {});
   }
 }
 
-export async function processWebhookPayload(eventKey, payload, { throwOnFailure = false } = {}) {
+export async function processWebhookPayload(
+  eventKey,
+  payload,
+  { throwOnFailure = false } = {}
+) {
   try {
     const events = normalizeMessengerWebhook(payload);
 
@@ -91,6 +156,7 @@ export async function processWebhookPayload(eventKey, payload, { throwOnFailure 
     }
 
     await markWebhookProcessed(eventKey, 'processed', null);
+
     return {
       ok: true,
       events: events.length
@@ -107,3 +173,5 @@ export async function processWebhookPayload(eventKey, payload, { throwOnFailure 
     };
   }
 }
+
+export { extractLinkCode };
