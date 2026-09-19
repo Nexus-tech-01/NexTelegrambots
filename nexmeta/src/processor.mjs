@@ -7,7 +7,8 @@ import {
   upsertIdentity,
   saveMessage,
   audit,
-  getRuntimeSettings
+  getRuntimeSettings,
+  resolveIdentity
 } from './store.mjs';
 import { consumeIdentityLinkCode } from './identity-link.mjs';
 import {
@@ -179,7 +180,11 @@ async function processPageEvent(event, settings) {
     return;
   }
 
-  const result = await routeNexusEvent(event);
+  const result = await routeNexusEvent(event, {
+    identity: {
+      nexusUserId: null
+    }
+  });
 
   await audit('nexmeta.page_event.routed', 'facebook', {
     pageId: event.pageId,
@@ -195,6 +200,10 @@ async function processMessengerEvent(event, settings) {
   if (!event.senderId) return;
 
   await upsertIdentity(eventIdentity(event));
+
+  const identity = await resolveIdentity(
+    eventIdentity(event)
+  );
 
   if (event.type === 'message') {
     await saveMessage({
@@ -223,7 +232,9 @@ async function processMessengerEvent(event, settings) {
   }
 
   if (!['message', 'postback'].includes(event.type)) {
-    const result = await routeNexusEvent(event);
+    const result = await routeNexusEvent(event, {
+      identity
+    });
 
     await audit('nexmeta.messenger_event.routed', 'facebook', {
       pageId: event.pageId,
@@ -254,7 +265,9 @@ async function processMessengerEvent(event, settings) {
   try {
     if (await tryIdentityLink(event)) return;
 
-    const result = await routeInbound(event);
+    const result = await routeInbound(event, {
+      identity
+    });
     await renderNexusReply(event, result);
   } finally {
     await senderAction(event.senderId, 'typing_off').catch(() => {});
