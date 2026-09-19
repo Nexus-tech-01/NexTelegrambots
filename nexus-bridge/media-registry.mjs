@@ -173,7 +173,12 @@ export async function assertPublicHttpUrl(raw) {
     throw new Error('unsupported_media_protocol');
   }
 
-  const hostname = url.hostname.toLowerCase();
+  const rawHostname = url.hostname.toLowerCase();
+  const hostname =
+    rawHostname.startsWith('[') &&
+    rawHostname.endsWith(']')
+      ? rawHostname.slice(1, -1)
+      : rawHostname;
 
   if (
     hostname === 'localhost' ||
