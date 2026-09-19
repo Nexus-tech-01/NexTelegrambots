@@ -241,3 +241,8 @@ export async function sendNexMetaImageGallery(psid, imageUrls) {
     imageUrls
   });
 }
+
+
+export async function nexMetaDeploymentReadiness() {
+  return nexMetaAction('deployment_readiness');
+}
