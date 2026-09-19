@@ -63,20 +63,22 @@ export function splitMessengerText(value, maxLength = 2000) {
     }
 
     const window = rest.slice(0, cut);
-    const preferred = [
-      window.lastIndexOf('\n\n'),
-      window.lastIndexOf('\n'),
-      window.lastIndexOf(' ')
-    ].find(index => index >= Math.floor(max * 0.55));
+    const threshold = Math.floor(max * 0.55);
+    const breakpoints = [
+      ['\n\n', window.lastIndexOf('\n\n')],
+      ['\n', window.lastIndexOf('\n')],
+      [' ', window.lastIndexOf(' ')]
+    ];
 
-    if (preferred !== undefined) {
-      cut = preferred + 1;
+    for (const [separator, index] of breakpoints) {
+      if (index >= threshold) {
+        cut = index + separator.length;
+        break;
+      }
     }
 
-    const chunk = rest.slice(0, cut).trimEnd();
-    if (chunk) chunks.push(chunk);
-
-    rest = rest.slice(cut).trimStart();
+    chunks.push(rest.slice(0, cut));
+    rest = rest.slice(cut);
   }
 
   if (rest) chunks.push(rest);
