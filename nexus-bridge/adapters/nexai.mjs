@@ -17,17 +17,22 @@ const configuredKey = clean(
   process.env.NEXAI_API_KEY ||
   process.env.STACY__OPENAI_COMPATIBLE_KEY ||
   process.env.STACY_OPENAI_COMPATIBLE_KEY ||
+  process.env.STACY__GROQ_API_KEY ||
   process.env.GROQ_API_KEY
 );
 
 const configuredModel = clean(
   process.env.NEXAI_MODEL ||
   process.env.STACY__OPENAI_COMPATIBLE_MODEL ||
-  process.env.STACY_OPENAI_COMPATIBLE_MODEL
+  process.env.STACY_OPENAI_COMPATIBLE_MODEL ||
+  process.env.STACY__GROQ_MODEL
 );
 
 const apiUrl = configuredUrl || (
-  configuredKey && process.env.GROQ_API_KEY === configuredKey
+  configuredKey && (
+    process.env.GROQ_API_KEY === configuredKey ||
+    process.env.STACY__GROQ_API_KEY === configuredKey
+  )
     ? 'https://api.groq.com/openai/v1/chat/completions'
     : ''
 );
