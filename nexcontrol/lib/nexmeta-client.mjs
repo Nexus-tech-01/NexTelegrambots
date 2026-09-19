@@ -207,3 +207,37 @@ export async function deleteNexMetaMessengerProfileFields(fields) {
     fields
   });
 }
+
+
+export async function getNexMetaMessengerUserProfile(psid) {
+  return nexMetaAction('get_messenger_user_profile', { psid });
+}
+
+export async function moderateNexMetaConversation(psid, moderationAction) {
+  return nexMetaAction('moderate_conversation', {
+    psid,
+    moderationAction
+  });
+}
+
+export async function sendNexMetaTemplate(psid, template) {
+  return nexMetaAction('send_template', {
+    psid,
+    template
+  });
+}
+
+export async function sendNexMetaButtonTemplate(psid, text, buttons) {
+  return nexMetaAction('send_button_template', {
+    psid,
+    text,
+    buttons
+  });
+}
+
+export async function sendNexMetaImageGallery(psid, imageUrls) {
+  return nexMetaAction('send_image_gallery', {
+    psid,
+    imageUrls
+  });
+}
