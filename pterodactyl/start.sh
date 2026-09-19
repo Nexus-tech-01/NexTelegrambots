@@ -9,8 +9,8 @@ echo "[Pterodactyl] Nexus root: $ROOT"
 EXTRACTED_RUNTIME=0
 
 if [ ! -f scripts/orchestrator.mjs ]; then
-  TMP_XZ="/tmp/nexus-runtime-$.tar.xz"
-  TMP_B64="/tmp/nexus-runtime-$.b64"
+  TMP_XZ="/tmp/nexus-runtime.tar.xz"
+  TMP_B64="/tmp/nexus-runtime.b64"
 
   if ls render-src.b64.part-* >/dev/null 2>&1; then
     echo "[Pterodactyl] Reconstructing canonical Nexus runtime..."
@@ -34,7 +34,21 @@ if [ ! -f scripts/orchestrator.mjs ]; then
   rm -f "$TMP_B64"
 
   echo "[Pterodactyl] Extracting Nexus runtime without overwriting secrets/NexMeta overlay..."
-  tar -xJf "$TMP_XZ" -C "$ROOT"     --exclude='.env'     --exclude='./.env'     --exclude='nexmeta'     --exclude='./nexmeta'     --exclude='nexus-bridge'     --exclude='./nexus-bridge'     --exclude='pterodactyl'     --exclude='./pterodactyl'     --exclude='.git'     --exclude='./.git'
+  tar \
+    --exclude='.env' \
+    --exclude='./.env' \
+    --exclude='*/.env' \
+    --exclude='*/.env.*' \
+    --exclude='nexmeta' \
+    --exclude='./nexmeta' \
+    --exclude='nexus-bridge' \
+    --exclude='./nexus-bridge' \
+    --exclude='pterodactyl' \
+    --exclude='./pterodactyl' \
+    --exclude='.git' \
+    --exclude='./.git' \
+    -xJf "$TMP_XZ" \
+    -C "$ROOT"
 
   rm -f "$TMP_XZ"
 
@@ -77,7 +91,8 @@ node --check nexus-bridge/adapter-loader.mjs
 node --check nexus-bridge/media-registry.mjs
 
 if [ -f nexus-bridge/discover-bot-cores.mjs ]; then
-  node nexus-bridge/discover-bot-cores.mjs ||     echo "[Pterodactyl] Core discovery warning: continuing without discovery report."
+  node nexus-bridge/discover-bot-cores.mjs || \
+    echo "[Pterodactyl] Core discovery warning: continuing without discovery report."
 fi
 
 if ! node pterodactyl/check.mjs; then
