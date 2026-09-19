@@ -25,12 +25,20 @@ test('routes main Nexus service commands', () => {
     'nexstick'
   );
   assert.equal(
+    classifyNexusRoute({ type: 'message', text: '/whisper 123 hello' }).preferredService,
+    'nexwhisper'
+  );
+  assert.equal(
     classifyNexusRoute({ type: 'message', text: '/group settings' }).preferredService,
     'nexgroup'
   );
   assert.equal(
     classifyNexusRoute({ type: 'message', text: '/publish update' }).preferredService,
     'nexcanal'
+  );
+  assert.equal(
+    classifyNexusRoute({ type: 'message', text: '/ai hello' }).preferredService,
+    'nexai'
   );
 });
 
