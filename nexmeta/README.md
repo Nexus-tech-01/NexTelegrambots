@@ -14,7 +14,7 @@ Current service version: **0.4.0**.
 - raw-body `X-Hub-Signature-256` validation
 - durable MongoDB persistence before acknowledgement
 - duplicate protection
-- Vercel `waitUntil()` processing after fast acknowledgement
+- fast webhook acknowledgement with processing continuing in the long-running Pterodactyl process
 - replayable `received` / `failed` webhook events
 - Messenger message/postback/read/delivery/reaction normalization
 - Page `changes` normalization, including `feed` events
@@ -85,7 +85,7 @@ Current service version: **0.4.0**.
 
 The receiver contract is documented in `NEXUS_GATEWAY_CONTRACT.md`.
 
-The Render side now includes a receiver, adapter loader, optional front proxy and build-time bot-core discovery overlay. The front proxy remains disabled by default until adapters are connected to the real reusable cores of NexDownloader, NexGame, NexStick, NexGroup and NexCanal.
+The Pterodactyl runtime includes the Nexus receiver, adapter loader, media relay and unified supervisor. NexMeta and the Telegram orchestrator share one public Pterodactyl allocation while running on separate internal ports.
 
 ### NexControl
 
@@ -107,13 +107,15 @@ The NexControl Vercel proxy protects `/meta` and `/api/admin/meta/*` by probing 
 
 ## HTTP routes
 
-Public:
+Public through the Pterodactyl gateway:
 
 ```
-GET  /health
-GET  /webhooks/meta
-POST /webhooks/meta
-GET  /oauth/meta/callback
+GET      /health/meta
+GET      /health/all
+GET/POST /connect/meta
+GET      /webhooks/meta
+POST     /webhooks/meta
+GET      /oauth/meta/callback
 ```
 
 Private machine API:
@@ -239,20 +241,14 @@ See:
 - `NEXCONTROL_CONTRACT.md`
 - `NEXUS_GATEWAY_CONTRACT.md`
 
-Local:
+Pterodactyl:
 
 ```bash
-cd nexmeta
-npm install
-cp .env.example .env
-npm test
-npm start
+sh pterodactyl/start.sh
 ```
 
-Vercel project root:
+See `../pterodactyl/README.md` and `../pterodactyl/.env.example`.
 
-```
-nexmeta
-```
+NexMeta is not deployed as a Vercel function. NexControl may remain a separate web control panel.
 
 Do not commit real credentials.
