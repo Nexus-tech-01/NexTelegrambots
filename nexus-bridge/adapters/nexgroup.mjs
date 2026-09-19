@@ -131,7 +131,11 @@ export async function handle(envelope) {
   }
   const targetUserId = Number(targetRaw);
   const updateId = Number(envelope?.event?.timestamp || Date.now());
-  const reason = args.join(' ').trim() || 'NexMeta Facebook command';
+  let reason = args.join(' ').trim() || 'NexMeta Facebook command';
+  if (action === 'mute' && args.length && /^\\d+$/.test(args[0])) {
+    args.shift();
+    reason = args.join(' ').trim() || 'NexMeta Facebook command';
+  }
   const common = { group, targetUserId, actorTelegramId: actor.telegramId, actorRole: actor.role, reason, updateId };
 
   if (action === 'ban') return resultReply('ban', await moderation.ban(common), lang);
@@ -141,7 +145,8 @@ export async function handle(envelope) {
     return resultReply('unmute', await moderation.unmute({ ...common, source:'COMMAND' }), lang);
   }
   if (action === 'mute') {
-    const secondsRaw = args.shift();
+    const sourceText = stripCommand(text);
+    const secondsRaw = sourceText[3];
     const seconds = Math.max(30, Math.min(30 * 86400, Number(secondsRaw || 3600)));
     return resultReply('mute', await moderation.mute({ ...common, seconds, source:'COMMAND' }), lang);
   }
