@@ -3,6 +3,7 @@ import { Api } from 'teleproto';
 import { cfg, isOwnerId } from './config.mjs';
 import { listAccounts, patchSettings, settingsFor } from './store.mjs';
 import { toSmallCaps } from './styles.mjs';
+import { AUDIO_LAB_COMMANDS, handleAudioLabCommand } from './audio-lab.mjs';
 
 const DL_MAP={
   cobalt:'facebook',facebook:'facebook',
@@ -254,6 +255,10 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(cmd?.sourceBot==='nexgroup'&&cmd?.sourceCommand)name=cmd.sourceCommand;
   name=GROUP_ALIAS[name]||name;
   const argText=args.join(' ').trim();
+
+  if(AUDIO_LAB_COMMANDS.has(name)){
+    return handleAudioLabCommand({runtime,event,name,args,sendText});
+  }
 
   if(DL_MAP[name]){
     return proxyCommand(client,peer,{name:DL_MAP[name],proxy:'@TheNexDownloader_bot'},args),true;
@@ -778,6 +783,192 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
   if(name==='device'){
     await sendText(client,peer,'NexAccount · '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nTelegram ID : '+account.telegramUserId+'\nSession : active\nPremium : '+(account.premium?'oui':'non'));return true;
+  }
+
+
+
+  if(name==='dark'){
+    const settings=await settingsFor(account.telegramUserId);
+    const current=settings.nlpMode?.enabled===true;
+    const enabled=parseToggle(args[0],current);
+    await patchSettings(account.telegramUserId,{nlpMode:{...(settings.nlpMode||{}),enabled}});
+    await sendText(client,peer,'NexAI · mode IA naturel : '+(enabled?'ON':'OFF'));
+    return true;
+  }
+
+  if(name==='mutedark'){
+    const settings=await settingsFor(account.telegramUserId);
+    const chat=String(event.chatId||peer?.channelId||peer?.chatId||peer?.userId||'global');
+    const {policy}=groupPolicy(settings,chat);
+    const action=clean(args[0]).toLowerCase();
+    if(!action){
+      const until=Number(policy.nexaiMuteUntil||0);
+      const active=policy.nexaiMuted===true&&(until===0||until>Date.now());
+      await sendText(client,peer,'NexAI auto-features : '+(active?'MUTED':'ACTIVE')+(until>Date.now()?' · '+Math.ceil((until-Date.now())/60000)+' min restantes':''));
+      return true;
+    }
+    const enabled=!['off','0','false','unmute','wake','reveil','réveil'].includes(action);
+    const minutes=enabled?Math.max(0,Math.min(10080,Number(args[1])||0)):0;
+    const until=enabled&&minutes?Date.now()+minutes*60000:0;
+    await patchGroupPolicy(account.telegramUserId,chat,{nexaiMuted:enabled,nexaiMuteUntil:until});
+    await sendText(client,peer,'NexAI auto-features : '+(enabled?'MUTED'+(minutes?' · '+minutes+' min':''):'ACTIVE'));
+    return true;
+  }
+
+  if(name==='reponseauto'){
+    const settings=await settingsFor(account.telegramUserId);
+    const sub=clean(args[0]).toLowerCase();
+    if(sub==='status'){
+      const a=settings.autoReply||{};
+      await sendText(client,peer,'Auto-réponse : '+(a.enabled?'ON':'OFF')+(a.url?'\nMédia : configuré':'')+'\nDélai : '+Number(a.delayMs||0)/1000+' s');
+      return true;
+    }
+    if(sub==='off'||sub==='reset'){
+      await patchSettings(account.telegramUserId,{autoReply:{enabled:false}});
+      await sendText(client,peer,'Auto-réponse désactivée.');
+      return true;
+    }
+    const reply=await repliedMessage(client,peer,event.message);
+    if(!reply?.media){
+      await sendText(client,peer,'Réponds à une image, un audio ou une vidéo avec .reponseauto [délai_secondes].');
+      return true;
+    }
+    try{
+      const buffer=await client.downloadMedia(reply);
+      if(!buffer?.length)throw new Error('média vide');
+      if(buffer.length>20*1024*1024)throw new Error('média > 20 Mo');
+      const mime=String(reply?.document?.mimeType||reply?.media?.document?.mimeType||'application/octet-stream');
+      const ext=mime.includes('video')?'mp4':mime.includes('audio')?'mp3':mime.includes('image')?'jpg':'bin';
+      const url=await uploadCatbox(Buffer.from(buffer),'nexai-autoreply-'+Date.now()+'.'+ext);
+      const delayMs=Math.max(0,Math.min(30,Number(args[0])||0))*1000;
+      await patchSettings(account.telegramUserId,{autoReply:{enabled:true,url,mime,delayMs,setAt:Date.now()}});
+      await sendText(client,peer,'Auto-réponse média activée pour les mentions du compte.');
+    }catch(e){await sendText(client,peer,'Configuration auto-réponse impossible : '+String(e.message||e))}
+    return true;
+  }
+
+  if(name==='infos_canal'){
+    const raw=clean(args[0]);
+    try{
+      let target=peer;
+      if(raw){
+        const username=raw.replace(/^https?:\/\/(?:t\.me|telegram\.me)\//i,'').replace(/^@/,'').split(/[/?#]/)[0];
+        if(!username||/^\+/.test(username)){
+          await sendText(client,peer,'Pour un canal privé, rejoins-le d’abord avec .join puis relance .infos_canal.');
+          return true;
+        }
+        target=await client.getInputEntity('@'+username);
+      }
+      const entity=await client.getEntity(target);
+      await sendText(client,peer,[
+        'NexAI · infos canal',
+        entity?.title||entity?.firstName||'Telegram',
+        entity?.username?'@'+entity.username:'',
+        entity?.id?'ID : '+entity.id:'',
+        entity?.participantsCount!=null?'Membres/abonnés : '+entity.participantsCount:''
+      ].filter(Boolean).join('\n'));
+    }catch(e){await sendText(client,peer,'Canal introuvable : '+String(e.errorMessage||e.message||e))}
+    return true;
+  }
+
+  if(name==='erreur'){
+    const id=replyId(event.message);
+    if(!id){await sendText(client,peer,'Réponds au message à supprimer.');return true}
+    try{await client.deleteMessages(peer,[id],{revoke:true})}
+    catch(e){await sendText(client,peer,'Suppression impossible : '+String(e.errorMessage||e.message||e))}
+    return true;
+  }
+
+  if(name==='cta_url'){
+    await sendText(client,peer,'Nextech : '+cfg.nextechUrl);
+    return true;
+  }
+
+  if(name==='apparence_systeme'){
+    const value=argText.slice(0,64);
+    if(!value){
+      const settings=await settingsFor(account.telegramUserId);
+      await sendText(client,peer,'Nom NexAI du menu : '+(settings.botDisplayName||'NEXAI'));
+      return true;
+    }
+    await patchSettings(account.telegramUserId,{botDisplayName:value});
+    await sendText(client,peer,'Nom du menu mis à jour : '+value);
+    return true;
+  }
+
+  if(name==='illustration_grimoire'){
+    const reply=await repliedMessage(client,peer,event.message);
+    if(!reply?.media){await sendText(client,peer,'Réponds à une image avec .illustration_grimoire.');return true}
+    try{
+      const buffer=await client.downloadMedia(reply);
+      if(!buffer?.length)throw new Error('image vide');
+      if(buffer.length>10*1024*1024)throw new Error('image > 10 Mo');
+      const url=await uploadCatbox(Buffer.from(buffer),'nexai-menu-'+Date.now()+'.jpg');
+      await patchSettings(account.telegramUserId,{menuImageUrl:url});
+      await sendText(client,peer,'Illustration du menu NexAI mise à jour.');
+    }catch(e){await sendText(client,peer,'Image du menu impossible : '+String(e.message||e))}
+    return true;
+  }
+
+  if(name==='sceau_canal'){
+    const value=clean(args[0]);
+    if(!value){
+      const settings=await settingsFor(account.telegramUserId);
+      await sendText(client,peer,'Canal lié : '+(settings.relayChannel||cfg.nextechUrl));
+      return true;
+    }
+    await patchSettings(account.telegramUserId,{relayChannel:value});
+    await sendText(client,peer,'Canal lié à NexAI : '+value);
+    return true;
+  }
+
+  if(name==='eveil'){
+    const seconds=Math.max(0,Math.floor((Date.now()-new Date(runtime.startedAt||Date.now()).getTime())/1000));
+    const h=Math.floor(seconds/3600),m=Math.floor(seconds%3600/60),sec=seconds%60;
+    await sendText(client,peer,'NexAI actif depuis '+h+'h '+m+'m '+sec+'s.');
+    return true;
+  }
+
+  if(name==='adoration'){
+    const query=argText||'christian worship';
+    try{await proxyCommand(client,peer,{name:'song',proxy:'@TheNexDownloader_bot'},[query])}
+    catch(e){await sendText(client,peer,'Recherche musicale indisponible : '+String(e.message||e))}
+    return true;
+  }
+
+  if(name==='arcanes'){
+    return handleCompatCommand({runtime,event,name:'inspecter',args,cmd:{},sendText,proxyCommand,sendInline});
+  }
+
+  if(name==='boutique'){
+    await sendText(client,peer,[
+      'Nextech · projets',
+      cfg.nextechUrl,
+      'NexNews : '+cfg.nexnewsUrl,
+      'GitHub : https://github.com/Nexus-tech-01'
+    ].join('\n'));
+    return true;
+  }
+
+  if(name==='rang'){
+    const settings=await settingsFor(account.telegramUserId);
+    await sendText(client,peer,'Rang NexAI\nCompte : '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nTelegram Premium : '+(account.premium?'oui':'non')+'\nStyle : '+(settings.style||1));
+    return true;
+  }
+
+  if(name==='sanctuaire'){
+    const c=await currentChat(client,peer);
+    const ps=await participants(client,peer,500);
+    const admins=ps.filter(p=>p.participant?.adminRights||p.adminRights||p.participant?.constructor?.name?.includes('Admin')).length;
+    await sendText(client,peer,[
+      'NexAI · sanctuaire',
+      c?.title||c?.username||'Chat Telegram',
+      c?.username?'@'+c.username:'',
+      'ID : '+String(c?.id||event.chatId||''),
+      'Membres chargés : '+ps.length,
+      'Admins : '+admins
+    ].filter(Boolean).join('\n'));
+    return true;
   }
 
   if(SAFE_UNSUPPORTED.has(name)){
