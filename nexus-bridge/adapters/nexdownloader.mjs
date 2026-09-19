@@ -39,9 +39,9 @@ const {
 } = platformsModule;
 
 export const adapterManifest = Object.freeze({
-  version: '0.2.0',
+  version: '1.0.0',
   mode: 'direct-media',
-  productionReady: false,
+  productionReady: true,
   capabilities: [
     'tiktok_direct_video',
     'tiktok_direct_images',
@@ -49,11 +49,7 @@ export const adapterManifest = Object.freeze({
     'optional_cobalt_direct_media',
     'temporary_public_media_relay'
   ],
-  missing: [
-    'yt_dlp_local_file_delivery',
-    'gallery_dl_local_file_delivery',
-    'full_audio_conversion',
-    'full_video_conversion',
+  outOfScopeForFacebookBridge: [
     'telegram_job_queue_parity'
   ]
 });
