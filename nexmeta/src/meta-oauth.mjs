@@ -173,21 +173,63 @@ async function exchangeLongLivedUserToken(shortLivedToken) {
 }
 
 async function getManagedPages(userAccessToken) {
-  const url = new URL(graphUrl('me/accounts'));
-  url.searchParams.set('fields', 'id,name,access_token,tasks');
-  url.searchParams.set('limit', '100');
-  url.searchParams.set('access_token', userAccessToken);
-  url.searchParams.set('appsecret_proof', appSecretProof(userAccessToken));
+  const pages = [];
+  const seenIds = new Set();
+  const seenCursors = new Set();
+  let after = null;
 
-  const data = await readJson(
-    await fetch(url, {
-      method: 'GET',
-      signal: AbortSignal.timeout(15000)
-    }),
-    'Meta managed Pages request'
-  );
+  for (let pageNumber = 0; pageNumber < 10; pageNumber += 1) {
+    const url = new URL(graphUrl('me/accounts'));
+    url.searchParams.set(
+      'fields',
+      'id,name,access_token,tasks'
+    );
+    url.searchParams.set('limit', '100');
+    url.searchParams.set(
+      'access_token',
+      userAccessToken
+    );
+    url.searchParams.set(
+      'appsecret_proof',
+      appSecretProof(userAccessToken)
+    );
 
-  return Array.isArray(data?.data) ? data.data : [];
+    if (after) {
+      url.searchParams.set('after', after);
+    }
+
+    const data = await readJson(
+      await fetch(url, {
+        method: 'GET',
+        signal: AbortSignal.timeout(15000)
+      }),
+      'Meta managed Pages request'
+    );
+
+    for (const item of data?.data || []) {
+      const id = String(item?.id || '');
+      if (!id || seenIds.has(id)) continue;
+      seenIds.add(id);
+      pages.push(item);
+    }
+
+    const nextCursor = String(
+      data?.paging?.cursors?.after || ''
+    );
+
+    if (
+      !data?.paging?.next ||
+      !nextCursor ||
+      seenCursors.has(nextCursor)
+    ) {
+      break;
+    }
+
+    seenCursors.add(nextCursor);
+    after = nextCursor;
+  }
+
+  return pages;
 }
 
 async function provisionWebhooks(storedPages) {
