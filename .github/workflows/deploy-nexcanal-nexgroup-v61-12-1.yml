@@ -1,0 +1,105 @@
+name: Deploy NexCanal NexGroup v61.12.1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/deploy-nexcanal-nexgroup-v61-12-1.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-nexcanal-nexgroup-v61-12-1
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NXC_BASE: https://nexcontrol-ochre.vercel.app
+      NXC_AGENT: nexus-main
+      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
+      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy NexCanal and NexGroup v61.12.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYDEPLOY'
+          import os,json,time,base64,gzip,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib,traceback
+          from pathlib import Path
+          BASE=os.environ['NXC_BASE'].rstrip('/')
+          AGENT=os.environ['NXC_AGENT']
+          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
+          SECRET=os.environ.get('NXC_SESSION_SECRET','')
+          manifest=json.loads(gzip.decompress(base64.b64decode(Path('.deploy/v61121-relay.manifest.b64').read_text().strip())))
+          jar=http.cookiejar.CookieJar();op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar));cookie=''
+          if SECRET:
+              exp=int(time.time()*1000)+20*60*1000
+              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
+              sig=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
+              cookie=payload+'.'+sig
+          elif ADMIN:
+              data=urllib.parse.urlencode({'password':ADMIN}).encode()
+              op.open(urllib.request.Request(BASE+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=45).read()
+          else: raise RuntimeError('No NexControl credential in Actions secrets')
+          def http(method,path,data=None):
+              h={'Accept':'application/json'}
+              if cookie:h['Cookie']='nexcontrol_session='+cookie
+              body=None
+              if data is not None: body=json.dumps(data,separators=(',',':')).encode();h['Content-Type']='application/json'
+              req=urllib.request.Request(BASE+path,data=body,headers=h,method=method)
+              try:
+                  with op.open(req,timeout=45) as r:
+                      raw=r.read().decode('utf-8','replace');return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  raise RuntimeError(f'HTTP {e.code} {path}: '+e.read().decode('utf-8','replace')[:1500])
+          def job(kind,payload):
+              j=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload});jid=j.get('jobId')
+              if not jid: raise RuntimeError(f'No jobId for {kind}: {j}')
+              end=time.time()+180
+              while time.time()<end:
+                  x=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid));st=x.get('status')
+                  if st=='succeeded': return x.get('result') or {}
+                  if st=='failed': raise RuntimeError(f'{kind} failed: {x.get("error")}')
+                  time.sleep(2)
+              raise TimeoutError(f'{kind} timed out: {jid}')
+          backups=[]
+          try:
+              for root in ('nexcanal','nexgroup'):
+                  probe=job('fs.list',{'root':root,'path':'.'})
+                  print(root,'probe entries',len(probe.get('items',[])),flush=True)
+              for root,items in manifest.items():
+                  for item in items:
+                      content=base64.b64decode(item['b64']).decode('utf-8')
+                      r=job('fs.write',{'root':root,'path':item['path'],'content':content})
+                      backups.append((root,item['path'],r.get('backupId'),r.get('created',False)))
+                  js='dist/src/services/group-relay-channels.js' if root=='nexcanal' else 'dist/domain/group-relay-channels.js'
+                  ck=job('check.run',{'check':'node-check','root':root,'file':js,'timeoutMs':60000})
+                  if not ck.get('ok'): raise RuntimeError(f'node-check failed {root}: {ck}')
+                  verify=job('fs.read',{'root':root,'path':js,'startLine':1,'endLine':100})
+                  c=verify.get('content','')
+                  for wanted in ('thenexusorigin','tresor_universe','thenexnews'):
+                      if wanted not in c: raise RuntimeError(f'{root}: missing {wanted}')
+                  if "BLOCKED_RELAY_CHANNELS" not in c or 'inconnuboysensei' not in c:
+                      raise RuntimeError(f'{root}: explicit block guard missing')
+              job('runtime.restart',{'target':'nexcanal','reason':'Deploy v61.12.1 NexNews + tresor_universe relay mapping'})
+              job('runtime.restart',{'target':'nexgroup','reason':'Deploy v61.12.1 NexNews + tresor_universe relay mapping'})
+              time.sleep(12)
+              try:
+                  logs=job('logs.tail',{'log':'launcher','bytes':160000})
+                  print(logs.get('content','')[-12000:],flush=True)
+              except Exception as e: print('log tail warning',e,flush=True)
+              print('DEPLOYMENT_OK v61.12.1 nexcanal+nexgroup',flush=True)
+          except Exception:
+              traceback.print_exc()
+              for root,path,bid,created in reversed(backups):
+                  try:
+                      if bid: job('fs.rollback',{'backupId':bid})
+                      elif created: job('fs.delete',{'root':root,'path':path,'allowDir':False})
+                  except Exception as e: print('rollback warning',root,path,e,flush=True)
+              raise
+          PYDEPLOY
