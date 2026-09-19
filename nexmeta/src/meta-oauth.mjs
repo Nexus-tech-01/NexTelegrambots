@@ -2,6 +2,10 @@ import crypto from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { config, assertOAuthConfig } from './config.mjs';
 import { storeConnectedPages } from './token-vault.mjs';
+import {
+  configureAppWebhook,
+  subscribePageToApp
+} from './meta-webhooks.mjs';
 
 let clientPromise;
 let indexesPromise;
@@ -183,6 +187,44 @@ async function getManagedPages(userAccessToken) {
   return Array.isArray(data?.data) ? data.data : [];
 }
 
+async function provisionWebhooks(storedPages) {
+  let app = null;
+
+  try {
+    app = await configureAppWebhook();
+  } catch (error) {
+    app = {
+      success: false,
+      error: String(error?.message || error).slice(0, 500),
+      metaCode: error?.metaCode ?? null
+    };
+  }
+
+  const pages = [];
+
+  for (const page of storedPages) {
+    try {
+      pages.push(await subscribePageToApp(page.pageId));
+    } catch (error) {
+      pages.push({
+        pageId: page.pageId,
+        success: false,
+        error: String(error?.message || error).slice(0, 500),
+        metaCode: error?.metaCode ?? null
+      });
+    }
+  }
+
+  return {
+    app,
+    pages,
+    success:
+      app?.success === true &&
+      pages.length > 0 &&
+      pages.every(item => item.success)
+  };
+}
+
 export async function completeMetaOAuth({
   code,
   state
@@ -214,11 +256,19 @@ export async function completeMetaOAuth({
 
   const pages = await getManagedPages(longLived.access_token);
   const stored = await storeConnectedPages(pages);
+  const webhooks = stored.length
+    ? await provisionWebhooks(stored)
+    : {
+        app: null,
+        pages: [],
+        success: false
+      };
 
   return {
     actor: claimedState.actor,
     pagesDiscovered: pages.length,
     pagesStored: stored.length,
-    pages: stored
+    pages: stored,
+    webhooks
   };
 }
