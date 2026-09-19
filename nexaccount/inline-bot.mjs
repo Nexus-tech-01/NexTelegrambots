@@ -2,8 +2,10 @@ import { Bot } from 'grammy';
 import { cfg } from './config.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { commandMap } from './commands.mjs';
-import { listAccounts, settingsFor } from './store.mjs';
+import { listAccounts, settingsFor, patchSettings } from './store.mjs';
 import { menuModel, stylesModel } from './menu.mjs';
+import { settingsModel } from './settings-ui.mjs';
+import { tr } from './i18n.mjs';
 
 const commands=commandMap();
 let bot;
@@ -53,6 +55,7 @@ async function modelFor(account,query){
   const settings=await settingsFor(account.telegramUserId);
   const q=String(query||'').trim().toLowerCase();
   if(q==='styles'||q==='style')return stylesModel({account,settings});
+  if(q==='settings'||q==='parametres'||q==='parameters')return settingsModel(settings);
   if(q.startsWith('cat:'))return menuModel({account,settings,commands,view:'category',category:q.slice(4).toUpperCase()});
   return menuModel({account,settings,commands,view:'home'});
 }
@@ -116,6 +119,16 @@ export async function startInlineBot(){
     let model;
     if(action==='menu:home')model=await modelFor(account,'menu');
     else if(action.startsWith('cat:'))model=await modelFor(account,action);
+    else if(action==='settings:open')model=await modelFor(account,'settings');
+    else if(action.startsWith('settings:lang:')){
+      const language=action.endsWith(':en')?'en':'fr';
+      await patchSettings(accountId,{language});
+      const updated=await settingsFor(accountId);
+      model=settingsModel(updated);
+      await ctx.answerCallbackQuery({text:tr(language,'language_changed')});
+      await editInline(ctx,model,accountId);
+      return;
+    }
     else {await ctx.answerCallbackQuery();return}
     await editInline(ctx,model,accountId);
     await ctx.answerCallbackQuery();
