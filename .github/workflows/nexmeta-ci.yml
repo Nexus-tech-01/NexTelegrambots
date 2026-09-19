@@ -6,10 +6,12 @@ on:
       - feature/nexmeta-v1
     paths:
       - "nexmeta/**"
+      - "nexcontrol/lib/nexmeta-client.mjs"
       - ".github/workflows/nexmeta-ci.yml"
   pull_request:
     paths:
       - "nexmeta/**"
+      - "nexcontrol/lib/nexmeta-client.mjs"
       - ".github/workflows/nexmeta-ci.yml"
 
 jobs:
@@ -32,4 +34,8 @@ jobs:
           node --check src/normalizer.mjs
           node --check src/meta-client.mjs
           node --check src/router.mjs
+          node --check src/control-actions.mjs
+          node --check src/handler.mjs
           node --check src/server.mjs
+          node --check api/index.mjs
+          node --check ../nexcontrol/lib/nexmeta-client.mjs
