@@ -7,6 +7,8 @@ export const CORE_COMMANDS=[
   C('alive','GENERAL',{description:'État de NexAccount'}),
   C('account','GENERAL',{description:'Informations du compte connecté'}),
   C('help','GENERAL',{description:'Aide rapide'}),
+  C('settings','SETTINGS',{description:'Ouvrir les paramètres'}),
+  C('language','SETTINGS',{description:'Changer la langue'}),
 
   C('join','GROUP',{description:'Rejoindre un groupe ou canal par lien/username'}),
   C('leave','GROUP',{description:'Quitter le chat courant'}),
@@ -87,18 +89,18 @@ export const CORE_COMMANDS=[
   C('unblock','OWNER',{ownerOnly:true})
 ];
 
-export const CATEGORY_ORDER=['GENERAL','AI','DOWNLOAD','GROUP','CHANNEL','TOOLS','STICKERS','GAMES','PROTECTION','ANIME','SEARCH','PREMIUM','OWNER'];
+export const CATEGORY_ORDER=['GENERAL','AI','DOWNLOAD','GROUP','CHANNEL','TOOLS','STICKERS','GAMES','PROTECTION','ANIME','SEARCH','PREMIUM','SETTINGS','OWNER'];
 
 export const CATEGORY_LABELS={
   GENERAL:'GENERAL',AI:'AI',DOWNLOAD:'DOWNLOAD',GROUP:'GROUP',CHANNEL:'CHANNEL',
   TOOLS:'TOOLS',STICKERS:'STICKERS',GAMES:'GAMES',PROTECTION:'PROTECTION',
-  ANIME:'ANIME',SEARCH:'SEARCH',PREMIUM:'PREMIUM',OWNER:'OWNER'
+  ANIME:'ANIME',SEARCH:'SEARCH',PREMIUM:'PREMIUM',SETTINGS:'SETTINGS',OWNER:'OWNER'
 };
 
 export const CATEGORY_ICONS={
   GENERAL:'general',AI:'ai',DOWNLOAD:'download',GROUP:'group',CHANNEL:'channel',
   TOOLS:'tools',STICKERS:'sticker',GAMES:'games',PROTECTION:'shield',
-  ANIME:'anime',SEARCH:'search',PREMIUM:'premium',OWNER:'owner'
+  ANIME:'anime',SEARCH:'search',PREMIUM:'premium',SETTINGS:'settings',OWNER:'owner'
 };
 
 export function commandMap(extra=[]){
