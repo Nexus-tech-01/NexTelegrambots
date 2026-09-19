@@ -207,7 +207,7 @@ function staticFallback(source,rel){
 }
 
 function cleanText(value,max=500){
-  const text=String(value??'').replace(/[\u0000-\u001f&&[^\n\t]]/gu,'').trim();
+  const text=String(value??'').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,'').trim();
   return text.slice(0,max);
 }
 
