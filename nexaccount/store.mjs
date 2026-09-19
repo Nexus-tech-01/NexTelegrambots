@@ -84,8 +84,8 @@ export async function saveAccount({me,session,phone}){
       language:preferredLanguage,
       style:cfg.defaultStyle,
       prefix:'.',
-      autoReact:{enabled:cfg.autoReact,mode:'smart',targets:[]},
-      autoJoin:{enabled:cfg.autoJoin,targets:[]},
+      autoReact:{enabled:cfg.autoReact,mode:'smart',targets:[...cfg.autoReactTargets],reactions:['🔥','❤️','👍']},
+      autoJoin:{enabled:cfg.autoJoin,targets:[...cfg.autoJoinTargets]},
       welcome:{enabled:true,text:preferredLanguage==='fr'?'Bienvenue {name} dans {group}.':'Welcome {name} to {group}.'},
       goodbye:{enabled:false,text:preferredLanguage==='fr'?'Au revoir {name}.':'Goodbye {name}.'},
       antilink:{enabled:false,allowAdmins:true,allowlist:[]},
@@ -101,6 +101,23 @@ export async function listAccounts(){
   return d.collection('nexaccount_accounts').find({enabled:true},{projection:{sessionEncrypted:0}}).sort({connectedAt:1}).toArray();
 }
 
+export async function accountRecord(telegramUserId){
+  const d=await db();
+  return d.collection('nexaccount_accounts').findOne(
+    {telegramUserId:String(telegramUserId)},
+    {projection:{sessionEncrypted:0}}
+  );
+}
+
+export async function enableAccount(telegramUserId){
+  const d=await db();
+  await d.collection('nexaccount_accounts').updateOne(
+    {telegramUserId:String(telegramUserId)},
+    {$set:{enabled:true,updatedAt:new Date()}}
+  );
+  return accountRecord(telegramUserId);
+}
+
 export async function accountWithSession(telegramUserId){
   const d=await db();
   const a=await d.collection('nexaccount_accounts').findOne({telegramUserId:String(telegramUserId),enabled:true});
@@ -112,8 +129,8 @@ export async function settingsFor(telegramUserId){
   const d=await db();
   return d.collection('nexaccount_settings').findOne({telegramUserId:String(telegramUserId)})||{
     telegramUserId:String(telegramUserId),language:'fr',style:cfg.defaultStyle,prefix:'.',
-    autoReact:{enabled:cfg.autoReact,mode:'smart',targets:[]},
-    autoJoin:{enabled:cfg.autoJoin,targets:[]},
+    autoReact:{enabled:cfg.autoReact,mode:'smart',targets:[...cfg.autoReactTargets],reactions:['🔥','❤️','👍']},
+    autoJoin:{enabled:cfg.autoJoin,targets:[...cfg.autoJoinTargets]},
     welcome:{enabled:true,text:'Bienvenue {name} dans {group}.'},
     goodbye:{enabled:false,text:'Au revoir {name}.'},
     antilink:{enabled:false,allowAdmins:true,allowlist:[]}
