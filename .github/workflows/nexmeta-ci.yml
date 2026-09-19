@@ -7,11 +7,17 @@ on:
     paths:
       - "nexmeta/**"
       - "nexcontrol/lib/nexmeta-client.mjs"
+      - "nexcontrol/ui/meta-page.mjs"
+      - "nexcontrol/api/index.mjs"
+      - "nexus-bridge/**"
       - ".github/workflows/nexmeta-ci.yml"
   pull_request:
     paths:
       - "nexmeta/**"
       - "nexcontrol/lib/nexmeta-client.mjs"
+      - "nexcontrol/ui/meta-page.mjs"
+      - "nexcontrol/api/index.mjs"
+      - "nexus-bridge/**"
       - ".github/workflows/nexmeta-ci.yml"
 
 jobs:
@@ -27,6 +33,7 @@ jobs:
           node-version: "20"
       - run: npm install
       - run: npm test
+      - run: node --test ../nexus-bridge/test/*.test.mjs
       - run: |
           node --check src/config.mjs
           node --check src/security.mjs
@@ -49,3 +56,4 @@ jobs:
           node --check ../nexcontrol/lib/nexmeta-client.mjs
           node --check ../nexcontrol/ui/meta-page.mjs
           node --check ../nexcontrol/api/index.mjs
+          node --check ../nexus-bridge/receiver.mjs
