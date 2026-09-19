@@ -9,6 +9,7 @@ const stateDir=path.resolve(here,'.runtime');
 const pidFile=path.join(stateDir,'nexaccount.pid');
 const logFile=path.join(stateDir,'nexaccount.log');
 const port=Number(process.env.NEXACCOUNT_PORT||3491);
+const restart=process.argv.includes('--restart');
 
 async function healthy(){
   try{
@@ -17,16 +18,29 @@ async function healthy(){
   }catch{return false}
 }
 
+async function oldPid(){
+  try{
+    const pid=Number(await fsp.readFile(pidFile,'utf8'));
+    return Number.isInteger(pid)&&pid>1?pid:null;
+  }catch{return null}
+}
+
 await fsp.mkdir(stateDir,{recursive:true});
-if(await healthy()){
+if(await healthy()&&!restart){
   console.log('NexAccount already running');
   process.exit(0);
 }
 
-try{
-  const old=Number(await fsp.readFile(pidFile,'utf8'));
-  if(Number.isInteger(old)&&old>1)process.kill(old,0);
-}catch{}
+if(restart){
+  const pid=await oldPid();
+  if(pid){
+    try{process.kill(pid,'SIGTERM')}catch{}
+    for(let i=0;i<20;i++){
+      try{process.kill(pid,0)}catch{break}
+      await new Promise(r=>setTimeout(r,250));
+    }
+  }
+}
 
 const fd=fs.openSync(logFile,'a');
 const child=spawn(process.execPath,[path.join(here,'daemon.mjs')],{
@@ -37,7 +51,7 @@ const child=spawn(process.execPath,[path.join(here,'daemon.mjs')],{
 });
 child.unref();
 await fsp.writeFile(pidFile,String(child.pid));
-for(let i=0;i<20;i++){
+for(let i=0;i<30;i++){
   await new Promise(r=>setTimeout(r,500));
   if(await healthy()){
     console.log('NexAccount started pid='+child.pid);
