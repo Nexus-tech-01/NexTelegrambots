@@ -27,10 +27,7 @@ test('splits long Messenger text without losing content', () => {
 
   assert.equal(chunks.length, 2);
   assert.ok(chunks.every(chunk => chunk.length <= 2000));
-  assert.equal(
-    chunks.join('').replace(/\s+/g, ''),
-    source.replace(/\s+/g, '')
-  );
+  assert.equal(chunks.join(''), source);
 });
 
 test('does not split a surrogate pair at the message boundary', () => {
