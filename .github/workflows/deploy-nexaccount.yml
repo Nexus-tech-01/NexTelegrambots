@@ -1,0 +1,151 @@
+name: Deploy NexAccount
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'nexaccount/**'
+      - 'nexcontrol/api/index.mjs'
+      - '.github/workflows/deploy-nexaccount.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-nexaccount
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NXC_BASE: https://nexcontrol-ochre.vercel.app
+      NXC_AGENT: nexus-main
+      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
+      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    steps:
+      - name: Checkout Nexus bots
+        uses: actions/checkout@v4
+
+      - name: Checkout THE BIG DIPPER
+        uses: actions/checkout@v4
+        with:
+          repository: Tresor562/DIPPER-
+          path: _dipper
+
+      - name: Sync Dipper styles
+        run: node nexaccount/scripts/sync-dipper.mjs _dipper nexaccount
+
+      - name: Syntax checks
+        shell: bash
+        run: |
+          set -e
+          for f in nexaccount/*.mjs nexaccount/scripts/*.mjs nexcontrol/api/index.mjs; do
+            node --check "$f"
+          done
+
+      - name: Deploy through NexControl Agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,json,time,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib,base64
+          from pathlib import Path
+
+          BASE=os.environ['NXC_BASE'].rstrip('/')
+          AGENT=os.environ['NXC_AGENT']
+          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
+          SECRET=os.environ.get('NXC_SESSION_SECRET','')
+
+          jar=http.cookiejar.CookieJar()
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          cookie=''
+          if SECRET:
+              exp=int(time.time()*1000)+30*60*1000
+              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
+              sig=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
+              cookie=payload+'.'+sig
+          elif ADMIN:
+              data=urllib.parse.urlencode({'password':ADMIN}).encode()
+              op.open(urllib.request.Request(BASE+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=45).read()
+          else:
+              raise RuntimeError('No NexControl credential in Actions secrets')
+
+          def http(method,path,data=None,timeout=60):
+              headers={'Accept':'application/json'}
+              if cookie: headers['Cookie']='nexcontrol_session='+cookie
+              body=None
+              if data is not None:
+                  body=json.dumps(data,separators=(',',':')).encode()
+                  headers['Content-Type']='application/json'
+              req=urllib.request.Request(BASE+path,data=body,headers=headers,method=method)
+              try:
+                  with op.open(req,timeout=timeout) as r:
+                      raw=r.read().decode('utf-8','replace')
+                      return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  raise RuntimeError(f'HTTP {e.code} {path}: '+e.read().decode('utf-8','replace')[:2000])
+
+          def job(kind,payload,timeout=180):
+              j=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload})
+              jid=j.get('jobId')
+              if not jid: raise RuntimeError(f'No jobId for {kind}: {j}')
+              end=time.time()+timeout
+              while time.time()<end:
+                  x=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid),timeout=45)
+                  st=x.get('status')
+                  if st=='succeeded': return x.get('result') or {}
+                  if st=='failed': raise RuntimeError(f'{kind} failed: {x.get("error")}')
+                  time.sleep(1)
+              raise TimeoutError(f'{kind} timeout: {jid}')
+
+          job('fs.mkdir',{'root':'nexus','path':'bots/nexaccount','recursive':True})
+
+          files=[]
+          for p in Path('nexaccount').rglob('*'):
+              if not p.is_file(): continue
+              if any(part in {'node_modules','.runtime'} for part in p.parts): continue
+              rel=p.relative_to('nexaccount').as_posix()
+              files.append((p,rel))
+
+          backups=[]
+          try:
+              for src,rel in files:
+                  text=src.read_text(encoding='utf-8')
+                  result=job('fs.write',{'root':'nexus','path':'bots/nexaccount/'+rel,'content':text})
+                  backups.append((rel,result.get('backupId'),result.get('created',False)))
+              install=job('runtime.exec',{
+                  'root':'nexus',
+                  'command':'npm',
+                  'args':['--prefix','bots/nexaccount','install','--omit=dev','--ignore-scripts'],
+                  'timeoutMs':180000
+              },timeout=210)
+              if install.get('ok') is False:
+                  raise RuntimeError('npm install failed: '+str(install)[-4000:])
+              boot=job('runtime.exec',{
+                  'root':'nexus',
+                  'command':'node',
+                  'args':['bots/nexaccount/bootstrap.mjs','--restart'],
+                  'timeoutMs':60000
+              },timeout=90)
+              if boot.get('ok') is False:
+                  raise RuntimeError('bootstrap failed: '+str(boot)[-4000:])
+              health=job('runtime.exec',{
+                  'root':'nexus',
+                  'command':'node',
+                  'args':['bots/nexaccount/cli.mjs','health'],
+                  'timeoutMs':30000
+              },timeout=60)
+              print('NEXACCOUNT_HEALTH',health.get('stdout','')[-5000:])
+              print('DEPLOYMENT_OK NexAccount')
+          except Exception:
+              for rel,bid,created in reversed(backups):
+                  try:
+                      if bid: job('fs.rollback',{'backupId':bid})
+                      elif created: job('fs.delete',{'root':'nexus','path':'bots/nexaccount/'+rel,'allowDir':False})
+                  except Exception as e:
+                      print('rollback warning',rel,e)
+              raise
+          PY
