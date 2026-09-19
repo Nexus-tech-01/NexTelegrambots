@@ -4,9 +4,14 @@ const csv = value => clean(value)
   .map(item => item.trim().toLowerCase())
   .filter(Boolean);
 
+const publicBaseUrl = clean(
+  process.env.NEXMETA_PUBLIC_BASE_URL ||
+  process.env.NEXUS_PUBLIC_BASE_URL
+).replace(/\/+$/, '');
+
 export const config = {
   port: Number(process.env.PORT || 8788),
-  publicBaseUrl: clean(process.env.NEXMETA_PUBLIC_BASE_URL),
+  publicBaseUrl,
   mongoUri: clean(process.env.NEXUS_MONGODB_URI || process.env.MONGODB_URI),
   dbName: clean(process.env.NEXMETA_DB_NAME || 'nexmeta'),
 
@@ -19,7 +24,14 @@ export const config = {
   pageId: clean(process.env.NEXMETA_PAGE_ID),
   pageAccessToken: clean(process.env.NEXMETA_PAGE_ACCESS_TOKEN),
 
-  oauthRedirectUri: clean(process.env.NEXMETA_OAUTH_REDIRECT_URI),
+  oauthRedirectUri: clean(
+    process.env.NEXMETA_OAUTH_REDIRECT_URI ||
+    (
+      publicBaseUrl
+        ? `${publicBaseUrl}/oauth/meta/callback`
+        : ''
+    )
+  ),
   tokenEncryptionKey: clean(process.env.NEXMETA_TOKEN_ENCRYPTION_KEY),
 
   controlKey: clean(process.env.NEXMETA_CONTROL_KEY),
