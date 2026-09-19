@@ -50,12 +50,24 @@ add(
   'MongoDB URI'
 );
 
+const graphVersion = String(
+  process.env.NEXMETA_GRAPH_VERSION || ''
+).trim();
+
+add(
+  'nexmeta_graph_version',
+  /^v\d+\.\d+$/.test(graphVersion),
+  graphVersion
+    ? /^v\d+\.\d+$/.test(graphVersion)
+      ? graphVersion
+      : 'Invalid; expected vN.N'
+    : 'Missing'
+);
+
 for (const name of [
-  'NEXMETA_GRAPH_VERSION',
   'NEXMETA_APP_ID',
   'NEXMETA_APP_SECRET',
   'NEXMETA_VERIFY_TOKEN',
-  'NEXMETA_TOKEN_ENCRYPTION_KEY',
   'NEXMETA_CONTROL_KEY'
 ]) {
   add(
@@ -66,6 +78,35 @@ for (const name of [
       : 'Missing'
   );
 }
+
+const encryptionKey = String(
+  process.env.NEXMETA_TOKEN_ENCRYPTION_KEY || ''
+).trim();
+
+let encryptionKeyBytes = 0;
+
+if (/^[a-f0-9]{64}$/i.test(encryptionKey)) {
+  encryptionKeyBytes = 32;
+} else if (encryptionKey) {
+  try {
+    encryptionKeyBytes = Buffer.from(
+      encryptionKey,
+      'base64'
+    ).length;
+  } catch {
+    encryptionKeyBytes = 0;
+  }
+}
+
+add(
+  'nexmeta_token_encryption_key',
+  encryptionKeyBytes === 32,
+  encryptionKey
+    ? encryptionKeyBytes === 32
+      ? 'Configured (32 bytes)'
+      : `Invalid length: ${encryptionKeyBytes} bytes`
+    : 'Missing'
+);
 
 const connectKey = String(
   process.env.NEXMETA_CONNECT_KEY || ''
