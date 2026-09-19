@@ -203,12 +203,26 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/internal/nexus/bridge-status') {
+    const authorization = String(req.headers.authorization || '');
+    const suppliedKey = authorization.replace(/^Bearer\s+/i, '').trim();
+
+    if (!sharedKey || suppliedKey !== sharedKey) {
+      res.statusCode = 401;
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+      res.setHeader('cache-control', 'no-store');
+      res.end(JSON.stringify({
+        error: 'unauthorized'
+      }));
+      return;
+    }
+
     res.statusCode = 200;
     res.setHeader('content-type', 'application/json; charset=utf-8');
     res.setHeader('cache-control', 'no-store');
     res.end(JSON.stringify({
       ok: true,
       proxy: true,
+      childExited,
       outerPort,
       innerPort,
       adapters: adapterState.status
