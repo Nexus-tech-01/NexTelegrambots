@@ -3,7 +3,7 @@ import { TelegramClient, Api } from 'teleproto';
 import { StringSession } from 'teleproto/sessions/index.js';
 import { NewMessage } from 'teleproto/events/index.js';
 import { cfg, isOwnerId } from './config.mjs';
-import { commandMap } from './commands.mjs';
+import { commandMap, registrySummary } from './commands.mjs';
 import { accountWithSession, disableAccount, enableAccount, listAccounts, patchSettings, settingsFor } from './store.mjs';
 import { listStyles } from './styles.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
@@ -13,6 +13,87 @@ import { ownerPanelText, countriesText, languagesText, userText, botStatsText, a
 const commands=commandMap();
 const runtimes=new Map();
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+const PROXY_SERVICES={
+  downloader:{
+    usernameEnv:['NEXAI_NEXDOWNLOADER_BOT_USERNAME','NEXDOWNLOADER__BOT_USERNAME'],
+    tokenEnv:['NEXDOWNLOADER__BOT_TOKEN','NEXDOWNLOADER_BOT_TOKEN'],
+    fallback:'TheNexDownloader_bot'
+  },
+  group:{
+    usernameEnv:['NEXAI_NEXGROUP_BOT_USERNAME','NEXGROUP__BOT_USERNAME'],
+    tokenEnv:['NEXGROUP__BOT_TOKEN','NEXGROUP_BOT_TOKEN'],
+    fallback:''
+  },
+  game:{
+    usernameEnv:['NEXAI_NEXGAME_BOT_USERNAME','NEXGAME__BOT_USERNAME'],
+    tokenEnv:['NEXGAME__BOT_TOKEN','NEXGAME_BOT_TOKEN'],
+    fallback:'TheNexGame_bot'
+  },
+  stick:{
+    usernameEnv:['NEXAI_NEXSTICK_BOT_USERNAME','NEXSTICK__BOT_USERNAME'],
+    tokenEnv:['NEXSTICK__BOT_TOKEN','NEXSTICK_BOT_TOKEN'],
+    fallback:'The_Nexus_techbot'
+  },
+  whisper:{
+    usernameEnv:['NEXAI_NEXWHISPER_BOT_USERNAME','NEXWHISPER__BOT_USERNAME'],
+    tokenEnv:['NEXWHISPER__BOT_TOKEN','NEXWHISPER_BOT_TOKEN'],
+    fallback:''
+  },
+  dipper:{
+    usernameEnv:['NEXAI_DIPPER_BOT_USERNAME','DIPPER_TELEGRAM_BOT_USERNAME'],
+    tokenEnv:['DIPPER_TELEGRAM_BOT_TOKEN'],
+    fallback:'the_big_dipper_bot'
+  }
+};
+const proxyIdentityCache=new Map();
+
+function firstEnv(names=[]){
+  for(const name of names){
+    const value=String(process.env[name]||'').trim();
+    if(value)return value;
+  }
+  return '';
+}
+
+async function botUsernameFromToken(token){
+  if(!token)return '';
+  const r=await fetch('https://api.telegram.org/bot'+encodeURIComponent(token)+'/getMe',{
+    signal:AbortSignal.timeout(7000)
+  });
+  const j=await r.json().catch(()=>null);
+  if(!r.ok||!j?.ok||!j.result?.username)return '';
+  return String(j.result.username).replace(/^@/,'');
+}
+
+async function resolveProxyIdentity(cmd){
+  if(cmd.proxy){
+    return {username:String(cmd.proxy).replace(/^@/,''),service:cmd.proxyService||'legacy'};
+  }
+  const service=String(cmd.proxyService||'').toLowerCase();
+  if(!service)throw new Error('No execution adapter is configured for '+cmd.name);
+  if(proxyIdentityCache.has(service))return proxyIdentityCache.get(service);
+
+  const spec=PROXY_SERVICES[service];
+  if(!spec)throw new Error('Unknown execution adapter: '+service);
+
+  let username=firstEnv(spec.usernameEnv).replace(/^@/,'');
+  if(!username){
+    for(const tokenName of spec.tokenEnv){
+      const token=String(process.env[tokenName]||'').trim();
+      if(!token)continue;
+      username=await botUsernameFromToken(token).catch(()=> '');
+      if(username)break;
+    }
+  }
+  username=username||spec.fallback;
+  if(!username){
+    throw new Error('Adapter '+service+' is not configured on this server');
+  }
+  const value={username,service};
+  proxyIdentityCache.set(service,value);
+  return value;
+}
 
 function randomLong(){
   return BigInt.asIntN(64,BigInt('0x'+crypto.randomBytes(8).toString('hex')));
@@ -113,20 +194,41 @@ async function joinTarget(client,target){
   return client.invoke(new Api.channels.JoinChannel({channel:entity}));
 }
 
-async function proxyCommand(client,peer,cmd,args){
-  const botEntity=await client.getInputEntity(cmd.proxy);
-  const sent=await client.sendMessage(botEntity,{message:'/'+cmd.name+(args.length?' '+args.join(' '):'')});
-  const deadline=Date.now()+25000;
+async function proxyCommand(client,peer,cmd,args,event){
+  const identity=await resolveProxyIdentity(cmd);
+  const fullEntity=await client.getEntity('@'+identity.username);
+  const botPeer=await client.getInputEntity(fullEntity);
+  const sharedContext=cmd.proxyMode==='contextual'&&Boolean(event?.isGroup||event?.isChannel);
+  const target=sharedContext?await client.getInputEntity(peer):botPeer;
+  const mention=sharedContext?'@'+identity.username:'';
+  const command='/'+cmd.name+mention+(args.length?' '+args.join(' '):'');
+  const sent=await client.sendMessage(target,{message:command});
+  const deadline=Date.now()+30000;
+  const sourceId=String(fullEntity?.id||'');
+
   while(Date.now()<deadline){
-    await sleep(900);
-    const msgs=await client.getMessages(botEntity,{limit:5});
-    const response=msgs.find(m=>!m.out&&Number(m.id)>Number(sent.id));
+    await sleep(850);
+    const msgs=await client.getMessages(target,{limit:15});
+    const response=msgs.find(m=>{
+      if(m.out||Number(m.id)<=Number(sent.id))return false;
+      if(!sharedContext)return true;
+      return !sourceId||String(m.senderId||m.fromId?.userId||'')===sourceId;
+    });
     if(!response)continue;
-    if(response.media)await client.forwardMessages(peer,{messages:[response.id],fromPeer:botEntity});
-    else if(response.message)await client.sendMessage(peer,{message:response.message});
+
+    if(sharedContext){
+      try{await client.deleteMessages(target,[sent.id],{revoke:true})}catch{}
+      return true;
+    }
+
+    if(response.media){
+      await client.forwardMessages(peer,{messages:[response.id],fromPeer:botPeer});
+    }else if(response.message){
+      await client.sendMessage(peer,{message:response.message});
+    }
     return true;
   }
-  throw new Error('Le bot source n’a pas répondu à temps');
+  throw new Error('Le moteur '+identity.service+' n’a pas répondu à temps');
 }
 
 async function premiumDenied(client,peer,name){
@@ -185,8 +287,12 @@ async function handleCommand(runtime,event,parsed){
     await premiumDenied(client,peer,name);
     return true;
   }
-  if(cmd.proxy){
-    try{await proxyCommand(client,peer,{...cmd,name},parsed.args)}
+  if(cmd.groupOnly&&!event.isGroup&&!event.isChannel){
+    await sendText(client,peer,'La commande '+name+' doit être utilisée dans un groupe ou un canal.');
+    return true;
+  }
+  if(cmd.proxy||cmd.proxyService){
+    try{await proxyCommand(client,peer,{...cmd,name},parsed.args,event)}
     catch(e){await sendText(client,peer,'Erreur '+name+' : '+String(e.message||e))}
     return true;
   }
@@ -203,8 +309,32 @@ async function handleCommand(runtime,event,parsed){
     case 'account':
       await sendText(client,peer,'Compte : '+(account.username?'@'+account.username:account.firstName)+'\nPremium : '+(account.premium?'Oui':'Non')+'\nNexAccount : connecté');
       return true;
+    case 'commands':{
+      const summary=registrySummary(commands);
+      await sendText(client,peer,
+        'NexAI · registre de commandes\n'+
+        'Total : '+summary.total+'\n'+
+        'Dipper : '+summary.dipper+'\n'+
+        'Natives : '+summary.native+'\n'+
+        'Routées : '+summary.proxied+'\n'+
+        'Non résolues : '+summary.unresolved.length
+      );
+      return true;
+    }
+    case 'customreact':{
+      const settings=await settingsFor(account.telegramUserId);
+      const current=settings.autoReact||{};
+      const reactions=parsed.args.map(x=>String(x).trim()).filter(Boolean).slice(0,12);
+      if(!reactions.length){
+        await sendText(client,peer,'Réactions actuelles : '+((current.reactions||[]).join(' ')||'aucune')+'\nUsage : .customreact 🔥 ❤️ 👍');
+        return true;
+      }
+      await patchSettings(account.telegramUserId,{autoReact:{...current,enabled:true,reactions}});
+      await sendText(client,peer,'Réactions automatiques mises à jour : '+reactions.join(' '));
+      return true;
+    }
     case 'help':
-      await sendText(client,peer,'Utilise .menu pour afficher le menu interactif.');
+      await sendText(client,peer,'Utilise .menu pour afficher le menu interactif ou .commands pour vérifier le registre.');
       return true;
     case 'join':
       try{await joinTarget(client,parsed.args[0]);await sendText(client,peer,'Cible rejointe.')}
@@ -217,7 +347,7 @@ async function handleCommand(runtime,event,parsed){
       }catch(e){await sendText(client,peer,'Impossible de quitter ce chat : '+String(e.errorMessage||e.message||e))}
       return true;
     default:
-      await sendText(client,peer,'La commande '+name+' est enregistrée dans NexAI mais son adaptateur Telegram n’est pas encore chargé.');
+      await sendText(client,peer,'Erreur interne : aucune route d’exécution pour '+name+'.');
       return true;
   }
 }
