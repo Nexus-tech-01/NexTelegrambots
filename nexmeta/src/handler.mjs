@@ -211,7 +211,7 @@ async function control(req, res, url, path) {
     return writeJson(res, 200, {
       ok: true,
       service: 'nexmeta',
-      version: '0.3.0-dev',
+      version: '0.4.0',
       metaConfigured: metaConfigured(),
       runtime,
       pages,
@@ -280,7 +280,7 @@ export async function handleRequest(req, res) {
       return writeJson(res, 200, {
         ok: true,
         service: 'nexmeta',
-        version: '0.3.0-dev',
+        version: '0.4.0',
         metaConfigured: metaConfigured(),
         runtime,
         pages
