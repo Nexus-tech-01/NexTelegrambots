@@ -85,7 +85,7 @@ Current service version: **0.4.0**.
 
 The receiver contract is documented in `NEXUS_GATEWAY_CONTRACT.md`.
 
-The existing Render bundle is compressed in this repository and is not currently available as readable source through the connected environment, so the receiver inside the live Telegram gateway has **not** been patched blindly. The NexMeta sender/protocol side is complete; the Render receiver remains a deployment task once its real source is safely accessible.
+The Render side now includes a receiver, adapter loader, optional front proxy and build-time bot-core discovery overlay. The front proxy remains disabled by default until adapters are connected to the real reusable cores of NexDownloader, NexGame, NexStick, NexGroup and NexCanal.
 
 ### NexControl
 
@@ -208,9 +208,11 @@ Diagnostics/OAuth/webhook repair operations remain available while outbound is o
 It distinguishes:
 
 - `adapterReady` — NexMeta/Meta control plane is configured
-- `bridgeReady` — adapter is ready **and** the Nexus command gateway URL/key are configured
+- `bridgeReady` — adapter is ready, the signed gateway probe succeeds **and every required Nexus service adapter is loaded**
 
-This prevents a connected Facebook Page from being mistaken for a complete Telegram bridge.
+This prevents a connected Facebook Page or an empty receiver from being mistaken for a complete Telegram bridge.
+
+NexControl can also call the private `bridge_status` action to inspect adapter state and the bounded build-time bot-core discovery report without exposing the shared gateway key to the browser.
 
 ## Security model
 
