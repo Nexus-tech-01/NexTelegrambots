@@ -1,5 +1,5 @@
 import {
-  normalizeMessengerWebhook,
+  normalizeMetaWebhook,
   eventIdentity
 } from './normalizer.mjs';
 import {
@@ -10,8 +10,16 @@ import {
   getRuntimeSettings
 } from './store.mjs';
 import { consumeIdentityLinkCode } from './identity-link.mjs';
-import { routeInbound } from './router.mjs';
-import { sendText, senderAction } from './meta-client.mjs';
+import {
+  routeInbound,
+  routeNexusEvent
+} from './router.mjs';
+import {
+  sendText,
+  sendMedia,
+  sendQuickReplies,
+  senderAction
+} from './meta-client.mjs';
 
 function extractLinkCode(text) {
   const value = String(text ?? '').trim().toUpperCase();
@@ -19,13 +27,17 @@ function extractLinkCode(text) {
   const direct = value.match(/^(NXM-[A-Z0-9]{9})$/);
   if (direct) return direct[1];
 
-  const command = value.match(/^(?:\/?LINK|\/?LIER)\s+(NXM-[A-Z0-9]{9})$/);
+  const command = value.match(
+    /^(?:\/?LINK|\/?LIER)\s+(NXM-[A-Z0-9]{9})$/
+  );
+
   return command ? command[1] : null;
 }
 
-async function sendAndSave(event, text) {
-  const sent = await sendText(event.senderId, text);
-
+async function saveOutbound(event, sent, {
+  text = '',
+  media = null
+} = {}) {
   await saveMessage({
     platform: 'facebook',
     surface: 'messenger',
@@ -34,10 +46,57 @@ async function sendAndSave(event, text) {
     externalMessageId: sent?.message_id || null,
     direction: 'outbound',
     text,
+    media,
     timestamp: new Date()
   });
+}
 
+async function sendAndSave(event, text) {
+  const sent = await sendText(event.senderId, text);
+  await saveOutbound(event, sent, { text });
   return sent;
+}
+
+async function renderNexusReply(event, result) {
+  if (!result || result.silent) return;
+
+  const quickReplies = Array.isArray(result.quickReplies)
+    ? result.quickReplies
+    : [];
+
+  if (result.text && quickReplies.length) {
+    const sent = await sendQuickReplies(
+      event.senderId,
+      result.text,
+      quickReplies
+    );
+
+    await saveOutbound(event, sent, {
+      text: result.text
+    });
+  } else if (result.text) {
+    await sendAndSave(event, result.text);
+  }
+
+  const media = result.media &&
+    typeof result.media === 'object'
+    ? result.media
+    : null;
+
+  if (media?.type && media?.url) {
+    const sent = await sendMedia(
+      event.senderId,
+      String(media.type),
+      String(media.url)
+    );
+
+    await saveOutbound(event, sent, {
+      media: {
+        type: String(media.type),
+        url: String(media.url)
+      }
+    });
+  }
 }
 
 async function tryIdentityLink(event) {
@@ -82,7 +141,30 @@ async function tryIdentityLink(event) {
   return true;
 }
 
-export async function processInboundEvent(event) {
+async function processPageEvent(event, settings) {
+  if (!settings.inboundEnabled) {
+    await audit('nexmeta.page_event.skipped', 'runtime', {
+      reason: 'inbound_disabled',
+      pageId: event.pageId,
+      field: event.field,
+      action: event.action
+    });
+    return;
+  }
+
+  const result = await routeNexusEvent(event);
+
+  await audit('nexmeta.page_event.routed', 'facebook', {
+    pageId: event.pageId,
+    field: event.field,
+    action: event.action,
+    eventId: event.externalMessageId || null,
+    handled: result?.handled === true,
+    handledBy: result?.handledBy || null
+  });
+}
+
+async function processMessengerEvent(event, settings) {
   if (!event.senderId) return;
 
   await upsertIdentity(eventIdentity(event));
@@ -101,9 +183,9 @@ export async function processInboundEvent(event) {
     });
   }
 
-  if (!['message', 'postback'].includes(event.type) || event.isEcho) return;
-
-  const settings = await getRuntimeSettings();
+  if (!['message', 'postback'].includes(event.type) || event.isEcho) {
+    return;
+  }
 
   if (!settings.inboundEnabled) {
     await audit('nexmeta.inbound.skipped', 'runtime', {
@@ -134,12 +216,21 @@ export async function processInboundEvent(event) {
     if (await tryIdentityLink(event)) return;
 
     const result = await routeInbound(event);
-
-    if (result?.text) {
-      await sendAndSave(event, result.text);
-    }
+    await renderNexusReply(event, result);
   } finally {
     await senderAction(event.senderId, 'typing_off').catch(() => {});
+  }
+}
+
+export async function processInboundEvent(event) {
+  const settings = await getRuntimeSettings();
+
+  if (event.surface === 'page' && event.type === 'page_change') {
+    return processPageEvent(event, settings);
+  }
+
+  if (event.surface === 'messenger') {
+    return processMessengerEvent(event, settings);
   }
 }
 
@@ -149,7 +240,7 @@ export async function processWebhookPayload(
   { throwOnFailure = false } = {}
 ) {
   try {
-    const events = normalizeMessengerWebhook(payload);
+    const events = normalizeMetaWebhook(payload);
 
     for (const event of events) {
       await processInboundEvent(event);
@@ -159,11 +250,21 @@ export async function processWebhookPayload(
 
     return {
       ok: true,
-      events: events.length
+      events: events.length,
+      messengerEvents: events.filter(
+        event => event.surface === 'messenger'
+      ).length,
+      pageEvents: events.filter(
+        event => event.surface === 'page'
+      ).length
     };
   } catch (error) {
     console.error('[NexMeta webhook processor]', error);
-    await markWebhookProcessed(eventKey, 'failed', error?.stack || error);
+    await markWebhookProcessed(
+      eventKey,
+      'failed',
+      error?.stack || error
+    );
 
     if (throwOnFailure) throw error;
 
@@ -174,4 +275,7 @@ export async function processWebhookPayload(
   }
 }
 
-export { extractLinkCode };
+export {
+  extractLinkCode,
+  renderNexusReply
+};
