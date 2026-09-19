@@ -12,7 +12,12 @@ import {
   deleteObject,
   listComments,
   replyToComment,
-  setCommentHidden
+  setCommentHidden,
+  getMessengerUserProfile,
+  moderateConversation,
+  sendTemplate,
+  sendButtonTemplate,
+  sendImageGallery
 } from './meta-client.mjs';
 import {
   getMetrics,
@@ -81,6 +86,11 @@ export const CONTROL_CAPABILITIES = Object.freeze([
   'send_text',
   'send_media',
   'send_quick_replies',
+  'send_template',
+  'send_button_template',
+  'send_image_gallery',
+  'get_messenger_user_profile',
+  'moderate_conversation',
   'sender_action',
   'list_conversations',
   'list_conversation_messages',
@@ -99,6 +109,10 @@ const META_WRITE_ACTIONS = new Set([
   'send_text',
   'send_media',
   'send_quick_replies',
+  'send_template',
+  'send_button_template',
+  'send_image_gallery',
+  'moderate_conversation',
   'sender_action',
   'publish_page_post',
   'edit_page_post',
@@ -336,6 +350,36 @@ export async function executeControlAction(body) {
         requireString(body.psid, 'psid', 300),
         requireString(body.text, 'text', 2000),
         body.quickReplies
+      );
+
+    case 'send_template':
+      return sendTemplate(
+        requireString(body.psid, 'psid', 300),
+        body.template
+      );
+
+    case 'send_button_template':
+      return sendButtonTemplate(
+        requireString(body.psid, 'psid', 300),
+        requireString(body.text, 'text', 640),
+        body.buttons
+      );
+
+    case 'send_image_gallery':
+      return sendImageGallery(
+        requireString(body.psid, 'psid', 300),
+        body.imageUrls
+      );
+
+    case 'get_messenger_user_profile':
+      return getMessengerUserProfile(
+        requireString(body.psid, 'psid', 300)
+      );
+
+    case 'moderate_conversation':
+      return moderateConversation(
+        requireString(body.psid, 'psid', 300),
+        requireString(body.moderationAction, 'moderationAction', 40)
       );
 
     case 'sender_action':
