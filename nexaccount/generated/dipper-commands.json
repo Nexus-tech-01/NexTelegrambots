@@ -1,0 +1,3005 @@
+{
+  "generatedAt": "2026-09-19T22:43:57.397Z",
+  "source": "Tresor562/THE_BIG_DIPPER@22b8534923e4b11a85ec139dd4aa3ded4435fd57",
+  "canonicalCount": 178,
+  "aliasCount": 686,
+  "uniqueTokenCount": 863,
+  "commands": [
+    {
+      "name": "oracle",
+      "aliases": [
+        "gpt",
+        "ai",
+        "chatgpt",
+        "ask"
+      ],
+      "sourceCategory": "ai_images",
+      "file": "commands/ai_images/ai.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ɪɴᴠᴏǫᴜᴇ ʟᴀ sᴀɢᴇssᴇ ᴅᴇ ʟ ɪᴀ ᴘᴏᴜʀ ʀᴇᴘᴏɴᴅʀᴇ ᴀ ᴛᴇs ǫᴜᴇsᴛɪᴏɴs",
+      "usage": "${PFX}oracle <question>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "code",
+      "aliases": [
+        "coder",
+        "gencode",
+        "fixcode",
+        "darkcode",
+        "prog",
+        "cours",
+        "coder2",
+        "darkprog"
+      ],
+      "sourceCategory": "ai_images",
+      "file": "commands/ai_images/code.js",
+      "description": "『 THE BIG DIPPER 』➪ ɢᴇ́ɴᴇ̀ʀᴇ/ᴄᴏʀʀɪɢᴇ ᴅᴜ ᴄᴏᴅᴇ ᴏᴜ ᴇxᴘʟɪǫᴜᴇ ᴜɴ ᴄᴏɴᴄᴇᴘᴛ 💻",
+      "usage": "${PFX}code <demande de code ou concept à expliquer>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "deepseek",
+      "aliases": [
+        "ds",
+        "raisonnement",
+        "reason",
+        "think"
+      ],
+      "sourceCategory": "ai_images",
+      "file": "commands/ai_images/deepseek.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ɪᴀ ᴅᴇ ʀᴀɪsᴏɴɴᴇᴍᴇɴᴛ ᴀᴘᴘʀᴏꜰᴏɴᴅɪ 🧠",
+      "usage": "${PFX}deepseek <question complexe>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "waifu",
+      "aliases": [
+        "waifuimage",
+        "wife"
+      ],
+      "sourceCategory": "anime",
+      "file": "commands/anime/anime.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ɪᴍᴀɢᴇ ᴡᴀɪғᴜ ᴀʟᴇ́ᴀᴛᴏɪʀᴇ",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "analyzesound",
+      "aliases": [],
+      "sourceCategory": "audio_lab",
+      "file": "commands/audio_lab/audio_lab.js",
+      "description": "Analyse durée et poids",
+      "usage": ".${name}${usage?",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "pausequeue",
+      "aliases": [
+        "pauseaudio",
+        "pauseq"
+      ],
+      "sourceCategory": "audio_lab",
+      "file": "commands/audio_lab/queue_controls.js",
+      "description": "Mettre la file DJ en pause",
+      "usage": ".pausequeue",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "rejet_appels",
+      "aliases": [
+        "anticall",
+        "anti-call",
+        "rejeter"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/anticall.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀᴄᴛɪᴠᴇ ᴏᴜ ᴅᴇ́sᴀᴄᴛɪᴠᴇ ʟᴇ ʙᴏᴜᴄʟɪᴇʀ ᴀɴᴛɪ-ᴀᴘᴘᴇʟs ᴅᴜ sᴀɴᴄᴛᴜᴀɪʀᴇ",
+      "usage": "${prefix}rejet_appels on/off/status",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "antidelete",
+      "aliases": [
+        "antidel",
+        "nodelete",
+        "fantome"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/antidelete.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴄᴀᴘᴛᴜʀᴇ ʟᴇs ᴍᴇssᴀɢᴇs sᴜᴘᴘʀɪᴍᴇ́s",
+      "usage": "${prefix}antidelete on [private|chat] | off | status",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": true,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "reflexe_systeme",
+      "aliases": [
+        "autoreact",
+        "ar",
+        "reflexe",
+        "reaction",
+        "reactions",
+        "ʀᴇғʟᴇxᴇ_sʏsᴛᴇᴍᴇ"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/autoreact.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴄᴏɴғɪɢᴜʀᴇ ʟᴇs ʀᴇ́ᴀᴄᴛɪᴏɴs ᴀᴜᴛᴏᴍᴀᴛɪǫᴜᴇs ᴅᴇs sᴄᴇᴀᴜx",
+      "usage": "${prefix}reflexe_systeme on/off/set bot/set all",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "autorecording",
+      "aliases": [
+        "autorecord",
+        "recordingauto"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/autorecording.js",
+      "description": "Active ou désactive la présence automatique « enregistrement audio… ».",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": true,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "autotyping",
+      "aliases": [
+        "autotype",
+        "typingauto"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/autotyping.js",
+      "description": "Active ou désactive la présence automatique « écrit… » avant les réponses.",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": true,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "bannir",
+      "aliases": [
+        "ban",
+        "condamner"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/bannir.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʙᴀɴɴɪᴛ ᴜɴ ᴜᴛɪʟɪsᴀᴛᴇᴜʀ ᴅᴜ sʏsᴛᴇ̀ᴍᴇ",
+      "usage": "${prefix}bannir @user ou en réponse",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": true,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "block",
+      "aliases": [
+        "bloquer",
+        "bloque"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/block.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʙʟᴏǫᴜᴇ sɪʟᴇɴᴄɪᴇᴜsᴇᴍᴇɴᴛ ᴜɴ ᴜᴛɪʟɪsᴀᴛᴇᴜʀ ᴇᴛ ᴇғғᴀᴄᴇ ʟᴀ ᴛʀᴀᴄᴇ",
+      "usage": "${prefix}block [@ᴜsᴇʀ | ɴᴜᴍᴇ́ʀᴏ | ᴇɴ ʀᴇ́ᴘᴏɴsᴇ]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "botstatus",
+      "aliases": [
+        "sysinfo",
+        "bt",
+        "gi",
+        "systeme"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/botstatus.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴅᴀsʜʙᴏᴀʀᴅ ᴄᴏᴍᴘʟᴇᴛ ᴅᴜ sʏsᴛᴇ̀ᴍᴇ",
+      "usage": "${prefix}botstatus",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": true,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "infos_canal",
+      "aliases": [
+        "newsletter",
+        "channel",
+        "canal",
+        "channelid",
+        "ɪɴғᴏs_ᴄᴀɴᴀʟ"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/channelid.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀғғɪᴄʜᴇ ʟᴀ ɴᴇᴡsʟᴇᴛᴛᴇʀ ᴅᴇᴘᴜɪs ʟᴇ ʟɪᴇɴ ᴅ\\",
+      "usage": "${prefix}infos_canal <ʟɪᴇɴ_ᴄᴀɴᴀʟ>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "darkmood",
+      "aliases": [
+        "darkmode",
+        "gestion"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/darkmood.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ɢᴇ̀ʀᴇ ʟ\\",
+      "usage": "${prefix}darkmood on|off|status|test",
+      "groupOnly": true,
+      "adminOnly": true,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "debannissement",
+      "aliases": [
+        "debannir",
+        "unban",
+        "debloquer",
+        "deban",
+        "liberer",
+        "lib"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/deban.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʀᴇᴠᴏǫᴜᴇ ʟᴇ ʙᴀɴɴɪssᴇᴍᴇɴᴛ ᴅ\\",
+      "usage": "${prefix}debannissement @ᴜsᴇʀ ᴏᴜ ᴇɴ ʀᴇ́ᴘᴏɴsᴇ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "delsudo",
+      "aliases": [
+        "removesudo",
+        "sudorm",
+        "deautoriser",
+        "revoquer"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/delsudo.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʀᴇᴠᴏǫᴜᴇ ʟ\\",
+      "usage": "${prefix}delsudo @user",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": true,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "delvip",
+      "aliases": [
+        "removevip",
+        "vip-",
+        "unvip"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/delvip.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʀᴇᴛɪʀᴇ ʟ\\",
+      "usage": "${prefix}delvip @mention",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": true,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "erreur",
+      "aliases": [
+        "er",
+        "e",
+        "error"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/erreur.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ sᴜᴘᴘʀɪᴍᴇ ᴜɴ ᴍᴇssᴀɢᴇ ᴇɴ ʏ ʀᴇᴘᴏɴᴅᴀɴᴛ (ᴘᴏᴜᴠᴏɪʀ ᴀʙsᴏʟᴜ ᴘᴏᴜʀ ʟᴇ ᴍᴀɪᴛʀᴇ)",
+      "usage": "${prefix}erreur",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "dark",
+      "aliases": [
+        "intel",
+        "botai",
+        "ghostg_mode",
+        "ghostg"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/ghostg.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀᴄᴛɪᴠᴇ/ᴅᴇ́sᴀᴄᴛɪᴠᴇ ʟ\\",
+      "usage": "${prefix}dark on/off",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "language",
+      "aliases": [
+        "lang",
+        "langue"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/language.js",
+      "description": "Change la langue globale du bot entre français et anglais.",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": true,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "leave",
+      "aliases": [
+        "quitter",
+        "partir",
+        "sortir",
+        "quit"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/leave.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴛᴇ ғᴀɪᴛ ǫᴜɪᴛᴛᴇʀ ʟᴇ ɢʀᴏᴜᴘᴇ ᴀᴠᴇᴄ ᴜɴ ᴍᴇssᴀɢᴇ ᴅ",
+      "usage": "${prefix}leave",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "domaine",
+      "aliases": [
+        "botmode",
+        "privatemode",
+        "publicmode",
+        "mode",
+        "ᴅᴏᴍᴀɪɴᴇ"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/mode.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʙᴀsᴄᴜʟᴇ ʟ",
+      "usage": "${prefix}domaine <prive/public>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "muteDark",
+      "aliases": [
+        "mutebot",
+        "veille",
+        "muteghost"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/muteghost.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴘʟᴏɴɢᴇ ʟᴇ ʙᴏᴛ ᴅᴀɴs ʟᴇ sɪʟᴇɴᴄᴇ sᴜʀ ᴄᴇ ᴄʜᴀᴛ ᴏᴜ ᴘᴏᴜʀ ᴜɴᴇ ᴄɪʙʟᴇ ᴀᴠᴇᴄ ᴛᴇᴍᴘᴏ",
+      "usage": "${prefix}muteghost on/off [minutes]\\n${prefix}muteghost @mention [minutes]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": true,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "pair",
+      "aliases": [
+        "paircode",
+        "connexion",
+        "connect",
+        "newsession",
+        "addsession"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/pair.js",
+      "description": "Crée une nouvelle session WhatsApp en self-service, avec présentation adaptée au style actif.",
+      "usage": "${prefix}pair +22912345678",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "prefix",
+      "aliases": [
+        "ᴘʀᴇғɪx",
+        "prefixe",
+        "préfixe",
+        "monprefix",
+        ">p",
+        "> p"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/prefix.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʀᴇ́ᴠᴇ̀ʟᴇ ʟᴇ sɪɢɴᴇ ᴅ\\",
+      "usage": "prefix",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "presence",
+      "aliases": [
+        "pres",
+        "status",
+        "pʀᴇsᴇɴᴄᴇ"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/presence.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴄᴏɴғɪɢᴜʀᴇ ʟᴀ ᴘʀᴇsᴇɴᴄᴇ ᴅᴇ ʟ\\",
+      "usage": "${prefix}presence <online/typing/recording/off>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "renaissance",
+      "aliases": [
+        "reboot",
+        "restart",
+        "resurrection",
+        "ʀᴇɴᴀɪssᴀɴᴄᴇ"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/renaissance.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʀᴇғᴏʀɢᴇ ᴇᴛ ʀᴇssᴜsᴄɪᴛᴇ ʟ",
+      "usage": "${prefix}renaissance",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "cta_url",
+      "aliases": [
+        "Repere",
+        "REPERE",
+        "rep",
+        "repère"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/repere.js",
+      "description": "『 NEXUS TECH 』➪ partage la chaîne officielle avec bouton direct",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": true,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "reponseauto",
+      "aliases": [
+        "autoanswer",
+        "reply",
+        "trigger",
+        "setreply",
+        "setvideo"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/reply.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴅᴇ́ꜰɪɴɪᴛ ᴜɴᴇ ɴᴏᴛᴇ ᴠɪᴅᴇ́ᴏ ᴅᴇ ʀᴇ́ᴘᴏɴsᴇ ᴀᴜᴛᴏᴍᴀᴛɪϙᴜᴇ",
+      "usage": "${prefix}reply [délai_secondes] — en répondant à n",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "sessions",
+      "aliases": [
+        "listsessions",
+        "allsessions",
+        "sessionlist"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/sessions.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ɢᴇ̀ʀᴇ ʟᴇs sᴇssɪᴏɴs ᴍᴜʟᴛɪ-ᴜᴛɪʟɪsᴀᴛᴇᴜʀs",
+      "usage": "${prefix}sessions [stop <num>]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": true,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "apparence_systeme",
+      "aliases": [
+        "setbotname",
+        "setname",
+        "botname",
+        "nom",
+        "ᴀᴘᴘᴀʀᴇɴᴄᴇ_sʏsᴛᴇᴍᴇ"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/setbotname.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴍᴏᴅɪғɪᴇ ʟᴇ ɴᴏᴍ ᴅᴇ ʙᴀᴘᴛᴇ̂ᴍᴇ ᴅᴇ ʟ\\",
+      "usage": "${prefix}apparence_systeme <ɴᴏᴜᴠᴇᴀᴜ ɴᴏᴍ> ᴏᴜ ᴇɴ ʀᴇ́ᴘᴏɴsᴇ ᴀ̀ ᴜɴ ᴍᴇssᴀɢᴇ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "illustration_grimoire",
+      "aliases": [
+        "setmenuimage",
+        "setmenuimg",
+        "changemenuimage"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/setmenuimage.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴛʀᴀɴsᴍᴜᴛᴇ ʟ\\",
+      "usage": "${prefix}setmenuimage (ᴇɴ ʀᴇ́ᴘᴏɴsᴇ ᴀ̀ ᴜɴᴇ ɪᴍᴀɢᴇ/sᴛɪᴄᴋᴇʀ)",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "sceau_canal",
+      "aliases": [
+        "setnewsletter",
+        "setnl",
+        "setchannel",
+        "sᴄᴇᴀᴜ_ᴄᴀɴᴀʟ"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/setnewsletter.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʟɪᴇ ʟᴇ ᴊɪᴅ ᴅᴜ ᴄᴀɴᴀʟ ᴘᴏᴜʀ ʟᴇ ᴛʀᴀɴsғᴇʀᴛ ᴅᴇs ᴍᴇɴᴜs",
+      "usage": "${prefix}sceau_canal <ᴊɪᴅ ᴅᴜ ᴄᴀɴᴀʟ>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "empreinte_grimoire",
+      "aliases": [
+        "setimage",
+        "setprofilepicture",
+        "setoraclepp",
+        "setoracledp",
+        "avatar",
+        "setpp"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/setpp.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴛʀᴀɴsᴍᴜᴛᴇ ʟ\\",
+      "usage": "${prefix}empreinte_grimoire",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "signe_commande",
+      "aliases": [
+        "setprefix",
+        "sɪɢɴᴇ_ᴄᴏᴍᴍᴀɴᴅᴇ"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/setprefix.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴛʀᴀɴsᴍᴜᴛᴇ ʟᴇ sɪɢɴᴇ ᴅ\\",
+      "usage": "${prefix}signe_commande <ɴᴏᴜᴠᴇᴀᴜ ᴘʀᴇ́ғɪxᴇ>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "setsudo",
+      "aliases": [
+        "addsudo",
+        "sudo",
+        "autoriser"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/setsudo.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀᴄᴄᴏʀᴅᴇ ʟ\\",
+      "usage": "${prefix}setsudo @user",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": true,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "setvip",
+      "aliases": [
+        "addvip",
+        "vip+",
+        "gievevip"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/setvip.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀᴊᴏᴜᴛᴇ ᴜɴ ᴜᴛɪʟɪsᴀᴛᴇᴜʀ ᴠɪᴘ",
+      "usage": "${prefix}setvip @mention [jours]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": true,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "unblock",
+      "aliases": [
+        "desactiver_blocage",
+        "debloque",
+        "deblock"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/unblock.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴅᴇ́ʙʟᴏǫᴜᴇ sɪʟᴇɴᴄɪᴇᴜsᴇᴍᴇɴᴛ ᴜɴ ᴜᴛɪʟɪsᴀᴛᴇᴜʀ ᴇᴛ ᴇғғᴀᴄᴇ ʟᴀ ᴛʀᴀᴄᴇ",
+      "usage": "${prefix}unblock [@ᴜsᴇʀ | ɴᴜᴍᴇ́ʀᴏ | ᴇɴ ʀᴇ́ᴘᴏɴsᴇ]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "mise_a_jour",
+      "aliases": [
+        "update",
+        "maj",
+        "ᴍɪsᴇ_ᴀ_ᴊᴏᴜʀ"
+      ],
+      "sourceCategory": "bot_sovereignty",
+      "file": "commands/bot_sovereignty/update.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ sᴇ ᴍᴇᴛ ᴀ̀ ᴊᴏᴜʀ ᴅᴇᴘᴜɪs ʟᴇ ʀᴇᴘᴏ ᴅᴇ ʟ\\",
+      "usage": "${prefix}mise_a_jour [ʟɪᴇɴ_ᴢɪᴘ]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "apksearch",
+      "aliases": [
+        "fdroid"
+      ],
+      "sourceCategory": "download_tools",
+      "file": "commands/download_tools/apk_tools.js",
+      "description": "Rechercher des applications Android libres sur F-Droid",
+      "usage": ".apksearch <nom>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "downloadinfo",
+      "aliases": [
+        "linkinfo",
+        "safeinfo",
+        "inspectfile"
+      ],
+      "sourceCategory": "download_tools",
+      "file": "commands/download_tools/download_tools.js",
+      "description": "Inspecter un lien public avant téléchargement",
+      "usage": ".${name} <lien public>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "pixupload",
+      "aliases": [
+        "pixeldrainup"
+      ],
+      "sourceCategory": "download_tools",
+      "file": "commands/download_tools/upload_tools.js",
+      "description": "Uploader le fichier cité vers Pixeldrain",
+      "usage": ".pixupload",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "resize",
+      "aliases": [],
+      "sourceCategory": "file_lab",
+      "file": "commands/file_lab/file_lab.js",
+      "description": "Redimensionner une image",
+      "usage": ".${name} [qualité]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "quete_fresque",
+      "aliases": [
+        "memes",
+        "sm",
+        "smeme",
+        "memesearch",
+        "gifsearch",
+        "gif"
+      ],
+      "sourceCategory": "games_entertainment",
+      "file": "commands/games_entertainment/.gif.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴇxᴛᴘʟᴏʀᴇ ᴇᴛ ʀᴇᴄᴜᴘᴇʀᴇ ᴅᴇs ᴍᴇᴍᴇs ᴅᴀɴs ʟᴇs ᴀʀᴄʜɪᴠᴇs",
+      "usage": "${prefix}quete_fresque <invocation>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "aveu",
+      "aliases": [
+        "truth",
+        "verite",
+        "confession"
+      ],
+      "sourceCategory": "games_entertainment",
+      "file": "commands/games_entertainment/aveu.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ɪɴᴠᴏǫᴜᴇ ᴜɴᴇ sᴇɴᴛᴇɴᴄᴇ ᴅᴇ ᴠᴇʀɪᴛᴇ ᴀʟᴇᴀᴛᴏɪʀᴇ ᴘᴏᴜʀ ᴜɴ ᴍᴇᴍʙʀᴇ",
+      "usage": "${prefix}aveu",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "bouffon",
+      "aliases": [
+        "jokes",
+        "joke",
+        "blague"
+      ],
+      "sourceCategory": "games_entertainment",
+      "file": "commands/games_entertainment/bouffon.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴏʙᴛɪᴇɴs ᴜɴᴇ ʙʟᴀɢᴜᴇ ᴀʟᴇᴀᴛᴏɪʀᴇ ᴇɴ ᴄɪʙʟᴀɴᴛ ᴜɴ ᴍᴇᴍʙʀᴇ",
+      "usage": "${prefix}bouffon [@user ou en reponse]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "charme",
+      "aliases": [
+        "pickup",
+        "pickupline",
+        "flirt",
+        "drague"
+      ],
+      "sourceCategory": "games_entertainment",
+      "file": "commands/games_entertainment/charme.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴏʙᴛɪᴇɴs ᴜɴᴇ ᴘʜʀᴀsᴇ ᴅ\\",
+      "usage": "${prefix}charme [@user ou en reponse]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "louange",
+      "aliases": [
+        "praise",
+        "compliment"
+      ],
+      "sourceCategory": "games_entertainment",
+      "file": "commands/games_entertainment/compliment.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀᴅʀᴇssᴇ ᴜɴᴇ ʟᴏᴜᴀɴɢᴇ ᴏᴜ ᴜɴ ᴄᴏᴍᴘʟɪᴍᴇɴᴛ ᴀᴜᴛʜᴇɴᴛɪǫᴜᴇ",
+      "usage": "${prefix}louange [@user ou en reponse]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "epreuve",
+      "aliases": [
+        "dare",
+        "defi",
+        "defis",
+        "épreuve"
+      ],
+      "sourceCategory": "games_entertainment",
+      "file": "commands/games_entertainment/dare.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴇxɪɢᴇ ᴜɴ ᴅᴇғɪ ᴏᴜ ᴜɴᴇ ᴇᴘʀᴇᴜᴠᴇ ᴀᴜᴛʜᴇɴᴛɪǫᴜᴇ ᴀ ᴜɴ ᴍᴇᴍʙʀᴇ",
+      "usage": "${prefix}epreuve [@user ou en reponse]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "destin",
+      "aliases": [
+        "match",
+        "ship",
+        "lier"
+      ],
+      "sourceCategory": "games_entertainment",
+      "file": "commands/games_entertainment/destin.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʟɪᴇ ᴅᴇᴜx ᴀᴍᴇs ᴀᴜ ʜᴀsᴀʀᴅ ᴏᴜ sᴘᴇᴄɪғɪǫᴜᴇs ᴘᴏᴜʀ ᴠᴏɪʀ ʟᴇᴜʀ ᴅᴇsᴛɪɴ",
+      "usage": "${prefix}destin [@user1 @user2 ou en reponse]",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "fresque",
+      "aliases": [
+        "fresque_memes",
+        "meme"
+      ],
+      "sourceCategory": "games_entertainment",
+      "file": "commands/games_entertainment/fresque.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴇxᴘʟᴏʀᴇ ʟᴀ ᴍᴀᴛʀɪᴄᴇ ᴇᴛ ʀᴇᴄᴜᴘᴇʀᴇ ᴜɴᴇ ғʀᴇsǫᴜᴇ (ᴍᴇᴍᴇ) ᴀʟᴇᴀᴛᴏɪʀᴇ",
+      "usage": "${prefix}fresque",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "fakehack",
+      "aliases": [
+        "hack",
+        "hackaccount",
+        "hackcompte"
+      ],
+      "sourceCategory": "games_entertainment",
+      "file": "commands/games_entertainment/hackpranks.js",
+      "description": "Simulation humoristique de ${title.toLowerCase()} — aucun piratage réel.",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "jugement_d",
+      "aliases": [
+        "gayrate",
+        "jugement",
+        "test",
+        "lovetest",
+        "taux",
+        "jugement_g"
+      ],
+      "sourceCategory": "games_entertainment",
+      "file": "commands/games_entertainment/jugementg.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀғғɪᴄʜᴇ ᴜɴ ᴘᴏᴜʀᴄᴇɴᴛᴀɢᴇ ʟᴜᴅɪǫᴜᴇ ᴇᴛ ᴀʟᴇᴀᴛᴏɪʀᴇ ᴘᴏᴜʀ ᴜɴᴇ ᴄɪʙʟᴇ",
+      "usage": "${prefix}jugement_g [@user ou en reponse]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "malediction",
+      "aliases": [
+        "insulte",
+        "insultelui",
+        "burn",
+        "insult",
+        "insulter",
+        "maled_accent",
+        "malédiction"
+      ],
+      "sourceCategory": "games_entertainment",
+      "file": "commands/games_entertainment/malediction.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʟᴀɴᴄᴇ ᴜɴᴇ ᴍᴀʟᴇᴅɪᴄᴛɪᴏɴ ᴏᴜ ᴜɴᴇ ᴘᴜɴᴄʜʟɪɴᴇ ʀɪᴅɪᴄᴜʟᴇ ᴀ ᴜɴ ᴍᴇᴍʙʀᴇ",
+      "usage": "${prefix}malediction [@user ou en reponse]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "piege",
+      "aliases": [
+        "bom",
+        "bombe",
+        "chaos",
+        "bomb",
+        "piège",
+        "jeu_piege",
+        "tictactoe"
+      ],
+      "sourceCategory": "games_entertainment",
+      "file": "commands/games_entertainment/piege.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴅᴇғɪᴇ ʟᴇ ᴅᴇsᴛɪɴ : ᴄʜᴏɪsɪs ʟᴇs ʙᴏɴs sᴄᴇᴀᴜx ᴇᴛ ᴇᴠɪᴛᴇ ʟᴀ ʙᴏᴍʙᴇ",
+      "usage": "${prefix}piege",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "eveil",
+      "aliases": [
+        "runtime",
+        "uptime",
+        "alive",
+        "éveil",
+        "up",
+        "ev",
+        "év"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/#U00e9veil.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀғғɪᴄʜᴇ ʟᴇ ᴛᴇᴍᴘs ᴅᴇᴘᴜɪs ʟᴇǫᴜᴇʟ ʟᴇ ʙᴏᴛ ᴇsᴛ ᴇᴠᴇɪʟʟᴇ",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "adoration",
+      "aliases": [
+        "adore",
+        "christiansong",
+        "cs"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/adoration.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴅɪғғᴜsᴇ ᴜɴ ᴄᴀɴᴛɪᴄᴜᴇ ᴅ",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "allmenu",
+      "aliases": [
+        "menuall",
+        "allcommands",
+        "fullmenu"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/allmenu.js",
+      "description": "Toutes les catégories sous forme de carrousel horizontal.",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "animeinfo",
+      "aliases": [
+        "anime",
+        "webtoon",
+        "infoanime",
+        "ainfo",
+        "winfo"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/animeinfo.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴅᴏɴɴᴇ ᴅᴇs ɪɴꜰᴏs sᴜʀ ᴜɴ ᴀɴɪᴍᴇ ᴏᴜ ᴜɴ ᴡᴇʙᴛᴏᴏɴ",
+      "usage": "${prefix}animeinfo <ɴᴏᴍ> | ${prefix}webtoon <ɴᴏᴍ>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "arcanes",
+      "aliases": [
+        "scan",
+        "profiler",
+        "profile",
+        "ᴀʀᴄᴀɴᴇs"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/arcanes.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀɴᴀʟʏsᴇ ʟ\\",
+      "usage": "${prefix}arcanes (répondez ou mentionnez quelqu",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "effet",
+      "aliases": [
+        "ttp",
+        "attp"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/attp.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴄʀᴇᴇ ᴜɴ sᴛɪᴄᴋᴇʀ ᴀɴɪᴍᴇ ᴀ ᴘᴀʀᴛɪʀ ᴅ\\",
+      "usage": "",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "boutique",
+      "aliases": [
+        "shop",
+        "store",
+        "projets",
+        "projects"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/boutique.js",
+      "description": "Découvre les principaux projets Nexus et KnowMe.",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "browse",
+      "aliases": [
+        "search",
+        "web",
+        "googler",
+        "chercher",
+        "ddg"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/browse.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʀᴇᴄʜᴇʀᴄʜᴇ ᴡᴇʙ ᴠɪᴀ DuckDuckGo",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "crop",
+      "aliases": [
+        "square",
+        "cropper",
+        "cisaille",
+        "cr",
+        "c"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/crop.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴄᴏᴜᴘᴇ ᴜɴ sᴛɪᴄᴋᴇʀ/ɪᴍᴀɢᴇ/ᴠɪᴅᴇᴏ ᴇɴ ᴜɴ ᴘᴀʀғᴀɪᴛ sᴛɪᴄᴋᴇʀ ᴄᴀʀʀᴇ (ᴀɴɪᴍᴇ ᴘᴏᴜʀ ʟᴇs ᴠɪᴅᴇᴏs)",
+      "usage": "",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "device",
+      "aliases": [
+        "appareil",
+        "getdevice",
+        "dev",
+        "phone"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/device.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴅᴇ́ᴛᴇᴄᴛᴇ ʟ\\",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "emojimix",
+      "aliases": [
+        "emojifusion",
+        "mixemoji",
+        "kitchen",
+        "ek"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/emojimix.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ꜰᴜsɪᴏɴɴᴇ ᴅᴇᴜx ᴇᴍᴏᴊɪs (Google Emoji Kitchen)",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "filtervcf",
+      "aliases": [
+        "vcffilter",
+        "trivervcf",
+        "cleanvcf",
+        "filtrervcf"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/filtervcf.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴛʀɪᴇ ᴇᴛ ɴᴇᴛᴛᴏɪᴇ ᴜɴ ꜰɪᴄʜɪᴇʀ ᴄᴏɴᴛᴀᴄᴛs VCF",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "fliptext",
+      "aliases": [
+        "flip",
+        "inverser",
+        "upsidedown",
+        "renverser"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/fliptext.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ɪɴᴠᴇʀsᴇ ᴇᴛ ʀᴇᴛᴏᴜʀɴᴇ ʟᴇ ᴛᴇxᴛᴇ 🙃",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "genpass",
+      "aliases": [
+        "password",
+        "mdp",
+        "passwd",
+        "motdepasse",
+        "generatepass"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/genpass.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ɢᴇ́ɴᴇ̀ʀᴇ ᴅᴇs ᴍᴏᴛs ᴅᴇ ᴘᴀssᴇ sᴇ́ᴄᴜʀɪsᴇ́s 🔐",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "getabout",
+      "aliases": [
+        "bio",
+        "about",
+        "getbio",
+        "gbio"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/getabout.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʀᴇ́ᴄᴜᴘᴇ̀ʀᴇ ʟᴀ ʙɪᴏ WhatsApp ᴅ\\",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "getname",
+      "aliases": [
+        "accountname",
+        "waname",
+        "displayname",
+        "nomcompte"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/getname.js",
+      "description": "Récupère le nom WhatsApp connu/visible d’un compte.",
+      "usage": "${prefix}getname [@mention | réponse | numéro]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "getpp",
+      "aliases": [
+        "gp",
+        "getpic",
+        "pp"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/getpp.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʀᴇᴄᴜᴘᴇʀᴇ ʟᴀ ᴘʜᴏᴛᴏ ᴅᴇ ᴘʀᴏғɪʟ ᴅ\\",
+      "usage": "",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "groupname",
+      "aliases": [
+        "gcname",
+        "getgroupname",
+        "nomgroupe",
+        "groupnom"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/groupname.js",
+      "description": "Récupère le nom d’un groupe courant ou depuis un lien d’invitation.",
+      "usage": "${prefix}groupname [lien WhatsApp | code invitation]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "gsmarena",
+      "aliases": [
+        "telephone_specs",
+        "smartphone",
+        "specs",
+        "phoneinfo",
+        "gsmphone"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/gsmarena.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʀᴇᴄʜᴇʀᴄʜᴇ sᴘᴇ́ᴄɪꜰɪᴄᴀᴛɪᴏɴs ᴅ\\",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "help",
+      "aliases": [
+        "h",
+        "aide",
+        "l"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/help.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀғғɪᴄʜᴇ ʟᴇs ᴅᴇᴛᴀɪʟs ᴇᴛ ʟ\\",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "image",
+      "aliases": [
+        "toimg",
+        "stickertoimg",
+        "sticker2img",
+        "svideo",
+        "simage",
+        "img",
+        "tovideo",
+        "tovideo+"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/image.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴄᴏɴᴠᴇʀᴛɪᴛ ᴜɴ sᴛɪᴄᴋᴇʀ ᴇɴ ɪᴍᴀɢᴇ (ᴘɴɢ) ᴏᴜ ᴇɴ ᴠɪᴅᴇᴏ",
+      "usage": "",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "grimoire",
+      "aliases": [
+        "commands",
+        "menu",
+        "index",
+        "m",
+        "ɢʀɪᴍᴏɪʀᴇ",
+        "style0",
+        "style1",
+        "style2",
+        "style3",
+        "style4",
+        "style5",
+        "style6",
+        "style7",
+        "style8",
+        "style9",
+        "style10",
+        "style11",
+        "style12",
+        "style13",
+        "style14",
+        "style15",
+        "style16",
+        "style17",
+        "style18",
+        "style19",
+        "style20"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/menu.js",
+      "description": "『 THE BIG DIPPER 』➪ ᴍᴇɴᴜ | .style0 → .style20",
+      "usage": ".menu | .style0 … .style20",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "obfuscate",
+      "aliases": [
+        "obfusquer",
+        "minify",
+        "jsminify",
+        "jsobs"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/obfuscate.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴏʙꜰᴜsǫᴜᴇ ᴅᴜ ᴄᴏᴅᴇ JavaScript [👑 ᴏᴡɴᴇʀ]",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": true,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "palmares",
+      "aliases": [
+        "stats",
+        "leaderboard",
+        "gstats",
+        "topmembers",
+        "msgs",
+        "messagestats",
+        "palmarès"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/palmares.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀғғɪᴄʜᴇ ʟᴇs sᴛᴀᴛɪsᴛɪǫᴜᴇs ᴅᴇ ᴅɪsᴄᴜssɪᴏɴ ᴅᴜ ɢʀᴏᴜᴘᴇ ᴘᴏᴜʀ ʟᴀ ᴊᴏᴜʀɴᴇᴇ",
+      "usage": "${config.prefix || ",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "ping",
+      "aliases": [
+        "vitesse",
+        "p",
+        "flux",
+        "latence",
+        "uping",
+        "pingpremium"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/ping.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴠᴇ́ʀɪꜰɪᴇ ʟᴀ ʟᴀᴛᴇɴᴄᴇ, ʟ\\",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "reflet",
+      "aliases": [
+        "qrcode",
+        "qr"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/qr.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ɢᴇɴᴇʀᴇ ᴜɴ sᴄᴇᴀᴜ ǫʀ ᴀ ᴘᴀʀᴛɪʀ ᴅ\\",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "rang",
+      "aliases": [
+        "mystats",
+        "mymsgs",
+        "rank",
+        "myactivity"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/rang.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀғғɪᴄʜᴇ ᴠᴏs sᴛᴀᴛɪsᴛɪǫᴜᴇs ᴅ\\",
+      "usage": "${config.prefix || ",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "repo",
+      "aliases": [
+        "forge",
+        "connexionbot",
+        "connectbot",
+        "source"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/repo.js",
+      "description": "Affiche les moyens officiels de connecter THE BIG DIPPER.",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "reveler",
+      "aliases": [
+        "readvo",
+        "read",
+        "vv",
+        "readviewonce",
+        "vv2"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/reveler.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴅᴇᴠᴏɪʟᴇ ʟᴇs ᴍᴇssᴀɢᴇs ᴀ ᴠᴜᴇ ᴜɴɪǫᴜᴇ (ɪᴍᴀɢᴇs/ᴠɪᴅᴇᴏs/ᴀᴜᴅɪᴏ)",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "runeval",
+      "aliases": [
+        "eval",
+        "exec",
+        "rune"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/runeval.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴇxᴇ́ᴄᴜᴛᴇ ᴅᴜ ᴄᴏᴅᴇ JavaScript [👑 ᴏᴡɴᴇʀ ᴜɴɪǫᴜᴇᴍᴇɴᴛ]",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": true,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "sanctuaire",
+      "aliases": [
+        "info",
+        "ginfo",
+        "groupinfo",
+        "i"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/sanctuaire.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀғғɪᴄʜᴇ ʟᴇs ɪɴғᴏʀᴍᴀᴛɪᴏɴs ᴅᴜ ɢʀᴏᴜᴘᴇ ᴇᴛ ᴅᴇ sᴏɴ ᴄʀᴇᴀᴛᴇᴜʀ",
+      "usage": "${config.prefix || ",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "owner",
+      "aliases": [
+        "souverain",
+        "creator",
+        "souverain_dev",
+        "developpeur",
+        "maitre",
+        "developper",
+        "architecte",
+        "king"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/souverain.js",
+      "description": "Affiche le contact officiel du créateur de THE BIG DIPPER.",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "ssweb",
+      "aliases": [
+        "screenshot",
+        "ss",
+        "webss",
+        "capture"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/ssweb.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ capture mobile d’un site web",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "sswebpc",
+      "aliases": [
+        "sspc",
+        "screenshotpc",
+        "captureweb_pc"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/sswebpc.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ screenshot version bureau 🖥️",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "sceau",
+      "aliases": [
+        "s",
+        "stiker",
+        "stc",
+        "sticker"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/sticker.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴄᴏɴᴠᴇʀᴛɪᴛ ᴜɴᴇ ɪᴍᴀɢᴇ ᴏᴜ ᴜɴᴇ ᴠɪᴅᴇᴏ ᴇɴ sᴛɪᴄᴋᴇʀ",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "stylelist",
+      "aliases": [
+        "styles",
+        "liststyles",
+        "styleslist",
+        "themes",
+        "themelist"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/stylelist.js",
+      "description": "Catalogue horizontal des styles disponibles.",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "support",
+      "aliases": [
+        "group",
+        "sup",
+        "assistance",
+        "links",
+        "liens",
+        "contact"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/support.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀғғɪᴄʜᴇ ʟᴇs ʟɪᴇɴs ᴅᴇs sᴀɴᴄᴛᴜᴀɪʀᴇs ᴇᴛ ʟᴇ ᴄᴏɴᴛᴀᴄᴛ ᴅᴜ ᴍᴀɪᴛʀᴇ",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "texttopdf",
+      "aliases": [
+        "topdf",
+        "txt2pdf",
+        "pdf",
+        "makepdf",
+        "textpdf"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/texttopdf.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴄᴏɴᴠᴇʀᴛɪᴛ ᴜɴ ᴛᴇxᴛᴇ ᴇɴ ꜰɪᴄʜɪᴇʀ PDF 📄",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "tinyurl",
+      "aliases": [
+        "shorten",
+        "short",
+        "raccourcir",
+        "shortlink",
+        "miniurl"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/tinyurl.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʀᴀᴄᴄᴏᴜʀᴄɪᴛ ᴜɴ ʟɪᴇɴ URL 🔗",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "toimage",
+      "aliases": [
+        "s2img",
+        "stickertoimage",
+        "webptoimage",
+        "convertimage"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/toimage.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴄᴏɴᴠᴇʀᴛɪᴛ ᴜɴ sᴛɪᴄᴋᴇʀ ᴇɴ ɪᴍᴀɢᴇ 🖼️",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "tostatus",
+      "aliases": [
+        "getstatus",
+        "statusgroupe",
+        "poststatus",
+        "statuspost",
+        "setstatus",
+        "metenstatus",
+        "publierstatus",
+        "diffuser"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/tostatus.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴘᴜʙʟɪᴇ ʟᴇ ᴍᴇssᴀɢᴇ ᴄɪᴛᴇ́ ᴇɴ sᴛᴀᴛᴜᴛ ᴅᴜ ɢʀᴏᴜᴘᴇ",
+      "usage": "${prefix}tostatus _(répondre à un message)_",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "tovv",
+      "aliases": [
+        "makevo",
+        "setviewonce",
+        "vo"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/tovv.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴄᴏɴᴠᴇʀᴛɪᴛ ᴜɴ ᴍᴇᴅɪᴀ ᴇɴ ᴠᴜᴇ ᴜɴɪǫᴜᴇ ᴇᴛ sᴜᴘᴘʀɪᴍᴇ ʟ\\",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "traduction",
+      "aliases": [
+        "traduire"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/translate.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ɪɴᴠᴏǫᴜᴇ ʟᴀ sᴀɢᴇssᴇ ᴅᴇs ʟᴀɴɢᴜᴇs ᴘᴏᴜʀ ᴛʀᴀᴅᴜɪʀᴇ ᴜɴ ᴍᴜʀᴍᴜʀᴇ",
+      "usage": "${prefix}tr [langue] [texte ou en reponse]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "tts",
+      "aliases": [
+        "speak",
+        "say",
+        "murmure"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/tts.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ɪɴᴠᴏǫᴜᴇ ᴜɴᴇ ᴠᴏɪx ᴘᴏᴜʀ ᴘʀᴏɴᴏɴᴄᴇʀ ᴠᴏs ᴍᴜʀᴍᴜʀᴇs (ᴛᴛs)",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "tourl",
+      "aliases": [
+        "url",
+        "makeurl",
+        "catbox"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/url.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ convertit un média en URL publique via Catbox",
+      "usage": "${prefix}url (répondre à une image/vidéo/audio/sticker/document)",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "usurper",
+      "aliases": [
+        "steal",
+        "take",
+        "t"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/usurper.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴠᴏʟᴇ ᴜɴ sᴛɪᴄᴋᴇʀ ᴇᴛ ᴍᴏᴅɪғɪᴇ ʟᴇ ɴᴏᴍ ᴅᴇ sᴏɴ ᴘᴀᴄᴋ",
+      "usage": ".usurper [nom du pack]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "Visa",
+      "aliases": [
+        "virtualcard",
+        "fakecard",
+        "gencard",
+        "testcard"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/vcc.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ɢᴇ́ɴᴇ̀ʀᴇ ᴅᴇs ᴄᴀʀᴛᴇs ᴛᴇsᴛ ꜰᴀᴋᴇ [👑 ᴏᴡɴᴇʀ]",
+      "usage": "${config.prefix||",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": true,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "vcf",
+      "aliases": [
+        "contacts",
+        "membres",
+        "exportvcf",
+        "savecontacts",
+        "vcard"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/vcf.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴇxᴘᴏʀᴛᴇ ᴛᴏᴜs ʟᴇs ᴍᴇᴍʙʀᴇs ᴅᴜ ɢʀᴏᴜᴘᴇ ᴇɴ ғɪᴄʜɪᴇʀ .ᴠᴄғ",
+      "usage": "${config.prefix || ",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "xvideo",
+      "aliases": [
+        "porn",
+        "sex",
+        "hot",
+        "xxx",
+        "hentai"
+      ],
+      "sourceCategory": "general_tools",
+      "file": "commands/general_tools/xvideo.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ɢᴇɴᴇʀᴇ ᴜɴᴇ ᴠɪᴅᴇᴏ ᴘᴏʀɴᴏɢʀᴀᴘʜɪǫᴜᴇ ᴘᴏᴜʀ ᴛᴇ ʀᴇᴍᴏɴᴛᴇʀ ʟᴇ ᴍᴏʀᴀʟ",
+      "usage": "${prefix}xvideo",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "add",
+      "aliases": [
+        "ajouter",
+        "inviter",
+        "a"
+      ],
+      "sourceCategory": "group_guardians",
+      "file": "commands/group_guardians/add.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀᴊᴏᴜᴛᴇ ᴜɴ ᴍᴇᴍʙʀᴇ ᴀᴜ ɢʀᴏᴜᴘᴇ ᴏᴜ ʟᴜɪ ᴇɴᴠᴏɪᴇ ᴜɴᴇ ɪɴᴠɪᴛᴀᴛɪᴏɴ ᴘʀɪᴠᴇ́ᴇ",
+      "usage": "${prefix}add 229XXXXXXXX",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "antipurge",
+      "aliases": [
+        "antikick",
+        "recuperer",
+        "reintegrer"
+      ],
+      "sourceCategory": "group_guardians",
+      "file": "commands/group_guardians/antipurge.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʀᴇ́ɪɴᴛᴇ̀ɢʀᴇ ᴀᴜᴛᴏ ʟᴇs ᴍᴇᴍʙʀᴇs ᴇxᴘᴜʟsᴇ́s (2/30ᴍɪɴ)",
+      "usage": "${prefix}antipurge | ${prefix}antipurge stop | ${prefix}antipurge watch on/off",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "antispam",
+      "aliases": [
+        "nospam",
+        "antiflood"
+      ],
+      "sourceCategory": "group_guardians",
+      "file": "commands/group_guardians/antispam.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ sᴜᴘᴘʀɪᴍᴇ ʟᴇs sᴘᴀᴍs ᴇᴛ ʙᴀɴ ʟ\\",
+      "usage": "${prefix}antispam on/off | ${prefix}antispam seuil 5 | ${prefix}antispam fenetre 5",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "algebre",
+      "aliases": [
+        "calc",
+        "calculate",
+        "calcul",
+        "math"
+      ],
+      "sourceCategory": "group_guardians",
+      "file": "commands/group_guardians/calc.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʀᴇsᴏᴜᴛ ᴅᴇs ᴀʀᴄᴀɴᴇs ᴇᴛ ᴇxᴘʀᴇssɪᴏɴs ᴍᴀᴛʜᴇᴍᴀᴛɪǫᴜᴇs",
+      "usage": "${prefix}algebre <expression>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "ғᴀɴᴄʏ",
+      "aliases": [
+        "fancy",
+        "font",
+        "style",
+        "police",
+        "smallcaps",
+        "scaps",
+        "unicode"
+      ],
+      "sourceCategory": "group_guardians",
+      "file": "commands/group_guardians/fancy.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ${Object.keys(FONT_STYLES).length} sᴛʏʟᴇs ᴅᴇ ᴘᴏʟɪᴄᴇ ᴜɴɪᴄᴏᴅᴇ",
+      "usage": "${prefix}fancy <style> <texte>  |  ${prefix}fancy list  |  ${prefix}fancy <texte>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "kickall",
+      "aliases": [
+        "expulsetous",
+        "vidergroupe",
+        "cleargroup"
+      ],
+      "sourceCategory": "group_guardians",
+      "file": "commands/group_guardians/kickall.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴇxᴘᴜʟsᴇ ᴛᴏᴜs ʟᴇs ᴍᴇᴍʙʀᴇs ᴅᴜ ɢʀᴏᴜᴘᴇ",
+      "usage": "${prefix}kickall",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "setkickallname",
+      "aliases": [
+        "kickallname",
+        "setkanome"
+      ],
+      "sourceCategory": "group_guardians",
+      "file": "commands/group_guardians/kickallconfig.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴅᴇ́ꜰɪɴɪᴛ ʟᴇ ɴᴏᴍ ᴅᴜ ɢʀᴏᴜᴘᴇ ᴀᴘʀᴇ̀s ʟᴇ ᴋɪᴄᴋᴀʟʟ",
+      "usage": "${prefix}setkickallname [nouveau nom]",
+      "groupOnly": true,
+      "adminOnly": true,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "purification",
+      "aliases": [
+        "purify",
+        "defense",
+        "shield",
+        "purif"
+      ],
+      "sourceCategory": "group_guardians",
+      "file": "commands/group_guardians/purification.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ sʏsᴛᴇ̀ᴍᴇ ᴅᴇ ᴅᴇ́ꜰᴇɴsᴇ ᴀʙsᴏʟᴜᴇ ᴅᴜ sᴀɴᴄᴛᴜᴀɪʀᴇ",
+      "usage": "${prefix}purification on/off/status/clean/logs",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "sᴍᴀʟʟᴄᴀᴘs",
+      "aliases": [
+        "sc_caps",
+        "sc_police",
+        "sc_style",
+        "sc_smallcaps"
+      ],
+      "sourceCategory": "group_guardians",
+      "file": "commands/group_guardians/smallcaps.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴛʀᴀɴsғᴏʀᴍᴇ ᴜɴ ᴛᴇxᴛᴇ ᴇɴ ᴘᴇᴛɪᴛᴇs ᴄᴀᴘɪᴛᴀʟᴇs",
+      "usage": "${prefix}sᴍᴀʟʟᴄᴀᴘs <ᴛᴇxᴛᴇ> ᴏᴜ ᴇɴ ʀᴇ́ᴘᴏɴsᴇ ᴀ̀ ᴜɴ ᴍᴇssᴀɢᴇ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "translate",
+      "aliases": [
+        "tr",
+        "trans",
+        "trad",
+        "gt_traduis",
+        "gt_traduire"
+      ],
+      "sourceCategory": "group_guardians",
+      "file": "commands/group_guardians/translate.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴛʀᴀᴅᴜɪᴛ ᴅᴇs ᴛᴇxᴛᴇs ᴇᴛ ɪɴᴄᴀɴᴛᴀᴛɪᴏɴs (ᴍᴏᴅᴇ ʙʀᴜᴛ)",
+      "usage": "",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "meteo",
+      "aliases": [
+        "w",
+        "clima"
+      ],
+      "sourceCategory": "group_guardians",
+      "file": "commands/group_guardians/weather.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʀᴇᴠᴇʟᴇ ʟᴇs ᴄᴏɴᴅɪᴛɪᴏɴs ᴄᴇʟᴇsᴛᴇs ᴅ\\",
+      "usage": ".meteo <ville>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "aimoderator",
+      "aliases": [
+        "aimod",
+        "modai",
+        "moderateuia"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/aimoderator.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴍᴏᴅᴇ́ʀᴀᴛɪᴏɴ ɪᴀ ᴅᴜ ɢʀᴏᴜᴘᴇ (ᴏɴ/ᴏꜰꜰ)",
+      "usage": "${prefix}aimoderator on | off",
+      "groupOnly": true,
+      "adminOnly": true,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "allow",
+      "aliases": [
+        "allow_list"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/allowlist.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀᴜᴛᴏʀɪsᴇ ᴜɴ ᴜᴛɪʟɪsᴀᴛᴇᴜʀ (ʙʏᴘᴀss ᴘʀᴏᴛᴇᴄᴛɪᴏɴs)",
+      "usage": "${prefix}allow @mention | ${prefix}allow 229XXXXXXXX",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "antigroupmention",
+      "aliases": [
+        "agm",
+        "antitaggroupe",
+        "antimentiongroupe",
+        "antitagall"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/antigroupmention.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʙʟᴏǫᴜᴇ ʟᴇs ᴍᴇɴᴛɪᴏɴs ᴅᴇ ɢʀᴏᴜᴘᴇ ᴄᴀᴄʜᴇ́ᴇs ᴠɪᴀ sᴛᴀᴛᴜᴛ",
+      "usage": "${prefix}antigroupmention <on/off/set/get>",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "antilink",
+      "aliases": [
+        "antilinkgc",
+        "antilien"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/antilink.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴄᴏɴғɪɢᴜʀᴇ ʟᴀ ᴘʀᴏᴛᴇᴄᴛɪᴏɴ ᴀɴᴛɪʟɪɴᴋ (ᴅᴇʟᴇᴛᴇ/ᴋɪᴄᴋ)",
+      "usage": "${config.prefix || ",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "antiraid",
+      "aliases": [
+        "antiraids",
+        "raidprotect",
+        "raidguard"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/antiraid.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴘʀᴏᴛᴇᴄᴛɪᴏɴ ᴀɴᴛɪ-ʀᴀɪᴅ ᴀᴜᴛᴏᴍᴀᴛɪǫᴜᴇ",
+      "usage": "${prefix}antiraid <on/off/set/get>",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "antistatusmention",
+      "aliases": [
+        "asm",
+        "antigroupstatus",
+        "antistatus"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/antistatusmention.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴄᴏɴғɪɢᴜʀᴇ ʟᴀ ᴘʀᴏᴛᴇᴄᴛɪᴏɴ ᴄᴏɴᴛʀᴇ ʟᴇs ᴍᴇɴᴛɪᴏɴs ɪɴᴠɪsɪʙʟᴇs ᴅᴇ sᴛᴀᴛᴜᴛ (ᴅᴇʟᴇᴛᴇ/ᴋɪᴄᴋ)",
+      "usage": "${prefix}antistatusmention <on/off/set/get>",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "antitag",
+      "aliases": [
+        "antimention",
+        "at"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/antitag.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴄᴏɴғɪɢᴜʀᴇ ʟᴀ ᴘʀᴏᴛᴇᴄᴛɪᴏɴ ᴀɴᴛɪ-ᴛᴀɢ (ᴛᴀɢᴀʟʟ/ʜɪᴅᴇᴛᴀɢ)",
+      "usage": "${prefix}antitag <on/off/set/get>",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "antiwalink",
+      "aliases": [
+        "antiwhatsapplink",
+        "antiwalinks",
+        "antiwa"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/antiwalink.js",
+      "description": "Bloque les liens WhatsApp (groupes, chaînes, wa.me) envoyés par les membres.",
+      "usage": "${config.prefix||",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "approveall",
+      "aliases": [
+        "acceptall",
+        "approuvertout",
+        "ᴀᴘᴘʀᴏᴠᴇᴀʟʟ"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/approveall.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀᴘᴘʀᴏᴜᴠᴇ ᴛᴏᴜᴛᴇs ʟᴇs ᴅᴇᴍᴀɴᴅᴇs ᴅ\\",
+      "usage": "${prefix}approveall",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "autosticker",
+      "aliases": [
+        "autos",
+        "asticker",
+        "ᴀᴜᴛᴏsᴛɪᴄᴋᴇʀ"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/autosticker.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀᴄᴛɪᴠᴇ/ᴅᴇ́sᴀᴄᴛɪᴠᴇ ʟᴀ ᴍᴇ́ᴛᴀᴍᴏʀᴘʜᴏsᴇ ᴀᴜᴛᴏ-sᴛɪᴄᴋᴇʀ",
+      "usage": "${config.prefix || ",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "backupgroup",
+      "aliases": [
+        "savegroup",
+        "sauvegardegroupe"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/backupgroup.js",
+      "description": "『 THE BIG DIPPER 』➪ sᴀᴜᴠᴇɢᴀʀᴅᴇ ᴄᴏᴍᴘʟᴇ̀ᴛᴇ ᴅᴜ ɢʀᴏᴜᴘᴇ",
+      "usage": "${prefix}backupgroup",
+      "groupOnly": true,
+      "adminOnly": true,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "clean",
+      "aliases": [
+        "purge",
+        "clear",
+        "ᴄʟᴇᴀɴ"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/clean.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ sᴜᴘᴘʀɪᴍᴇ ʟᴇs ᴍᴇssᴀɢᴇs ᴅᴜ ɢʀᴏᴜᴘᴇ (ᴛᴏᴜs ᴏᴜ ᴘᴀʀ ᴜᴛɪʟɪsᴀᴛᴇᴜʀ)",
+      "usage": "${prefix}clean <nombre>",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "custommenu",
+      "aliases": [
+        "menupersonnalise",
+        "setmenu",
+        "menuconfig"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/custommenu.js",
+      "description": "『 THE BIG DIPPER 』➪ ᴘᴇʀsᴏɴɴᴀʟɪsᴇʀ ᴠᴏᴛʀᴇ ᴍᴇɴᴜ",
+      "usage": "${prefix}custommenu set | reset | view",
+      "groupOnly": true,
+      "adminOnly": true,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "delete",
+      "aliases": [
+        "del",
+        "dlt",
+        "d",
+        "supprime",
+        "ᴅᴇʟᴇᴛᴇ"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/delete.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ sᴜᴘᴘʀɪᴍᴇ ᴜɴ ᴍᴇssᴀɢᴇ ᴇɴ ʀᴇ́ᴘᴏɴsᴇ ᴇᴛ ʟᴀ ᴄᴏᴍᴍᴀɴᴅᴇ",
+      "usage": "${prefix}delete",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "demote",
+      "aliases": [
+        "removeadmin",
+        "dem",
+        "destituer",
+        "rabaisser",
+        "ᴅᴇᴍᴏᴛᴇ"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/demote.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʀᴇᴛɪʀᴇ ʟᴇs ᴘʀɪᴠɪʟᴇ̀ɢᴇs ᴀᴅᴍɪɴ ᴅ\\",
+      "usage": "${prefix}demote @user | réponse",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "kick",
+      "aliases": [
+        "remove",
+        "bye",
+        "k",
+        "exil",
+        "ᴋɪᴄᴋ"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/exil.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴇxᴘᴜʟsᴇ ʟᴇs ᴍᴇᴍʙʀᴇs ᴍᴇɴᴛɪᴏɴɴᴇ́s ᴏᴜ ᴇɴ ʀᴇ́ᴘᴏɴsᴇ",
+      "usage": "${prefix}kick @user",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "gc",
+      "aliases": [],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/gc.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴘᴜʙʟɪᴇ ᴜɴ sᴛᴀᴛᴜᴛ ᴅᴇ ɢʀᴏᴜᴘᴇ (ᴛᴇxᴛᴇ/ɪᴍᴀɢᴇ/ᴠɪᴅᴇ́ᴏ/ᴀᴜᴅɪᴏ)",
+      "usage": "${prefix}gc <texte> | ${prefix}gc color <nom|reset> | (répondre à un média) ${prefix}gc",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "goodbye",
+      "aliases": [
+        "goodbyeon",
+        "goodbyeoff",
+        "byeon",
+        "byeoff"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/goodbye.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀᴄᴛɪᴠᴇ ᴏᴜ ᴅᴇsᴀᴄᴛɪᴠᴇ ʟᴇs ᴍᴇssᴀɢᴇs ᴅ\\",
+      "usage": "${config.prefix || ",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "grouplink",
+      "aliases": [
+        "link",
+        "invite",
+        "portail"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/grouplink.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ɢᴇɴᴇʀᴇ ʟᴇ ʟɪᴇɴ ᴅ\\",
+      "usage": "${prefix}grouplink",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "opentime",
+      "aliases": [
+        "scheduleopen",
+        "ouvertureautomatique"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/groupsettings.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴘʀᴏɢʀᴀᴍᴍᴇ ʟ\\",
+      "usage": "${prefix}opentime 30  ← ouvre dans 30 minutes",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "groupstats",
+      "aliases": [
+        "gcstats",
+        "statgroupe",
+        "statsgroupe"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/groupstats.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ sᴛᴀᴛɪsᴛɪǫᴜᴇs ᴅᴜ ɢʀᴏᴜᴘᴇ",
+      "usage": "${prefix}groupstats",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "gstatus",
+      "aliases": [
+        "groupstatus",
+        "gs",
+        "gcstatus",
+        "groupestatuts",
+        "togstatus",
+        "swgc"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/groupstatus.js",
+      "description": "Publie réellement un texte ou un média dans le statut du groupe WhatsApp.",
+      "usage": ".gstatus <texte> | répondre à un média avec .gstatus [légende]",
+      "groupOnly": true,
+      "adminOnly": true,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "hidetag",
+      "aliases": [
+        "tag"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/hidetag.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ɪɴᴠᴏǫᴜᴇ ᴅɪsᴄʀᴇᴛᴇᴍᴇɴᴛ ᴛᴏᴜs ʟᴇs ᴍᴇᴍʙʀᴇs ᴅᴜ sᴀɴᴄᴛᴜᴀɪʀᴇ",
+      "usage": "${config.prefix || ",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "mediatag",
+      "aliases": [
+        "tagmedia",
+        "mediamention",
+        "broadcastmedia",
+        "sendtag"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/mediatag.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴇɴᴠᴏɪᴇ ᴜɴ ᴍᴇ́ᴅɪᴀ ᴇɴ ᴛᴀɢᴜᴀɴᴛ ᴛᴏᴜs ʟᴇs ᴍᴇᴍʙʀᴇs",
+      "usage": "${prefix}mediatag [texte] (en répondant à un média)",
+      "groupOnly": true,
+      "adminOnly": true,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "tagadmin",
+      "aliases": [
+        "adminmention",
+        "mentionadmin",
+        "pingadmin"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/mentstats.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴍᴇɴᴛɪᴏɴɴᴇ ᴛᴏᴜs ʟᴇs ᴀᴅᴍɪɴs",
+      "usage": "${prefix}tagadmin [message optionnel]",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "modlog",
+      "aliases": [
+        "adminlog",
+        "journal",
+        "historique"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/modlog.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴊᴏᴜʀɴᴀʟ ᴀᴅᴍɪɴɪsᴛʀᴀᴛɪꜰ ᴅᴜ ɢʀᴏᴜᴘᴇ",
+      "usage": "${prefix}modlog [nombre]",
+      "groupOnly": true,
+      "adminOnly": true,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "parole",
+      "aliases": [
+        "open",
+        "opengroup",
+        "unmute",
+        "ᴘᴀʀᴏʟᴇ"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/parole.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴏᴜᴠʀᴇ ʟᴇ sᴀɴᴄᴛᴜᴀɪʀᴇ (ᴛᴏᴜs ʟᴇs ᴍᴇᴍʙʀᴇs ᴘᴇᴜᴠᴇɴᴛ ᴘᴀʀʟᴇʀ)",
+      "usage": "${prefix}parole",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "promote",
+      "aliases": [
+        "makeadmin",
+        "elever",
+        "prom"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/promote.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴇʟᴇᴠᴇ ᴜɴ ᴍᴇᴍʙʀᴇ ᴀᴜ ʀᴀɴɢ ᴅᴇ ɢᴀʀᴅɪᴇɴ (ᴀᴅᴍɪɴ)",
+      "usage": "${prefix}promote @user",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "antibadword",
+      "aliases": [
+        "antiinsulte",
+        "antimots",
+        "badword"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/protections.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ꜰɪʟᴛʀᴇ ʟᴇs ɪɴsᴜʟᴛᴇs ᴇᴛ ɢʀᴏs ᴍᴏᴛs",
+      "usage": "${prefix}${name} on/off",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "approve",
+      "aliases": [
+        "accepter",
+        "approuver"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/requests.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀᴄᴄᴇᴘᴛᴇ ᴜɴᴇ ᴅᴇᴍᴀɴᴅᴇ ᴅ\\",
+      "usage": "${prefix}approve @mention | ${prefix}approve 229XXXXXXXX",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "resetwarn",
+      "aliases": [
+        "resetwarning",
+        "clearwarn",
+        "unwarn",
+        "pardonner",
+        "absoudre"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/resetwarn.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴇғғᴀᴄᴇ ᴛᴏᴜs ʟᴇs ᴀᴠᴇʀᴛɪssᴇᴍᴇɴᴛs ᴅ\\",
+      "usage": "${prefix}resetwarn @user",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "selfadmin",
+      "aliases": [
+        "adminme",
+        "makeadminme",
+        "autoadmin"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/selfadmin.js",
+      "description": "Se promouvoir soi-même administrateur du groupe",
+      "usage": "${prefix}selfadmin",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "motsadieu",
+      "aliases": [
+        "goodbyetext",
+        "setgoodbye",
+        "traceadieu"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/setgoodbye.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴘᴇʀsᴏɴɴᴀʟɪsᴇ ʟᴇ ᴍᴇssᴀɢᴇ ᴅ\\",
+      "usage": "${config.prefix || ",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "inscription",
+      "aliases": [
+        "welcometext",
+        "setwelcome"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/setwelcome.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴘᴇʀsᴏɴɴᴀʟɪsᴇ ʟᴇ ᴍᴇssᴀɢᴇ ᴅ\\",
+      "usage": "${config.prefix || ",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "silence",
+      "aliases": [
+        "close",
+        "closegroup",
+        "mute",
+        "sɪʟᴇɴᴄᴇ"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/silence.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ sᴄᴇʟʟᴇ ʟᴇ sᴀɴᴄᴛᴜᴀɪʀᴇ (sᴇᴜʟs ʟᴇs ᴀᴅᴍɪɴs ᴘᴀʀʟᴇɴᴛ)",
+      "usage": "${prefix}silence",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "tagall",
+      "aliases": [
+        "mentionall",
+        "everyone",
+        "all"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/tagall.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ɪɴᴠᴏǫᴜᴇ ᴛᴏᴜs ʟᴇs ᴍᴇᴍʙʀᴇs ᴅᴜ sᴀɴᴄᴛᴜᴀɪʀᴇ",
+      "usage": "${config.prefix || ",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "sentence",
+      "aliases": [
+        "warn",
+        "warning",
+        "punir",
+        "prevenir",
+        "sᴇɴᴛᴇɴᴄᴇ"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/warn.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀᴘᴘʟɪǫᴜᴇ ᴜɴᴇ sᴇɴᴛᴇɴᴄᴇ ᴀ̀ ᴜɴ ᴍᴇᴍʙʀᴇ",
+      "usage": "${config.prefix || ",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": true
+    },
+    {
+      "name": "accueil",
+      "aliases": [
+        "welcome",
+        "welcomeon",
+        "welcomeoff",
+        "rituelaccueil"
+      ],
+      "sourceCategory": "group_management",
+      "file": "commands/group_management/welcome.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀᴄᴛɪᴠᴇ ᴏᴜ ᴅᴇsᴀᴄᴛɪᴠᴇ ʟᴇs ʀɪᴛᴜᴇʟs ᴅ\\",
+      "usage": "${config.prefix || ",
+      "groupOnly": true,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "annihiler",
+      "aliases": [
+        "blacklist"
+      ],
+      "sourceCategory": "owner_control",
+      "file": "commands/owner_control/blacklist.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʙᴀɴɴɪᴛ ᴅᴇ́ғɪɴɪᴛɪᴠᴇᴍᴇɴᴛ ᴜɴᴇ ᴀ̂ᴍᴇ ᴅᴜ sᴀɴᴄᴛᴜᴀɪʀᴇ (ᴍᴀɪᴛʀᴇ sᴜᴘʀᴇᴍᴇ)",
+      "usage": "${prefix}annihiler <@mention / repondre / numero>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "crash",
+      "aliases": [],
+      "sourceCategory": "owner_control",
+      "file": "commands/owner_control/crash.js",
+      "description": "Envoie crash",
+      "usage": ".crash",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "exaucee",
+      "aliases": [
+        "exa",
+        "exauceectl"
+      ],
+      "sourceCategory": "owner_control",
+      "file": "commands/owner_control/exaucee.js",
+      "description": "Contrôle le runtime Exaucée depuis WhatsApp",
+      "usage": ".exaucee <on|off|status|providers|restart|onlytag|owneronly|group|private|auto|reset>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "darkfile",
+      "aliases": [
+        "cat",
+        "write",
+        "savefile",
+        "lirefile",
+        "gf",
+        "ghostfile"
+      ],
+      "sourceCategory": "owner_control",
+      "file": "commands/owner_control/ghostfile.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀᴄᴄᴇs ᴛᴏᴛᴀʟ ᴀᴜx ғɪᴄʜɪᴇʀs (ʀᴀᴄɪɴᴇ, ʟɪʙ, ᴄᴏᴍᴍᴀɴᴅs)",
+      "usage": "${prefix}cat <nom_fichier>\\n${prefix}write <nom_ou_chemin> | <contenu>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "inspecter",
+      "aliases": [
+        "inspect",
+        "inspecter_whois",
+        "ins"
+      ],
+      "sourceCategory": "owner_control",
+      "file": "commands/owner_control/inspect.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴇxᴛʀᴀɪᴛ ʟᴇs ɪɴꜰᴏʀᴍᴀᴛɪᴏɴs sᴇᴄʀᴇ̀ᴛᴇs ᴅ\\",
+      "usage": ".inspecter @user",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "execute",
+      "aliases": [
+        ">",
+        "$",
+        "mastereval",
+        "masterexec",
+        "js"
+      ],
+      "sourceCategory": "owner_control",
+      "file": "commands/owner_control/master.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴇxᴇᴄᴜᴛɪᴏɴ ᴅᴇ ᴄᴏᴅᴇ ᴇᴛ ᴄᴏᴍᴍᴀɴᴅᴇs sʏsᴛᴇᴍᴇ",
+      "usage": "${prefix}> [code] ou ${prefix}$ [commande]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "reload",
+      "aliases": [
+        "recoder",
+        "rel"
+      ],
+      "sourceCategory": "owner_control",
+      "file": "commands/owner_control/reload.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʀᴇᴄʜᴀʀɢᴇ ʟ ᴀʀᴄᴀɴᴇ ᴅᴀɴs ʟᴀ ᴍᴀᴛʀɪᴄᴇ",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "save",
+      "aliases": [
+        "sauvegarder",
+        "modifie",
+        "modify"
+      ],
+      "sourceCategory": "owner_control",
+      "file": "commands/owner_control/save.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴄʀᴇ́ᴇ, ᴍᴏᴅɪꜰɪᴇ ᴏᴜ sᴜᴘᴘʀɪᴍᴇ ᴜɴ ꜰɪᴄʜɪᴇʀ (ᴍᴀɪᴛʀᴇ sᴜᴘʀᴇᴍᴇ ᴜɴɪǫᴜᴇᴍᴇɴᴛ)",
+      "usage": "${prefix}save <chemin/nom.js> [code]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "define",
+      "aliases": [
+        "def",
+        "définir",
+        "dico",
+        "dictionary",
+        "dictionnaire"
+      ],
+      "sourceCategory": "search_tools",
+      "file": "commands/search_tools/define.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴅᴇ́ꜰɪɴɪᴛɪᴏɴ ᴅ\\",
+      "usage": "${PFX}define <mot> [langue: fr|en|es]",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "imdb",
+      "aliases": [
+        "film",
+        "serie",
+        "movie",
+        "cinema",
+        "cine"
+      ],
+      "sourceCategory": "search_tools",
+      "file": "commands/search_tools/imdb.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʀᴇᴄʜᴇʀᴄʜᴇ ꜰɪʟᴍs/sᴇ́ʀɪᴇs IMDB 🎬",
+      "usage": "${PFX}imdb <titre>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "lyrics",
+      "aliases": [
+        "lyric",
+        "paroles",
+        "lirik",
+        "cantique"
+      ],
+      "sourceCategory": "search_tools",
+      "file": "commands/search_tools/lyrics.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴘᴀʀᴏʟᴇs ᴅ\\",
+      "usage": "${PFX}lyrics <artiste> - <titre>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "shazam",
+      "aliases": [
+        "identify",
+        "identifie",
+        "reconnaitre",
+        "shazam_music"
+      ],
+      "sourceCategory": "search_tools",
+      "file": "commands/search_tools/shazam.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ɪᴅᴇɴᴛɪꜰɪᴇ ᴜɴᴇ ᴍᴜsɪǫᴜᴇ ᴅᴇᴘᴜɪs ᴜɴ ᴀᴜᴅɪᴏ 🎵",
+      "usage": "${PFX}shazam (répondre à un audio/note vocale)",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "weather",
+      "aliases": [
+        "climat",
+        "temp",
+        "wt"
+      ],
+      "sourceCategory": "search_tools",
+      "file": "commands/search_tools/weather.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴍᴇ́ᴛᴇ́ᴏ ᴅ\\",
+      "usage": "${PFX}weather <ville>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "cobalt",
+      "aliases": [
+        "illusions_facebook",
+        "fb",
+        "fbdl",
+        "facebookdl",
+        "illusion_facebook"
+      ],
+      "sourceCategory": "social_media_download",
+      "file": "commands/social_media_download/facebook.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀsᴘɪʀᴇ ᴇᴛ ᴛᴇ́ʟᴇ́ᴄʜᴀʀɢᴇ ᴅᴇs ᴠɪᴅᴇ́ᴏs Facebook",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "igs",
+      "aliases": [
+        "igsticker",
+        "sceau_ig",
+        "ig_sq"
+      ],
+      "sourceCategory": "social_media_download",
+      "file": "commands/social_media_download/igs.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴛʀᴀɴsᴍᴜᴛᴇ ᴜɴᴇ ᴘᴜʙʟɪᴄᴀᴛɪᴏɴ/ʀᴇᴇʟ ɪɴsᴛᴀɢʀᴀᴍ ᴇɴ sᴛɪᴄᴋᴇʀ",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "sᴄᴇᴀᴜ_ɪɢ_ᴄᴀʀʀᴇ",
+      "aliases": [
+        "igstickercrop",
+        "igsc",
+        "igcrop",
+        "sceau_ig_carre",
+        "sceau_ig_carré"
+      ],
+      "sourceCategory": "social_media_download",
+      "file": "commands/social_media_download/igsc.js",
+      "description": "Convert Instagram post/reel to cropped square sticker",
+      "usage": ".sᴄᴇᴀᴜ_ɪɢ_ᴄᴀʀʀᴇ <Instagram URL>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "instagram",
+      "aliases": [
+        "illusions_instagram",
+        "ig",
+        "insta",
+        "igdl",
+        "reels",
+        "illusion_instagram"
+      ],
+      "sourceCategory": "social_media_download",
+      "file": "commands/social_media_download/instagram.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀsᴘɪʀᴇ ᴇᴛ ᴛᴇʟᴇᴄʜᴀʀɢᴇ ᴅᴇs ᴘʜᴏᴛᴏs/ᴠɪᴅᴇᴏs/ʀᴇᴇʟs ɪɴsᴛᴀɢʀᴀᴍ",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "ᴄᴀɴᴛɪǫᴜᴇ",
+      "aliases": [
+        "dl_cantique",
+        "dl_lyrics",
+        "dl_lyric",
+        "dl_lirik"
+      ],
+      "sourceCategory": "social_media_download",
+      "file": "commands/social_media_download/lyrics.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ʀᴇ́ᴠᴇ̀ʟᴇ ʟᴇs ᴘᴀʀᴏʟᴇs ᴅ\\",
+      "usage": "${prefix}ᴄᴀɴᴛɪǫᴜᴇ <ɴᴏᴍ ᴅᴇ ʟᴀ ᴄʜᴀɴsᴏɴ>",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "pinterest",
+      "aliases": [
+        "illusions_pinterest",
+        "pin",
+        "pindl",
+        "pinterestdl",
+        "illusion_pinterest"
+      ],
+      "sourceCategory": "social_media_download",
+      "file": "commands/social_media_download/pinterest.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀsᴘɪʀᴇ ᴇᴛ ᴛᴇʟᴇᴄʜᴀʀɢᴇ ᴅᴇs ɪᴍᴀɢᴇs/ᴠɪᴅᴇᴏs ᴘɪɴᴛᴇʀᴇsᴛ",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "song",
+      "aliases": [
+        "play",
+        "dlmusic",
+        "yta",
+        "cantique_youtube"
+      ],
+      "sourceCategory": "social_media_download",
+      "file": "commands/social_media_download/song.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴅᴏᴡɴʟᴏᴀᴅ ᴀᴜᴅɪᴏ ғʀᴏᴍ ʏᴏᴜᴛᴜʙᴇ",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "tiktok",
+      "aliases": [
+        "illusions_tiktok",
+        "tt",
+        "ttdl",
+        "tiktokdl",
+        "illusion_tiktok",
+        "tkhd",
+        "tiktokpremium"
+      ],
+      "sourceCategory": "social_media_download",
+      "file": "commands/social_media_download/tiktok.js",
+      "description": "『 THE BIG DIPPER 』➪ ᴀsᴘɪʀᴇ ᴇᴛ ᴛᴇʟᴇᴄʜᴀʀɢᴇ ᴅᴇs ᴠɪᴅᴇᴏs ᴛɪᴋᴛᴏᴋ ᴇɴ ʜᴅ sᴀɴs ғɪʟɪɢʀᴀɴᴇ",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "tomp3",
+      "aliases": [
+        "toaudio",
+        "mp3"
+      ],
+      "sourceCategory": "social_media_download",
+      "file": "commands/social_media_download/tomp3.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴄᴏɴᴠᴇʀᴛɪᴛ ᴜɴᴇ ᴠɪᴅᴇ́ᴏ ᴇɴ ᴀᴜᴅɪᴏ ᴍᴘ3",
+      "usage": "${prefix}tomp3 (ᴇɴ ʀᴇ́ᴘᴏɴᴅᴀɴᴛ ᴀ̀ ᴜɴᴇ ᴠɪᴅᴇ́ᴏ)",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    },
+    {
+      "name": "video",
+      "aliases": [
+        "illusions_youtube",
+        "ytvideo",
+        "ytv",
+        "ytmp4",
+        "ytvid",
+        "illusion_youtube",
+        "dlyoutube"
+      ],
+      "sourceCategory": "social_media_download",
+      "file": "commands/social_media_download/video.js",
+      "description": "『 𝐃𝐈𝐏𝐏𝐄𝐑 』➪ ᴀsᴘɪʀᴇ ᴇᴛ ᴛᴇʟᴇᴄʜᴀʀɢᴇ ʟᴀ ᴠɪᴅᴇᴏ ᴅᴇᴘᴜɪs ʏᴏᴜᴛᴜʙᴇ",
+      "usage": "${config.prefix || ",
+      "groupOnly": false,
+      "adminOnly": false,
+      "ownerOnly": false,
+      "botAdminNeeded": false
+    }
+  ]
+}
