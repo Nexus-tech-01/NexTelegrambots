@@ -192,10 +192,16 @@ async function metaPage(req,res,url){
     );
   }
 
-  const [statusResponse,metricsResponse,pagesResponse]=await Promise.all([
+  const [
+    statusResponse,
+    metricsResponse,
+    pagesResponse,
+    readinessResponse
+  ]=await Promise.all([
     nexMetaStatus(),
     nexMetaAction('metrics'),
-    nexMetaAction('list_connected_pages')
+    nexMetaAction('list_connected_pages'),
+    nexMetaAction('deployment_readiness')
   ]);
 
   const html=renderMetaPage({
@@ -203,7 +209,8 @@ async function metaPage(req,res,url){
     metrics:metricsResponse?.result||{},
     pages:Array.isArray(pagesResponse?.result)
       ? pagesResponse.result
-      : []
+      : [],
+    readiness:readinessResponse?.result||{}
   });
 
   res.statusCode=200;
