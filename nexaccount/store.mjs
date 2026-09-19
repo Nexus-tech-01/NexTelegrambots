@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { MongoClient } from 'mongodb';
+import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { cfg, sessionKey } from './config.mjs';
 
 let clientPromise;
@@ -42,15 +43,29 @@ export const maskPhone=phone=>{
   return s.slice(0,3)+'••••'+s.slice(-3);
 };
 
+function countryFromPhone(phone){
+  try{return parsePhoneNumberFromString(String(phone||''))?.country||''}catch{return ''}
+}
+function uiLanguage(code){
+  const s=String(code||'').toLowerCase();
+  return s.startsWith('en')?'en':'fr';
+}
+
 export async function saveAccount({me,session,phone}){
   const d=await db(),now=new Date();
   const telegramUserId=String(me.id);
+  const telegramLanguage=String(me.langCode||me.lang_code||'');
+  const countryIso=countryFromPhone(phone);
+  const preferredLanguage=uiLanguage(telegramLanguage);
   const doc={
     telegramUserId,
     username:me.username||'',
     firstName:me.firstName||'',
     lastName:me.lastName||'',
     premium:me.premium===true,
+    telegramLanguage,
+    preferredLanguage,
+    countryIso,
     phoneMasked:maskPhone(phone),
     sessionEncrypted:encryptSession(session),
     enabled:true,
@@ -66,12 +81,13 @@ export async function saveAccount({me,session,phone}){
     {telegramUserId},
     {$setOnInsert:{
       telegramUserId,
+      language:preferredLanguage,
       style:cfg.defaultStyle,
       prefix:'.',
       autoReact:{enabled:cfg.autoReact,mode:'smart',targets:[]},
       autoJoin:{enabled:cfg.autoJoin,targets:[]},
-      welcome:{enabled:true,text:'Bienvenue {name} dans {group}.'},
-      goodbye:{enabled:false,text:'Au revoir {name}.'},
+      welcome:{enabled:true,text:preferredLanguage==='fr'?'Bienvenue {name} dans {group}.':'Welcome {name} to {group}.'},
+      goodbye:{enabled:false,text:preferredLanguage==='fr'?'Au revoir {name}.':'Goodbye {name}.'},
       antilink:{enabled:false,allowAdmins:true,allowlist:[]},
       createdAt:now
     },$set:{updatedAt:now}},
@@ -95,7 +111,7 @@ export async function accountWithSession(telegramUserId){
 export async function settingsFor(telegramUserId){
   const d=await db();
   return d.collection('nexaccount_settings').findOne({telegramUserId:String(telegramUserId)})||{
-    telegramUserId:String(telegramUserId),style:cfg.defaultStyle,prefix:'.',
+    telegramUserId:String(telegramUserId),language:'fr',style:cfg.defaultStyle,prefix:'.',
     autoReact:{enabled:cfg.autoReact,mode:'smart',targets:[]},
     autoJoin:{enabled:cfg.autoJoin,targets:[]},
     welcome:{enabled:true,text:'Bienvenue {name} dans {group}.'},
@@ -106,9 +122,11 @@ export async function settingsFor(telegramUserId){
 
 export async function patchSettings(telegramUserId,patch){
   const d=await db(),now=new Date();
+  const safe={...patch};
+  if(safe.language!==undefined)safe.language=String(safe.language).toLowerCase().startsWith('en')?'en':'fr';
   await d.collection('nexaccount_settings').updateOne(
     {telegramUserId:String(telegramUserId)},
-    {$set:{...patch,updatedAt:now},$setOnInsert:{telegramUserId:String(telegramUserId),createdAt:now}},
+    {$set:{...safe,updatedAt:now},$setOnInsert:{telegramUserId:String(telegramUserId),createdAt:now}},
     {upsert:true}
   );
   return settingsFor(telegramUserId);
