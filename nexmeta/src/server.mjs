@@ -20,6 +20,11 @@ import {
 } from './store.mjs';
 import { routeInbound } from './router.mjs';
 import { sendText, senderAction } from './meta-client.mjs';
+import {
+  CONTROL_CAPABILITIES,
+  controlAuditMetadata,
+  executeControlAction
+} from './control-actions.mjs';
 
 assertRuntimeConfig();
 
@@ -117,7 +122,6 @@ async function metaWebhookPost(req, res) {
     return writeJson(res, 200, { ok: true, duplicate: true });
   }
 
-  // Meta expects a prompt acknowledgement; processing continues after the response.
   writeJson(res, 200, { ok: true });
 
   try {
@@ -130,6 +134,17 @@ async function metaWebhookPost(req, res) {
   }
 }
 
+function publicActionError(error) {
+  return {
+    error: error?.message === 'unsupported_action'
+      ? 'unsupported_action'
+      : 'action_failed',
+    message: String(error?.message || 'Action failed').slice(0, 500),
+    metaCode: error?.metaCode ?? null,
+    metaSubcode: error?.metaSubcode ?? null
+  };
+}
+
 async function control(req, res, url) {
   if (!authorizeControl(req.headers.authorization, config.controlKey)) {
     return writeJson(res, 401, { error: 'unauthorized' });
@@ -140,15 +155,15 @@ async function control(req, res, url) {
     return writeJson(res, 200, {
       ok: true,
       service: 'nexmeta',
-      version: '0.1.0',
+      version: '0.2.0-dev',
       metaConfigured: metaConfigured(),
-      capabilities: ['status', 'send_text', 'sender_action'],
+      capabilities: CONTROL_CAPABILITIES,
       secretExposure: false
     });
   }
 
   if (req.method === 'POST' && url.pathname === '/internal/v1/actions') {
-    const raw = await readRaw(req, 256 * 1024);
+    const raw = await readRaw(req, 512 * 1024);
     let body;
 
     try {
@@ -157,26 +172,33 @@ async function control(req, res, url) {
       return writeJson(res, 400, { error: 'invalid_json' });
     }
 
-    const action = String(body.action || '');
-    let result;
+    const action = String(body?.action || 'unknown');
 
-    if (action === 'send_text') {
-      result = await sendText(String(body.psid || ''), String(body.text || ''));
-    } else if (action === 'sender_action') {
-      result = await senderAction(
-        String(body.psid || ''),
-        String(body.senderAction || '')
-      );
-    } else {
-      return writeJson(res, 400, { error: 'unsupported_action' });
+    try {
+      const result = await executeControlAction(body);
+      await audit(`nexmeta.${action}`, 'nexcontrol', {
+        ...controlAuditMetadata(body),
+        ok: true
+      });
+      return writeJson(res, 200, { ok: true, result });
+    } catch (error) {
+      await audit(`nexmeta.${action}`, 'nexcontrol', {
+        ...controlAuditMetadata(body),
+        ok: false,
+        error: String(error?.message || 'error').slice(0, 500),
+        metaCode: error?.metaCode ?? null
+      }).catch(() => {});
+
+      const status = Number(error?.status);
+      const httpStatus =
+        status >= 400 && status <= 599
+          ? status
+          : error?.message === 'unsupported_action'
+            ? 400
+            : 502;
+
+      return writeJson(res, httpStatus, publicActionError(error));
     }
-
-    await audit(`nexmeta.${action}`, 'nexcontrol', {
-      psid: body.psid ? String(body.psid) : null,
-      textLength: typeof body.text === 'string' ? body.text.length : undefined
-    });
-
-    return writeJson(res, 200, { ok: true, result });
   }
 
   return writeJson(res, 404, { error: 'not_found' });
@@ -191,7 +213,7 @@ const server = http.createServer(async (req, res) => {
       return writeJson(res, 200, {
         ok: true,
         service: 'nexmeta',
-        version: '0.1.0',
+        version: '0.2.0-dev',
         metaConfigured: metaConfigured()
       });
     }
