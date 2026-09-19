@@ -103,18 +103,34 @@ await requireFile(
   'Telegram orchestrator'
 );
 
-await requireFile(
-  path.join(root, 'nexmeta/src/server.mjs'),
-  'NexMeta server'
-);
+let nexmetaAvailable = true;
+let nexmetaUnavailableReason = null;
 
-await requireFile(
-  path.join(
-    root,
-    'nexmeta/node_modules/mongodb/package.json'
-  ),
-  'NexMeta dependencies; run pterodactyl/start.sh'
-);
+for (const [file, label] of [
+  [
+    path.join(root, 'nexmeta/src/server.mjs'),
+    'NexMeta server'
+  ],
+  [
+    path.join(
+      root,
+      'nexmeta/node_modules/mongodb/package.json'
+    ),
+    'NexMeta MongoDB dependency'
+  ]
+]) {
+  try {
+    await access(file);
+  } catch {
+    nexmetaAvailable = false;
+    nexmetaUnavailableReason = `${label} missing: ${file}`;
+    console.error(
+      '[Pterodactyl] NexMeta disabled for this boot:',
+      nexmetaUnavailableReason
+    );
+    break;
+  }
+}
 
 const adapterDirectory = path.resolve(
   process.env.NEXUS_ADAPTER_DIR ||
@@ -367,10 +383,11 @@ function startChildren() {
     }
   });
 
-  spawnManaged({
-    label: 'nexmeta',
-    script: metaScript,
-    env: {
+  if (nexmetaAvailable) {
+    spawnManaged({
+      label: 'nexmeta',
+      script: metaScript,
+      env: {
       PORT: String(metaPort),
       NEXUS_ROOT: root,
       NEXMETA_PUBLIC_BASE_URL:
@@ -386,10 +403,11 @@ function startChildren() {
         ),
       NEXUS_COMMAND_GATEWAY_URL:
         `http://127.0.0.1:${publicPort}/internal/nexus/events`,
-      NEXUS_COMMAND_GATEWAY_KEY:
-        bridgeKey
-    }
-  });
+        NEXUS_COMMAND_GATEWAY_KEY:
+          bridgeKey
+      }
+    });
+  }
 }
 
 function proxyRequest(
@@ -616,6 +634,8 @@ const server = http.createServer(
               Boolean(
                 configuredBridgeKey
               ),
+            nexmetaAvailable,
+            nexmetaUnavailableReason,
             children: {
               telegram:
                 safeChildStatus(
@@ -654,7 +674,11 @@ const server = http.createServer(
 
         const ok =
           telegram.ok &&
-          nexmeta.ok;
+          (
+            nexmetaAvailable
+              ? nexmeta.ok
+              : false
+          );
 
         res.statusCode =
           ok ? 200 : 503;
@@ -677,12 +701,40 @@ const server = http.createServer(
               publicBaseUrl ||
               null,
             telegram,
+            nexmetaAvailable,
+            nexmetaUnavailableReason,
             nexmeta,
             adapters:
               adapterState.status
           })
         );
 
+        return;
+      }
+
+      if (
+        (
+          route === 'meta-health' ||
+          route === 'nexmeta'
+        ) &&
+        !nexmetaAvailable
+      ) {
+        res.statusCode = 503;
+        res.setHeader(
+          'content-type',
+          'application/json; charset=utf-8'
+        );
+        res.setHeader(
+          'cache-control',
+          'no-store'
+        );
+        res.end(
+          JSON.stringify({
+            error: 'nexmeta_unavailable',
+            reason:
+              nexmetaUnavailableReason
+          })
+        );
         return;
       }
 
