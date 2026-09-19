@@ -60,3 +60,6 @@ jobs:
           node --check ../nexus-bridge/adapter-loader.mjs
           node --check ../nexus-bridge/gateway-wrapper.mjs
           node --check ../nexus-bridge/discover-bot-cores.mjs
+          node --check ../nexus-bridge/media-registry.mjs
+          node --check ../nexus-bridge/nexdownloader-direct-core.mjs
+          node --check ../nexus-bridge/adapters/nexdownloader.mjs
