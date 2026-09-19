@@ -50,6 +50,11 @@ export function classifyNexusRoute(event) {
       preferredService: 'nexstick'
     },
     {
+      pattern: /^\/?(?:whisper|chuchoter|secret)\b/i,
+      intent: 'whisper',
+      preferredService: 'nexwhisper'
+    },
+    {
       pattern: /^\/?(?:group|groupe|moderation|admin)\b/i,
       intent: 'group',
       preferredService: 'nexgroup'
@@ -343,6 +348,7 @@ export async function routeNexusEvent(event, context = {}) {
         { title: 'Download', payload: '/download' },
         { title: 'Games', payload: '/game' },
         { title: 'Stickers', payload: '/sticker' },
+        { title: 'Whisper', payload: '/whisper' },
         { title: 'Nexus AI', payload: '/ai' }
       ]
     };
