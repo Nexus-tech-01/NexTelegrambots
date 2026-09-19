@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import vm from 'node:vm';
 import { createRequire } from 'node:module';
 
 const root=path.resolve(process.argv[2]||'_dipper');
@@ -38,7 +39,7 @@ function extractLiteralObject(source,marker){
 let oldImages={};
 const literal=extractLiteralObject(menuSource,'const STYLE_IMAGE_URLS =');
 if(literal){
-  try{oldImages=(await import('node:vm')).default.runInNewContext('('+literal+')',{}, {timeout:1000})||{}}catch{}
+  try{oldImages=vm.runInNewContext('('+literal+')',{}, {timeout:1000})||{}}catch{}
 }
 
 const themes={};
