@@ -61,11 +61,15 @@ function pageCards(pages = []) {
 export function renderMetaPage({
   status = {},
   metrics = {},
-  pages = []
+  pages = [],
+  readiness = {}
 } = {}) {
   const runtime = status.runtime || {};
   const pageState = status.pages || {};
   const active = pageState.activePage;
+  const readinessChecks = Array.isArray(readiness.checks)
+    ? readiness.checks
+    : [];
 
   return `<!doctype html>
 <html lang="fr">
@@ -137,6 +141,23 @@ ${css}
         <div style="display:grid;gap:12px">
           <button class="action ${runtime.inboundEnabled ? 'primary' : ''}" id="toggleInbound">Inbound ${yesNo(runtime.inboundEnabled)}</button>
           <button class="action ${runtime.outboundEnabled ? 'primary' : ''}" id="toggleOutbound">Outbound ${yesNo(runtime.outboundEnabled)}</button>
+        </div>
+      </article>
+
+      <article class="panel meta-span-12">
+        <div class="eyebrow">Deployment readiness</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 22px">
+          <span class="pill ${readiness.adapterReady ? 'ok' : 'bad'}">Adapter ${readiness.adapterReady ? 'READY' : 'NOT READY'}</span>
+          <span class="pill ${readiness.bridgeReady ? 'ok' : 'bad'}">Nexus Bridge ${readiness.bridgeReady ? 'READY' : 'NOT READY'}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px">
+          ${readinessChecks.map(item => `
+            <div style="border-top:1px solid var(--line);padding:12px 2px">
+              <span class="pill ${item.ok ? 'ok' : 'bad'}">${item.ok ? 'OK' : 'MISSING'}</span>
+              <div style="font-weight:650;margin-top:9px">${X(item.name)}</div>
+              <div class="muted" style="font-size:12px;margin-top:4px">${X(item.detail)}</div>
+            </div>
+          `).join('')}
         </div>
       </article>
 
