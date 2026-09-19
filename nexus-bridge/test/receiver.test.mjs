@@ -124,3 +124,64 @@ test('handles signed system probes without service adapters', async () => {
   assert.equal(result.handledBy, 'nexus-bridge');
   assert.equal(result.reply, null);
 });
+
+
+test('system probe separates loaded from production-ready services', async () => {
+  const envelope = {
+    version: 2,
+    source: {
+      platform: 'facebook',
+      surface: 'system',
+      pageId: null
+    },
+    user: {
+      externalId: null,
+      nexusUserId: null
+    },
+    routing: {
+      intent: 'probe',
+      preferredService: 'bridge'
+    },
+    event: {
+      type: 'system_probe',
+      id: null,
+      timestamp: Date.now(),
+      text: ''
+    }
+  };
+
+  const result = await dispatchNexusEnvelope(
+    envelope,
+    {
+      services: {
+        nexdownloader: async () => null,
+        nexgame: async () => null
+      },
+      serviceStatus: [
+        {
+          service: 'nexdownloader',
+          loaded: true,
+          manifest: {
+            productionReady: false
+          }
+        },
+        {
+          service: 'nexgame',
+          loaded: true,
+          manifest: {
+            productionReady: true
+          }
+        }
+      ]
+    }
+  );
+
+  assert.deepEqual(
+    result.services.available,
+    ['nexdownloader', 'nexgame']
+  );
+  assert.deepEqual(
+    result.services.ready,
+    ['nexgame']
+  );
+});
