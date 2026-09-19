@@ -42,7 +42,8 @@ test('normalizes a Messenger text message into Nexus envelope v2', () => {
         pageId: 'page-1'
       },
       user: {
-        externalId: 'user-1'
+        externalId: 'user-1',
+        nexusUserId: null
       },
       routing: {
         intent: 'conversation',
