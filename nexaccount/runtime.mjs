@@ -2,10 +2,13 @@ import crypto from 'node:crypto';
 import { TelegramClient, Api } from 'teleproto';
 import { StringSession } from 'teleproto/sessions/index.js';
 import { NewMessage } from 'teleproto/events/index.js';
-import { cfg } from './config.mjs';
+import { cfg, isOwnerId } from './config.mjs';
 import { commandMap } from './commands.mjs';
 import { accountWithSession, listAccounts, patchSettings, settingsFor } from './store.mjs';
 import { listStyles } from './styles.mjs';
+import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
+import { recordEvent } from './analytics.mjs';
+import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
 
 const commands=commandMap();
 const runtimes=new Map();
@@ -14,10 +17,8 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function randomLong(){
   return BigInt.asIntN(64,BigInt('0x'+crypto.randomBytes(8).toString('hex')));
 }
-
-function textOf(message){
-  return String(message?.message||message?.text||'').trim();
-}
+function textOf(message){return String(message?.message||message?.text||'').trim()}
+function utf16len(s){return Buffer.from(String(s),'utf16le').length/2}
 
 function parseCommand(text,prefix='.'){
   const t=String(text||'').trim();
@@ -37,23 +38,62 @@ async function sendText(client,peer,text){
   return client.sendMessage(peer,{message:String(text)});
 }
 
+function ownerFormattingEntities(text){
+  const out=[new Api.MessageEntityBlockquote({offset:0,length:utf16len(text),collapsed:true})];
+  const re=/\/[a-z][a-z0-9_]*/gi;
+  for(const m of String(text).matchAll(re)){
+    out.push(new Api.MessageEntityBotCommand({
+      offset:utf16len(text.slice(0,m.index)),
+      length:utf16len(m[0])
+    }));
+  }
+  return out;
+}
+
+async function sendOwnerText(client,peer,text){
+  try{return await client.sendMessage(peer,{message:String(text),formattingEntities:ownerFormattingEntities(String(text))})}
+  catch{return sendText(client,peer,text)}
+}
+
+function creatorFormattingEntities(model){
+  return model.entities.map(e=>{
+    if(e.type==='expandable_blockquote'){
+      return new Api.MessageEntityBlockquote({offset:e.offset,length:e.length,collapsed:true});
+    }
+    if(e.type==='text_link'){
+      return new Api.MessageEntityTextUrl({offset:e.offset,length:e.length,url:e.url});
+    }
+    return null;
+  }).filter(Boolean);
+}
+
+async function sendCreator(runtime,peer){
+  const {client,account}=runtime;
+  const settings=await settingsFor(account.telegramUserId);
+  const model=creatorCaptionModel(settings.language||'fr');
+  try{
+    return await client.sendFile(peer,{
+      file:creatorImagePath(),
+      caption:model.text,
+      formattingEntities:creatorFormattingEntities(model)
+    });
+  }catch(e){
+    console.error('[NexAccount creator]',String(e.message||e));
+    return client.sendMessage(peer,{message:model.text,formattingEntities:creatorFormattingEntities(model)}).catch(()=>sendText(client,peer,model.text));
+  }
+}
+
 async function sendInline(client,peer,query){
   if(!cfg.botUsername)throw new Error('NEXAI_BOT_USERNAME/NEXAI_BOT_TOKEN non configuré');
   const inputPeer=await client.getInputEntity(peer);
   const bot=await client.getInputEntity('@'+cfg.botUsername);
   const results=await client.invoke(new Api.messages.GetInlineBotResults({
-    bot,
-    peer:inputPeer,
-    query:String(query||'menu'),
-    offset:''
+    bot,peer:inputPeer,query:String(query||'menu'),offset:''
   }));
   const result=results.results?.[0];
   if(!result)throw new Error('NexAI Inline Mode ne renvoie aucun résultat');
   return client.invoke(new Api.messages.SendInlineBotResult({
-    peer:inputPeer,
-    randomId:randomLong(),
-    queryId:results.queryId,
-    id:result.id
+    peer:inputPeer,randomId:randomLong(),queryId:results.queryId,id:result.id
   }));
 }
 
@@ -82,27 +122,21 @@ async function proxyCommand(client,peer,cmd,args){
     const msgs=await client.getMessages(botEntity,{limit:5});
     const response=msgs.find(m=>!m.out&&Number(m.id)>Number(sent.id));
     if(!response)continue;
-    if(response.media){
-      await client.forwardMessages(peer,{messages:[response.id],fromPeer:botEntity});
-    }else if(response.message){
-      await client.sendMessage(peer,{message:response.message});
-    }
+    if(response.media)await client.forwardMessages(peer,{messages:[response.id],fromPeer:botEntity});
+    else if(response.message)await client.sendMessage(peer,{message:response.message});
     return true;
   }
   throw new Error('Le bot source n’a pas répondu à temps');
 }
 
 async function premiumDenied(client,peer,name){
-  await sendText(client,peer,'Cette commande ('+name+') est disponible uniquement pour les utilisateurs Telegram Premium.');
+  await sendText(client,peer,'Cette commande ('+name+') est disponible uniquement pour les utilisateurs Premium.');
 }
 
 async function handleStyle(runtime,peer,args,inlineName=''){
   const {account,client}=runtime;
   let n=Number(args?.[0]||inlineName.replace(/^style/i,''));
-  if(!n){
-    await sendInline(client,peer,'styles');
-    return;
-  }
+  if(!n){await sendInline(client,peer,'styles');return}
   const styles=await listStyles();
   if(!styles.some(s=>s.id===n)||n===0){
     await sendText(client,peer,'Style invalide. Utilise .style pour afficher les styles disponibles.');
@@ -111,6 +145,23 @@ async function handleStyle(runtime,peer,args,inlineName=''){
   await patchSettings(account.telegramUserId,{style:n});
   const s=styles.find(x=>x.id===n);
   await sendText(client,peer,'Style changé : '+s.name+' ('+n+').');
+}
+
+async function handleOwner(runtime,peer,name,args){
+  const {client,account}=runtime;
+  const settings=await settingsFor(account.telegramUserId);
+  const lang=String(settings.language||'fr').toLowerCase().startsWith('en')?'en':'fr';
+  let text='';
+  if(name==='owner'||name==='users')text=await ownerPanelText(lang);
+  else if(name==='botstats')text=await botStatsText(lang);
+  else if(name==='activity')text=await activityText(lang);
+  else if(name==='growth')text=await growthText(lang);
+  else if(name==='commandstats')text=await commandStatsText(lang);
+  else if(name==='countries')text=await countriesText(lang);
+  else if(name==='languages')text=await languagesText(lang);
+  else if(name==='user')text=await userText(args[0]||'',lang);
+  if(text)await sendOwnerText(client,peer,text);
+  return true;
 }
 
 async function handleCommand(runtime,event,parsed){
@@ -122,16 +173,25 @@ async function handleCommand(runtime,event,parsed){
 
   const cmd=commands.get(parsed.name);
   if(!cmd)return false;
+  if(cmd.ownerOnly&&!isOwnerId(account.telegramUserId))return true;
+
+  const name=cmd.aliasFor||cmd.name;
+  await recordEvent(account,'command',{source:'nexaccount',command:name,chatType:'account'}).catch(()=>{});
+
+  if(name==='creator')return sendCreator(runtime,peer);
+  if(cmd.ownerOnly)return handleOwner(runtime,peer,name,parsed.args);
+
   if(cmd.premium&&!account.premium){
-    await premiumDenied(client,peer,cmd.name);
+    await premiumDenied(client,peer,name);
     return true;
   }
   if(cmd.proxy){
-    try{await proxyCommand(client,peer,cmd,parsed.args)}catch(e){await sendText(client,peer,'Erreur '+cmd.name+' : '+String(e.message||e))}
+    try{await proxyCommand(client,peer,{...cmd,name},parsed.args)}
+    catch(e){await sendText(client,peer,'Erreur '+name+' : '+String(e.message||e))}
     return true;
   }
 
-  switch(cmd.name){
+  switch(name){
     case 'ping':{
       const t=Date.now();
       await sendText(client,peer,'Pong · '+Math.max(1,Date.now()-t)+' ms');
@@ -147,7 +207,8 @@ async function handleCommand(runtime,event,parsed){
       await sendText(client,peer,'Utilise .menu pour afficher le menu interactif.');
       return true;
     case 'join':
-      try{await joinTarget(client,parsed.args[0]);await sendText(client,peer,'Cible rejointe.')}catch(e){await sendText(client,peer,'Impossible de rejoindre : '+String(e.errorMessage||e.message||e))}
+      try{await joinTarget(client,parsed.args[0]);await sendText(client,peer,'Cible rejointe.')}
+      catch(e){await sendText(client,peer,'Impossible de rejoindre : '+String(e.errorMessage||e.message||e))}
       return true;
     case 'leave':
       try{
@@ -156,7 +217,7 @@ async function handleCommand(runtime,event,parsed){
       }catch(e){await sendText(client,peer,'Impossible de quitter ce chat : '+String(e.errorMessage||e.message||e))}
       return true;
     default:
-      await sendText(client,peer,'La commande '+cmd.name+' est enregistrée dans NexAI mais son adaptateur Telegram n’est pas encore chargé.');
+      await sendText(client,peer,'La commande '+name+' est enregistrée dans NexAI mais son adaptateur Telegram n’est pas encore chargé.');
       return true;
   }
 }
@@ -178,11 +239,7 @@ async function maybeAutoReact(runtime,event){
   const reactions=Array.isArray(cfgReact.reactions)&&cfgReact.reactions.length?cfgReact.reactions:['🔥','❤️','👍'];
   const emoticon=reactions[Math.floor(Math.random()*reactions.length)];
   const peer=await client.getInputEntity(event.message.peerId);
-  await client.invoke(new Api.messages.SendReaction({
-    peer,
-    msgId:event.message.id,
-    reaction:[new Api.ReactionEmoji({emoticon})]
-  })).catch(()=>{});
+  await client.invoke(new Api.messages.SendReaction({peer,msgId:event.message.id,reaction:[new Api.ReactionEmoji({emoticon})]})).catch(()=>{});
 }
 
 async function maybeAntiLink(runtime,event){
@@ -206,9 +263,7 @@ async function runAutoJoin(runtime){
 
 export async function attachConnectedClient(client,account){
   const id=String(account.telegramUserId);
-  if(runtimes.has(id)){
-    try{await runtimes.get(id).client.disconnect()}catch{}
-  }
+  if(runtimes.has(id)){try{await runtimes.get(id).client.disconnect()}catch{}}
   const runtime={client,account,startedAt:new Date()};
   runtimes.set(id,runtime);
 
@@ -263,8 +318,6 @@ export function runtimeStatus(){
 }
 
 export async function stopRuntimes(){
-  for(const r of runtimes.values()){
-    try{await r.client.disconnect()}catch{}
-  }
+  for(const r of runtimes.values()){try{await r.client.disconnect()}catch{}}
   runtimes.clear();
 }
