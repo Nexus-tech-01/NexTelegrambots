@@ -77,6 +77,7 @@ async function safe(root,rel='.',allowMissingLeaf=false){
     try{const st=await fs.lstat(cur);if(st.isSymbolicLink())throw new Error('Symlink paths are not allowed')}
     catch(e){if(e?.code==='ENOENT'&&allowMissingLeaf)continue;throw e}
   }
+  if(path.resolve(out)===path.resolve(base))return{base,out};
   const parent=await fs.realpath(path.dirname(out)).catch(()=>baseReal),r=path.relative(baseReal,parent);
   if(r.startsWith('..')||path.isAbsolute(r))throw new Error('Real path escapes root');
   return{base,out};
