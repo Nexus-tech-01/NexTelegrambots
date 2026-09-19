@@ -22,7 +22,7 @@ const BOT_NAMES = [
 const interestingName =
   /(core|service|handler|router|command|controller|manager|engine|index|main|app|server)/i;
 
-const sourceExtension = /.(?:mjs|cjs|js|ts)$/i;
+const sourceExtension = /\.(?:mjs|cjs|js|ts)$/i;
 
 async function exists(file) {
   try {
@@ -207,15 +207,76 @@ async function inspectBot(name) {
   };
 }
 
+async function inspectOrchestrator() {
+  const file = '/app/scripts/orchestrator.mjs';
+
+  try {
+    const source = await readFile(file, 'utf8');
+    const lines = source.split(/\r?\n/);
+
+    const routeLike = [];
+    const listenLike = [];
+    const processLike = [];
+
+    lines.forEach((line, index) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+
+      const entry = {
+        line: index + 1,
+        text: trimmed.slice(0, 220)
+      };
+
+      if (
+        /\/health|webhook|pathname|req\.url|route|createServer/i.test(trimmed)
+      ) {
+        if (routeLike.length < 40) routeLike.push(entry);
+      }
+
+      if (
+        /\.listen\s*\(|server\.listen|process\.env\.PORT|\bPORT\b|10000/.test(trimmed)
+      ) {
+        if (listenLike.length < 40) listenLike.push(entry);
+      }
+
+      if (
+        /spawn\s*\(|fork\s*\(|child_process|bots\//i.test(trimmed)
+      ) {
+        if (processLike.length < 40) processLike.push(entry);
+      }
+    });
+
+    return {
+      present: true,
+      bytes: Buffer.byteLength(source),
+      usesProcessEnvPort: /process\.env\.PORT/.test(source),
+      mentionsHardcoded10000: /(?:^|[^0-9])10000(?:[^0-9]|$)/.test(source),
+      usesHttpCreateServer: /createServer\s*\(/.test(source),
+      usesListen: /\.listen\s*\(/.test(source),
+      routeLike,
+      listenLike,
+      processLike
+    };
+  } catch (error) {
+    return {
+      present: false,
+      error: String(error?.message || error).slice(0, 300)
+    };
+  }
+}
+
 const bots = [];
 
 for (const name of BOT_NAMES) {
   bots.push(await inspectBot(name));
 }
 
+const orchestrator = await inspectOrchestrator();
+
 const report = {
   generatedAt: new Date().toISOString(),
   root: ROOT,
+  orchestrator,
   bots
 };
 
@@ -239,5 +300,15 @@ const summary = bots.map(bot => ({
 
 console.log(
   '[nexus-bridge] bot-core discovery',
-  JSON.stringify(summary)
+  JSON.stringify({
+    orchestrator: {
+      present: orchestrator.present,
+      usesProcessEnvPort: orchestrator.usesProcessEnvPort || false,
+      mentionsHardcoded10000:
+        orchestrator.mentionsHardcoded10000 || false,
+      usesListen: orchestrator.usesListen || false,
+      listenLike: (orchestrator.listenLike || []).slice(0, 10)
+    },
+    bots: summary
+  })
 );
