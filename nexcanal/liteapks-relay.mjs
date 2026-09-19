@@ -11,6 +11,7 @@ const apiHash=(process.env.NEXCANAL__WATCHER_API_HASH||process.env.NEXGROUP__TEL
 const sessionFile=process.env.NEXCANAL__WATCHER_SESSION_FILE||'/home/container/.nexcontrol/nexcanal-reader-session.txt';
 const stateFile=process.env.NEXCANAL__WATCHER_STATE_FILE||'/home/container/.nexcontrol/nexcanal-watch-state-v2.json';
 const mediaTmpDir=process.env.NEXCANAL__WATCHER_MEDIA_TMP||'/home/container/.nexcontrol/nexcanal-media';
+const watcherIdentityFile=process.env.NEXCANAL__WATCHER_ID_FILE||'/home/container/.nexcontrol/nexcanal-watcher-id.txt';
 const poll=Math.max(1500,Number(process.env.NEXCANAL__WATCHER_POLL_MS||2500));
 const botLimit=49*1024*1024;
 const maxFetch=500;
@@ -42,15 +43,6 @@ async function sessionSecret(){
   try{return (await fs.readFile(sessionFile,'utf8')).trim();}catch{return '';}
 }
 
-async function nexAccountOwnsEngagement(telegramUserId){
-  if(!telegramUserId)return false;
-  try{
-    const r=await fetch('http://127.0.0.1:3491/accounts',{signal:AbortSignal.timeout(1800)});
-    if(!r.ok)return false;
-    const data=await r.json();
-    return Array.isArray(data?.runtimes)&&data.runtimes.some(x=>String(x?.telegramUserId||'')===String(telegramUserId));
-  }catch{return false;}
-}
 function engagementState(st){
   st.engagement=st.engagement||{};
   st.engagement.reactionCursors=st.engagement.reactionCursors||{};
@@ -439,23 +431,20 @@ async function run(session){
   await c.connect();
   if(!(await c.isUserAuthorized()))throw new Error('watcher session is not authorized');
   const me=await c.getMe();
-  const selfTelegramId=String(me?.id||'');
+  await fs.mkdir(path.dirname(watcherIdentityFile),{recursive:true}).catch(()=>{});
+  await fs.writeFile(watcherIdentityFile,String(me?.id||''),{mode:0o600}).catch(e=>warn('watcher identity file',e?.message||e));
   log('connected as',me?.username?'@'+me.username:String(me?.id||'unknown'));
   const sources=await resolveSources(c);
   for(const spec of sourceSpecs)if(!sources.has(spec.key))throw new Error('required source unavailable: '+spec.key);
   const destination=await c.getEntity(dst);
   const st=await load();
-  let engagementOwnedByNexAccount=await nexAccountOwnsEngagement(selfTelegramId);
-  let es=engagementState(st);
-  es.owner=engagementOwnedByNexAccount?'nexaccount':'watcher';
+  const es=engagementState(st);
+  es.owner='nexcanal-watcher';
   es.ownerCheckedAt=Date.now();
   await save(st);
-  if(!engagementOwnedByNexAccount){
-    await joinEngagementTargets(c,st,{force:true}).catch(e=>warn('engagement join bootstrap failed',e?.message||e));
-    await pollEngagementReactions(c,st).catch(e=>warn('engagement reaction bootstrap failed',e?.message||e));
-  }else log('engagement delegated to NexAccount for',selfTelegramId);
+  await joinEngagementTargets(c,st,{force:true}).catch(e=>warn('engagement join bootstrap failed',e?.message||e));
+  await pollEngagementReactions(c,st).catch(e=>warn('engagement reaction bootstrap failed',e?.message||e));
   let nextEngagementAt=Date.now()+engagementPollMs;
-  let nextOwnershipCheckAt=Date.now()+15000;
 
   // Migrate the old LiteAPK cursor if this is the first v2 run.
   try{
@@ -475,18 +464,9 @@ async function run(session){
     try{
       await discover(c,st,sources);
       kickWorkers(c,destination,st,sources);
-      if(Date.now()>=nextOwnershipCheckAt){
-        engagementOwnedByNexAccount=await nexAccountOwnsEngagement(selfTelegramId);
-        es=engagementState(st);
-        const owner=engagementOwnedByNexAccount?'nexaccount':'watcher';
-        if(es.owner!==owner){es.owner=owner;es.ownerCheckedAt=Date.now();await save(st);}
-        nextOwnershipCheckAt=Date.now()+15000;
-      }
       if(Date.now()>=nextEngagementAt){
-        if(!engagementOwnedByNexAccount){
-          await joinEngagementTargets(c,st).catch(e=>warn('engagement join cycle failed',e?.message||e));
-          await pollEngagementReactions(c,st).catch(e=>warn('engagement reaction cycle failed',e?.message||e));
-        }
+        await joinEngagementTargets(c,st).catch(e=>warn('engagement join cycle failed',e?.message||e));
+        await pollEngagementReactions(c,st).catch(e=>warn('engagement reaction cycle failed',e?.message||e));
         nextEngagementAt=Date.now()+engagementPollMs;
       }
     }catch(e){warn('cycle failed',e?.message||e);}
