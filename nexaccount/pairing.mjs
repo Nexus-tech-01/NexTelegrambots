@@ -1,26 +1,10 @@
 import crypto from 'node:crypto';
-import { TelegramClient } from 'teleproto';
+import { Api, TelegramClient } from 'teleproto';
 import { StringSession } from 'teleproto/sessions/index.js';
 import { cfg } from './config.mjs';
 import { saveAccount } from './store.mjs';
 
 const pending=new Map();
-const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-
-function deferred(){
-  let resolve,reject;
-  const promise=new Promise((a,b)=>{resolve=a;reject=b});
-  return {promise,resolve,reject};
-}
-
-async function waitStage(state,allowed,timeout=20000){
-  const end=Date.now()+timeout;
-  while(Date.now()<end){
-    if(allowed.includes(state.stage))return state.stage;
-    await sleep(100);
-  }
-  return state.stage;
-}
 
 function safeError(e){
   return String(e?.errorMessage||e?.message||e||'Unknown error').slice(0,1000);
@@ -30,41 +14,67 @@ function authErrorCode(e){
   return String(e?.errorMessage||e?.message||'').trim().toUpperCase().slice(0,160);
 }
 
-function retryableAuthError(code){
-  return [
-    'PHONE_CODE_INVALID',
-    'PHONE_CODE_EMPTY',
-    'PASSWORD_HASH_INVALID',
-    'PASSWORD_EMPTY'
-  ].some(x=>String(code||'').includes(x));
-}
-
-function recordAuthError(state,e){
-  const code=authErrorCode(e);
-  state.error=safeError(e);
-  state.errorCode=code||'AUTH_ERROR';
-  // teleproto uses a boolean return value from onError:
-  // false => ask the user again, true => abort this pairing.
-  if(retryableAuthError(code))return false;
-  state.stage='error';
-  return true;
-}
-
 function normalizePairingCode(value){
   const raw=String(value||'').normalize('NFKC').trim();
   if(!raw)throw new Error('Invalid Telegram code');
-  // Telegram login codes are normally numeric. Accept spaces/dashes introduced
-  // by copy/paste, while keeping leading zeroes intact.
   if(/^[0-9\s-]+$/.test(raw)){
     const digits=raw.replace(/[^0-9]/g,'');
     if(digits.length>=4&&digits.length<=8)return digits;
   }
-  // Keep compatibility with alternative alphanumeric login-code formats.
   if(/^[0-9A-Za-z\s-]+$/.test(raw)){
     const compact=raw.replace(/[\s-]+/g,'');
     if(compact.length>=3&&compact.length<=16)return compact;
   }
   throw new Error('Invalid Telegram code');
+}
+
+function isCodeRetryable(code){
+  return code.includes('PHONE_CODE_INVALID')||code.includes('PHONE_CODE_EMPTY');
+}
+
+function isPasswordRetryable(code){
+  return code.includes('PASSWORD_HASH_INVALID')||code.includes('PASSWORD_EMPTY');
+}
+
+async function failPairing(state,e,{disconnect=true}={}){
+  state.error=safeError(e);
+  state.errorCode=authErrorCode(e)||'AUTH_ERROR';
+  state.stage='error';
+  if(disconnect){
+    try{await state.client?.disconnect()}catch{}
+  }
+  return pairingStatus(state.id);
+}
+
+async function finishPairing(state,user){
+  const client=state.client;
+  const me=user||await client.getMe();
+  if(state.expectedTelegramUserId&&String(me.id)!==String(state.expectedTelegramUserId)){
+    return failPairing(state,new Error('CONNECTED_ACCOUNT_MISMATCH'));
+  }
+
+  const saved=await saveAccount({
+    me,
+    session:client.session.save(),
+    phone:state.phone
+  });
+
+  state.stage='connected';
+  state.error='';
+  state.errorCode='';
+  state.account=saved;
+
+  try{
+    const savedMessage=saved.preferredLanguage==='en'
+      ? 'NexAccount connected.\n\nYour personal engine is now active on this account.\nCommand: .menu'
+      : 'NexAccount connecté.\n\nLe moteur personnel est maintenant actif sur ce compte.\nCommande : .menu';
+    await client.sendMessage('me',{message:savedMessage});
+  }catch{}
+
+  await state.onConnected?.(client,saved);
+  state.handedOff=true;
+  console.log('[NexAccount pair]',state.id,'connected',String(saved.telegramUserId));
+  return pairingStatus(state.id);
 }
 
 export async function beginPairing(phone,onConnected,expectedTelegramUserId=''){
@@ -73,10 +83,20 @@ export async function beginPairing(phone,onConnected,expectedTelegramUserId=''){
 
   const id=crypto.randomUUID();
   const state={
-    id,phone:normalized,stage:'starting',error:'',errorCode:'',client:null,
-    codeWaiter:null,passwordWaiter:null,
-    codeAttempts:0,passwordAttempts:0,
-    createdAt:Date.now()
+    id,
+    phone:normalized,
+    stage:'starting',
+    error:'',
+    errorCode:'',
+    client:null,
+    phoneCodeHash:'',
+    codeViaApp:false,
+    codeAttempts:0,
+    passwordAttempts:0,
+    createdAt:Date.now(),
+    expectedTelegramUserId:String(expectedTelegramUserId||''),
+    onConnected,
+    handedOff:false
   };
   pending.set(id,state);
 
@@ -86,60 +106,30 @@ export async function beginPairing(phone,onConnected,expectedTelegramUserId=''){
   });
   state.client=client;
 
-  state.task=(async()=>{
-    try{
-      await client.start({
-        phoneNumber:async()=>normalized,
-        phoneCode:async()=>{
-          const next=deferred();
-          state.codeWaiter=next;
-          state.stage='code';
-          try{return await next.promise}finally{if(state.codeWaiter===next)state.codeWaiter=null}
-        },
-        password:async()=>{
-          const next=deferred();
-          state.passwordWaiter=next;
-          state.stage='password';
-          try{return await next.promise}finally{if(state.passwordWaiter===next)state.passwordWaiter=null}
-        },
-        onError:e=>recordAuthError(state,e)
-      });
+  try{
+    await client.connect();
+    const sent=await client.sendCode(
+      {apiId:cfg.apiId,apiHash:cfg.apiHash},
+      normalized,
+      false
+    );
 
-      const me=await client.getMe();
-      if(expectedTelegramUserId&&String(me.id)!==String(expectedTelegramUserId)){
-        throw new Error('Connected Telegram account does not match this NexAI DM');
-      }
-
-      const saved=await saveAccount({
-        me,
-        session:client.session.save(),
-        phone:normalized
-      });
-
-      state.stage='connected';
-      state.account=saved;
-
-      try{
-        const savedMessage=saved.preferredLanguage==='en'
-          ? 'NexAccount connected.\n\nYour personal engine is now active on this account.\nCommand: .menu'
-          : 'NexAccount connecté.\n\nLe moteur personnel est maintenant actif sur ce compte.\nCommande : .menu';
-        await client.sendMessage('me',{message:savedMessage});
-      }catch{}
-
-      await onConnected?.(client,saved);
-      return saved;
-    }catch(e){
-      if(!state.error)state.error=safeError(e);
-      if(!state.errorCode)state.errorCode=authErrorCode(e)||'AUTH_ERROR';
-      state.stage='error';
-      try{await client.disconnect()}catch{}
-      throw e;
+    if(sent?.emailRequired||sent?.emailCodeSent){
+      return failPairing(state,new Error('EMAIL_VERIFICATION_REQUIRED'));
     }
-  })();
-  state.task.catch(()=>{});
+    if(typeof sent?.phoneCodeHash!=='string'||!sent.phoneCodeHash){
+      return failPairing(state,new Error('PHONE_CODE_HASH_MISSING'));
+    }
 
-  await waitStage(state,['code','password','connected','error'],15000);
-  return pairingStatus(id);
+    state.phoneCodeHash=sent.phoneCodeHash;
+    state.codeViaApp=sent.isCodeViaApp===true;
+    state.stage='code';
+    console.log('[NexAccount pair]',id,'code_requested','viaApp='+state.codeViaApp);
+    return pairingStatus(id);
+  }catch(e){
+    console.error('[NexAccount pair start]',id,authErrorCode(e)||safeError(e));
+    return failPairing(state,e);
+  }
 }
 
 export async function submitPairingCode(id,value){
@@ -148,16 +138,47 @@ export async function submitPairingCode(id,value){
   if(state.stage!=='code')return pairingStatus(id);
 
   const code=normalizePairingCode(value);
-
-  const waiter=state.codeWaiter;
-  if(!waiter)throw new Error('Telegram code input is not ready');
   state.error='';
   state.errorCode='';
   state.codeAttempts=Number(state.codeAttempts||0)+1;
   state.stage='verifying_code';
-  waiter.resolve(code);
-  await waitStage(state,['code','password','connected','error'],20000);
-  return pairingStatus(id);
+
+  try{
+    const result=await state.client.invoke(new Api.auth.SignIn({
+      phoneNumber:state.phone,
+      phoneCodeHash:state.phoneCodeHash,
+      phoneCode:code
+    }));
+
+    if(result instanceof Api.auth.AuthorizationSignUpRequired){
+      return failPairing(state,new Error('SIGN_UP_REQUIRED'));
+    }
+
+    const user=result?.user||await state.client.getMe();
+    return finishPairing(state,user);
+  }catch(e){
+    const codeName=authErrorCode(e);
+    console.warn('[NexAccount pair code]',state.id,codeName||safeError(e));
+
+    if(codeName.includes('SESSION_PASSWORD_NEEDED')){
+      state.error='';
+      state.errorCode='';
+      state.stage='password';
+      return pairingStatus(id);
+    }
+
+    state.error=safeError(e);
+    state.errorCode=codeName||'AUTH_ERROR';
+
+    if(isCodeRetryable(codeName)){
+      state.stage='code';
+      return pairingStatus(id);
+    }
+
+    state.stage='error';
+    try{await state.client?.disconnect()}catch{}
+    return pairingStatus(id);
+  }
 }
 
 export async function submitPairingPassword(id,value){
@@ -165,15 +186,45 @@ export async function submitPairingPassword(id,value){
   if(!state)throw new Error('Pairing expired or not found');
   if(state.stage!=='password')return pairingStatus(id);
 
-  const waiter=state.passwordWaiter;
-  if(!waiter)throw new Error('Telegram 2FA input is not ready');
+  const password=String(value||'');
+  if(!password)throw new Error('Invalid Telegram 2FA password');
+
   state.error='';
   state.errorCode='';
   state.passwordAttempts=Number(state.passwordAttempts||0)+1;
   state.stage='verifying_password';
-  waiter.resolve(String(value||''));
-  await waitStage(state,['password','connected','error'],20000);
-  return pairingStatus(id);
+
+  let capturedError=null;
+  try{
+    const user=await state.client.signInWithPassword(
+      {apiId:cfg.apiId,apiHash:cfg.apiHash},
+      {
+        password:async()=>password,
+        onError:async e=>{
+          capturedError=e;
+          return true;
+        }
+      }
+    );
+    if(!user)return failPairing(state,new Error('PASSWORD_AUTH_FAILED'));
+    return finishPairing(state,user);
+  }catch(e){
+    const actual=capturedError||e;
+    const codeName=authErrorCode(actual);
+    console.warn('[NexAccount pair password]',state.id,codeName||safeError(actual));
+
+    state.error=safeError(actual);
+    state.errorCode=codeName||'AUTH_ERROR';
+
+    if(isPasswordRetryable(codeName)){
+      state.stage='password';
+      return pairingStatus(id);
+    }
+
+    state.stage='error';
+    try{await state.client?.disconnect()}catch{}
+    return pairingStatus(id);
+  }
 }
 
 export async function cancelPairing(id){
@@ -181,10 +232,9 @@ export async function cancelPairing(id){
   if(!state)return {id:String(id),stage:'missing'};
 
   state.stage='cancelled';
-  const err=new Error('Pairing cancelled');
-  try{state.codeWaiter?.reject?.(err)}catch{}
-  try{state.passwordWaiter?.reject?.(err)}catch{}
-  try{await state.client?.disconnect()}catch{}
+  if(!state.handedOff){
+    try{await state.client?.disconnect()}catch{}
+  }
   pending.delete(String(id));
   return {id:String(id),stage:'cancelled'};
 }
@@ -199,6 +249,7 @@ export function pairingStatus(id){
     errorCode:state.errorCode||undefined,
     codeAttempts:Number(state.codeAttempts||0),
     passwordAttempts:Number(state.passwordAttempts||0),
+    codeViaApp:state.stage==='code'?state.codeViaApp:undefined,
     account:state.account?{
       telegramUserId:state.account.telegramUserId,
       username:state.account.username,
@@ -213,7 +264,9 @@ export function cleanupPairings(){
   const now=Date.now();
   for(const [id,state] of pending){
     if(now-state.createdAt>10*60*1000&&state.stage!=='connected'){
-      try{state.client?.disconnect()}catch{}
+      if(!state.handedOff){
+        try{state.client?.disconnect()}catch{}
+      }
       pending.delete(id);
     }else if(now-state.createdAt>60*60*1000&&state.stage==='connected'){
       pending.delete(id);
