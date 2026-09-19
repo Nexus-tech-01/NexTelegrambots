@@ -1,5 +1,5 @@
 import { cfg, isOwnerId } from './config.mjs';
-import { CATEGORY_ICONS, CATEGORY_LABELS, CATEGORY_ORDER, commandsByCategory } from './commands.mjs';
+import { CATEGORY_ICONS, CATEGORY_LABELS, CATEGORY_ORDER, commandsByCategory, commandStats } from './commands.mjs';
 import { getStyle, listStyles, renderDipperHeader, resolveStyleImage, toSmallCaps } from './styles.mjs';
 
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
@@ -35,7 +35,7 @@ function localized(settings,fr,en){
   return String(settings?.language||'fr').toLowerCase().startsWith('en')?en:fr;
 }
 
-export async function menuModel({account,settings,commands,view='home',category=null}){
+export async function menuModel({account,settings,commands,view='home',category=null,page=0}){
   const groups=commandsByCategory(commands);
   const style=await getStyle(settings.style||1);
   const owner=isOwnerId(account.telegramUserId);
@@ -45,24 +45,28 @@ export async function menuModel({account,settings,commands,view='home',category=
     ownerName:account.username?'@'+account.username:(account.firstName||localized(settings,'Utilisateur','User')),
     rank:owner?'owner':account.premium?'premium':'free',
     prefix:settings.prefix||'.',
-    count:[...commands.values()].filter(c=>!c.hidden).length
+    count:commandStats(commands).tokens
   });
   let body=header,spans=[];
 
   if(view==='category'&&category){
     const list=(groups[category]||[]).filter(visible);
+    const perPage=16;
+    const pages=Math.max(1,Math.ceil(list.length/perPage));
+    page=Math.max(0,Math.min(pages-1,Number(page)||0));
+    const pageList=list.slice(page*perPage,(page+1)*perPage);
     const label=toSmallCaps(CATEGORY_LABELS[category]||category);
     if(style.id===1){
       body=[
         '╭╼━• '+(FALLBACK_EMOJI[category]||'🔮')+' '+label+' •━━━━',
         '┃ 🔮 '+localized(settings,'ᴀʀᴄᴀɴᴇ','ᴀʀᴄᴀɴᴇ')+' : '+label,
-        '┃ 📜 '+localized(settings,'ᴄᴏᴍᴍᴀɴᴅᴇѕ','ᴄᴏᴍᴍᴀɴᴅѕ')+' : '+list.length,
+        '┃ 📜 '+localized(settings,'ᴄᴏᴍᴍᴀɴᴅᴇѕ','ᴄᴏᴍᴍᴀɴᴅѕ')+' : '+list.length+' · '+localized(settings,'ᴘᴀɢᴇ','ᴘᴀɢᴇ')+' '+(page+1)+'/'+pages,
         '╰━━━━━━━━━━━━━━','','♰ '+localized(settings,'ᴄᴏᴍᴍᴀɴᴅᴇѕ','ᴄᴏᴍᴍᴀɴᴅѕ'),''
       ].join('\n');
     }else{
       body+='\n'+label+'\n\n';
     }
-    const visibleCommands=list.map(c=>({
+    const visibleCommands=pageList.map(c=>({
       name:c.name,
       suffix:c.premium&&!account.premium?'  · 👑 '+toSmallCaps('Premium'):''
     }));
@@ -105,6 +109,15 @@ export async function menuModel({account,settings,commands,view='home',category=
     if(cfg.darkUniverseUrl)links.push(urlButton('ᴅᴀʀᴋ ᴜɴɪᴠᴇʀѕᴇ',cfg.darkUniverseUrl,'success','dark'));
     if(links.length)buttons.push(links);
   }else{
+    if(view==='category'&&category){
+      const list=(groups[category]||[]).filter(visible);
+      const perPage=16,pages=Math.max(1,Math.ceil(list.length/perPage));
+      const current=Math.max(0,Math.min(pages-1,Number(page)||0));
+      const nav=[];
+      if(current>0)nav.push(button('‹ '+toSmallCaps(localized(settings,'Précédent','Previous')),'cat:'+category+':'+(current-1),'primary','back'));
+      if(current<pages-1)nav.push(button(toSmallCaps(localized(settings,'Suivant','Next'))+' ›','cat:'+category+':'+(current+1),'primary','next'));
+      if(nav.length)buttons.push(nav);
+    }
     buttons.push([button('↩ '+toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back')]);
   }
   const text=body.trim();
