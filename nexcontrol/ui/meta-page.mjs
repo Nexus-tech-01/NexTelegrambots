@@ -63,6 +63,7 @@ export function renderMetaPage({
   metrics = {},
   pages = [],
   readiness = {},
+  connection = {},
   loadErrors = []
 } = {}) {
   const runtime = status.runtime || {};
@@ -70,6 +71,9 @@ export function renderMetaPage({
   const active = pageState.activePage;
   const readinessChecks = Array.isArray(readiness.checks)
     ? readiness.checks
+    : [];
+  const connectionChecks = Array.isArray(connection.checks)
+    ? connection.checks
     : [];
 
   const errors = Array.isArray(loadErrors)
@@ -152,7 +156,8 @@ ${css}
         <h2 style="font-size:44px;letter-spacing:-.06em;margin:10px 0 12px">Facebook Pages</h2>
         <p class="muted">Page active : <strong>${active ? X(active.name || active.pageId) : 'Aucune'}</strong></p>
         <div class="meta-actions">
-          <button class="action primary" id="connectFacebook">Connecter Facebook</button>
+          <button class="action ${connection.ready ? 'primary' : ''}" id="connectFacebook" ${connection.ready ? '' : 'disabled'}>Connecter Facebook</button>
+          <button class="action" data-action="connection_readiness">Vérifier connexion</button>
           <button class="action" data-action="configure_webhooks">Configurer webhooks</button>
           <button class="action" data-action="configure_all_default_messenger_profiles">Profils Messenger</button>
           <button class="action" data-action="doctor_all_pages">Doctor global</button>
@@ -166,6 +171,23 @@ ${css}
         <div style="display:grid;gap:12px">
           <button class="action ${runtime.inboundEnabled ? 'primary' : ''}" id="toggleInbound">Inbound ${yesNo(runtime.inboundEnabled)}</button>
           <button class="action ${runtime.outboundEnabled ? 'primary' : ''}" id="toggleOutbound">Outbound ${yesNo(runtime.outboundEnabled)}</button>
+        </div>
+      </article>
+
+      <article class="panel meta-span-12">
+        <div class="eyebrow">Facebook connection readiness</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 22px">
+          <span class="pill ${connection.ready ? 'ok' : 'bad'}">Facebook Login ${connection.ready ? 'READY' : 'NOT READY'}</span>
+          ${connection.urls?.oauthCallback ? `<span class="pill">${X(connection.urls.oauthCallback)}</span>` : ''}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px">
+          ${connectionChecks.map(item => `
+            <div style="border-top:1px solid var(--line);padding:12px 2px">
+              <span class="pill ${item.ok ? 'ok' : 'bad'}">${item.ok ? 'OK' : 'MISSING'}</span>
+              <div style="font-weight:650;margin-top:9px">${X(item.name)}</div>
+              <div class="muted" style="font-size:12px;margin-top:4px">${X(item.detail)}</div>
+            </div>
+          `).join('')}
         </div>
       </article>
 
