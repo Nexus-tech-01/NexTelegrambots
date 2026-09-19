@@ -25,6 +25,18 @@ export async function deploymentReadiness() {
           error: 'gateway_not_configured'
         };
 
+  const requiredServices = Array.isArray(config.requiredNexusServices)
+    ? config.requiredNexusServices
+    : [];
+
+  const availableServices = Array.isArray(gatewayProbe.availableServices)
+    ? gatewayProbe.availableServices
+    : [];
+
+  const missingServices = requiredServices.filter(
+    service => !availableServices.includes(service)
+  );
+
   const checks = [
     check(
       'mongodb',
@@ -120,6 +132,15 @@ export async function deploymentReadiness() {
           : gatewayProbe.error === 'gateway_not_configured'
             ? 'Gateway URL/key not configured'
             : 'Authenticated bridge probe failed'
+    ),
+    check(
+      'nexus_gateway_services',
+      gatewayProbe.ok === true && missingServices.length === 0,
+      gatewayProbe.ok !== true
+        ? 'Bridge receiver is not live'
+        : missingServices.length
+          ? `Missing adapters: ${missingServices.join(', ')}`
+          : `All required adapters loaded: ${requiredServices.join(', ')}`
     )
   ];
 
@@ -140,7 +161,8 @@ export async function deploymentReadiness() {
     ...adapterCheckNames,
     'nexus_gateway_url',
     'nexus_gateway_auth',
-    'nexus_gateway_live'
+    'nexus_gateway_live',
+    'nexus_gateway_services'
   ]);
 
   const adapterReady = checks
@@ -162,7 +184,10 @@ export async function deploymentReadiness() {
       ok: gatewayProbe.ok === true,
       latencyMs: gatewayProbe.latencyMs ?? null,
       status: gatewayProbe.status ?? null,
-      handledBy: gatewayProbe.handledBy ?? null
+      handledBy: gatewayProbe.handledBy ?? null,
+      availableServices,
+      requiredServices,
+      missingServices
     },
     checks
   };
