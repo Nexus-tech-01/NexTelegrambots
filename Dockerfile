@@ -42,4 +42,4 @@ RUN cd /app/watchers && npm install --omit=dev --no-audit --no-fund
 
 EXPOSE 10000
 
-CMD ["sh", "-c", "if [ -z \"${NEXUS_PUBLIC_BASE_URL:-}\" ] && [ -n \"${RENDER_EXTERNAL_HOSTNAME:-}\" ]; then export NEXUS_PUBLIC_BASE_URL=\"https://${RENDER_EXTERNAL_HOSTNAME}\"; fi; if [ -n \"${NEXCANAL__WATCHER_SESSION:-}${NEXGROUP__TELEGRAM_MTPROTO_SESSION:-}\" ]; then node watchers/liteapks-relay.mjs & fi; node scripts/preflight.mjs && exec node scripts/orchestrator.mjs"]
+CMD ["sh", "-c", "if [ -z \"${NEXUS_PUBLIC_BASE_URL:-}\" ] && [ -n \"${RENDER_EXTERNAL_HOSTNAME:-}\" ]; then export NEXUS_PUBLIC_BASE_URL=\"https://${RENDER_EXTERNAL_HOSTNAME}\"; fi; if [ -n \"${NEXCANAL__WATCHER_SESSION:-}\" ]; then node watchers/liteapks-relay.mjs & fi; node scripts/preflight.mjs && exec node scripts/orchestrator.mjs"]
