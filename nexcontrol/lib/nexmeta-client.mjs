@@ -246,3 +246,8 @@ export async function sendNexMetaImageGallery(psid, imageUrls) {
 export async function nexMetaDeploymentReadiness() {
   return nexMetaAction('deployment_readiness');
 }
+
+
+export async function configureAllDefaultNexMetaMessengerProfiles() {
+  return nexMetaAction('configure_all_default_messenger_profiles');
+}
