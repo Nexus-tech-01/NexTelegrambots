@@ -110,12 +110,14 @@ nexgame
 nexstick
 nexgroup
 nexcanal
+nexwhisper
+nexai
 ```
 
 Override only when intentionally changing the production service set:
 
 ```env
-NEXMETA_REQUIRED_NEXUS_SERVICES=nexdownloader,nexgame,nexstick,nexgroup,nexcanal
+NEXMETA_REQUIRED_NEXUS_SERVICES=nexdownloader,nexgame,nexstick,nexgroup,nexcanal,nexwhisper,nexai
 ```
 
 `bridgeReady=true` requires:
@@ -149,6 +151,7 @@ nexgame.mjs
 nexstick.mjs
 nexgroup.mjs
 nexcanal.mjs
+nexwhisper.mjs
 nexai.mjs
 auto.mjs
 ```
@@ -217,7 +220,7 @@ node /app/nexus-bridge/discover-bot-cores.mjs
 
 The scanner:
 
-- inspects the five bot directories
+- inspects the five packaged Telegram bot directories; NexWhisper and NexAI are bridge-native adapters
 - reads each `package.json`
 - scans compiled/source modules up to a bounded depth
 - prioritizes files named like `core`, `service`, `handler`, `router`, `command`, `manager`, `engine`, `index`, etc.
