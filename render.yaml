@@ -4,15 +4,8 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: starter
-    autoDeploy: true
+    autoDeploy: false
     healthCheckPath: /health
-    envVars:
-      - key: NEXUS_COMMAND_GATEWAY_KEY
-        sync: false
-      - key: NEXUS_BRIDGE_PROXY_ENABLED
-        value: "false"
-      - key: NEXUS_INNER_GATEWAY_PORT
-        value: "10001"
     disk:
       name: nexus-bots-data
       mountPath: /var/data
