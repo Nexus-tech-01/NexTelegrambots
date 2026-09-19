@@ -10,6 +10,7 @@ import { ownerPanelText, countriesText, languagesText, userText, botStatsText, a
 import { beginPairing, submitPairingCode, submitPairingPassword, pairingStatus, cancelPairing } from './pairing.mjs';
 import { attachConnectedClient } from './runtime.mjs';
 import { toSmallCaps } from './styles.mjs';
+import { claimWebPairing } from './web-pairing.mjs';
 
 const commands=commandMap();
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
@@ -202,7 +203,24 @@ export async function startInlineBot(){
     return next();
   });
 
-  bot.command('start',ctx=>sendStart(ctx));
+  bot.command('start',async ctx=>{
+    const payload=String(ctx.match||'').trim();
+    if(/^web_[A-Za-z0-9_-]{20,80}$/.test(payload)){
+      const linked=await claimWebPairing(payload.slice(4),ctx.from).catch(e=>{
+        console.error('[NexAI web pair]',String(e.message||e));return null;
+      });
+      const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
+      if(linked){
+        const t=lang==='en'
+          ? '✅ ɴᴇxᴀɪ • ᴘʟᴀᴛғᴏʀᴍ ʟɪɴᴋᴇᴅ\n\nʀᴇᴛᴜʀɴ ᴛᴏ ɴᴇxᴀɪ ᴄᴏɴɴᴇᴄᴛ — ᴛʜᴇ ᴘᴀɢᴇ ᴡɪʟʟ ᴜᴘᴅᴀᴛᴇ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ.'
+          : '✅ ɴᴇxᴀɪ • ᴘʟᴀᴛᴇғᴏʀᴍᴇ ʀᴇʟɪéᴇ\n\nʀᴇᴛᴏᴜʀɴᴇ ѕᴜʀ ɴᴇxᴀɪ ᴄᴏɴɴᴇᴄᴛ — ʟᴀ ᴘᴀɢᴇ ѕᴇ ᴍᴇᴛᴛʀᴀ à ᴊᴏᴜʀ ᴀᴜᴛᴏᴍᴀᴛɪǫᴜᴇᴍᴇɴᴛ.';
+        return ctx.reply(t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
+      }
+      const t=lang==='en'?'❌ ᴛʜɪѕ ᴘᴀɪʀɪɴɢ ʟɪɴᴋ ɪѕ ɪɴᴠᴀʟɪᴅ ᴏʀ ᴇxᴘɪʀᴇᴅ.':'❌ ᴄᴇ ʟɪᴇɴ ᴅᴇ ᴘᴀɪʀɪɴɢ ᴇѕᴛ ɪɴᴠᴀʟɪᴅᴇ ᴏᴜ ᴇxᴘɪʀé.';
+      return ctx.reply(t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
+    }
+    return sendStart(ctx);
+  });
   for(const name of ['creator','about','founder','ceo'])bot.command(name,ctx=>sendCreator(ctx));
 
   bot.command('language',async ctx=>{
