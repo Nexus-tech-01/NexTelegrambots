@@ -140,7 +140,7 @@ export function eventIdentity(event) {
   };
 }
 
-export function toNexusEnvelope(event, routing = {}) {
+export function toNexusEnvelope(event, routing = {}, identity = {}) {
   return {
     version: 2,
     source: {
@@ -149,7 +149,8 @@ export function toNexusEnvelope(event, routing = {}) {
       pageId: event.pageId
     },
     user: {
-      externalId: event.senderId || null
+      externalId: event.senderId || null,
+      nexusUserId: identity?.nexusUserId || null
     },
     routing: {
       intent: routing.intent || 'auto',
