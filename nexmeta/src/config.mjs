@@ -5,11 +5,19 @@ export const config = {
   publicBaseUrl: clean(process.env.NEXMETA_PUBLIC_BASE_URL),
   mongoUri: clean(process.env.NEXUS_MONGODB_URI || process.env.MONGODB_URI),
   dbName: clean(process.env.NEXMETA_DB_NAME || 'nexmeta'),
+
   graphVersion: clean(process.env.NEXMETA_GRAPH_VERSION),
+  appId: clean(process.env.NEXMETA_APP_ID),
+  appSecret: clean(process.env.NEXMETA_APP_SECRET),
+  verifyToken: clean(process.env.NEXMETA_VERIFY_TOKEN),
+
+  // Optional static fallback for first deployment.
   pageId: clean(process.env.NEXMETA_PAGE_ID),
   pageAccessToken: clean(process.env.NEXMETA_PAGE_ACCESS_TOKEN),
-  verifyToken: clean(process.env.NEXMETA_VERIFY_TOKEN),
-  appSecret: clean(process.env.NEXMETA_APP_SECRET),
+
+  oauthRedirectUri: clean(process.env.NEXMETA_OAUTH_REDIRECT_URI),
+  tokenEncryptionKey: clean(process.env.NEXMETA_TOKEN_ENCRYPTION_KEY),
+
   controlKey: clean(process.env.NEXMETA_CONTROL_KEY),
   nexusGatewayUrl: clean(process.env.NEXUS_COMMAND_GATEWAY_URL),
   nexusGatewayKey: clean(process.env.NEXUS_COMMAND_GATEWAY_KEY)
@@ -18,10 +26,22 @@ export const config = {
 export function metaConfigured() {
   return Boolean(
     config.graphVersion &&
-    config.pageId &&
-    config.pageAccessToken &&
     config.verifyToken &&
-    config.appSecret
+    config.appSecret &&
+    (
+      (config.pageId && config.pageAccessToken) ||
+      (config.appId && config.oauthRedirectUri && config.tokenEncryptionKey)
+    )
+  );
+}
+
+export function oauthConfigured() {
+  return Boolean(
+    config.graphVersion &&
+    config.appId &&
+    config.appSecret &&
+    config.oauthRedirectUri &&
+    config.tokenEncryptionKey
   );
 }
 
@@ -32,10 +52,31 @@ export function assertRuntimeConfig() {
   if (!config.mongoUri) throw new Error('NEXUS_MONGODB_URI is required');
 }
 
-export function assertMetaSendConfig() {
+export function assertGraphConfig() {
+  if (!config.graphVersion) {
+    throw new Error('NEXMETA_GRAPH_VERSION missing');
+  }
+}
+
+export function assertOAuthConfig() {
   const missing = [];
   if (!config.graphVersion) missing.push('NEXMETA_GRAPH_VERSION');
+  if (!config.appId) missing.push('NEXMETA_APP_ID');
+  if (!config.appSecret) missing.push('NEXMETA_APP_SECRET');
+  if (!config.oauthRedirectUri) missing.push('NEXMETA_OAUTH_REDIRECT_URI');
+  if (!config.tokenEncryptionKey) missing.push('NEXMETA_TOKEN_ENCRYPTION_KEY');
+
+  if (missing.length) {
+    throw new Error(`Meta OAuth config missing: ${missing.join(', ')}`);
+  }
+}
+
+export function assertStaticPageConfig() {
+  const missing = [];
   if (!config.pageId) missing.push('NEXMETA_PAGE_ID');
   if (!config.pageAccessToken) missing.push('NEXMETA_PAGE_ACCESS_TOKEN');
-  if (missing.length) throw new Error(`Meta send config missing: ${missing.join(', ')}`);
+
+  if (missing.length) {
+    throw new Error(`Static Meta Page config missing: ${missing.join(', ')}`);
+  }
 }
