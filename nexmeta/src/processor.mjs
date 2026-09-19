@@ -18,6 +18,8 @@ import {
   sendText,
   sendMedia,
   sendQuickReplies,
+  sendTemplate,
+  sendImageGallery,
   senderAction
 } from './meta-client.mjs';
 
@@ -76,6 +78,31 @@ async function renderNexusReply(event, result) {
     });
   } else if (result.text) {
     await sendAndSave(event, result.text);
+  }
+
+  if (result.template && typeof result.template === 'object') {
+    const sent = await sendTemplate(
+      event.senderId,
+      result.template
+    );
+
+    await saveOutbound(event, sent, {
+      text: '[template]'
+    });
+  }
+
+  if (Array.isArray(result.imageUrls) && result.imageUrls.length) {
+    const sent = await sendImageGallery(
+      event.senderId,
+      result.imageUrls
+    );
+
+    await saveOutbound(event, sent, {
+      media: {
+        type: 'image_gallery',
+        count: result.imageUrls.length
+      }
+    });
   }
 
   const media = result.media &&
