@@ -1,5 +1,6 @@
 import { Bot } from 'grammy';
 import { cfg } from './config.mjs';
+import { loadBotToken } from './secrets.mjs';
 import { commandMap } from './commands.mjs';
 import { listAccounts, settingsFor } from './store.mjs';
 import { menuModel, stylesModel } from './menu.mjs';
@@ -79,11 +80,12 @@ async function editInline(ctx,model,accountId){
 }
 
 export async function startInlineBot(){
-  if(!cfg.botToken){
-    console.warn('[NexAccount] NEXAI_BOT_TOKEN missing: inline menus disabled');
+  const token=await loadBotToken();
+  if(!token){
+    console.warn('[NexAccount] NexAI token missing: inline menus disabled');
     return null;
   }
-  bot=new Bot(cfg.botToken);
+  bot=new Bot(token);
 
   bot.on('inline_query',async ctx=>{
     const accounts=await listAccounts();
