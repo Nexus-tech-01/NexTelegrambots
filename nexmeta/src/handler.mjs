@@ -12,6 +12,8 @@ import {
   getRuntimeSettings
 } from './store.mjs';
 import { processWebhookPayload } from './processor.mjs';
+import { completeMetaOAuth } from './meta-oauth.mjs';
+import { connectedPageState } from './token-vault.mjs';
 import {
   CONTROL_CAPABILITIES,
   controlAuditMetadata,
@@ -22,6 +24,29 @@ function writeJson(res, status, value) {
   res.statusCode = status;
   res.setHeader('content-type', 'application/json; charset=utf-8');
   res.end(JSON.stringify(value));
+}
+
+function writeHtml(res, status, title, message) {
+  res.statusCode = status;
+  res.setHeader('content-type', 'text/html; charset=utf-8');
+  res.setHeader('cache-control', 'no-store');
+  res.end(`<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title} · NexMeta</title>
+<style>
+html{background:#080808;color:#f4f4f4;font-family:system-ui,-apple-system,sans-serif}
+body{min-height:100vh;margin:0;display:grid;place-items:center;padding:24px}
+main{max-width:620px;border:1px solid #2a2a2a;border-radius:24px;padding:34px;background:#111}
+small{letter-spacing:.15em;text-transform:uppercase;color:#999}
+h1{font-size:38px;margin:12px 0}
+p{color:#bbb;line-height:1.6;margin:0}
+</style>
+</head>
+<body><main><small>NexMeta · Meta connection</small><h1>${title}</h1><p>${message}</p></main></body>
+</html>`);
 }
 
 async function readRaw(req, maxBytes = 2 * 1024 * 1024) {
@@ -49,6 +74,7 @@ function routePath(url) {
   const map = {
     health: '/health',
     webhook: '/webhooks/meta',
+    oauth_callback: '/oauth/meta/callback',
     status: '/internal/v1/status',
     actions: '/internal/v1/actions'
   };
@@ -92,6 +118,62 @@ async function metaWebhookPost(req, res) {
   await background;
 }
 
+async function metaOAuthCallback(res, url) {
+  if (url.searchParams.get('error')) {
+    await audit('nexmeta.oauth.denied', 'facebook', {
+      error: String(url.searchParams.get('error')).slice(0, 120)
+    }).catch(() => {});
+
+    return writeHtml(
+      res,
+      400,
+      'Connexion annulée',
+      'Facebook n’a pas accordé l’autorisation demandée. Tu peux fermer cette page et relancer la connexion depuis NexControl.'
+    );
+  }
+
+  const code = String(url.searchParams.get('code') || '');
+  const state = String(url.searchParams.get('state') || '');
+
+  if (!code || !state) {
+    return writeHtml(
+      res,
+      400,
+      'Connexion invalide',
+      'Le callback Meta ne contient pas les paramètres de sécurité nécessaires.'
+    );
+  }
+
+  try {
+    const result = await completeMetaOAuth({ code, state });
+
+    await audit('nexmeta.oauth.connected', result.actor || 'nexcontrol', {
+      pagesDiscovered: result.pagesDiscovered,
+      pagesStored: result.pagesStored,
+      pageIds: result.pages.map(page => page.pageId)
+    });
+
+    return writeHtml(
+      res,
+      200,
+      'Facebook connecté',
+      `${result.pagesStored} Page(s) ont été ajoutée(s) à NexMeta. Les tokens sont chiffrés côté serveur et ne sont pas affichés ici. Tu peux revenir dans NexControl.`
+    );
+  } catch (error) {
+    await audit('nexmeta.oauth.failed', 'facebook', {
+      error: String(error?.message || 'oauth_failed').slice(0, 500),
+      metaCode: error?.metaCode ?? null
+    }).catch(() => {});
+
+    return writeHtml(
+      res,
+      Number(error?.status) >= 400 && Number(error?.status) < 500 ? 400 : 502,
+      'Connexion échouée',
+      'NexMeta n’a pas pu finaliser la connexion Facebook. Relance la connexion depuis NexControl ; aucun token n’est affiché dans cette page.'
+    );
+  }
+}
+
 function publicActionError(error) {
   return {
     error: error?.message === 'unsupported_action'
@@ -109,15 +191,20 @@ async function control(req, res, url, path) {
   }
 
   if (req.method === 'GET' && path === '/internal/v1/status') {
-    const runtime = await getRuntimeSettings();
+    const [runtime, pages] = await Promise.all([
+      getRuntimeSettings(),
+      connectedPageState()
+    ]);
+
     await audit('nexmeta.status.read', 'nexcontrol');
 
     return writeJson(res, 200, {
       ok: true,
       service: 'nexmeta',
-      version: '0.2.0',
+      version: '0.3.0-dev',
       metaConfigured: metaConfigured(),
       runtime,
+      pages,
       capabilities: CONTROL_CAPABILITIES,
       secretExposure: false
     });
@@ -174,15 +261,24 @@ export async function handleRequest(req, res) {
 
     if (req.method === 'GET' && path === '/health') {
       await healthStore();
-      const runtime = await getRuntimeSettings();
+
+      const [runtime, pages] = await Promise.all([
+        getRuntimeSettings(),
+        connectedPageState()
+      ]);
 
       return writeJson(res, 200, {
         ok: true,
         service: 'nexmeta',
-        version: '0.2.0',
+        version: '0.3.0-dev',
         metaConfigured: metaConfigured(),
-        runtime
+        runtime,
+        pages
       });
+    }
+
+    if (req.method === 'GET' && path === '/oauth/meta/callback') {
+      return metaOAuthCallback(res, url);
     }
 
     if (req.method === 'GET' && path === '/webhooks/meta') {
