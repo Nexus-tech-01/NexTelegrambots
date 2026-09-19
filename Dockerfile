@@ -39,6 +39,9 @@ COPY nexus-bridge /app/nexus-bridge
 RUN node --check /app/nexus-bridge/receiver.mjs \
  && node --check /app/nexus-bridge/adapter-loader.mjs \
  && node --check /app/nexus-bridge/gateway-wrapper.mjs \
+ && node --check /app/nexus-bridge/media-registry.mjs \
+ && node --check /app/nexus-bridge/nexdownloader-direct-core.mjs \
+ && node --check /app/nexus-bridge/adapters/nexdownloader.mjs \
  && test -f /app/nexus-bridge/README.md
 
 # Secrets are supplied only through Render environment variables.
