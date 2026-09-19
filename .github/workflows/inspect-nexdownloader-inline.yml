@@ -1,0 +1,86 @@
+name: Inspect NexDownloader Inline
+
+on:
+  push:
+    branches: [feature/nexdownloader-inline]
+    paths:
+      - '.github/workflows/inspect-nexdownloader-inline.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NXC_BASE: https://nexcontrol-ochre.vercel.app
+      NXC_AGENT: nexus-main
+      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
+      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect live NexDownloader source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,json,time,base64,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib
+          BASE=os.environ['NXC_BASE'].rstrip('/')
+          AGENT=os.environ['NXC_AGENT']
+          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
+          SECRET=os.environ.get('NXC_SESSION_SECRET','')
+          jar=http.cookiejar.CookieJar()
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          cookie=''
+          if SECRET:
+              exp=int(time.time()*1000)+20*60*1000
+              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
+              sig=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
+              cookie=payload+'.'+sig
+          elif ADMIN:
+              data=urllib.parse.urlencode({'password':ADMIN}).encode()
+              op.open(urllib.request.Request(BASE+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=45).read()
+          else:
+              raise RuntimeError('No NexControl credential')
+          def http(method,path,data=None):
+              h={'Accept':'application/json'}
+              if cookie: h['Cookie']='nexcontrol_session='+cookie
+              body=None
+              if data is not None:
+                  body=json.dumps(data,separators=(',',':')).encode()
+                  h['Content-Type']='application/json'
+              req=urllib.request.Request(BASE+path,data=body,headers=h,method=method)
+              try:
+                  with op.open(req,timeout=45) as r:
+                      raw=r.read().decode('utf-8','replace')
+                      return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  raise RuntimeError(f'HTTP {e.code} {path}: '+e.read().decode('utf-8','replace')[:1500])
+          def job(kind,payload):
+              j=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload})
+              jid=j.get('jobId')
+              if not jid: raise RuntimeError(f'No jobId: {j}')
+              end=time.time()+180
+              while time.time()<end:
+                  x=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid))
+                  st=x.get('status')
+                  if st=='succeeded': return x.get('result') or {}
+                  if st=='failed': raise RuntimeError(f'{kind} failed: {x.get("error")}')
+                  time.sleep(2)
+              raise TimeoutError(kind)
+          def safe(kind,payload):
+              try: return job(kind,payload)
+              except Exception as e: return {'error':repr(e)}
+          for p in ['.','src','src/services','src/handlers','src/modules','src/features','dist','dist/src','tests','test']:
+              print('\n### LIST',p)
+              print(json.dumps(safe('fs.list',{'root':'nexdownloader','path':p}),ensure_ascii=False,indent=2)[:30000])
+          for p in ['package.json','src/index.js','src/index.mjs','src/bot.js','src/bot.mjs','index.js','index.mjs']:
+              r=safe('fs.read',{'root':'nexdownloader','path':p,'startLine':1,'endLine':260})
+              if 'error' not in r:
+                  print('\n### FILE',p)
+                  print(r.get('content',''))
+          for q in ['bot.on','callback_query','message:text','hears(','searchMusic','lyrics','shazam','download','answerInlineQuery','inline_query','inlineQuery','TelegramBot']:
+              print('\n### SEARCH',q)
+              print(json.dumps(safe('fs.search',{'root':'nexdownloader','path':'.','query':q,'maxResults':120}),ensure_ascii=False,indent=2)[:50000])
+          PY
