@@ -61,7 +61,18 @@ export function normalizeMetaWebhook(payload) {
         continue;
       }
 
-      if (item.read) {
+      if (item.reaction) {
+        events.push({
+          ...base,
+          type: 'reaction',
+          externalMessageId: item.reaction.mid
+            ? String(item.reaction.mid)
+            : null,
+          action: item.reaction.action || '',
+          reaction: item.reaction.reaction || '',
+          emoji: item.reaction.emoji || ''
+        });
+      } else if (item.read) {
         events.push({
           ...base,
           type: 'read',
