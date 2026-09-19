@@ -72,7 +72,27 @@ async function readBodyObject(req){
   try{return JSON.parse(text)}catch{return{}}
 }
 
+function injectMetaNavigation(upstream,buffer){
+  const type=String(upstream.headers.get('content-type')||'').toLowerCase();
+  if(!type.includes('text/html'))return buffer;
+
+  let html=buffer.toString('utf8');
+  if(html.includes('href="/meta"'))return buffer;
+
+  if(html.includes('href="/server"')){
+    html=html.replace(
+      '<a href="/server"',
+      '<a href="/meta">Meta</a><a href="/server"'
+    );
+  }else if(html.includes('</nav>')){
+    html=html.replace('</nav>','<a href="/meta">Meta</a></nav>');
+  }
+
+  return Buffer.from(html,'utf8');
+}
+
 function copyUpstreamResponse(upstream,res,buffer){
+  buffer=injectMetaNavigation(upstream,buffer);
   res.statusCode=upstream.status;
 
   const skip=new Set([
