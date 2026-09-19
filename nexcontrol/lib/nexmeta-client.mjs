@@ -20,7 +20,9 @@ async function request(path, options = {}) {
     ...options,
     headers: {
       authorization: `Bearer ${controlKey}`,
-      ...(options.body ? { 'content-type': 'application/json; charset=utf-8' } : {}),
+      ...(options.body
+        ? { 'content-type': 'application/json; charset=utf-8' }
+        : {}),
       ...(options.headers || {})
     },
     signal: AbortSignal.timeout(20000)
@@ -62,6 +64,28 @@ export async function nexMetaAction(action, payload = {}) {
       action,
       ...payload
     })
+  });
+}
+
+export async function startNexMetaOAuth(ttlSeconds = 600) {
+  return nexMetaAction('oauth_start', {
+    ttlSeconds
+  });
+}
+
+export async function listNexMetaPages() {
+  return nexMetaAction('list_connected_pages');
+}
+
+export async function activateNexMetaPage(pageId) {
+  return nexMetaAction('activate_connected_page', {
+    pageId
+  });
+}
+
+export async function removeNexMetaPage(pageId) {
+  return nexMetaAction('remove_connected_page', {
+    pageId
   });
 }
 
