@@ -37,6 +37,8 @@ RUN set -eux; \
 # the integration reversible and avoids modifying the opaque source archive.
 COPY nexus-bridge /app/nexus-bridge
 RUN node --check /app/nexus-bridge/receiver.mjs \
+ && node --check /app/nexus-bridge/adapter-loader.mjs \
+ && node --check /app/nexus-bridge/gateway-wrapper.mjs \
  && test -f /app/nexus-bridge/README.md
 
 # Secrets are supplied only through Render environment variables.
@@ -46,4 +48,4 @@ RUN node scripts/install-all.mjs && node scripts/build-all.mjs
 
 EXPOSE 10000
 
-CMD ["sh", "-c", "if [ -z \"${NEXUS_PUBLIC_BASE_URL:-}\" ] && [ -n \"${RENDER_EXTERNAL_HOSTNAME:-}\" ]; then export NEXUS_PUBLIC_BASE_URL=\"https://${RENDER_EXTERNAL_HOSTNAME}\"; fi; node scripts/preflight.mjs && exec node scripts/orchestrator.mjs"]
+CMD ["sh", "-c", "if [ -z \"${NEXUS_PUBLIC_BASE_URL:-}\" ] && [ -n \"${RENDER_EXTERNAL_HOSTNAME:-}\" ]; then export NEXUS_PUBLIC_BASE_URL=\"https://${RENDER_EXTERNAL_HOSTNAME}\"; fi; node scripts/preflight.mjs && if [ \"${NEXUS_BRIDGE_PROXY_ENABLED:-false}\" = \"true\" ]; then exec node /app/nexus-bridge/gateway-wrapper.mjs; else exec node scripts/orchestrator.mjs; fi"]
