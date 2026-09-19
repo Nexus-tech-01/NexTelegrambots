@@ -119,62 +119,217 @@ function literalAliases(source){
   return out;
 }
 
+function inertProxy(){
+  let proxy;
+  const fn=function(){return proxy};
+  proxy=new Proxy(fn,{
+    get(_target,prop){
+      if(prop==='then')return undefined;
+      if(prop===Symbol.iterator)return function*(){};
+      if(prop===Symbol.toPrimitive)return ()=>'';
+      if(prop==='toJSON')return ()=>null;
+      return proxy;
+    },
+    apply(){return proxy},
+    construct(){return proxy}
+  });
+  return proxy;
+}
+
+function sandboxRequire(file){
+  const inert=inertProxy();
+  const safeFs={
+    existsSync:()=>false,
+    readFileSync:()=>Buffer.alloc(0),
+    readdirSync:()=>[],
+    statSync:()=>({isDirectory:()=>false,isFile:()=>false}),
+    promises:inert
+  };
+  const safeBuiltins=new Map([
+    ['path',path],
+    ['node:path',path],
+    ['fs',safeFs],
+    ['node:fs',safeFs],
+    ['fs/promises',safeFs.promises],
+    ['node:fs/promises',safeFs.promises]
+  ]);
+  const req=id=>safeBuiltins.get(String(id))||inert;
+  req.resolve=id=>String(id||file);
+  req.cache={};
+  req.main={};
+  return req;
+}
+
+function evaluateCommandModule(source,file){
+  const module={exports:{}};
+  const context={
+    module,
+    exports:module.exports,
+    require:sandboxRequire(file),
+    __filename:file,
+    __dirname:path.dirname(file),
+    Buffer,
+    URL,
+    URLSearchParams,
+    TextEncoder,
+    TextDecoder,
+    console:{log(){},warn(){},error(){},info(){},debug(){}},
+    process:{
+      env:{},
+      cwd:()=>root,
+      platform:process.platform,
+      versions:process.versions,
+      nextTick:fn=>{if(typeof fn==='function')fn()}
+    },
+    setTimeout:()=>0,
+    clearTimeout(){},
+    setInterval:()=>0,
+    clearInterval(){},
+    setImmediate:()=>0,
+    clearImmediate(){},
+    fetch:async()=>({ok:false,status:503,json:async()=>({}),text:async()=>'',arrayBuffer:async()=>new ArrayBuffer(0)})
+  };
+  context.global=context;
+  context.globalThis=context;
+  try{
+    const script=new vm.Script('(function(module,exports,require,__filename,__dirname){'+source+'\n})',{filename:file});
+    const fn=script.runInNewContext(context,{timeout:750});
+    fn(module,module.exports,context.require,file,path.dirname(file));
+    return {ok:true,exported:module.exports};
+  }catch(error){
+    return {ok:false,error:String(error?.message||error),exported:null};
+  }
+}
+
+function staticCommandNames(source,rel){
+  const names=new Set(literalNames(source));
+
+  const arrayRe=/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\[([\s\S]*?)\]\s*;/g;
+  for(const match of source.matchAll(arrayRe)){
+    const variable=match[1],body=match[2];
+    const escaped=variable.replace(/[$]/g,'\\$&');
+    const usedByFactory=
+      new RegExp('\\b'+escaped+'\\s*\\.\\s*map\\s*\\([^)]*(?:command|cmd|create|make|build|effect)','i').test(source)||
+      new RegExp('\\bof\\s*'+escaped+'\\b').test(source);
+    if(!usedByFactory)continue;
+
+    for(const m of body.matchAll(/(?:^|[,]\s*)\[\s*['"`]([A-Za-z0-9_][A-Za-z0-9_-]{0,63})['"`]/g)){
+      const name=safeName(m[1].replace(/-/g,'_'));
+      if(name)names.add(name);
+    }
+    for(const m of body.matchAll(/(?:^|[,]\s*)['"`]([A-Za-z0-9_][A-Za-z0-9_-]{0,63})['"`](?=\s*[,\]])/g)){
+      const name=safeName(m[1].replace(/-/g,'_'));
+      if(name)names.add(name);
+    }
+  }
+
+  for(const match of source.matchAll(/for\s*\([^)]*\bof\s*\[([\s\S]*?)\]\s*\)[\s\S]{0,800}?(?:\.push\s*\(|module\.exports|return\s*\{)/gi)){
+    const body=match[1];
+    for(const m of body.matchAll(/\[\s*['"`]([A-Za-z0-9_][A-Za-z0-9_-]{0,63})['"`]/g)){
+      const name=safeName(m[1].replace(/-/g,'_'));
+      if(name)names.add(name);
+    }
+    for(const m of body.matchAll(/['"`]([A-Za-z0-9_][A-Za-z0-9_-]{0,63})['"`](?=\s*[,\]])/g)){
+      const name=safeName(m[1].replace(/-/g,'_'));
+      if(name)names.add(name);
+    }
+  }
+
+  if(!names.size){
+    const fallback=safeName(path.basename(rel,'.js').replace(/-/g,'_'));
+    if(fallback&&!['index','base','utils','helper','helpers'].includes(fallback))names.add(fallback);
+  }
+  return [...names];
+}
+
+function flagsFor(source,category){
+  return {
+    ownerOnly:/\bownerOnly\s*:\s*true\b/.test(source)||category==='OWNER',
+    groupOnly:/\bgroupOnly\s*:\s*true\b/.test(source),
+    premium:/\b(?:premium|premiumOnly)\s*:\s*true\b/i.test(source)
+  };
+}
+
 async function buildCommandManifest(){
   const commandRoot=path.join(root,'commands');
   const files=await walk(commandRoot);
   const byName=new Map();
-  let scannedFiles=0;
+  let scannedFiles=0,evaluatedFiles=0,fallbackFiles=0;
+
+  function addCommand(raw,meta){
+    const name=safeName(raw?.name);
+    if(!name||byName.has(name))return;
+    const aliases=Array.isArray(raw?.aliases)?raw.aliases.map(safeName).filter(Boolean):[];
+    const category=categoryFor(meta.source,meta.rel);
+    const flags=flagsFor(meta.source,category);
+    const description=String(raw?.description||meta.description||'THE BIG DIPPER').slice(0,240);
+    byName.set(name,{
+      name,
+      category,
+      description,
+      ownerOnly:raw?.ownerOnly===true||flags.ownerOnly,
+      groupOnly:raw?.groupOnly===true||flags.groupOnly,
+      premium:raw?.premium===true||raw?.premiumOnly===true||flags.premium,
+      sourceFile:meta.rel
+    });
+    for(const aliasRaw of aliases){
+      if(aliasRaw===name||byName.has(aliasRaw))continue;
+      byName.set(aliasRaw,{
+        name:aliasRaw,
+        category,
+        aliasFor:name,
+        hidden:true,
+        ownerOnly:raw?.ownerOnly===true||flags.ownerOnly,
+        groupOnly:raw?.groupOnly===true||flags.groupOnly,
+        premium:raw?.premium===true||raw?.premiumOnly===true||flags.premium,
+        sourceFile:meta.rel
+      });
+    }
+  }
 
   for(const file of files){
     const source=await fs.readFile(file,'utf8').catch(()=>null);
     if(!source||!/(module\.exports|exports\.)/.test(source))continue;
     const rel=path.relative(root,file).split(path.sep).join('/');
-    let names=literalNames(source);
-
-    if(!names.length){
-      const fallback=safeName(path.basename(file,'.js').replace(/-/g,'_'));
-      if(fallback&&!['index','base','utils','helper','helpers'].includes(fallback))names=[fallback];
-    }
-    if(!names.length)continue;
     scannedFiles++;
-
-    const category=categoryFor(source,rel);
-    const ownerOnly=/\bownerOnly\s*:\s*true\b/.test(source)||category==='OWNER';
-    const groupOnly=/\bgroupOnly\s*:\s*true\b/.test(source);
-    const premium=/\bpremium(?:Only)?\s*:\s*true\b/i.test(source);
     const description=source.match(/\bdescription\s*:\s*['"`]([^'"`]{1,240})['"`]/i)?.[1]||'THE BIG DIPPER';
+    const meta={source,rel,description};
 
-    for(const name of names){
-      if(!byName.has(name)){
-        byName.set(name,{name,category,description,ownerOnly,groupOnly,premium,sourceFile:rel});
-      }
+    const evaluated=evaluateCommandModule(source,file);
+    const exported=evaluated.exported;
+    const list=Array.isArray(exported)?exported:[exported];
+    const real=list.filter(command=>command&&typeof command==='object'&&command.name&&typeof command.execute==='function');
+
+    if(real.length){
+      evaluatedFiles++;
+      for(const command of real)addCommand(command,meta);
+      continue;
     }
 
-    if(names.length===1){
-      for(const alias of literalAliases(source)){
-        if(alias===names[0]||byName.has(alias))continue;
-        byName.set(alias,{
-          name:alias,
-          category,
-          aliasFor:names[0],
-          hidden:true,
-          ownerOnly,
-          groupOnly,
-          premium,
-          sourceFile:rel
-        });
-      }
-    }
+    fallbackFiles++;
+    const names=staticCommandNames(source,rel);
+    const aliases=names.length===1?literalAliases(source):[];
+    for(const name of names)addCommand({name,aliases},meta);
   }
 
   const commands=[...byName.values()].sort((a,b)=>a.name.localeCompare(b.name));
   const canonical=commands.filter(c=>!c.aliasFor).length;
-  return {generatedAt:new Date().toISOString(),source:'Tresor562/DIPPER-',scannedFiles,canonical,total:commands.length,commands};
+  const aliases=commands.length-canonical;
+  return {
+    generatedAt:new Date().toISOString(),
+    source:'Tresor562/DIPPER-',
+    scannedFiles,
+    evaluatedFiles,
+    fallbackFiles,
+    canonical,
+    aliases,
+    total:commands.length,
+    commands
+  };
 }
-
 const manifest=await buildCommandManifest();
-if(manifest.canonical<300){
-  throw new Error('Dipper command extraction unexpectedly low: '+manifest.canonical+' canonical commands');
+if(manifest.canonical<400){
+  throw new Error('Dipper command extraction unexpectedly low: '+manifest.canonical+' canonical commands (expected about 437)');
 }
 
 await fs.mkdir(path.join(outRoot,'generated'),{recursive:true});
@@ -183,4 +338,4 @@ await fs.writeFile(path.join(outRoot,'generated','dipper-styles.json'),JSON.stri
 await fs.writeFile(path.join(outRoot,'generated','dipper-commands.json'),JSON.stringify(manifest,null,2));
 await fs.writeFile(path.join(outRoot,'vendor','dipper-menu.js.txt'),menuSource);
 console.log('Synced Dipper styles:',Object.keys(themes).length);
-console.log('Synced Dipper commands:',manifest.canonical,'canonical /',manifest.total,'with aliases from',manifest.scannedFiles,'files');
+console.log('Synced Dipper commands:',manifest.canonical,'canonical +',manifest.aliases,'aliases =',manifest.total,'tokens from',manifest.scannedFiles,'files; sandbox',manifest.evaluatedFiles,'fallback',manifest.fallbackFiles);
