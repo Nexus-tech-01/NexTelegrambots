@@ -1,10 +1,16 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import { MongoClient } from 'mongodb';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { cfg, sessionKey } from './config.mjs';
 
 let clientPromise;
 let indexesReady=false;
+const watcherIdentityFile=process.env.NEXCANAL__WATCHER_ID_FILE||'/home/container/.nexcontrol/nexcanal-watcher-id.txt';
+
+async function reservedWatcherId(){
+  try{return String(await fs.readFile(watcherIdentityFile,'utf8')).trim()}catch{return ''}
+}
 
 export async function db(){
   clientPromise ??= new MongoClient(cfg.mongoUri).connect();
@@ -54,6 +60,8 @@ function uiLanguage(code){
 export async function saveAccount({me,session,phone}){
   const d=await db(),now=new Date();
   const telegramUserId=String(me.id);
+  const reserved=await reservedWatcherId();
+  if(reserved&&telegramUserId===reserved)throw new Error('This Telegram account is reserved for NexCanal watcher');
   const telegramLanguage=String(me.langCode||me.lang_code||'');
   const countryIso=countryFromPhone(phone);
   const preferredLanguage=uiLanguage(telegramLanguage);
@@ -98,7 +106,9 @@ export async function saveAccount({me,session,phone}){
 
 export async function listAccounts(){
   const d=await db();
-  return d.collection('nexaccount_accounts').find({enabled:true},{projection:{sessionEncrypted:0}}).sort({connectedAt:1}).toArray();
+  const reserved=await reservedWatcherId();
+  const query=reserved?{enabled:true,telegramUserId:{$ne:reserved}}:{enabled:true};
+  return d.collection('nexaccount_accounts').find(query,{projection:{sessionEncrypted:0}}).sort({connectedAt:1}).toArray();
 }
 
 export async function accountRecord(telegramUserId){
@@ -110,6 +120,8 @@ export async function accountRecord(telegramUserId){
 }
 
 export async function enableAccount(telegramUserId){
+  const reserved=await reservedWatcherId();
+  if(reserved&&String(telegramUserId)===reserved)throw new Error('NexCanal watcher account cannot be enabled in NexAccount');
   const d=await db();
   await d.collection('nexaccount_accounts').updateOne(
     {telegramUserId:String(telegramUserId)},
@@ -119,6 +131,8 @@ export async function enableAccount(telegramUserId){
 }
 
 export async function accountWithSession(telegramUserId){
+  const reserved=await reservedWatcherId();
+  if(reserved&&String(telegramUserId)===reserved)return null;
   const d=await db();
   const a=await d.collection('nexaccount_accounts').findOne({telegramUserId:String(telegramUserId),enabled:true});
   if(!a)return null;
