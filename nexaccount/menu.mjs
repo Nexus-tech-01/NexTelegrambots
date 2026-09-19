@@ -5,7 +5,7 @@ import { getStyle, listStyles, renderDipperHeader, resolveStyleImage, toSmallCap
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
 const FALLBACK_EMOJI={
   GENERAL:'🏠',AI:'🧠',DOWNLOAD:'📥',GROUP:'🛡️',TOOLS:'🛠️',STICKERS:'🎴',
-  GAMES:'🎮',PROTECTION:'🛡️',ANIME:'🌸',SEARCH:'🔎',PREMIUM:'👑',OWNER:'🔮'
+  GAMES:'🎮',PROTECTION:'🛡️',ANIME:'🌸',SEARCH:'🔎',PREMIUM:'👑',OWNER:'🔮',ALIASES:'⌘'
 };
 
 export function expandableEntities(text,commandSpans=[]){
