@@ -10,6 +10,7 @@ on:
       - "nexcontrol/ui/meta-page.mjs"
       - "nexcontrol/api/index.mjs"
       - "nexus-bridge/**"
+      - "pterodactyl/**"
       - ".github/workflows/nexmeta-ci.yml"
   pull_request:
     paths:
@@ -18,6 +19,7 @@ on:
       - "nexcontrol/ui/meta-page.mjs"
       - "nexcontrol/api/index.mjs"
       - "nexus-bridge/**"
+      - "pterodactyl/**"
       - ".github/workflows/nexmeta-ci.yml"
 
 jobs:
@@ -52,7 +54,6 @@ jobs:
           node --check src/control-actions.mjs
           node --check src/handler.mjs
           node --check src/server.mjs
-          node --check api/index.mjs
           node --check ../nexcontrol/lib/nexmeta-client.mjs
           node --check ../nexcontrol/ui/meta-page.mjs
           node --check ../nexcontrol/api/index.mjs
@@ -63,3 +64,6 @@ jobs:
           node --check ../nexus-bridge/media-registry.mjs
           node --check ../nexus-bridge/nexdownloader-direct-core.mjs
           node --check ../nexus-bridge/adapters/nexdownloader.mjs
+          node --check ../pterodactyl/start.mjs
+          node --check ../pterodactyl/check.mjs
+          node --check ../pterodactyl/generate-secrets.mjs
