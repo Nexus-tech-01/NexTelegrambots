@@ -196,7 +196,7 @@ export function commandsByCategory(commands){
   const seen=new Set();
   for(const cmd of commands.values()){
     if(cmd.hidden&&cmd.aliasFor){
-      (out.ALIASES??=[]).push({...cmd,category:'ALIASES',name:cmd.name});
+      (out.ALIASES??=[]).push({...cmd,category:'ALIASES',name:cmd.name,hidden:false});
       continue;
     }
     if(cmd.hidden)continue;
