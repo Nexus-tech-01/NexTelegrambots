@@ -4,7 +4,6 @@ import { beginPairing, cleanupPairings, pairingStatus, submitPairingCode, submit
 import { attachConnectedClient, loadSavedRuntimes, runtimeStatus, stopRuntimes } from './runtime.mjs';
 import { listAccounts, patchSettings, closeStore } from './store.mjs';
 import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
-import { createWebPairing, webPairingStatus } from './web-pairing.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { ensureNexAiBot } from './bot-factory.mjs';
 import { ensureAnalyticsIndex } from './analytics-indexer.mjs';
@@ -35,12 +34,6 @@ async function route(req,res){
     }
     if(req.method==='GET'&&url.pathname==='/pair/status'){
       return json(res,200,{ok:true,...pairingStatus(url.searchParams.get('id')||'')});
-    }
-    if(req.method==='POST'&&url.pathname==='/web-pair/start'){
-      return json(res,200,{ok:true,...await createWebPairing()});
-    }
-    if(req.method==='GET'&&url.pathname==='/web-pair/status'){
-      return json(res,200,{ok:true,...await webPairingStatus(url.searchParams.get('id')||'')});
     }
     if(req.method==='POST'&&url.pathname==='/pair/start'){
       const q=await body(req);
