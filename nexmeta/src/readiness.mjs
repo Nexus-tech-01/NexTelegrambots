@@ -4,6 +4,7 @@ import {
   oauthConfigured
 } from './config.mjs';
 import { connectedPageState } from './token-vault.mjs';
+import { probeNexusGateway } from './router.mjs';
 
 function check(name, ok, detail) {
   return {
@@ -15,6 +16,14 @@ function check(name, ok, detail) {
 
 export async function deploymentReadiness() {
   const pages = await connectedPageState();
+
+  const gatewayProbe =
+    config.nexusGatewayUrl && config.nexusGatewayKey
+      ? await probeNexusGateway()
+      : {
+          ok: false,
+          error: 'gateway_not_configured'
+        };
 
   const checks = [
     check(
@@ -100,6 +109,17 @@ export async function deploymentReadiness() {
       config.nexusGatewayKey
         ? 'Signed Nexus gateway authentication configured'
         : 'NEXUS_COMMAND_GATEWAY_KEY missing'
+    ),
+    check(
+      'nexus_gateway_live',
+      gatewayProbe.ok === true,
+      gatewayProbe.ok
+        ? `Authenticated bridge probe succeeded in ${gatewayProbe.latencyMs}ms`
+        : gatewayProbe.status
+          ? `Bridge probe failed with HTTP ${gatewayProbe.status}`
+          : gatewayProbe.error === 'gateway_not_configured'
+            ? 'Gateway URL/key not configured'
+            : 'Authenticated bridge probe failed'
     )
   ];
 
@@ -118,7 +138,8 @@ export async function deploymentReadiness() {
   const bridgeCheckNames = new Set([
     ...adapterCheckNames,
     'nexus_gateway_url',
-    'nexus_gateway_auth'
+    'nexus_gateway_auth',
+    'nexus_gateway_live'
   ]);
 
   const adapterReady = checks
@@ -136,6 +157,12 @@ export async function deploymentReadiness() {
     adapterReady,
     bridgeReady,
     pages,
+    gatewayProbe: {
+      ok: gatewayProbe.ok === true,
+      latencyMs: gatewayProbe.latencyMs ?? null,
+      status: gatewayProbe.status ?? null,
+      handledBy: gatewayProbe.handledBy ?? null
+    },
     checks
   };
 }
