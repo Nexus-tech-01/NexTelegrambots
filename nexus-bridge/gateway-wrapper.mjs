@@ -8,6 +8,10 @@ import {
 import {
   loadNexusAdapters
 } from './adapter-loader.mjs';
+import {
+  serveRemoteMedia,
+  mediaRegistryStats
+} from './media-registry.mjs';
 
 const outerPort = Number(process.env.PORT || 10000);
 const innerPort = Number(
@@ -209,6 +213,14 @@ const server = http.createServer(async (req, res) => {
     'http://nexus-bridge.local'
   );
 
+  if (url.pathname.startsWith('/nexus-media/')) {
+    const token = url.pathname
+      .slice('/nexus-media/'.length)
+      .trim();
+
+    return serveRemoteMedia(req, res, token);
+  }
+
   if (url.pathname === '/internal/nexus/events') {
     if (!sharedKey) {
       res.statusCode = 503;
@@ -253,6 +265,7 @@ const server = http.createServer(async (req, res) => {
       outerPort,
       innerPort,
       adapters: adapterState.status,
+      mediaRegistry: mediaRegistryStats(),
       discovery: discovery
         ? {
             generatedAt: discovery.generatedAt || null,
