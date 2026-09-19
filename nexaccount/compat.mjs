@@ -3,6 +3,7 @@ import { Api } from 'teleproto';
 import { cfg, isOwnerId } from './config.mjs';
 import { listAccounts, patchSettings, settingsFor } from './store.mjs';
 import { toSmallCaps } from './styles.mjs';
+import { AUDIO_LAB_COMMANDS, handleAudioLabCommand } from './audio-lab.mjs';
 
 const DL_MAP={
   cobalt:'facebook',facebook:'facebook',
@@ -254,6 +255,10 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(cmd?.sourceBot==='nexgroup'&&cmd?.sourceCommand)name=cmd.sourceCommand;
   name=GROUP_ALIAS[name]||name;
   const argText=args.join(' ').trim();
+
+  if(AUDIO_LAB_COMMANDS.has(name)){
+    return handleAudioLabCommand({runtime,event,name,args,sendText});
+  }
 
   if(DL_MAP[name]){
     return proxyCommand(client,peer,{name:DL_MAP[name],proxy:'@TheNexDownloader_bot'},args),true;
