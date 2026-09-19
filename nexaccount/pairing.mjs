@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { TelegramClient } from 'teleproto';
-import { StringSession } from 'teleproto/sessions';
+import { StringSession } from 'teleproto/sessions/index.js';
 import { cfg } from './config.mjs';
 import { saveAccount } from './store.mjs';
 
