@@ -1,136 +1,99 @@
-# NexMeta production setup
+# NexMeta production setup — Pterodactyl
 
-This runbook connects a Facebook Page to NexMeta without committing tokens.
+This runbook connects Facebook/Messenger to NexMeta running on the **same Pterodactyl runtime as the Nexus Telegram bots**.
 
-## 1. Meta application
+## 1. Runtime
 
-Create or select the Meta application that will own NexMeta.
+Use one public HTTPS host mapped to the Pterodactyl public allocation.
 
-Record server-side only:
+Startup command:
 
-- App ID
-- App Secret
-- Graph API version selected for the application
-
-Configure:
-
-```env
-NEXMETA_GRAPH_VERSION=<selected-version>
-NEXMETA_APP_ID=<app-id>
-NEXMETA_APP_SECRET=<app-secret>
+```sh
+sh pterodactyl/start.sh
 ```
 
-Do not put the App Secret in browser code, NexControl HTML, Git or Telegram messages.
+The Pterodactyl supervisor runs:
 
-## 2. Public NexMeta host
+- the existing Telegram orchestrator on an internal port
+- NexMeta on another internal port
+- the Nexus bridge/media relay on the public gateway
 
-Deploy the `nexmeta` directory as its own service.
+No NexMeta Vercel deployment is used.
+
+## 2. Public URL
 
 Set:
 
 ```env
-NEXMETA_PUBLIC_BASE_URL=https://<nexmeta-host>
-NEXMETA_OAUTH_REDIRECT_URI=https://<nexmeta-host>/oauth/meta/callback
+NEXUS_PUBLIC_BASE_URL=https://<public-host>
 ```
 
-Public HTTP endpoints:
+The supervisor/NexMeta derive:
 
 ```
-GET  /health
-GET  /webhooks/meta
-POST /webhooks/meta
-GET  /oauth/meta/callback
+OAuth callback: https://<public-host>/oauth/meta/callback
+Meta webhook:   https://<public-host>/webhooks/meta
+Owner connect:  https://<public-host>/connect/meta
 ```
 
-Private endpoints:
+The public host must be reachable by Meta over HTTPS.
 
-```
-GET  /internal/v1/status
-POST /internal/v1/actions
-```
+## 3. Meta application
 
-Private endpoints must never be exposed to browser code with the NexMeta machine key.
+Create or select the Meta App that will own the integration.
 
-## 3. Webhook verify token
-
-Generate a long random value:
+Store server-side only:
 
 ```env
-NEXMETA_VERIFY_TOKEN=<random-value>
+NEXMETA_GRAPH_VERSION=<version configured for the app>
+NEXMETA_APP_ID=<app-id>
+NEXMETA_APP_SECRET=<app-secret>
 ```
 
-NexMeta uses it for the initial webhook challenge.
+Do not store the Facebook password. NexMeta uses Facebook OAuth and Page Access Tokens.
 
-The callback URL is:
+## 4. Generate NexMeta secrets
 
+Run once on the server:
+
+```sh
+node pterodactyl/generate-secrets.mjs
 ```
-https://<nexmeta-host>/webhooks/meta
-```
 
-NexMeta can provision the App subscription automatically after OAuth through the `configure_webhooks` NexControl action.
-
-Default Page webhook fields:
-
-- `messages`
-- `message_echoes`
-- `message_deliveries`
-- `message_reads`
-- `messaging_postbacks`
-- `message_reactions`
-- `feed`
-
-## 4. Token encryption key
-
-Generate exactly 32 random bytes.
-
-Supply them either as:
-
-- 64 hexadecimal characters, or
-- standard Base64
+Store the generated values as Pterodactyl environment variables:
 
 ```env
-NEXMETA_TOKEN_ENCRYPTION_KEY=<32-byte-key>
+NEXMETA_VERIFY_TOKEN=
+NEXMETA_TOKEN_ENCRYPTION_KEY=
+NEXMETA_CONNECT_KEY=
+NEXMETA_CONTROL_KEY=
+NEXUS_COMMAND_GATEWAY_KEY=
 ```
 
-Page Access Tokens obtained through OAuth are encrypted with AES-256-GCM before MongoDB storage.
-
-Rotating this key requires re-encrypting/reconnecting stored Page credentials. Do not replace it casually.
+Do not commit their real values.
 
 ## 5. MongoDB
 
-NexMeta uses a dedicated logical database by default:
+Configure the shared Nexus MongoDB URI:
 
 ```env
 NEXUS_MONGODB_URI=<shared-nexus-mongodb-uri>
 NEXMETA_DB_NAME=nexmeta
 ```
 
-Collections are created/indexed automatically.
+NexMeta stores Page Access Tokens encrypted with AES-256-GCM.
 
-No Meta token is stored as plaintext.
+## 6. Preflight
 
-## 6. NexControl machine bridge
+Run:
 
-Generate another long random secret shared only by NexControl and NexMeta:
-
-NexMeta:
-
-```env
-NEXMETA_CONTROL_KEY=<random-machine-key>
+```sh
+node pterodactyl/check.mjs
 ```
 
-NexControl:
+Do not proceed until the connection prerequisites are reported ready.
 
-```env
-NEXMETA_URL=https://<nexmeta-host>
-NEXMETA_CONTROL_KEY=<same-random-machine-key>
-```
-
-The browser never receives this value.
-
-NexControl production protects `/meta` and `/api/admin/meta/*` by probing the existing Supabase admin session before making a server-to-server NexMeta call.
-
-## 7. OAuth permissions
+## 7. Meta OAuth permissions
 
 NexMeta currently requests:
 
@@ -142,59 +105,131 @@ NexMeta currently requests:
 - `pages_read_user_content`
 - `pages_messaging`
 
-Use only permissions approved for the application and actual product features.
+Only request/use permissions that match the production features enabled in the Meta App.
 
-Development/test users with Page/App roles can be used before Advanced Access. Production conversations with ordinary users may require Advanced Access and applicable business verification/review.
+Development users with the required App/Page role can be used while the app is in development mode. Broader production use may require Meta App Review/Advanced Access for applicable permissions.
 
-## 8. Connect a Page from NexControl
+## 8. Connect Facebook directly from Pterodactyl
 
-Open:
-
-```
-https://<nexcontrol-host>/meta
-```
-
-The route uses the same NexControl admin session as existing private pages.
-
-Choose **Connecter Facebook**.
-
-Flow:
+After the server is online, open:
 
 ```
-NexControl
- -> NexMeta oauth_start
- -> Facebook Login
- -> NexMeta OAuth callback
- -> long-lived user token
- -> /me/accounts
- -> encrypted Page tokens
- -> App webhook subscription
- -> Page subscribed_apps
- -> default Messenger profile
+https://<public-host>/connect/meta
 ```
 
-The callback page never prints token values.
+Enter the server-side value of:
 
-## 9. Run Doctor
+```
+NEXMETA_CONNECT_KEY
+```
 
-From NexControl use **Doctor global**.
+The key is submitted as a POST body; it is not placed in the URL.
 
-For each Page it checks:
+NexMeta redirects to Facebook Login.
+
+The owner signs in with the Facebook account that manages the intended Page(s). NexMeta then:
+
+1. verifies the one-time OAuth state
+2. exchanges the authorization code server-side
+3. exchanges for a long-lived user token
+4. calls `/me/accounts`
+5. obtains Page Access Tokens for managed Pages
+6. encrypts those Page tokens before MongoDB storage
+7. configures the App webhook callback
+8. subscribes each connected Page to the App
+9. configures the Messenger Profile
+10. activates the first Page when no Page is active
+
+A Facebook personal password is never received or stored by NexMeta.
+
+## 9. Connect through NexControl
+
+NexControl may instead call the private action:
+
+```
+oauth_start
+```
+
+using:
+
+```
+Authorization: Bearer <NEXMETA_CONTROL_KEY>
+```
+
+The browser itself never receives `NEXMETA_CONTROL_KEY`.
+
+## 10. Meta webhook
+
+The callback is:
+
+```
+https://<public-host>/webhooks/meta
+```
+
+Default Page webhook fields:
+
+- `messages`
+- `message_echoes`
+- `message_deliveries`
+- `message_reads`
+- `messaging_postbacks`
+- `message_reactions`
+- `feed`
+
+Webhook POST bodies are verified using `X-Hub-Signature-256` before processing.
+
+## 11. Messenger/Page checks
+
+After OAuth, run the Page Doctor from NexControl or the internal API.
+
+It verifies, without exposing the token:
 
 - token validity
 - expiry/data-access expiry
-- scopes
+- granted scopes
 - Page tasks
 - webhook state
-- post capability
-- comment read/manage capability
+- Page-post capability
+- comment capability
 - Messenger capability
 
-Fix any missing permission before treating the Page as production-ready.
+## 12. Internal Nexus bridge
 
-## 10. Runtime safety
+The Pterodactyl supervisor automatically configures NexMeta to send Nexus envelopes to:
 
-Two persistent switches exist:
+```
+http://127.0.0.1:<public-port>/internal/nexus/events
+```
+
+Requests are HMAC-SHA256 signed.
+
+No external Render/Vercel bridge is required.
+
+The bridge readiness check requires a live signed probe and production-ready adapters for every service listed in:
+
+```env
+NEXMETA_REQUIRED_NEXUS_SERVICES=nexdownloader,nexgame,nexstick,nexgroup,nexcanal
+```
+
+## 13. Health endpoints
+
+Telegram's existing health remains available through its current route.
+
+NexMeta health:
+
+```
+GET /health/meta
+```
+
+Combined runtime health:
+
+```
+GET /health/all
+```
+
+## 14. Runtime kill switches
+
+Persistent state:
 
 ```json
 {
@@ -203,47 +238,32 @@ Two persistent switches exist:
 }
 ```
 
-Inbound OFF:
+Inbound OFF keeps valid webhook events persisted but stops Nexus routing.
 
-- validated webhook payloads are still persisted
-- Nexus routing is stopped
+Outbound OFF blocks Messenger sends, Page post/comment mutations and conversation moderation while leaving diagnostics/repair actions available.
 
-Outbound OFF:
+## 15. Production validation
 
-- Messenger sends are blocked
-- Page post writes are blocked
-- comment mutations are blocked
-- conversation moderation is blocked
+Before calling the connection production-ready:
 
-Configuration/diagnostic actions remain available so the integration can be repaired while outbound traffic is disabled.
+1. `node pterodactyl/check.mjs` passes.
+2. `GET /health/meta` returns healthy.
+3. `GET /health/all` shows Telegram and NexMeta healthy.
+4. `/connect/meta` accepts the owner connection key and opens Facebook Login.
+5. OAuth returns to `/oauth/meta/callback`.
+6. At least one intended Page is stored and active.
+7. Doctor reports a valid token and expected permissions.
+8. App webhook subscription exists.
+9. Page is subscribed to the App.
+10. Messenger Profile is configured.
+11. A real Messenger message appears in persisted webhook events.
+12. A reply uses the same Page that received the message.
+13. Outbound kill switch blocks writes.
+14. No Page token, App Secret or machine key appears in UI/log/audit output.
 
-## 11. Telegram/Nexus gateway
+See also:
 
-Configure after the shared Render gateway receiver is implemented:
-
-```env
-NEXUS_COMMAND_GATEWAY_URL=https://<nexus-bots-host>/internal/nexus/events
-NEXUS_COMMAND_GATEWAY_KEY=<shared-random-secret>
-```
-
-NexMeta signs the exact JSON body with HMAC-SHA256.
-
-See `NEXUS_GATEWAY_CONTRACT.md`.
-
-## 12. Validation before production
-
-Required checks:
-
-1. `GET /health` is healthy.
-2. NexControl `/meta` requires an authenticated admin session.
-3. `secretExposure` remains `false`.
-4. OAuth connects the intended Page.
-5. Doctor reports a valid token and required scopes.
-6. App webhook callback is configured.
-7. Page is subscribed to the App.
-8. Messenger Profile is visible.
-9. A real Messenger message appears in webhook events.
-10. Reply stays inside Meta's allowed messaging rules/window.
-11. Failed webhook replay works.
-12. Outbound kill switch actually blocks writes.
-13. No token appears in logs, audit output or UI.
+- `../pterodactyl/README.md`
+- `META_APP_REVIEW.md`
+- `NEXCONTROL_CONTRACT.md`
+- `NEXUS_GATEWAY_CONTRACT.md`
