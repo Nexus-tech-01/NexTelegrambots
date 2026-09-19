@@ -267,11 +267,14 @@ export async function listConversations({
 
 export async function listConversationMessages(
   conversationId,
-  { limit = 25, after } = {}
+  { limit = 25, after, pageId } = {}
 ) {
   if (!conversationId) throw new Error('conversationId is required');
 
+  const { credential } = await pagePath('', pageId);
+
   return graphRequest(`${conversationId}/messages`, {
+    credential,
     query: {
       fields: 'id,created_time,from,to,message,attachments',
       limit: parseLimit(limit),
@@ -280,10 +283,13 @@ export async function listConversationMessages(
   });
 }
 
-export async function getMessage(messageId) {
+export async function getMessage(messageId, pageId) {
   if (!messageId) throw new Error('messageId is required');
 
+  const { credential } = await pagePath('', pageId);
+
   return graphRequest(messageId, {
+    credential,
     query: {
       fields: 'id,created_time,from,to,message,attachments'
     }
@@ -294,7 +300,8 @@ export async function publishPagePost({
   message = '',
   link,
   published = true,
-  scheduledPublishTime
+  scheduledPublishTime,
+  pageId
 } = {}) {
   if (!String(message).trim() && !link) {
     throw new Error('message or link is required');
@@ -310,7 +317,7 @@ export async function publishPagePost({
 
   const { credential, path } = await pagePath(
     'feed',
-    arguments[0]?.pageId
+    pageId
   );
 
   return graphRequest(path, {
@@ -326,12 +333,19 @@ export async function publishPagePost({
   });
 }
 
-export async function editObjectMessage(objectId, message) {
+export async function editObjectMessage(
+  objectId,
+  message,
+  pageId
+) {
   if (!objectId || !String(message).trim()) {
     throw new Error('objectId and message are required');
   }
 
+  const { credential } = await pagePath('', pageId);
+
   return graphRequest(objectId, {
+    credential,
     method: 'POST',
     bodyMode: 'form',
     body: {
@@ -340,21 +354,27 @@ export async function editObjectMessage(objectId, message) {
   });
 }
 
-export async function deleteObject(objectId) {
+export async function deleteObject(objectId, pageId) {
   if (!objectId) throw new Error('objectId is required');
 
+  const { credential } = await pagePath('', pageId);
+
   return graphRequest(objectId, {
+    credential,
     method: 'DELETE'
   });
 }
 
 export async function listComments(
   objectId,
-  { limit = 25, after } = {}
+  { limit = 25, after, pageId } = {}
 ) {
   if (!objectId) throw new Error('objectId is required');
 
+  const { credential } = await pagePath('', pageId);
+
   return graphRequest(`${objectId}/comments`, {
+    credential,
     query: {
       fields: 'id,message,created_time,from,can_hide,can_remove,can_comment,is_hidden,comment_count',
       filter: 'stream',
@@ -365,12 +385,19 @@ export async function listComments(
   });
 }
 
-export async function replyToComment(commentId, message) {
+export async function replyToComment(
+  commentId,
+  message,
+  pageId
+) {
   if (!commentId || !String(message).trim()) {
     throw new Error('commentId and message are required');
   }
 
+  const { credential } = await pagePath('', pageId);
+
   return graphRequest(`${commentId}/comments`, {
+    credential,
     method: 'POST',
     bodyMode: 'form',
     body: {
@@ -379,10 +406,17 @@ export async function replyToComment(commentId, message) {
   });
 }
 
-export async function setCommentHidden(commentId, isHidden) {
+export async function setCommentHidden(
+  commentId,
+  isHidden,
+  pageId
+) {
   if (!commentId) throw new Error('commentId is required');
 
+  const { credential } = await pagePath('', pageId);
+
   return graphRequest(commentId, {
+    credential,
     method: 'POST',
     bodyMode: 'form',
     body: {
@@ -391,18 +425,25 @@ export async function setCommentHidden(commentId, isHidden) {
   });
 }
 
-export async function getMessengerUserProfile(psid) {
+export async function getMessengerUserProfile(psid, pageId) {
   const id = String(psid || '').trim();
   if (!id) throw new Error('psid is required');
 
+  const { credential } = await pagePath('', pageId);
+
   return graphRequest(id, {
+    credential,
     query: {
       fields: 'id,first_name,last_name,name,profile_pic,locale'
     }
   });
 }
 
-export async function moderateConversation(psid, action) {
+export async function moderateConversation(
+  psid,
+  action,
+  pageId
+) {
   const id = String(psid || '').trim();
   if (!id) throw new Error('psid is required');
 
@@ -420,7 +461,7 @@ export async function moderateConversation(psid, action) {
 
   const { credential, path } = await pagePath(
     'moderate_conversations',
-    arguments[2]
+    pageId
   );
 
   return graphRequest(path, {
@@ -466,7 +507,8 @@ export async function sendButtonTemplate(
   psid,
   text,
   buttons,
-  messagingType = 'RESPONSE'
+  messagingType = 'RESPONSE',
+  pageId
 ) {
   if (!String(text || '').trim()) throw new Error('text is required');
   if (!Array.isArray(buttons) || buttons.length < 1 || buttons.length > 3) {
@@ -481,7 +523,7 @@ export async function sendButtonTemplate(
       buttons
     },
     messagingType,
-    arguments[4]
+    pageId
   );
 }
 
