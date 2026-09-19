@@ -180,14 +180,18 @@ export async function probeNexusGateway() {
         data?.probe === true &&
         data?.handledBy === 'nexus-bridge',
       latencyMs: Date.now() - startedAt,
-      handledBy: data?.handledBy || null
+      handledBy: data?.handledBy || null,
+      availableServices: Array.isArray(data?.services?.available)
+        ? data.services.available.map(String).sort()
+        : []
     };
   } catch (error) {
     return {
       ok: false,
       latencyMs: Date.now() - startedAt,
       status: Number(error?.status) || null,
-      error: String(error?.message || 'gateway_probe_failed').slice(0, 160)
+      error: String(error?.message || 'gateway_probe_failed').slice(0, 160),
+      availableServices: []
     };
   }
 }
