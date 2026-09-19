@@ -28,6 +28,27 @@ function moduleHandler(mod) {
   return null;
 }
 
+function moduleManifest(mod, service) {
+  const raw =
+    mod?.adapterManifest &&
+    typeof mod.adapterManifest === 'object'
+      ? mod.adapterManifest
+      : {};
+
+  return {
+    service,
+    version: String(raw.version || '0'),
+    mode: String(raw.mode || 'unspecified'),
+    productionReady: raw.productionReady === true,
+    capabilities: Array.isArray(raw.capabilities)
+      ? raw.capabilities.map(String)
+      : [],
+    missing: Array.isArray(raw.missing)
+      ? raw.missing.map(String)
+      : []
+  };
+}
+
 export async function loadNexusAdapters({
   directory = '/app/nexus-bridge/adapters',
   services = DEFAULT_NEXUS_SERVICES
@@ -63,10 +84,13 @@ export async function loadNexusAdapters({
         continue;
       }
 
+      const manifest = moduleManifest(mod, name);
+
       loaded[name] = handler;
       status.push({
         service: name,
-        loaded: true
+        loaded: true,
+        manifest
       });
     } catch (error) {
       status.push({
