@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { TelegramClient, Api } from 'teleproto';
-import { StringSession } from 'teleproto/sessions';
-import { NewMessage } from 'teleproto/events';
+import { StringSession } from 'teleproto/sessions/index.js';
+import { NewMessage } from 'teleproto/events/index.js';
 import { cfg } from './config.mjs';
 import { commandMap } from './commands.mjs';
 import { accountWithSession, listAccounts, patchSettings, settingsFor } from './store.mjs';
