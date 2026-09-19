@@ -1,0 +1,133 @@
+export const SUPPORTED_LANGS=['fr','en'];
+
+const FR={
+  bot_welcome:'Bienvenue sur NexAI.',
+  bot_intro:'Connecte ton compte Telegram avec /pair <numéro> ou ouvre les paramètres avec /settings.',
+  pair_usage:'Utilise /pair suivi de ton numéro Telegram, par exemple : /pair +229XXXXXXXX.',
+  pair_starting:'Connexion en cours… Telegram va envoyer un code à ton compte.',
+  pair_code:'Code envoyé. Colle simplement ici le code reçu sur Telegram.',
+  pair_password:'La vérification en deux étapes est activée. Envoie maintenant ton mot de passe 2FA.',
+  pair_connected:'Compte connecté avec succès. NexAccount est maintenant actif.',
+  pair_error:'Échec de la connexion : {error}',
+  settings_title:'PARAMÈTRES',
+  language:'Langue',
+  language_fr:'Français',
+  language_en:'Anglais',
+  language_changed:'Langue changée en français.',
+  menu:'MENU',
+  back:'RETOUR',
+  premium_only:'Cette commande ({command}) est disponible uniquement pour les utilisateurs Telegram Premium.',
+  style_invalid:'Style invalide. Utilise .style pour afficher les styles disponibles.',
+  style_changed:'Style changé : {style} ({id}).',
+  alive:'NexAccount est actif sur ce compte.',
+  account:'Compte',
+  premium:'Premium',
+  yes:'Oui',
+  no:'Non',
+  connected:'connecté',
+  help:'Utilise .menu pour afficher le menu interactif.',
+  joined:'Cible rejointe.',
+  join_failed:'Impossible de rejoindre : {error}',
+  leave_failed:'Impossible de quitter ce chat : {error}',
+  adapter_missing:'La commande {command} est enregistrée dans NexAI mais son adaptateur Telegram n’est pas encore chargé.',
+  bot_owner_menu:'Ce menu appartient au compte connecté.',
+  disconnected:'Compte déconnecté.',
+  styles_title:'STYLES DISPONIBLES',
+  active:'ACTIF',
+  style_hint:'Tu peux aussi utiliser .style <numéro>.',
+  powered:'Propulsé par Nextech',
+  rank_user:'utilisateur',
+  rank_premium:'premium',
+  user:'Utilisateur',
+  rank:'Rang',
+  prefix:'Préfixe',
+  commands:'Commandes',
+  category_GENERAL:'GÉNÉRAL',
+  category_AI:'IA',
+  category_DOWNLOAD:'TÉLÉCHARGEMENT',
+  category_GROUP:'GROUPE',
+  category_CHANNEL:'CANAL',
+  category_TOOLS:'OUTILS',
+  category_STICKERS:'STICKERS',
+  category_GAMES:'JEUX',
+  category_PROTECTION:'PROTECTION',
+  category_ANIME:'ANIME',
+  category_SEARCH:'RECHERCHE',
+  category_PREMIUM:'PREMIUM',
+  category_OWNER:'PROPRIÉTAIRE',
+  category_SETTINGS:'PARAMÈTRES'
+};
+
+const EN={
+  bot_welcome:'Welcome to NexAI.',
+  bot_intro:'Connect your Telegram account with /pair <number> or open settings with /settings.',
+  pair_usage:'Use /pair followed by your Telegram number, for example: /pair +229XXXXXXXX.',
+  pair_starting:'Connecting… Telegram will send a code to your account.',
+  pair_code:'Code sent. Just paste here the code you received from Telegram.',
+  pair_password:'Two-step verification is enabled. Send your 2FA password now.',
+  pair_connected:'Account connected successfully. NexAccount is now active.',
+  pair_error:'Connection failed: {error}',
+  settings_title:'SETTINGS',
+  language:'Language',
+  language_fr:'French',
+  language_en:'English',
+  language_changed:'Language changed to English.',
+  menu:'MENU',
+  back:'BACK',
+  premium_only:'This command ({command}) is available only to Telegram Premium users.',
+  style_invalid:'Invalid style. Use .style to display the available styles.',
+  style_changed:'Style changed: {style} ({id}).',
+  alive:'NexAccount is active on this account.',
+  account:'Account',
+  premium:'Premium',
+  yes:'Yes',
+  no:'No',
+  connected:'connected',
+  help:'Use .menu to display the interactive menu.',
+  joined:'Target joined.',
+  join_failed:'Unable to join: {error}',
+  leave_failed:'Unable to leave this chat: {error}',
+  adapter_missing:'The {command} command is registered in NexAI but its Telegram adapter is not loaded yet.',
+  bot_owner_menu:'This menu belongs to the connected account.',
+  disconnected:'Account disconnected.',
+  styles_title:'AVAILABLE STYLES',
+  active:'ACTIVE',
+  style_hint:'You can also use .style <number>.',
+  powered:'Powered by Nextech',
+  rank_user:'user',
+  rank_premium:'premium',
+  user:'User',
+  rank:'Rank',
+  prefix:'Prefix',
+  commands:'Commands',
+  category_GENERAL:'GENERAL',
+  category_AI:'AI',
+  category_DOWNLOAD:'DOWNLOAD',
+  category_GROUP:'GROUP',
+  category_CHANNEL:'CHANNEL',
+  category_TOOLS:'TOOLS',
+  category_STICKERS:'STICKERS',
+  category_GAMES:'GAMES',
+  category_PROTECTION:'PROTECTION',
+  category_ANIME:'ANIME',
+  category_SEARCH:'SEARCH',
+  category_PREMIUM:'PREMIUM',
+  category_OWNER:'OWNER',
+  category_SETTINGS:'SETTINGS'
+};
+
+export function normalizeLang(value){
+  return String(value||'').toLowerCase().startsWith('fr')?'fr':'en';
+}
+
+export function tr(lang,key,vars={}){
+  const l=normalizeLang(lang);
+  const dict=l==='fr'?FR:EN;
+  let out=String(dict[key]??EN[key]??key);
+  for(const [name,value] of Object.entries(vars))out=out.replaceAll('{'+name+'}',String(value));
+  return out;
+}
+
+export function categoryLabel(lang,category){
+  return tr(lang,'category_'+String(category||'').toUpperCase());
+}
