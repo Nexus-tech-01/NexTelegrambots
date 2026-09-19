@@ -6,6 +6,9 @@ services:
     plan: starter
     autoDeploy: true
     healthCheckPath: /health
+    envVars:
+      - key: NEXUS_COMMAND_GATEWAY_KEY
+        sync: false
     disk:
       name: nexus-bots-data
       mountPath: /var/data
