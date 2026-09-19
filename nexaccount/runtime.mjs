@@ -14,6 +14,7 @@ import { handleCompatCommand } from './compat.mjs';
 const commands=commandMap();
 const runtimes=new Map();
 const spamWindows=new Map();
+const proxyFlows=new WeakMap();
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 function randomLong(){
@@ -115,23 +116,111 @@ async function joinTarget(client,target){
   return client.invoke(new Api.channels.JoinChannel({channel:entity}));
 }
 
+function peerKey(peer){
+  return String(peer?.userId||peer?.channelId||peer?.chatId||peer?.className||peer||'');
+}
+function flowMap(client){
+  let map=proxyFlows.get(client);
+  if(!map){map=new Map();proxyFlows.set(client,map)}
+  return map;
+}
+function extractReplyButtons(message){
+  const rows=message?.replyMarkup?.rows||[];
+  const out=[];
+  for(const row of rows)for(const b of row?.buttons||[]){
+    const text=String(b?.text||'').trim();
+    if(!text)continue;
+    out.push({text,data:b?.data||null,url:b?.url||null});
+  }
+  return out;
+}
+async function relaySourceMessage(client,peer,botEntity,message){
+  if(message.media)await client.forwardMessages(peer,{messages:[message.id],fromPeer:botEntity});
+  else if(message.message)await client.sendMessage(peer,{message:message.message});
+  const buttons=extractReplyButtons(message);
+  if(buttons.length){
+    const menu=['Actions du module :',...buttons.map((b,i)=>(i+1)+'. '+b.text+(b.url?' · '+b.url:''))].join('\n');
+    await client.sendMessage(peer,{message:menu});
+  }
+  return buttons;
+}
+async function waitProxyResponses(client,peer,botEntity,afterId,{timeoutMs=25000}={}){
+  const deadline=Date.now()+timeoutMs;
+  let highest=Number(afterId||0),firstAt=0,last=null,lastButtons=[];
+  while(Date.now()<deadline){
+    await sleep(650);
+    const msgs=await client.getMessages(botEntity,{limit:12});
+    const fresh=msgs.filter(m=>!m.out&&Number(m.id)>highest).sort((a,b)=>Number(a.id)-Number(b.id));
+    for(const response of fresh){
+      highest=Math.max(highest,Number(response.id));
+      last=response;
+      lastButtons=await relaySourceMessage(client,peer,botEntity,response);
+      if(!firstAt)firstAt=Date.now();
+    }
+    if(firstAt&&Date.now()-firstAt>1600)break;
+  }
+  return {last,lastButtons,highest};
+}
 async function proxyCommand(client,peer,cmd,args){
   const botEntity=await client.getInputEntity(cmd.proxy);
   const body=cmd.proxyMode==='chat'
     ? String(args.join(' ')||cmd.name)
     : '/'+cmd.name+(args.length?' '+args.join(' '):'');
   const sent=await client.sendMessage(botEntity,{message:body});
-  const deadline=Date.now()+25000;
-  while(Date.now()<deadline){
-    await sleep(900);
-    const msgs=await client.getMessages(botEntity,{limit:5});
-    const response=msgs.find(m=>!m.out&&Number(m.id)>Number(sent.id));
-    if(!response)continue;
-    if(response.media)await client.forwardMessages(peer,{messages:[response.id],fromPeer:botEntity});
-    else if(response.message)await client.sendMessage(peer,{message:response.message});
-    return true;
+  const result=await waitProxyResponses(client,peer,botEntity,sent.id);
+  if(!result.last)throw new Error('Le bot source n’a pas répondu à temps');
+  flowMap(client).set(peerKey(peer),{
+    botEntity,source:cmd.proxy,peer,lastBotMessageId:Number(result.last.id),
+    buttons:result.lastButtons,expiresAt:Date.now()+10*60*1000
+  });
+  return true;
+}
+
+async function handleProxyFlowInput(runtime,event){
+  const {client}=runtime;
+  const key=peerKey(event.message?.peerId);
+  const map=flowMap(client),flow=map.get(key);
+  if(!flow)return false;
+  if(Date.now()>flow.expiresAt){map.delete(key);return false}
+  const raw=textOf(event.message);
+  if(raw==='.cancelproxy'||raw==='/cancelproxy'){map.delete(key);await sendText(client,event.message.peerId,'Flux du module fermé.');return true}
+
+  let sentId=flow.lastBotMessageId;
+  const n=/^\d{1,2}$/.test(raw)?Number(raw):0;
+  const button=n>0?flow.buttons?.[n-1]:null;
+  if(button){
+    if(button.url){await sendText(client,event.message.peerId,button.url);return true}
+    if(button.data){
+      await client.invoke(new Api.messages.GetBotCallbackAnswer({
+        peer:flow.botEntity,msgId:flow.lastBotMessageId,data:button.data
+      }));
+      await sleep(800);
+      const editedRows=await client.getMessages(flow.botEntity,{ids:[flow.lastBotMessageId]});
+      const edited=Array.isArray(editedRows)?editedRows[0]:editedRows;
+      if(edited){
+        flow.buttons=await relaySourceMessage(client,event.message.peerId,flow.botEntity,edited);
+        flow.lastBotMessageId=Number(edited.id);
+      }
+    }else{
+      const sent=await client.sendMessage(flow.botEntity,{message:button.text});
+      sentId=Number(sent.id);
+    }
+  }else if(event.message?.media){
+    const forwarded=await client.forwardMessages(flow.botEntity,{messages:[event.message.id],fromPeer:event.message.peerId});
+    const arr=Array.isArray(forwarded)?forwarded:[forwarded];sentId=Math.max(sentId,...arr.map(x=>Number(x?.id||0)));
+  }else if(raw){
+    const sent=await client.sendMessage(flow.botEntity,{message:raw});
+    sentId=Number(sent.id);
+  }else return false;
+
+  const result=await waitProxyResponses(client,event.message.peerId,flow.botEntity,sentId,{timeoutMs:25000});
+  if(result.last){
+    flow.lastBotMessageId=Number(result.last.id);
+    flow.buttons=result.lastButtons;
+    flow.expiresAt=Date.now()+10*60*1000;
+    map.set(key,flow);
   }
-  throw new Error('Le bot source n’a pas répondu à temps');
+  return true;
 }
 
 async function premiumDenied(client,peer,name){
@@ -320,6 +409,7 @@ export async function attachConnectedClient(client,account){
       const settings=await settingsFor(id);
       const parsed=parseCommand(textOf(event.message),settings.prefix||'.');
       if(parsed)await handleCommand(runtime,event,parsed);
+      else await handleProxyFlowInput(runtime,event);
     }catch(e){console.error('[NexAccount outgoing]',id,e)}
   },new NewMessage({outgoing:true}));
 
