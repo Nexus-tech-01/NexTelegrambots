@@ -12,7 +12,10 @@ import {
   getRuntimeSettings
 } from './store.mjs';
 import { processWebhookPayload } from './processor.mjs';
-import { completeMetaOAuth } from './meta-oauth.mjs';
+import {
+  completeMetaOAuth,
+  createMetaOAuthStart
+} from './meta-oauth.mjs';
 import { connectedPageState } from './token-vault.mjs';
 import {
   CONTROL_CAPABILITIES,
@@ -184,6 +187,126 @@ async function metaOAuthCallback(res, url) {
   }
 }
 
+
+function connectPageHtml({
+  error = '',
+  disabled = false
+} = {}) {
+  const message = disabled
+    ? 'La connexion directe est désactivée. Configure NEXMETA_CONNECT_KEY ou utilise NexControl.'
+    : 'Entre la clé de connexion propriétaire configurée sur le serveur. Elle est envoyée uniquement en POST HTTPS et n’est jamais placée dans l’URL.';
+
+  return `<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Connect Facebook · NexMeta</title>
+<style>
+html{background:#080808;color:#f4f4f4;font-family:system-ui,-apple-system,sans-serif}
+body{min-height:100vh;margin:0;display:grid;place-items:center;padding:24px}
+main{width:min(560px,100%);box-sizing:border-box;border:1px solid #2a2a2a;border-radius:24px;padding:32px;background:#111}
+small{letter-spacing:.14em;text-transform:uppercase;color:#999}
+h1{font-size:38px;margin:12px 0 8px;letter-spacing:-.04em}
+p{color:#aaa;line-height:1.55}
+label{display:block;margin:24px 0 8px;font-size:12px;color:#aaa;text-transform:uppercase;letter-spacing:.08em}
+input{width:100%;box-sizing:border-box;background:#090909;color:#fff;border:1px solid #333;border-radius:14px;padding:14px 16px;font:inherit}
+button{margin-top:12px;width:100%;border:0;border-radius:14px;padding:14px 16px;background:#f2f2f2;color:#090909;font:700 15px system-ui;cursor:pointer}
+.err{color:#ffb0b0}
+</style>
+</head>
+<body><main>
+<small>NexMeta · Owner connection</small>
+<h1>Connecter Facebook</h1>
+<p>${message}</p>
+${error ? `<p class="err">${String(error).replace(/[&<>]/g, '')}</p>` : ''}
+${disabled ? '' : `
+<form method="post" action="/connect/meta" autocomplete="off">
+<label for="key">Clé propriétaire</label>
+<input id="key" name="key" type="password" required autocomplete="off" spellcheck="false">
+<button type="submit">Continuer avec Facebook</button>
+</form>`}
+</main></body></html>`;
+}
+
+async function ownerConnect(req, res) {
+  if (req.method === 'GET') {
+    res.statusCode = config.connectKey ? 200 : 503;
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    res.setHeader('cache-control', 'no-store');
+    res.setHeader('x-robots-tag', 'noindex, nofollow');
+    return res.end(
+      connectPageHtml({
+        disabled: !config.connectKey
+      })
+    );
+  }
+
+  if (req.method !== 'POST') {
+    return writeJson(res, 405, {
+      error: 'method_not_allowed'
+    });
+  }
+
+  if (!config.connectKey) {
+    return writeJson(res, 503, {
+      error: 'owner_connect_disabled'
+    });
+  }
+
+  const raw = await readRaw(req, 16 * 1024);
+  const contentType = String(
+    req.headers['content-type'] || ''
+  ).toLowerCase();
+
+  let supplied = '';
+
+  if (contentType.includes('application/x-www-form-urlencoded')) {
+    supplied = new URLSearchParams(
+      raw.toString('utf8')
+    ).get('key') || '';
+  } else {
+    try {
+      supplied = JSON.parse(raw.toString('utf8'))?.key || '';
+    } catch {
+      supplied = '';
+    }
+  }
+
+  if (!authorizeControl(
+    `Bearer ${String(supplied)}`,
+    config.connectKey
+  )) {
+    await audit('nexmeta.owner_connect.denied', 'web', {
+      ok: false
+    }).catch(() => {});
+
+    res.statusCode = 403;
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    res.setHeader('cache-control', 'no-store');
+    return res.end(
+      connectPageHtml({
+        error: 'Clé incorrecte.'
+      })
+    );
+  }
+
+  const start = await createMetaOAuthStart({
+    actor: 'owner-connect-page',
+    ttlSeconds: 600
+  });
+
+  await audit('nexmeta.owner_connect.started', 'web', {
+    ok: true
+  }).catch(() => {});
+
+  res.statusCode = 303;
+  res.setHeader('location', start.authorizationUrl);
+  res.setHeader('cache-control', 'no-store');
+  return res.end();
+}
+
 function publicActionError(error) {
   return {
     error: error?.message === 'unsupported_action'
@@ -285,6 +408,10 @@ export async function handleRequest(req, res) {
         runtime,
         pages
       });
+    }
+
+    if (path === '/connect/meta') {
+      return ownerConnect(req, res);
     }
 
     if (req.method === 'GET' && path === '/oauth/meta/callback') {
