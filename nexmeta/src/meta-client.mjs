@@ -363,4 +363,123 @@ export async function setCommentHidden(commentId, isHidden) {
   });
 }
 
+export async function getMessengerUserProfile(psid) {
+  const id = String(psid || '').trim();
+  if (!id) throw new Error('psid is required');
+
+  return graphRequest(id, {
+    query: {
+      fields: 'id,first_name,last_name,name,profile_pic,locale'
+    }
+  });
+}
+
+export async function moderateConversation(psid, action) {
+  const id = String(psid || '').trim();
+  if (!id) throw new Error('psid is required');
+
+  const allowed = new Set([
+    'block_user',
+    'unblock_user',
+    'ban_user',
+    'unban_user',
+    'move_to_spam'
+  ]);
+
+  if (!allowed.has(String(action))) {
+    throw new Error('unsupported moderation action');
+  }
+
+  const { credential, path } = await activePagePath('moderate_conversations');
+
+  return graphRequest(path, {
+    credential,
+    method: 'POST',
+    body: {
+      user_ids: [{ id }],
+      actions: [String(action)]
+    }
+  });
+}
+
+export async function sendTemplate(
+  psid,
+  templatePayload,
+  messagingType = 'RESPONSE'
+) {
+  if (!psid) throw new Error('psid is required');
+  if (!templatePayload || typeof templatePayload !== 'object') {
+    throw new Error('templatePayload is required');
+  }
+
+  const { credential, path } = await activePagePath('messages');
+
+  return graphRequest(path, {
+    credential,
+    method: 'POST',
+    body: {
+      recipient: { id: String(psid) },
+      messaging_type: messagingType,
+      message: {
+        attachment: {
+          type: 'template',
+          payload: templatePayload
+        }
+      }
+    }
+  });
+}
+
+export async function sendButtonTemplate(
+  psid,
+  text,
+  buttons,
+  messagingType = 'RESPONSE'
+) {
+  if (!String(text || '').trim()) throw new Error('text is required');
+  if (!Array.isArray(buttons) || buttons.length < 1 || buttons.length > 3) {
+    throw new Error('buttons must contain between 1 and 3 items');
+  }
+
+  return sendTemplate(
+    psid,
+    {
+      template_type: 'button',
+      text: String(text).slice(0, 640),
+      buttons
+    },
+    messagingType
+  );
+}
+
+export async function sendImageGallery(
+  psid,
+  imageUrls,
+  messagingType = 'RESPONSE'
+) {
+  if (!psid) throw new Error('psid is required');
+  if (!Array.isArray(imageUrls) || imageUrls.length < 1 || imageUrls.length > 30) {
+    throw new Error('imageUrls must contain between 1 and 30 images');
+  }
+
+  const { credential, path } = await activePagePath('messages');
+
+  return graphRequest(path, {
+    credential,
+    method: 'POST',
+    body: {
+      recipient: { id: String(psid) },
+      messaging_type: messagingType,
+      message: {
+        attachments: imageUrls.map(url => ({
+          type: 'image',
+          payload: {
+            url: String(url)
+          }
+        }))
+      }
+    }
+  });
+}
+
 export { parseLimit };
