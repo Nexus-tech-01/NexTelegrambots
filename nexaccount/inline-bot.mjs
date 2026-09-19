@@ -171,13 +171,48 @@ async function sendOwner(ctx,kind,args=[]){
   return ctx.reply(text,{entities:ownerEntities(text)});
 }
 
+function pairingErrorMessage(state,lang){
+  const code=String(state?.errorCode||state?.error||'').toUpperCase();
+  if(!code)return '';
+  const en=lang==='en';
+  if(code.includes('PHONE_CODE_INVALID'))return en
+    ? '❌ Telegram rejected this code. Send the latest login code you received.'
+    : '❌ Telegram a refusé ce code. Envoie le dernier code de connexion reçu.';
+  if(code.includes('PHONE_CODE_EXPIRED'))return en
+    ? '❌ This Telegram login code has expired. Start again with /pair.'
+    : '❌ Ce code Telegram a expiré. Relance la connexion avec /pair.';
+  if(code.includes('PHONE_CODE_EMPTY'))return en
+    ? '❌ The code was empty. Send the complete Telegram login code.'
+    : '❌ Le code était vide. Envoie le code Telegram complet.';
+  if(code.includes('PASSWORD_HASH_INVALID'))return en
+    ? '❌ Incorrect Telegram 2FA password. Try again.'
+    : '❌ Mot de passe Telegram 2FA incorrect. Réessaie.';
+  if(code.includes('FLOOD_WAIT'))return en
+    ? '❌ Telegram temporarily limited login attempts. Try again later with /pair.'
+    : '❌ Telegram a temporairement limité les tentatives. Réessaie plus tard avec /pair.';
+  if(code.includes('PHONE_NUMBER_INVALID'))return en
+    ? '❌ Telegram rejected this phone number. Check it and restart with /pair.'
+    : '❌ Telegram a refusé ce numéro. Vérifie-le puis relance /pair.';
+  return en
+    ? '❌ Telegram authentication error: '+String(state?.error||state?.errorCode||'unknown')
+    : '❌ Erreur d’authentification Telegram : '+String(state?.error||state?.errorCode||'inconnue');
+}
+
 async function pairReply(ctx,state,lang){
   if(state.stage==='code'){
-    const t=lang==='en'?'🔐 ѕᴇɴᴅ ᴛʜᴇ ᴛᴇʟᴇɢʀᴀᴍ ʟᴏɢɪɴ ᴄᴏᴅᴇ.\n/cancel':'🔐 ᴇɴᴠᴏɪᴇ ʟᴇ ᴄᴏᴅᴇ ᴅᴇ ᴄᴏɴɴᴇxɪᴏɴ ᴛᴇʟᴇɢʀᴀᴍ.\n/cancel';
+    const err=pairingErrorMessage(state,lang);
+    const prompt=lang==='en'
+      ? '🔐 ѕᴇɴᴅ ᴛʜᴇ ᴛᴇʟᴇɢʀᴀᴍ ʟᴏɢɪɴ ᴄᴏᴅᴇ.\n/cancel'
+      : '🔐 ᴇɴᴠᴏɪᴇ ʟᴇ ᴄᴏᴅᴇ ᴅᴇ ᴄᴏɴɴᴇxɪᴏɴ ᴛᴇʟᴇɢʀᴀᴍ.\n/cancel';
+    const t=(err?err+'\n\n':'')+prompt;
     return ctx.reply(t,{entities:quotedEntities(t,['/cancel'])});
   }
   if(state.stage==='password'){
-    const t=lang==='en'?'🔑 2ғᴀ ɪѕ ᴇɴᴀʙʟᴇᴅ. ѕᴇɴᴅ ʏᴏᴜʀ ᴛᴇʟᴇɢʀᴀᴍ ᴘᴀѕѕᴡᴏʀᴅ.\n/cancel':'🔑 ʟᴀ 2ғᴀ ᴇѕᴛ ᴀᴄᴛɪᴠᴇ. ᴇɴᴠᴏɪᴇ ᴛᴏɴ ᴍᴏᴛ ᴅᴇ ᴘᴀѕѕᴇ ᴛᴇʟᴇɢʀᴀᴍ.\n/cancel';
+    const err=pairingErrorMessage(state,lang);
+    const prompt=lang==='en'
+      ? '🔑 2ғᴀ ɪѕ ᴇɴᴀʙʟᴇᴅ. ѕᴇɴᴅ ʏᴏᴜʀ ᴛᴇʟᴇɢʀᴀᴍ ᴘᴀѕѕᴡᴏʀᴅ.\n/cancel'
+      : '🔑 ʟᴀ 2ғᴀ ᴇѕᴛ ᴀᴄᴛɪᴠᴇ. ᴇɴᴠᴏɪᴇ ᴛᴏɴ ᴍᴏᴛ ᴅᴇ ᴘᴀѕѕᴇ ᴛᴇʟᴇɢʀᴀᴍ.\n/cancel';
+    const t=(err?err+'\n\n':'')+prompt;
     return ctx.reply(t,{entities:quotedEntities(t,['/cancel'])});
   }
   if(state.stage==='connected'){
@@ -187,7 +222,11 @@ async function pairReply(ctx,state,lang){
   }
   if(state.stage==='error'||state.stage==='missing'){
     pairingByUser.delete(String(ctx.from.id));
-    const t=lang==='en'?'❌ ᴄᴏɴɴᴇᴄᴛɪᴏɴ ғᴀɪʟᴇᴅ. ᴜѕᴇ /pair ᴛᴏ ѕᴛᴀʀᴛ ᴀɢᴀɪɴ.':'❌ éᴄʜᴇᴄ ᴅᴇ ʟᴀ ᴄᴏɴɴᴇxɪᴏɴ. ᴜᴛɪʟɪѕᴇ /pair ᴘᴏᴜʀ ʀᴇᴄᴏᴍᴍᴇɴᴄᴇʀ.';
+    const err=pairingErrorMessage(state,lang);
+    const base=lang==='en'
+      ? '❌ ᴄᴏɴɴᴇᴄᴛɪᴏɴ ғᴀɪʟᴇᴅ. ᴜѕᴇ /pair ᴛᴏ ѕᴛᴀʀᴛ ᴀɢᴀɪɴ.'
+      : '❌ éᴄʜᴇᴄ ᴅᴇ ʟᴀ ᴄᴏɴɴᴇxɪᴏɴ. ᴜᴛɪʟɪѕᴇ /pair ᴘᴏᴜʀ ʀᴇᴄᴏᴍᴍᴇɴᴄᴇʀ.';
+    const t=(err?err+'\n\n':'')+base;
     return ctx.reply(t,{entities:quotedEntities(t,['/pair'])});
   }
 }
