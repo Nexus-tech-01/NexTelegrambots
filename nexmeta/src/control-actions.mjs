@@ -152,6 +152,7 @@ export function controlAuditMetadata(body) {
   const action = String(body?.action || '');
   const metadata = {
     action,
+    pageId: safeAuditTarget(body?.pageId),
     target:
       safeAuditTarget(body?.psid) ||
       safeAuditTarget(body?.pageId) ||
