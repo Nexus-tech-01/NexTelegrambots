@@ -101,12 +101,12 @@ function signedHeaders(body) {
   return headers;
 }
 
-export async function callNexusGateway(event) {
+export async function callNexusGateway(event, context = {}) {
   if (!config.nexusGatewayUrl) return null;
 
   const routing = classifyNexusRoute(event);
   const body = JSON.stringify(
-    toNexusEnvelope(event, routing)
+    toNexusEnvelope(event, routing, context.identity || {})
   );
 
   const response = await fetch(config.nexusGatewayUrl, {
@@ -174,7 +174,7 @@ function normalizeGatewayReply(gatewayResult) {
   };
 }
 
-export async function routeNexusEvent(event) {
+export async function routeNexusEvent(event, context = {}) {
   if (event?.isEcho) {
     return {
       handled: true,
@@ -182,7 +182,7 @@ export async function routeNexusEvent(event) {
     };
   }
 
-  const gatewayResult = await callNexusGateway(event);
+  const gatewayResult = await callNexusGateway(event, context);
 
   if (gatewayResult) {
     return {
@@ -226,12 +226,12 @@ export async function routeNexusEvent(event) {
   };
 }
 
-export async function routeInbound(event) {
+export async function routeInbound(event, context = {}) {
   if (!['message', 'postback'].includes(event.type)) {
     return {
       handled: false
     };
   }
 
-  return routeNexusEvent(event);
+  return routeNexusEvent(event, context);
 }
