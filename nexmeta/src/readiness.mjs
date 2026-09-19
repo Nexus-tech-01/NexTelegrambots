@@ -15,7 +15,23 @@ function check(name, ok, detail) {
 }
 
 export async function deploymentReadiness() {
-  const pages = await connectedPageState();
+  let pages = {
+    connectedPages: 0,
+    activePage: null,
+    subscribedPages: 0,
+    staticFallbackConfigured: Boolean(
+      config.pageId && config.pageAccessToken
+    )
+  };
+  let pageStateError = null;
+
+  try {
+    pages = await connectedPageState();
+  } catch (error) {
+    pageStateError = String(
+      error?.message || error
+    ).slice(0, 300);
+  }
 
   const gatewayProbe =
     config.nexusGatewayUrl && config.nexusGatewayKey
@@ -97,7 +113,9 @@ export async function deploymentReadiness() {
         ? `Active Page: ${pages.activePage.name || pages.activePage.pageId}`
         : pages.staticFallbackConfigured
           ? 'Static bootstrap Page configured'
-          : 'No active Facebook Page'
+          : pageStateError
+            ? `Page state unavailable: ${pageStateError}`
+            : 'No active Facebook Page'
     ),
     check(
       'page_webhook_subscription',
@@ -106,7 +124,9 @@ export async function deploymentReadiness() {
         ? `${pages.subscribedPages} Page(s) subscribed`
         : pages.staticFallbackConfigured
           ? 'Static Page: subscription state not stored in vault'
-          : 'No Page webhook subscription confirmed'
+          : pageStateError
+            ? `Webhook state unavailable: ${pageStateError}`
+            : 'No Page webhook subscription confirmed'
     ),
     check(
       'nexus_gateway_url',
@@ -180,6 +200,7 @@ export async function deploymentReadiness() {
     adapterReady,
     bridgeReady,
     pages,
+    pageStateError,
     gatewayProbe: {
       ok: gatewayProbe.ok === true,
       latencyMs: gatewayProbe.latencyMs ?? null,
