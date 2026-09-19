@@ -130,7 +130,7 @@ ${css}
         <div class="meta-actions">
           <button class="action primary" id="connectFacebook">Connecter Facebook</button>
           <button class="action" data-action="configure_webhooks">Configurer webhooks</button>
-          <button class="action" data-action="configure_default_messenger_profile">Profil Messenger</button>
+          <button class="action" data-action="configure_all_default_messenger_profiles">Profils Messenger</button>
           <button class="action" data-action="doctor_all_pages">Doctor global</button>
         </div>
       </article>
@@ -243,7 +243,7 @@ document.addEventListener('click',async e=>{
   const pageId=button.dataset.page;
   try{
     await metaAction(action,pageId?{pageId}:{});
-    if(['activate_connected_page','remove_connected_page','subscribe_page_webhooks','configure_webhooks','configure_default_messenger_profile'].includes(action)){
+    if(['activate_connected_page','remove_connected_page','subscribe_page_webhooks','configure_webhooks','configure_all_default_messenger_profiles'].includes(action)){
       setTimeout(()=>location.reload(),350);
     }
   }catch(e){}
