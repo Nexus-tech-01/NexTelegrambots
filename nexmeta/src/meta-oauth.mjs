@@ -258,6 +258,13 @@ export async function completeMetaOAuth({
   }
 
   const pages = await getManagedPages(longLived.access_token);
+
+  if (!pages.length) {
+    const error = new Error('no_managed_facebook_pages');
+    error.status = 422;
+    throw error;
+  }
+
   const stored = await storeConnectedPages(pages);
   const webhooks = stored.length
     ? await provisionWebhooks(stored)
@@ -285,6 +292,9 @@ export async function completeMetaOAuth({
     actor: claimedState.actor,
     pagesDiscovered: pages.length,
     pagesStored: stored.length,
+    messengerCapablePages: stored.filter(
+      page => page.messagingTask === true
+    ).length,
     pages: stored,
     webhooks,
     messengerProfile
