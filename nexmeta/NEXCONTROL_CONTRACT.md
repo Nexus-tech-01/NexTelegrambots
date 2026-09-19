@@ -1,61 +1,96 @@
-# NexMeta ↔ NexControl contract v0.2
+# NexMeta ↔ NexControl contract v0.4
 
-NexControl is the administrative control plane for NexMeta.
+NexControl is the owner/admin control plane for NexMeta.
 
-## Authentication
+## Authentication boundary
 
-NexControl calls NexMeta with:
+NexControl calls NexMeta server-to-server:
 
 ```
 Authorization: Bearer <NEXMETA_CONTROL_KEY>
 ```
 
-The machine key is stored only by the deployment secret managers of NexControl and NexMeta.
+Browser JavaScript must never receive this key.
 
-It must never be:
+The NexControl Vercel bridge exposes:
 
-- rendered in the NexControl UI
-- returned from a NexMeta endpoint
-- written to application logs
-- committed to Git
+```
+GET  /meta
+GET  /api/admin/meta/status
+POST /api/admin/meta/action
+```
 
-NexMeta deliberately implements **USE_SECRET, not READ_SECRET** semantics.
+Before serving/calling NexMeta, it validates the existing NexControl admin session against the current Supabase admin API.
 
 ## Status
 
 `GET /internal/v1/status`
 
-Returns:
+Returns non-secret state such as:
 
-- service/version state
-- whether Meta configuration is complete
-- runtime kill-switch state
+- version
+- Meta configuration boolean
+- runtime switches
+- connected/active Page summary
 - advertised capabilities
 - `secretExposure: false`
 
-## Action endpoint
+## Actions
 
-`POST /internal/v1/actions`
+All administrative calls use:
 
-Request format:
+```
+POST /internal/v1/actions
+```
+
+Body:
 
 ```json
 {
-  "action": "<capability>",
-  "...": "action-specific payload"
+  "action": "<action>",
+  "...": "action payload"
 }
 ```
 
-## Operational capabilities
+## Connection and Pages
 
-### Diagnostics
+- `oauth_start`
+- `list_connected_pages`
+- `activate_connected_page`
+- `remove_connected_page`
+
+OAuth returns an authorization URL, never token values.
+
+Connected Page responses exclude encrypted token blobs.
+
+## Webhooks
+
+- `configure_webhooks`
+- `inspect_app_webhooks`
+- `subscribe_page_webhooks`
+- `inspect_page_webhooks`
+- `unsubscribe_page_webhooks`
+
+## Messenger Profile
+
+- `configure_default_messenger_profile`
+- `configure_messenger_profile`
+- `inspect_messenger_profile`
+- `delete_messenger_profile_fields`
+
+## Diagnostics
 
 - `probe_page`
 - `metrics`
+- `deployment_readiness`
+- `doctor_page`
+- `doctor_all_pages`
 - `recent_audit`
 - `runtime_settings`
 
-### Safety
+Doctor returns token validity/scopes/expiry and capability results, but never the token.
+
+## Safety
 
 - `set_runtime`
 
@@ -69,37 +104,24 @@ Example:
 }
 ```
 
-When outbound is disabled, Meta write operations are rejected server-side even if a client UI still tries to call them.
+Outbound OFF blocks user-facing Meta writes/moderation at NexMeta, even if a UI attempts the request.
 
-### Webhook recovery
+Configuration and diagnostic operations remain available for recovery.
+
+## Webhook recovery
 
 - `list_webhook_events`
 - `replay_webhook`
 
-Example:
+Replay uses the persisted server-side payload. The normal list action does not return raw webhook bodies.
 
-```json
-{
-  "action": "list_webhook_events",
-  "status": "failed",
-  "limit": 50
-}
-```
-
-```json
-{
-  "action": "replay_webhook",
-  "eventKey": "<sha256-event-key>"
-}
-```
-
-### Identity
+## Identity
 
 - `create_link_code`
 - `link_identity`
 - `unlink_identity`
 
-Preferred user-facing pairing flow:
+Preferred flow:
 
 ```json
 {
@@ -109,25 +131,30 @@ Preferred user-facing pairing flow:
 }
 ```
 
-NexControl receives the plaintext one-time code only once. NexMeta stores its hash and expiration record.
+The plaintext pairing code is returned once. MongoDB stores only its hash/expiry/use state.
 
-### Messenger
+## Messenger writes/reads
 
 - `send_text`
 - `send_media`
 - `send_quick_replies`
+- `send_template`
+- `send_button_template`
+- `send_image_gallery`
 - `sender_action`
+- `get_messenger_user_profile`
+- `moderate_conversation`
 - `list_conversations`
 - `list_conversation_messages`
 - `get_message`
 
-### Facebook Page
+## Facebook Page
 
 - `publish_page_post`
 - `edit_page_post`
 - `delete_page_post`
 
-### Comments
+## Comments
 
 - `list_comments`
 - `reply_comment`
@@ -135,47 +162,52 @@ NexControl receives the plaintext one-time code only once. NexMeta stores its ha
 - `unhide_comment`
 - `delete_comment`
 
-## Audit rules
+## Audit policy
 
-Every administrative action is written to `audit_logs`.
+Every administrative action is audited.
 
-Audit metadata may contain:
+Allowed audit metadata includes:
 
 - action
-- target ID
+- target identifier
 - success/failure
-- Meta error code
-- text/message length
-- timestamps
+- Meta error code/subcode
+- content length
 - runtime flag changes
+- Page ID
+- webhook provisioning result
 
-Audit metadata must not contain:
+Forbidden audit data includes:
 
-- Meta Page access token
-- Meta app secret
+- Page Access Token
+- App Secret
 - NexControl machine key
-- full message text supplied to write actions
-- one-time pairing code plaintext
+- Nexus gateway key
+- full admin message content
+- pairing code plaintext
+- OAuth authorization code
 
-## NexControl client
-
-The repository contains:
+## NexControl server-side client
 
 ```
 nexcontrol/lib/nexmeta-client.mjs
 ```
 
-It wraps the machine contract so NexControl UI/backend code does not need to know Graph API details.
-
 Required NexControl server-side variables:
 
 ```env
 NEXMETA_URL=https://<nexmeta-host>
-NEXMETA_CONTROL_KEY=<same-machine-secret>
+NEXMETA_CONTROL_KEY=<same-machine-key>
 ```
 
-## Production integration rule
+## Browser rule
 
-Do not expose NexMeta directly to browser JavaScript for administrative calls.
+The browser only talks to authenticated NexControl routes.
 
-The browser talks to authenticated NexControl. NexControl calls NexMeta server-to-server using the machine key.
+It must not call `/internal/v1/*` directly and must never be given machine credentials.
+
+## Current deployment note
+
+The production Supabase `nexcontrol` Edge Function is active but its full source cannot currently be retrieved through the connected Supabase tool.
+
+To avoid overwriting a live control plane blindly, the Meta panel/auth bridge is implemented in the Vercel proxy layer and delegates authentication to the existing Supabase admin API.
