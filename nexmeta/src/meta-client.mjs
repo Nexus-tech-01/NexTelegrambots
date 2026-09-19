@@ -1,7 +1,9 @@
-import { config, assertMetaSendConfig } from './config.mjs';
+import crypto from 'node:crypto';
+import { config, assertGraphConfig } from './config.mjs';
+import { getActivePageCredential } from './token-vault.mjs';
 
 function graphBase() {
-  assertMetaSendConfig();
+  assertGraphConfig();
   return `https://graph.facebook.com/${config.graphVersion}`;
 }
 
@@ -19,10 +21,26 @@ function parseLimit(value, fallback = 25, max = 100) {
   return Math.max(1, Math.min(max, Math.trunc(n)));
 }
 
+function appSecretProof(accessToken) {
+  if (!config.appSecret) return null;
+
+  return crypto
+    .createHmac('sha256', config.appSecret)
+    .update(accessToken)
+    .digest('hex');
+}
+
 async function graphRequest(
   path,
-  { method = 'GET', query = {}, body, bodyMode = 'json' } = {}
+  {
+    method = 'GET',
+    query = {},
+    body,
+    bodyMode = 'json',
+    credential
+  } = {}
 ) {
+  const active = credential || await getActivePageCredential();
   const url = new URL(`${graphBase()}/${graphPath(path)}`);
 
   for (const [key, value] of Object.entries(query || {})) {
@@ -30,8 +48,13 @@ async function graphRequest(
     url.searchParams.set(key, String(value));
   }
 
+  const proof = appSecretProof(active.pageAccessToken);
+  if (proof && !url.searchParams.has('appsecret_proof')) {
+    url.searchParams.set('appsecret_proof', proof);
+  }
+
   const headers = {
-    authorization: `Bearer ${config.pageAccessToken}`
+    authorization: `Bearer ${active.pageAccessToken}`
   };
 
   let payload;
@@ -58,16 +81,17 @@ async function graphRequest(
 
   const text = await response.text();
   let data;
+
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
     data = { raw: text };
   }
 
-  if (!response.ok) {
+  if (!response.ok || data?.error) {
     const message = data?.error?.message || `Meta API HTTP ${response.status}`;
     const error = new Error(message);
-    error.status = response.status;
+    error.status = response.status >= 400 ? response.status : 502;
     error.metaCode = data?.error?.code;
     error.metaSubcode = data?.error?.error_subcode;
     error.metaType = data?.error?.type;
@@ -77,8 +101,22 @@ async function graphRequest(
   return data;
 }
 
+async function activePagePath(edge = '') {
+  const credential = await getActivePageCredential();
+
+  return {
+    credential,
+    path: edge
+      ? `${credential.pageId}/${edge.replace(/^\/+/, '')}`
+      : credential.pageId
+  };
+}
+
 export async function getPageProfile() {
-  return graphRequest(config.pageId, {
+  const { credential, path } = await activePagePath();
+
+  return graphRequest(path, {
+    credential,
     query: {
       fields: 'id,name,username,link,category,picture'
     }
@@ -88,7 +126,10 @@ export async function getPageProfile() {
 export async function sendText(psid, text, messagingType = 'RESPONSE') {
   if (!psid || !text) throw new Error('psid and text are required');
 
-  return graphRequest(`${config.pageId}/messages`, {
+  const { credential, path } = await activePagePath('messages');
+
+  return graphRequest(path, {
+    credential,
     method: 'POST',
     body: {
       recipient: { id: String(psid) },
@@ -104,7 +145,10 @@ export async function sendMedia(psid, type, url, messagingType = 'RESPONSE') {
     throw new Error('unsupported media type');
   }
 
-  return graphRequest(`${config.pageId}/messages`, {
+  const { credential, path } = await activePagePath('messages');
+
+  return graphRequest(path, {
+    credential,
     method: 'POST',
     body: {
       recipient: { id: String(psid) },
@@ -122,9 +166,19 @@ export async function sendMedia(psid, type, url, messagingType = 'RESPONSE') {
   });
 }
 
-export async function sendQuickReplies(psid, text, quickReplies, messagingType = 'RESPONSE') {
+export async function sendQuickReplies(
+  psid,
+  text,
+  quickReplies,
+  messagingType = 'RESPONSE'
+) {
   if (!psid || !text) throw new Error('psid and text are required');
-  if (!Array.isArray(quickReplies) || quickReplies.length < 1 || quickReplies.length > 13) {
+
+  if (
+    !Array.isArray(quickReplies) ||
+    quickReplies.length < 1 ||
+    quickReplies.length > 13
+  ) {
     throw new Error('quickReplies must contain between 1 and 13 items');
   }
 
@@ -139,7 +193,10 @@ export async function sendQuickReplies(psid, text, quickReplies, messagingType =
     throw new Error('each quick reply needs title and payload');
   }
 
-  return graphRequest(`${config.pageId}/messages`, {
+  const { credential, path } = await activePagePath('messages');
+
+  return graphRequest(path, {
+    credential,
     method: 'POST',
     body: {
       recipient: { id: String(psid) },
@@ -157,7 +214,10 @@ export async function senderAction(psid, action) {
     throw new Error('unsupported sender action');
   }
 
-  return graphRequest(`${config.pageId}/messages`, {
+  const { credential, path } = await activePagePath('messages');
+
+  return graphRequest(path, {
+    credential,
     method: 'POST',
     body: {
       recipient: { id: String(psid) },
@@ -167,7 +227,10 @@ export async function senderAction(psid, action) {
 }
 
 export async function listConversations({ limit = 25, after } = {}) {
-  return graphRequest(`${config.pageId}/conversations`, {
+  const { credential, path } = await activePagePath('conversations');
+
+  return graphRequest(path, {
+    credential,
     query: {
       platform: 'messenger',
       fields: 'id,updated_time,message_count,participants',
@@ -177,7 +240,10 @@ export async function listConversations({ limit = 25, after } = {}) {
   });
 }
 
-export async function listConversationMessages(conversationId, { limit = 25, after } = {}) {
+export async function listConversationMessages(
+  conversationId,
+  { limit = 25, after } = {}
+) {
   if (!conversationId) throw new Error('conversationId is required');
 
   return graphRequest(`${conversationId}/messages`, {
@@ -217,7 +283,10 @@ export async function publishPagePost({
     throw new Error('invalid scheduledPublishTime');
   }
 
-  return graphRequest(`${config.pageId}/feed`, {
+  const { credential, path } = await activePagePath('feed');
+
+  return graphRequest(path, {
+    credential,
     method: 'POST',
     bodyMode: 'form',
     body: {
@@ -237,16 +306,24 @@ export async function editObjectMessage(objectId, message) {
   return graphRequest(objectId, {
     method: 'POST',
     bodyMode: 'form',
-    body: { message: String(message) }
+    body: {
+      message: String(message)
+    }
   });
 }
 
 export async function deleteObject(objectId) {
   if (!objectId) throw new Error('objectId is required');
-  return graphRequest(objectId, { method: 'DELETE' });
+
+  return graphRequest(objectId, {
+    method: 'DELETE'
+  });
 }
 
-export async function listComments(objectId, { limit = 25, after } = {}) {
+export async function listComments(
+  objectId,
+  { limit = 25, after } = {}
+) {
   if (!objectId) throw new Error('objectId is required');
 
   return graphRequest(`${objectId}/comments`, {
@@ -268,7 +345,9 @@ export async function replyToComment(commentId, message) {
   return graphRequest(`${commentId}/comments`, {
     method: 'POST',
     bodyMode: 'form',
-    body: { message: String(message) }
+    body: {
+      message: String(message)
+    }
   });
 }
 
@@ -278,7 +357,9 @@ export async function setCommentHidden(commentId, isHidden) {
   return graphRequest(commentId, {
     method: 'POST',
     bodyMode: 'form',
-    body: { is_hidden: Boolean(isHidden) }
+    body: {
+      is_hidden: Boolean(isHidden)
+    }
   });
 }
 
