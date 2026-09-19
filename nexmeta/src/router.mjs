@@ -30,6 +30,11 @@ export function classifyNexusRoute(event) {
 
   const rules = [
     {
+      pattern: /^NEXMETA_START$/i,
+      intent: 'start',
+      preferredService: 'auto'
+    },
+    {
       pattern: /^\/?(?:download|dl|video|audio|music|musique)\b/i,
       intent: 'download',
       preferredService: 'nexdownloader'
@@ -195,10 +200,16 @@ export async function routeNexusEvent(event) {
     };
   }
 
-  if (/^\/?(?:start|help)$/i.test(text)) {
+  if (/^(?:NEXMETA_START|\/?(?:start|help))$/i.test(text)) {
     return {
       handled: true,
-      text: 'NexMeta est connecté. Les services Nexus seront routés automatiquement dès que le gateway commun est activé.'
+      text: 'NexMeta est connecté. Choisis un service Nexus ou écris directement ce que tu veux faire.',
+      quickReplies: [
+        { title: 'Download', payload: '/download' },
+        { title: 'Games', payload: '/game' },
+        { title: 'Stickers', payload: '/sticker' },
+        { title: 'Nexus AI', payload: '/ai' }
+      ]
     };
   }
 
