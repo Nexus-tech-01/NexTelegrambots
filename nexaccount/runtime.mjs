@@ -17,6 +17,78 @@ const spamWindows=new Map();
 const proxyFlows=new WeakMap();
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
+const PROXY_SERVICE_SPECS={
+  nexdownloader:{
+    usernameEnv:['NEXAI_NEXDOWNLOADER_BOT_USERNAME','NEXDOWNLOADER__BOT_USERNAME'],
+    tokenEnv:['NEXDOWNLOADER__BOT_TOKEN','NEXDOWNLOADER_BOT_TOKEN'],
+    fallback:'TheNexDownloader_bot'
+  },
+  nexgroup:{
+    usernameEnv:['NEXAI_NEXGROUP_BOT_USERNAME','NEXGROUP__BOT_USERNAME'],
+    tokenEnv:['NEXGROUP__BOT_TOKEN','NEXGROUP_BOT_TOKEN'],
+    fallback:''
+  },
+  nexgame:{
+    usernameEnv:['NEXAI_NEXGAME_BOT_USERNAME','NEXGAME__BOT_USERNAME'],
+    tokenEnv:['NEXGAME__BOT_TOKEN','NEXGAME_BOT_TOKEN'],
+    fallback:'TheNexGame_bot'
+  },
+  nexstick:{
+    usernameEnv:['NEXAI_NEXSTICK_BOT_USERNAME','NEXSTICK__BOT_USERNAME'],
+    tokenEnv:['NEXSTICK__BOT_TOKEN','NEXSTICK_BOT_TOKEN'],
+    fallback:'The_Nexus_techbot'
+  },
+  nexwhisper:{
+    usernameEnv:['NEXAI_NEXWHISPER_BOT_USERNAME','NEXWHISPER__BOT_USERNAME'],
+    tokenEnv:['NEXWHISPER__BOT_TOKEN','NEXWHISPER_BOT_TOKEN'],
+    fallback:'Nexwhisper_bot'
+  },
+  dipper:{
+    usernameEnv:['NEXAI_DIPPER_BOT_USERNAME','DIPPER_TELEGRAM_BOT_USERNAME'],
+    tokenEnv:['DIPPER_TELEGRAM_BOT_TOKEN'],
+    fallback:'the_big_dipper_bot'
+  }
+};
+const proxyIdentityCache=new Map();
+
+function firstEnv(names=[]){
+  for(const name of names){
+    const value=String(process.env[name]||'').trim();
+    if(value)return value;
+  }
+  return '';
+}
+
+async function botUsernameFromToken(token){
+  if(!token)return '';
+  const response=await fetch('https://api.telegram.org/bot'+token+'/getMe',{signal:AbortSignal.timeout(7000)});
+  const data=await response.json().catch(()=>null);
+  if(!response.ok||!data?.ok||!data.result?.username)return '';
+  return String(data.result.username).replace(/^@/,'');
+}
+
+async function resolveProxyUsername(cmd){
+  if(cmd?.proxy)return String(cmd.proxy).replace(/^@/,'');
+  const service=String(cmd?.proxyService||cmd?.sourceBot||'').toLowerCase();
+  if(!service)throw new Error('Aucun moteur source configuré pour '+String(cmd?.name||'cette commande'));
+  if(proxyIdentityCache.has(service))return proxyIdentityCache.get(service);
+  const spec=PROXY_SERVICE_SPECS[service];
+  if(!spec)throw new Error('Moteur source inconnu : '+service);
+  let username=firstEnv(spec.usernameEnv).replace(/^@/,'');
+  if(!username){
+    for(const envName of spec.tokenEnv){
+      const token=String(process.env[envName]||'').trim();
+      if(!token)continue;
+      username=await botUsernameFromToken(token).catch(()=>'');
+      if(username)break;
+    }
+  }
+  username=username||spec.fallback;
+  if(!username)throw new Error('Le moteur '+service+' n’est pas configuré sur le serveur');
+  proxyIdentityCache.set(service,username);
+  return username;
+}
+
 function randomLong(){
   return BigInt.asIntN(64,BigInt('0x'+crypto.randomBytes(8).toString('hex')));
 }
@@ -161,16 +233,39 @@ async function waitProxyResponses(client,peer,botEntity,afterId,{timeoutMs=25000
   }
   return {last,lastButtons,highest};
 }
-async function proxyCommand(client,peer,cmd,args){
-  const botEntity=await client.getInputEntity(cmd.proxy);
+async function proxyCommand(client,peer,cmd,args,event){
+  const username=await resolveProxyUsername(cmd);
+  const botEntity=await client.getInputEntity('@'+username);
+  const contextual=cmd.proxyMode==='contextual'&&event?.isGroup===true;
+  if(contextual){
+    const fullBot=await client.getEntity('@'+username).catch(()=>null);
+    const sourceId=String(fullBot?.id||'');
+    const body='/'+cmd.name+'@'+username+(args.length?' '+args.join(' '):'');
+    const sent=await client.sendMessage(peer,{message:body});
+    const deadline=Date.now()+30000;
+    while(Date.now()<deadline){
+      await sleep(700);
+      const rows=await client.getMessages(peer,{limit:20});
+      const response=rows.find(m=>{
+        if(m.out||Number(m.id)<=Number(sent.id))return false;
+        const sender=String(m.senderId||m.fromId?.userId||'');
+        return !sourceId||sender===sourceId;
+      });
+      if(!response)continue;
+      try{await client.deleteMessages(peer,[sent.id],{revoke:true})}catch{}
+      return true;
+    }
+    throw new Error('Le moteur '+username+' n’a pas répondu dans ce groupe');
+  }
+
   const body=cmd.proxyMode==='chat'
     ? String(args.join(' ')||cmd.name)
     : '/'+cmd.name+(args.length?' '+args.join(' '):'');
   const sent=await client.sendMessage(botEntity,{message:body});
   const result=await waitProxyResponses(client,peer,botEntity,sent.id);
-  if(!result.last)throw new Error('Le bot source n’a pas répondu à temps');
+  if(!result.last)throw new Error('Le bot source '+username+' n’a pas répondu à temps');
   flowMap(client).set(peerKey(peer),{
-    botEntity,source:cmd.proxy,peer,lastBotMessageId:Number(result.last.id),
+    botEntity,source:'@'+username,peer,lastBotMessageId:Number(result.last.id),
     buttons:result.lastButtons,expiresAt:Date.now()+10*60*1000
   });
   return true;
@@ -287,7 +382,7 @@ async function handleCommand(runtime,event,parsed){
   }
   if(cmd.proxy){
     const proxyName=cmd.sourceCommand||name;
-    try{await proxyCommand(client,peer,{...cmd,name:proxyName},parsed.args)}
+    try{await proxyCommand(client,peer,{...cmd,name:proxyName},parsed.args,event)}
     catch(e){await sendText(client,peer,'Erreur '+name+' : '+String(e.message||e))}
     return true;
   }
@@ -296,6 +391,17 @@ async function handleCommand(runtime,event,parsed){
     runtime,event,name,args:parsed.args,cmd,sendText,proxyCommand,sendInline
   });
   if(compatHandled)return true;
+
+  if(cmd.sourceBot){
+    const proxyName=cmd.sourceCommand||name;
+    const mode=cmd.sourceBot==='nexgroup'?'contextual':cmd.proxyMode;
+    try{
+      await proxyCommand(client,peer,{...cmd,name:proxyName,proxyService:cmd.sourceBot,proxyMode:mode},parsed.args,event);
+    }catch(e){
+      await sendText(client,peer,'Erreur '+name+' : '+String(e.message||e));
+    }
+    return true;
+  }
 
   switch(name){
     case 'ping':{
@@ -323,14 +429,80 @@ async function handleCommand(runtime,event,parsed){
       }catch(e){await sendText(client,peer,'Impossible de quitter ce chat : '+String(e.errorMessage||e.message||e))}
       return true;
     default:
-      await sendText(client,peer,'NexAI a reconnu .'+name+', mais cette action ne possède pas de traduction Telegram sûre pour ce contexte. Utilise .menu pour voir sa catégorie ou une commande équivalente.');
+      await sendText(client,peer,'Erreur interne : aucune route d’exécution disponible pour .'+name+'.');
       return true;
+  }
+}
+
+function eventChatKey(event){
+  const message=event?.message||{};
+  return String(event?.chatId||message.chatId||message.peerId?.channelId||message.peerId?.chatId||message.peerId?.userId||'global');
+}
+
+function autoFeaturesMuted(settings,event){
+  const policy=settings?.groupPolicies?.[eventChatKey(event)]||{};
+  if(policy.nexaiMuted!==true)return false;
+  const until=Number(policy.nexaiMuteUntil||0);
+  return until===0||until>Date.now();
+}
+
+function messageMentionsAccount(message,account){
+  const id=String(account.telegramUserId||'');
+  const username=String(account.username||'').replace(/^@/,'').toLowerCase();
+  const text=textOf(message);
+  if(username&&text.toLowerCase().includes('@'+username))return true;
+  for(const entity of message?.entities||[]){
+    const userId=String(entity?.userId||entity?.user?.id||'');
+    if(userId&&userId===id)return true;
+  }
+  return false;
+}
+
+async function maybeNlpMode(runtime,event){
+  const {client,account}=runtime;
+  const settings=await settingsFor(account.telegramUserId);
+  if(settings.nlpMode?.enabled!==true||autoFeaturesMuted(settings,event))return false;
+  const raw=textOf(event.message);
+  if(!raw||event.message?.media)return false;
+  try{
+    await proxyCommand(client,event.message.peerId,{
+      name:'ai',proxy:'@Stacytg_bot',proxyMode:'chat'
+    },[raw],event);
+  }catch(e){
+    console.error('[NexAccount nlp]',account.telegramUserId,String(e.message||e));
+  }
+  return true;
+}
+
+async function maybeAutoReply(runtime,event){
+  const {client,account}=runtime;
+  const settings=await settingsFor(account.telegramUserId);
+  const auto=settings.autoReply||{};
+  if(auto.enabled!==true||!auto.url||autoFeaturesMuted(settings,event))return false;
+  if(!messageMentionsAccount(event.message,account))return false;
+  const delay=Math.max(0,Math.min(30000,Number(auto.delayMs)||0));
+  if(delay)await sleep(delay);
+  try{
+    const response=await fetch(String(auto.url),{signal:AbortSignal.timeout(20000)});
+    if(!response.ok)throw new Error('HTTP '+response.status);
+    const size=Number(response.headers.get('content-length')||0);
+    if(size>20*1024*1024)throw new Error('média > 20 Mo');
+    const buffer=Buffer.from(await response.arrayBuffer());
+    if(buffer.length>20*1024*1024)throw new Error('média > 20 Mo');
+    const mime=String(auto.mime||response.headers.get('content-type')||'application/octet-stream');
+    const ext=mime.includes('video')?'mp4':mime.includes('audio')?'mp3':mime.includes('image')?'jpg':'bin';
+    await client.sendFile(event.message.peerId,{file:buffer,fileName:'nexai-autoreply.'+ext});
+    return true;
+  }catch(e){
+    console.error('[NexAccount autoReply]',account.telegramUserId,String(e.message||e));
+    return false;
   }
 }
 
 async function maybeAutoReact(runtime,event){
   const {client,account}=runtime;
   const settings=await settingsFor(account.telegramUserId);
+  if(autoFeaturesMuted(settings,event))return;
   const cfgReact=settings.autoReact||{};
   if(!cfgReact.enabled)return;
   const targets=Array.isArray(cfgReact.targets)?cfgReact.targets:[];
@@ -409,7 +581,7 @@ export async function attachConnectedClient(client,account){
       const settings=await settingsFor(id);
       const parsed=parseCommand(textOf(event.message),settings.prefix||'.');
       if(parsed)await handleCommand(runtime,event,parsed);
-      else await handleProxyFlowInput(runtime,event);
+      else if(!(await handleProxyFlowInput(runtime,event)))await maybeNlpMode(runtime,event);
     }catch(e){console.error('[NexAccount outgoing]',id,e)}
   },new NewMessage({outgoing:true}));
 
@@ -418,6 +590,7 @@ export async function attachConnectedClient(client,account){
       await maybeAutoModerate(runtime,event);
       await maybeServiceGreeting(runtime,event);
       await maybeAutoReact(runtime,event);
+      await maybeAutoReply(runtime,event);
     }catch(e){console.error('[NexAccount incoming]',id,e)}
   },new NewMessage({incoming:true}));
 
