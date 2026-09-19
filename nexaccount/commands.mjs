@@ -127,9 +127,9 @@ const SOURCE_META={
   nexdownloader:{category:'DOWNLOAD',proxy:'@TheNexDownloader_bot',sourceBot:'nexdownloader'}
 };
 
-export const CATEGORY_ORDER=['GENERAL','AI','DOWNLOAD','GROUP','TOOLS','STICKERS','GAMES','PROTECTION','ANIME','SEARCH','PREMIUM','OWNER'];
-export const CATEGORY_LABELS={GENERAL:'GENERAL',AI:'AI',DOWNLOAD:'DOWNLOAD',GROUP:'GROUP',TOOLS:'TOOLS',STICKERS:'STICKERS',GAMES:'GAMES',PROTECTION:'PROTECTION',ANIME:'ANIME',SEARCH:'SEARCH',PREMIUM:'PREMIUM',OWNER:'OWNER'};
-export const CATEGORY_ICONS={GENERAL:'general',AI:'ai',DOWNLOAD:'download',GROUP:'group',TOOLS:'tools',STICKERS:'sticker',GAMES:'games',PROTECTION:'shield',ANIME:'anime',SEARCH:'search',PREMIUM:'premium',OWNER:'owner'};
+export const CATEGORY_ORDER=['GENERAL','AI','DOWNLOAD','GROUP','TOOLS','STICKERS','GAMES','PROTECTION','ANIME','SEARCH','PREMIUM','OWNER','ALIASES'];
+export const CATEGORY_LABELS={GENERAL:'GENERAL',AI:'AI',DOWNLOAD:'DOWNLOAD',GROUP:'GROUP',TOOLS:'TOOLS',STICKERS:'STICKERS',GAMES:'GAMES',PROTECTION:'PROTECTION',ANIME:'ANIME',SEARCH:'SEARCH',PREMIUM:'PREMIUM',OWNER:'OWNER',ALIASES:'ALIASES'};
+export const CATEGORY_ICONS={GENERAL:'general',AI:'ai',DOWNLOAD:'download',GROUP:'group',TOOLS:'tools',STICKERS:'sticker',GAMES:'games',PROTECTION:'shield',ANIME:'anime',SEARCH:'search',PREMIUM:'premium',OWNER:'owner',ALIASES:'tools'};
 
 const normalize=value=>String(value||'').trim().toLowerCase();
 
@@ -195,6 +195,10 @@ export function commandsByCategory(commands){
   const out={};
   const seen=new Set();
   for(const cmd of commands.values()){
+    if(cmd.hidden&&cmd.aliasFor){
+      (out.ALIASES??=[]).push({...cmd,category:'ALIASES',name:cmd.name});
+      continue;
+    }
     if(cmd.hidden)continue;
     const canonical=cmd.aliasFor||cmd.name;
     if(seen.has(canonical))continue;
