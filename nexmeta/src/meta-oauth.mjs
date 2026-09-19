@@ -6,6 +6,9 @@ import {
   configureAppWebhook,
   subscribePageToApp
 } from './meta-webhooks.mjs';
+import {
+  configureDefaultNexusMessengerProfile
+} from './messenger-profile.mjs';
 
 let clientPromise;
 let indexesPromise;
@@ -264,11 +267,26 @@ export async function completeMetaOAuth({
         success: false
       };
 
+  let messengerProfile = null;
+
+  if (stored.length) {
+    try {
+      messengerProfile = await configureDefaultNexusMessengerProfile();
+    } catch (error) {
+      messengerProfile = {
+        success: false,
+        error: String(error?.message || error).slice(0, 500),
+        metaCode: error?.metaCode ?? null
+      };
+    }
+  }
+
   return {
     actor: claimedState.actor,
     pagesDiscovered: pages.length,
     pagesStored: stored.length,
     pages: stored,
-    webhooks
+    webhooks,
+    messengerProfile
   };
 }
