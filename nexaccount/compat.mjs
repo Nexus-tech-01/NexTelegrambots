@@ -786,6 +786,67 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
 
 
+
+  if(name==='dark'){
+    const settings=await settingsFor(account.telegramUserId);
+    const current=settings.nlpMode?.enabled===true;
+    const enabled=parseToggle(args[0],current);
+    await patchSettings(account.telegramUserId,{nlpMode:{...(settings.nlpMode||{}),enabled}});
+    await sendText(client,peer,'NexAI · mode IA naturel : '+(enabled?'ON':'OFF'));
+    return true;
+  }
+
+  if(name==='mutedark'){
+    const settings=await settingsFor(account.telegramUserId);
+    const chat=String(event.chatId||peer?.channelId||peer?.chatId||peer?.userId||'global');
+    const {policy}=groupPolicy(settings,chat);
+    const action=clean(args[0]).toLowerCase();
+    if(!action){
+      const until=Number(policy.nexaiMuteUntil||0);
+      const active=policy.nexaiMuted===true&&(until===0||until>Date.now());
+      await sendText(client,peer,'NexAI auto-features : '+(active?'MUTED':'ACTIVE')+(until>Date.now()?' · '+Math.ceil((until-Date.now())/60000)+' min restantes':''));
+      return true;
+    }
+    const enabled=!['off','0','false','unmute','wake','reveil','réveil'].includes(action);
+    const minutes=enabled?Math.max(0,Math.min(10080,Number(args[1])||0)):0;
+    const until=enabled&&minutes?Date.now()+minutes*60000:0;
+    await patchGroupPolicy(account.telegramUserId,chat,{nexaiMuted:enabled,nexaiMuteUntil:until});
+    await sendText(client,peer,'NexAI auto-features : '+(enabled?'MUTED'+(minutes?' · '+minutes+' min':''):'ACTIVE'));
+    return true;
+  }
+
+  if(name==='reponseauto'){
+    const settings=await settingsFor(account.telegramUserId);
+    const sub=clean(args[0]).toLowerCase();
+    if(sub==='status'){
+      const a=settings.autoReply||{};
+      await sendText(client,peer,'Auto-réponse : '+(a.enabled?'ON':'OFF')+(a.url?'\nMédia : configuré':'')+'\nDélai : '+Number(a.delayMs||0)/1000+' s');
+      return true;
+    }
+    if(sub==='off'||sub==='reset'){
+      await patchSettings(account.telegramUserId,{autoReply:{enabled:false}});
+      await sendText(client,peer,'Auto-réponse désactivée.');
+      return true;
+    }
+    const reply=await repliedMessage(client,peer,event.message);
+    if(!reply?.media){
+      await sendText(client,peer,'Réponds à une image, un audio ou une vidéo avec .reponseauto [délai_secondes].');
+      return true;
+    }
+    try{
+      const buffer=await client.downloadMedia(reply);
+      if(!buffer?.length)throw new Error('média vide');
+      if(buffer.length>20*1024*1024)throw new Error('média > 20 Mo');
+      const mime=String(reply?.document?.mimeType||reply?.media?.document?.mimeType||'application/octet-stream');
+      const ext=mime.includes('video')?'mp4':mime.includes('audio')?'mp3':mime.includes('image')?'jpg':'bin';
+      const url=await uploadCatbox(Buffer.from(buffer),'nexai-autoreply-'+Date.now()+'.'+ext);
+      const delayMs=Math.max(0,Math.min(30,Number(args[0])||0))*1000;
+      await patchSettings(account.telegramUserId,{autoReply:{enabled:true,url,mime,delayMs,setAt:Date.now()}});
+      await sendText(client,peer,'Auto-réponse média activée pour les mentions du compte.');
+    }catch(e){await sendText(client,peer,'Configuration auto-réponse impossible : '+String(e.message||e))}
+    return true;
+  }
+
   if(name==='infos_canal'){
     const raw=clean(args[0]);
     try{
