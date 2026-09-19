@@ -1,95 +1,183 @@
-# Nexus Bridge receiver
+# Nexus Bridge
 
-This directory contains the receiver side of the NexMeta -> Nexus gateway protocol.
+This directory contains the Render-side receiver for the NexMeta -> Nexus protocol.
 
-It is intentionally independent of Telegram libraries.
+It does not emulate Telegram updates. Facebook/Messenger events are received as Nexus envelope v2 objects and must be passed to the reusable bot core through small service adapters.
 
-## Route
+## Components
 
-Mount the handler at:
+- `receiver.mjs` — HMAC/Bearer validation, anti-replay window, envelope validation, idempotent dispatch and signed system probe.
+- `adapter-loader.mjs` — loads only valid `<service>.mjs` adapters.
+- `gateway-wrapper.mjs` — optional front proxy for the existing Render orchestrator.
+- `discover-bot-cores.mjs` — build-time scanner that maps likely reusable bot-core modules after compilation.
+- `test/*` — receiver and adapter-loader tests.
+
+## Front proxy design
+
+The current Telegram deployment already has one public HTTP gateway.
+
+Instead of modifying the opaque bundled orchestrator, the optional proxy can sit in front of it:
+
+```
+Render :10000
+     |
+     v
+Nexus bridge front proxy
+     |-------------------- POST /internal/nexus/events
+     |                           |
+     |                           v
+     |                    signed receiver
+     |                           |
+     |                           v
+     |                    real service adapter
+     |
+     +---- all other routes ----> existing orchestrator :10001
+```
+
+The existing gateway keeps its normal Telegram routes and `/health`.
+
+The proxy is **disabled by default**:
+
+```env
+NEXUS_BRIDGE_PROXY_ENABLED=false
+NEXUS_INNER_GATEWAY_PORT=10001
+```
+
+Do not enable it until the real bot-core adapters are present and the inner orchestrator is confirmed to honor `PORT`.
+
+## Bridge routes
+
+Signed events:
 
 ```
 POST /internal/nexus/events
 ```
 
-Example:
+Authenticated operator status:
 
-```js
-import { createNexusBridgeHandler } from './nexus-bridge/receiver.mjs';
-
-const bridge = createNexusBridgeHandler({
-  sharedKey: process.env.NEXUS_COMMAND_GATEWAY_KEY,
-
-  services: {
-    nexdownloader: envelope => downloaderAdapter(envelope),
-    nexgame: envelope => gameAdapter(envelope),
-    nexstick: envelope => stickAdapter(envelope),
-    nexgroup: envelope => groupAdapter(envelope),
-    nexcanal: envelope => canalAdapter(envelope),
-    nexai: envelope => aiAdapter(envelope),
-    auto: envelope => autoRouter(envelope)
-  },
-
-  claimEvent: event => idempotency.claim(event),
-  releaseEvent: claim => idempotency.release(claim)
-});
+```
+GET /internal/nexus/bridge-status
+Authorization: Bearer <NEXUS_COMMAND_GATEWAY_KEY>
 ```
 
-The existing public gateway should call `bridge(req,res)` when the path is `/internal/nexus/events`, before normal Telegram webhook routing.
+The status route is not public. It reports:
+
+- whether the proxy child exited
+- adapter load status
+- build-time discovery report
+- candidate core modules/exports
+
+NexMeta exposes this to NexControl through the private `bridge_status` action, so the browser never receives the Render bridge key.
 
 ## Security
 
+NexMeta sends:
+
+```
+Authorization: Bearer <shared-secret>
+X-Nexus-Timestamp: <unix-seconds>
+X-Nexus-Signature: sha256=<hex-hmac>
+```
+
+Signature input:
+
+```
+<timestamp>.<exact raw JSON body>
+```
+
 The receiver verifies:
 
-- Bearer shared key
-- `X-Nexus-Timestamp`
+- Bearer secret
+- HMAC-SHA256
+- exact raw body
 - maximum timestamp skew
-- `X-Nexus-Signature`
-- HMAC-SHA256 over `timestamp + "." + exact raw body`
+- body-size limit
 - envelope version/source/surface
-- request body size
 
-Use a random gateway key independent from Telegram bot tokens and independent from `NEXMETA_CONTROL_KEY`.
+Use a random `NEXUS_COMMAND_GATEWAY_KEY` independent from Telegram bot tokens and `NEXMETA_CONTROL_KEY`.
 
-## Idempotency
+## Live readiness
 
-Provide `claimEvent` backed by Redis or MongoDB in production.
+A bridge being reachable is not enough.
 
-Recommended key:
+The signed `system_probe` response includes the adapters actually loaded.
+
+NexMeta defaults to requiring:
 
 ```
-facebook:<pageId>:<eventId>
+nexdownloader
+nexgame
+nexstick
+nexgroup
+nexcanal
 ```
 
-Return `false` from `claimEvent` when an event has already been processed.
+Override only when intentionally changing the production service set:
 
-The receiver then returns:
-
-```json
-{
-  "ok": true,
-  "handledBy": null,
-  "duplicate": true,
-  "reply": null
-}
+```env
+NEXMETA_REQUIRED_NEXUS_SERVICES=nexdownloader,nexgame,nexstick,nexgroup,nexcanal
 ```
 
-## Service adapters
+`bridgeReady=true` requires:
+
+1. gateway URL configured
+2. gateway key configured
+3. signed live probe succeeds
+4. every required adapter is actually loaded
+
+This prevents a receiver-only deployment from being reported as a working Facebook <-> Telegram bridge.
+
+## Adapter directory
+
+Default:
+
+```
+/app/nexus-bridge/adapters
+```
+
+Optional override:
+
+```env
+NEXUS_ADAPTER_DIR=/app/nexus-bridge/adapters
+```
+
+Each file is named after the Nexus service:
+
+```
+nexdownloader.mjs
+nexgame.mjs
+nexstick.mjs
+nexgroup.mjs
+nexcanal.mjs
+nexai.mjs
+auto.mjs
+```
+
+A module is counted as loaded only when it exports one of:
+
+- default function
+- `handle` function
+- `handler` function
+
+A file merely existing is not enough.
+
+## Service adapter contract
 
 A service adapter receives the Nexus envelope, not a fake Telegram Update.
 
-Do not emulate Telegram user/chat IDs.
+Do not reinterpret:
 
-Use `envelope.user.nexusUserId` when present as the stable cross-platform Nexus identity. If it is `null`, the service must treat the caller as an unpaired Facebook identity rather than guessing a Telegram account.
+- Facebook PSID as Telegram user ID
+- Page ID as Telegram chat ID
 
-Each bot should expose its reusable domain operation through an adapter layer.
+Use `envelope.user.nexusUserId` when present as the stable cross-platform Nexus identity.
 
-Example:
+Example shape:
 
 ```js
-async function downloaderAdapter(envelope) {
-  const result = await nexDownloaderCore.handle({
-    user: await identity.resolve(envelope),
+export async function handle(envelope) {
+  const result = await realBotCore.handle({
+    nexusUserId: envelope.user.nexusUserId,
     text: envelope.event.text,
     attachments: envelope.event.attachments,
     source: envelope.source
@@ -97,7 +185,7 @@ async function downloaderAdapter(envelope) {
 
   return {
     reply: {
-      text: result.caption,
+      text: result.text,
       media: result.fileUrl
         ? {
             type: result.mediaType,
@@ -109,10 +197,62 @@ async function downloaderAdapter(envelope) {
 }
 ```
 
-This is the key architectural rule: **share bot core logic, not Telegram transport objects**.
+The adapter can return Messenger-renderable:
 
-## Current repository status
+- `text`
+- `media`
+- `quickReplies`
+- `template`
+- `imageUrls`
 
-The live Render source is stored as compressed/base64 bundle parts. The connected environment can read the text parts through GitHub but cannot materialize/decompress the private bundle locally because its container has no network path to GitHub.
+## Build-time core discovery
 
-Therefore this receiver is production-ready reference code, but it is not claimed to be mounted in the live Render gateway yet.
+The source archive is extracted inside the Docker build even though it cannot currently be materialized in the connected local environment.
+
+After `scripts/build-all.mjs`, Docker runs:
+
+```
+node /app/nexus-bridge/discover-bot-cores.mjs
+```
+
+The scanner:
+
+- inspects the five bot directories
+- reads each `package.json`
+- scans compiled/source modules up to a bounded depth
+- prioritizes files named like `core`, `service`, `handler`, `router`, `command`, `manager`, `engine`, `index`, etc.
+- extracts visible export names
+- records functional signals
+- writes `/app/nexus-bridge/discovery.json`
+
+It never reads `.env`, token values or secret-manager data.
+
+The authenticated bridge status exposes a bounded version of this discovery report for NexControl.
+
+## Idempotency
+
+The wrapper currently keeps a short in-memory duplicate window for event IDs:
+
+```env
+NEXUS_BRIDGE_DEDUP_TTL_MS=600000
+```
+
+The receiver also supports pluggable `claimEvent`/`releaseEvent`, so the final production adapters can move idempotency to Redis/MongoDB for restart-safe deduplication.
+
+## Activation sequence
+
+1. Build the Render image.
+2. Inspect bot-core discovery.
+3. Implement adapters against real reusable bot cores.
+4. Confirm all required adapters load.
+5. Set the same `NEXUS_COMMAND_GATEWAY_KEY` on Render and NexMeta.
+6. Enable:
+   ```env
+   NEXUS_BRIDGE_PROXY_ENABLED=true
+   ```
+7. Confirm existing Telegram `/health` still works through the proxy.
+8. Run NexControl -> **Bridge details**.
+9. Confirm `deployment_readiness.bridgeReady === true`.
+10. Send real Messenger tests for each mapped Nexus service.
+
+Until steps 3–9 are complete, the system intentionally reports the bridge as not ready.
