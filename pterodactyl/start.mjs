@@ -216,6 +216,7 @@ function autoService(envelope) {
     download: 'nexdownloader',
     game: 'nexgame',
     sticker: 'nexstick',
+    whisper: 'nexwhisper',
     group: 'nexgroup',
     channel: 'nexcanal',
     page_event: 'nexcanal',
