@@ -59,3 +59,4 @@ jobs:
           node --check ../nexus-bridge/receiver.mjs
           node --check ../nexus-bridge/adapter-loader.mjs
           node --check ../nexus-bridge/gateway-wrapper.mjs
+          node --check ../nexus-bridge/discover-bot-cores.mjs
