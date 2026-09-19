@@ -196,6 +196,59 @@ export async function probeNexusGateway() {
   }
 }
 
+export async function fetchNexusBridgeStatus() {
+  if (!config.nexusGatewayUrl || !config.nexusGatewayKey) {
+    const error = new Error('gateway_not_configured');
+    error.status = 503;
+    throw error;
+  }
+
+  const url = new URL(config.nexusGatewayUrl);
+  url.pathname = '/internal/nexus/bridge-status';
+  url.search = '';
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${config.nexusGatewayKey}`
+    },
+    signal: AbortSignal.timeout(5000)
+  });
+
+  const text = await response.text();
+  let data;
+
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = {
+      text: String(text || '').slice(0, 1000)
+    };
+  }
+
+  if (!response.ok) {
+    const error = new Error(
+      data?.error ||
+      `Nexus bridge status HTTP ${response.status}`
+    );
+    error.status = response.status;
+    throw error;
+  }
+
+  return {
+    ok: data?.ok === true,
+    proxy: data?.proxy === true,
+    childExited: data?.childExited === true,
+    adapters: Array.isArray(data?.adapters)
+      ? data.adapters
+      : [],
+    discovery: data?.discovery &&
+      typeof data.discovery === 'object'
+      ? data.discovery
+      : null
+  };
+}
+
 export async function callNexusGateway(event, context = {}) {
   if (!config.nexusGatewayUrl) return null;
 
