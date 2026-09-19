@@ -158,10 +158,18 @@ export async function dispatchNexusEnvelope(
     envelope.source.surface === 'system' &&
     envelope.event.type === 'system_probe'
   ) {
+    const availableServices = Object.entries(services)
+      .filter(([, handler]) => typeof handler === 'function')
+      .map(([name]) => name)
+      .sort();
+
     return {
       handledBy: 'nexus-bridge',
       duplicate: false,
       probe: true,
+      services: {
+        available: availableServices
+      },
       reply: null
     };
   }
