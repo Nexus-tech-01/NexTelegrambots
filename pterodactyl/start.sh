@@ -21,4 +21,10 @@ node --check nexus-bridge/receiver.mjs
 node --check nexus-bridge/adapter-loader.mjs
 node --check nexus-bridge/media-registry.mjs
 
+if [ -f nexus-bridge/discover-bot-cores.mjs ]; then
+  node nexus-bridge/discover-bot-cores.mjs ||     echo "[Pterodactyl] Core discovery warning: continuing without discovery report."
+fi
+
+node pterodactyl/check.mjs
+
 exec node pterodactyl/start.mjs
