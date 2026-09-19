@@ -156,6 +156,7 @@ ${css}
           <button class="action" data-action="configure_webhooks">Configurer webhooks</button>
           <button class="action" data-action="configure_all_default_messenger_profiles">Profils Messenger</button>
           <button class="action" data-action="doctor_all_pages">Doctor global</button>
+          <button class="action" data-action="bridge_status">Bridge details</button>
         </div>
       </article>
 
