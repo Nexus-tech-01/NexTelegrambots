@@ -266,6 +266,7 @@ async function metaPage(req,res,url){
   const metricsResponse=value(1);
   const pagesResponse=value(2);
   const readinessResponse=value(3);
+  const connectionResponse=value(4);
 
   const html=renderMetaPage({
     status:statusResponse||{},
@@ -274,11 +275,13 @@ async function metaPage(req,res,url){
       ? pagesResponse.result
       : [],
     readiness:readinessResponse?.result||{},
+    connection:connectionResponse?.result||{},
     loadErrors:[
       ['status',error(0)],
       ['metrics',error(1)],
       ['pages',error(2)],
-      ['readiness',error(3)]
+      ['readiness',error(3)],
+      ['connection',error(4)]
     ].filter(([,message])=>message)
   });
 
