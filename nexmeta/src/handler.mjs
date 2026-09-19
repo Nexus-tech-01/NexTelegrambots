@@ -1,7 +1,8 @@
 import {
   config,
   metaConfigured,
-  oauthConfigured
+  oauthConfigured,
+  publicHttpsConfigured
 } from './config.mjs';
 import {
   verifyWebhookChallenge,
@@ -290,13 +291,19 @@ async function ownerConnect(req, res) {
   const connectKeyReady =
     config.connectKey.length >= 24;
 
+  const connectReady =
+    connectKeyReady &&
+    oauthConfigured() &&
+    publicHttpsConfigured() &&
+    Boolean(config.verifyToken);
+
   if (req.method === 'GET') {
-    res.statusCode = connectKeyReady ? 200 : 503;
+    res.statusCode = connectReady ? 200 : 503;
     res.setHeader('content-type', 'text/html; charset=utf-8');
     connectSecurityHeaders(res);
     return res.end(
       connectPageHtml({
-        disabled: !connectKeyReady
+        disabled: !connectReady
       })
     );
   }
@@ -307,9 +314,9 @@ async function ownerConnect(req, res) {
     });
   }
 
-  if (!connectKeyReady) {
+  if (!connectReady) {
     return writeJson(res, 503, {
-      error: 'owner_connect_disabled'
+      error: 'owner_connect_not_ready'
     });
   }
 
