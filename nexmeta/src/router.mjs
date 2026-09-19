@@ -101,19 +101,12 @@ function signedHeaders(body) {
   return headers;
 }
 
-export async function callNexusGateway(event, context = {}) {
-  if (!config.nexusGatewayUrl) return null;
-
-  const routing = classifyNexusRoute(event);
-  const body = JSON.stringify(
-    toNexusEnvelope(event, routing, context.identity || {})
-  );
-
+async function postNexusGatewayBody(body, timeoutMs = 20000) {
   const response = await fetch(config.nexusGatewayUrl, {
     method: 'POST',
     headers: signedHeaders(body),
     body,
-    signal: AbortSignal.timeout(20000)
+    signal: AbortSignal.timeout(timeoutMs)
   });
 
   const text = await response.text();
@@ -134,10 +127,80 @@ export async function callNexusGateway(event, context = {}) {
       `Nexus gateway HTTP ${response.status}`
     );
     error.status = response.status;
+    error.retryable = data?.retryable === true;
     throw error;
   }
 
   return data;
+}
+
+export async function probeNexusGateway() {
+  if (!config.nexusGatewayUrl || !config.nexusGatewayKey) {
+    return {
+      ok: false,
+      error: 'gateway_not_configured'
+    };
+  }
+
+  const startedAt = Date.now();
+  const body = JSON.stringify({
+    version: 2,
+    source: {
+      platform: 'facebook',
+      surface: 'system',
+      pageId: null
+    },
+    user: {
+      externalId: null,
+      nexusUserId: null
+    },
+    routing: {
+      intent: 'probe',
+      preferredService: 'bridge'
+    },
+    event: {
+      type: 'system_probe',
+      id: null,
+      timestamp: startedAt,
+      text: '',
+      attachments: [],
+      payload: null,
+      field: null,
+      action: null,
+      value: null
+    }
+  });
+
+  try {
+    const data = await postNexusGatewayBody(body, 5000);
+
+    return {
+      ok:
+        data?.ok === true &&
+        data?.probe === true &&
+        data?.handledBy === 'nexus-bridge',
+      latencyMs: Date.now() - startedAt,
+      handledBy: data?.handledBy || null
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      latencyMs: Date.now() - startedAt,
+      status: Number(error?.status) || null,
+      error: String(error?.message || 'gateway_probe_failed').slice(0, 160)
+    };
+  }
+}
+
+export async function callNexusGateway(event, context = {}) {
+  if (!config.nexusGatewayUrl) return null;
+
+  const routing = classifyNexusRoute(event);
+  const body = JSON.stringify(
+    toNexusEnvelope(event, routing, context.identity || {})
+  );
+
+  return postNexusGatewayBody(body);
 }
 
 function normalizeGatewayReply(gatewayResult) {
