@@ -354,38 +354,40 @@ const metaScript = path.join(
   'nexmeta/src/server.mjs'
 );
 
-spawnManaged({
-  label: 'telegram',
-  script: telegramScript,
-  env: {
-    PORT: String(telegramPort),
-    NEXUS_ROOT: root
-  }
-});
+function startChildren() {
+  spawnManaged({
+    label: 'telegram',
+    script: telegramScript,
+    env: {
+      PORT: String(telegramPort),
+      NEXUS_ROOT: root
+    }
+  });
 
-spawnManaged({
-  label: 'nexmeta',
-  script: metaScript,
-  env: {
-    PORT: String(metaPort),
-    NEXUS_ROOT: root,
-    NEXMETA_PUBLIC_BASE_URL:
-      publicBaseUrl ||
-      process.env.NEXMETA_PUBLIC_BASE_URL ||
-      '',
-    NEXMETA_OAUTH_REDIRECT_URI:
-      process.env.NEXMETA_OAUTH_REDIRECT_URI ||
-      (
-        publicBaseUrl
-          ? `${publicBaseUrl}/oauth/meta/callback`
-          : ''
-      ),
-    NEXUS_COMMAND_GATEWAY_URL:
-      `http://127.0.0.1:${publicPort}/internal/nexus/events`,
-    NEXUS_COMMAND_GATEWAY_KEY:
-      bridgeKey
-  }
-});
+  spawnManaged({
+    label: 'nexmeta',
+    script: metaScript,
+    env: {
+      PORT: String(metaPort),
+      NEXUS_ROOT: root,
+      NEXMETA_PUBLIC_BASE_URL:
+        publicBaseUrl ||
+        process.env.NEXMETA_PUBLIC_BASE_URL ||
+        '',
+      NEXMETA_OAUTH_REDIRECT_URI:
+        process.env.NEXMETA_OAUTH_REDIRECT_URI ||
+        (
+          publicBaseUrl
+            ? `${publicBaseUrl}/oauth/meta/callback`
+            : ''
+        ),
+      NEXUS_COMMAND_GATEWAY_URL:
+        `http://127.0.0.1:${publicPort}/internal/nexus/events`,
+      NEXUS_COMMAND_GATEWAY_KEY:
+        bridgeKey
+    }
+  });
+}
 
 function proxyRequest(
   targetPort,
@@ -764,6 +766,8 @@ server.listen(
   publicPort,
   '0.0.0.0',
   () => {
+    startChildren();
+
     console.log(
       '[Pterodactyl] Nexus gateway online',
       {
