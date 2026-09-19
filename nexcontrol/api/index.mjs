@@ -139,6 +139,14 @@ export default async function handler(req,res){
       const cookie=upstream.headers.get('set-cookie');
       if(cookie)res.setHeader('set-cookie',cookie);
     }
+
+    // Supabase Edge may label rendered pages as text/plain. Force browser-renderable
+    // HTML for UI routes while preserving API content types exactly as returned.
+    if((req.method==='GET'||req.method==='HEAD')&&!u.pathname.startsWith('/api/')){
+      res.setHeader('content-type','text/html; charset=utf-8');
+      res.setHeader('x-content-type-options','nosniff');
+    }
+
     const buf=Buffer.from(await upstream.arrayBuffer());
     res.end(buf);
   }catch(error){
