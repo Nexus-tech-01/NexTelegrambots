@@ -36,6 +36,7 @@ jobs:
       - run: npm install
       - run: npm test
       - run: node --test ../nexus-bridge/test/*.test.mjs
+      - run: node --test ../pterodactyl/*.test.mjs
       - run: |
           node --check src/config.mjs
           node --check src/security.mjs
@@ -65,5 +66,6 @@ jobs:
           node --check ../nexus-bridge/nexdownloader-direct-core.mjs
           node --check ../nexus-bridge/adapters/nexdownloader.mjs
           node --check ../pterodactyl/start.mjs
+          node --check ../pterodactyl/routing.mjs
           node --check ../pterodactyl/check.mjs
           node --check ../pterodactyl/generate-secrets.mjs
