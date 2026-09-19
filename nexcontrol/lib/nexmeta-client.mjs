@@ -173,3 +173,14 @@ export async function unsubscribeNexMetaPageWebhooks(pageId) {
     pageId
   });
 }
+
+
+export async function doctorNexMetaPage(pageId) {
+  return nexMetaAction('doctor_page', {
+    pageId
+  });
+}
+
+export async function doctorAllNexMetaPages() {
+  return nexMetaAction('doctor_all_pages');
+}
