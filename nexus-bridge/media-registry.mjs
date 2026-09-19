@@ -13,6 +13,101 @@ function now() {
   return Date.now();
 }
 
+function mediaTokenKey() {
+  const secret = String(
+    process.env.NEXUS_COMMAND_GATEWAY_KEY || ''
+  ).trim();
+
+  if (!secret) return null;
+
+  return crypto
+    .createHash('sha256')
+    .update('nexus-media-v1:')
+    .update(secret)
+    .digest();
+}
+
+function sealMediaItem(item) {
+  const key = mediaTokenKey();
+  if (!key) return null;
+
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv(
+    'aes-256-gcm',
+    key,
+    iv
+  );
+
+  const plaintext = Buffer.from(
+    JSON.stringify(item),
+    'utf8'
+  );
+
+  const ciphertext = Buffer.concat([
+    cipher.update(plaintext),
+    cipher.final()
+  ]);
+
+  return [
+    'v1',
+    iv.toString('base64url'),
+    ciphertext.toString('base64url'),
+    cipher.getAuthTag().toString('base64url')
+  ].join('.');
+}
+
+function openMediaToken(token) {
+  const value = String(token || '');
+  const parts = value.split('.');
+
+  if (parts.length !== 4 || parts[0] !== 'v1') {
+    return null;
+  }
+
+  const key = mediaTokenKey();
+  if (!key) return null;
+
+  try {
+    const iv = Buffer.from(parts[1], 'base64url');
+    const ciphertext = Buffer.from(parts[2], 'base64url');
+    const tag = Buffer.from(parts[3], 'base64url');
+
+    if (iv.length !== 12 || tag.length !== 16) {
+      return null;
+    }
+
+    const decipher = crypto.createDecipheriv(
+      'aes-256-gcm',
+      key,
+      iv
+    );
+
+    decipher.setAuthTag(tag);
+
+    const plaintext = Buffer.concat([
+      decipher.update(ciphertext),
+      decipher.final()
+    ]).toString('utf8');
+
+    const item = JSON.parse(plaintext);
+
+    if (
+      !item ||
+      typeof item !== 'object' ||
+      !item.url ||
+      !Number.isFinite(Number(item.expiresAt)) ||
+      Number(item.expiresAt) <= now()
+    ) {
+      return null;
+    }
+
+    return item;
+  } catch {
+    return null;
+  }
+}
+
+
 function prune() {
   const current = now();
 
@@ -174,28 +269,35 @@ export async function registerRemoteMedia({
 
   prune();
 
-  const token = crypto.randomBytes(32).toString('base64url');
-
-  registry.set(token, {
+  const item = {
     url: target.toString(),
     headers: safeUpstreamHeaders(headers),
     mediaType: mediaType ? String(mediaType) : null,
     filename: filename ? String(filename).slice(0, 180) : null,
     maxBytes: byteLimit,
     expiresAt: now() + ttl
-  });
+  };
+
+  let token = sealMediaItem(item);
+
+  if (!token) {
+    token = crypto.randomBytes(32).toString('base64url');
+    registry.set(token, item);
+  }
 
   return {
     token,
     url: `${publicBaseUrl()}/nexus-media/${token}`,
-    expiresAt: new Date(now() + ttl)
+    expiresAt: new Date(item.expiresAt)
   };
 }
 
 export function inspectMediaToken(token) {
   prune();
 
-  const item = registry.get(String(token || ''));
+  const item =
+    openMediaToken(token) ||
+    registry.get(String(token || ''));
 
   if (!item) return null;
 
@@ -311,7 +413,9 @@ function allowedMediaType(value) {
 export async function serveRemoteMedia(req, res, token) {
   prune();
 
-  const item = registry.get(String(token || ''));
+  const item =
+    openMediaToken(token) ||
+    registry.get(String(token || ''));
 
   if (!item) {
     res.statusCode = 404;
@@ -421,6 +525,8 @@ export function mediaRegistryStats() {
   prune();
 
   return {
-    active: registry.size
+    activeFallbackTokens: registry.size,
+    statelessTokens:
+      Boolean(mediaTokenKey())
   };
 }
