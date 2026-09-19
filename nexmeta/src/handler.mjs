@@ -150,14 +150,24 @@ async function metaOAuthCallback(res, url) {
     await audit('nexmeta.oauth.connected', result.actor || 'nexcontrol', {
       pagesDiscovered: result.pagesDiscovered,
       pagesStored: result.pagesStored,
-      pageIds: result.pages.map(page => page.pageId)
+      pageIds: result.pages.map(page => page.pageId),
+      webhookProvisioned: result.webhooks?.success === true,
+      pageWebhookResults: (result.webhooks?.pages || []).map(item => ({
+        pageId: item.pageId,
+        success: item.success === true,
+        metaCode: item.metaCode ?? null
+      }))
     });
+
+    const webhookMessage = result.webhooks?.success
+      ? ' Les webhooks Meta ont aussi été configurés automatiquement.'
+      : ' Les Pages sont enregistrées, mais au moins un abonnement webhook reste à corriger depuis NexControl.';
 
     return writeHtml(
       res,
       200,
       'Facebook connecté',
-      `${result.pagesStored} Page(s) ont été ajoutée(s) à NexMeta. Les tokens sont chiffrés côté serveur et ne sont pas affichés ici. Tu peux revenir dans NexControl.`
+      `${result.pagesStored} Page(s) ont été ajoutée(s) à NexMeta. Les tokens sont chiffrés côté serveur et ne sont pas affichés ici.${webhookMessage} Tu peux revenir dans NexControl.`
     );
   } catch (error) {
     await audit('nexmeta.oauth.failed', 'facebook', {
