@@ -30,6 +30,7 @@ import {
   markWebhookReplay
 } from './store.mjs';
 import { processWebhookPayload } from './processor.mjs';
+import { fetchNexusBridgeStatus } from './router.mjs';
 import { deploymentReadiness } from './readiness.mjs';
 import { createIdentityLinkCode } from './identity-link.mjs';
 import { createMetaOAuthStart } from './meta-oauth.mjs';
@@ -79,6 +80,7 @@ export const CONTROL_CAPABILITIES = Object.freeze([
   'probe_page',
   'metrics',
   'deployment_readiness',
+  'bridge_status',
   'recent_audit',
   'runtime_settings',
   'set_runtime',
@@ -291,6 +293,9 @@ export async function executeControlAction(body) {
 
     case 'deployment_readiness':
       return deploymentReadiness();
+
+    case 'bridge_status':
+      return fetchNexusBridgeStatus();
 
     case 'recent_audit':
       return recentAudit(body.limit);
