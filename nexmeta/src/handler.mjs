@@ -1,4 +1,8 @@
-import { config, metaConfigured } from './config.mjs';
+import {
+  config,
+  metaConfigured,
+  oauthConfigured
+} from './config.mjs';
 import {
   verifyWebhookChallenge,
   verifyMetaSignature,
@@ -354,6 +358,11 @@ async function control(req, res, url, path) {
       service: 'nexmeta',
       version: '0.4.0',
       metaConfigured: metaConfigured(),
+      oauthConfigured: oauthConfigured(),
+      ownerConnectConfigured:
+        config.connectKey.length >= 24,
+      publicBaseUrlConfigured:
+        Boolean(config.publicBaseUrl),
       runtime,
       pages,
       capabilities: CONTROL_CAPABILITIES,
@@ -423,6 +432,11 @@ export async function handleRequest(req, res) {
         service: 'nexmeta',
         version: '0.4.0',
         metaConfigured: metaConfigured(),
+        oauthConfigured: oauthConfigured(),
+        ownerConnectConfigured:
+          config.connectKey.length >= 24,
+        publicBaseUrlConfigured:
+          Boolean(config.publicBaseUrl),
         runtime,
         pages
       });
