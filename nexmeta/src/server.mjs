@@ -16,7 +16,8 @@ import {
   upsertIdentity,
   saveMessage,
   audit,
-  healthStore
+  healthStore,
+  getRuntimeSettings
 } from './store.mjs';
 import { routeInbound } from './router.mjs';
 import { sendText, senderAction } from './meta-client.mjs';
@@ -70,6 +71,27 @@ async function processInboundEvent(event) {
   }
 
   if (!['message', 'postback'].includes(event.type) || event.isEcho) return;
+
+  const settings = await getRuntimeSettings();
+  if (!settings.inboundEnabled) {
+    await audit('nexmeta.inbound.skipped', 'runtime', {
+      reason: 'inbound_disabled',
+      pageId: event.pageId,
+      senderId: event.senderId,
+      eventType: event.type
+    });
+    return;
+  }
+
+  if (!settings.outboundEnabled) {
+    await audit('nexmeta.response.skipped', 'runtime', {
+      reason: 'outbound_disabled',
+      pageId: event.pageId,
+      senderId: event.senderId,
+      eventType: event.type
+    });
+    return;
+  }
 
   await Promise.allSettled([
     senderAction(event.senderId, 'mark_seen'),
@@ -151,12 +173,15 @@ async function control(req, res, url) {
   }
 
   if (req.method === 'GET' && url.pathname === '/internal/v1/status') {
+    const runtime = await getRuntimeSettings();
     await audit('nexmeta.status.read', 'nexcontrol');
+
     return writeJson(res, 200, {
       ok: true,
       service: 'nexmeta',
       version: '0.2.0-dev',
       metaConfigured: metaConfigured(),
+      runtime,
       capabilities: CONTROL_CAPABILITIES,
       secretExposure: false
     });
@@ -210,11 +235,14 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && url.pathname === '/health') {
       await healthStore();
+      const runtime = await getRuntimeSettings();
+
       return writeJson(res, 200, {
         ok: true,
         service: 'nexmeta',
         version: '0.2.0-dev',
-        metaConfigured: metaConfigured()
+        metaConfigured: metaConfigured(),
+        runtime
       });
     }
 
