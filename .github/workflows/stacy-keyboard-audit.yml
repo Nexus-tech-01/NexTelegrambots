@@ -1,0 +1,52 @@
+name: Stacy keyboard audit
+
+on:
+  push:
+    branches: [audit/stacy-no-keyboard]
+    paths:
+      - ".github/workflows/stacy-keyboard-audit.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit/stacy-no-keyboard
+      - name: Extract source archive and audit Stacy keyboard code
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat nexus-bots-src.tar.xz.b64.part-* | base64 -d > /tmp/nexus-bots-src.tar.xz
+          mkdir -p /tmp/nexus-src
+          tar -xJf /tmp/nexus-bots-src.tar.xz -C /tmp/nexus-src
+          mkdir -p audit
+          {
+            echo "# Stacy keyboard audit"
+            echo
+            echo "## Stacy-related files"
+            find /tmp/nexus-src -type f | grep -i '/stacy\|stacy/' | sed 's#^/tmp/nexus-src/##' | grep -Ev '(^|/)\.env($|\.)' || true
+            echo
+            echo "## Keyboard-related matches inside Stacy files"
+            while IFS= read -r f; do
+              case "$f" in
+                */.env|*/.env.*) continue ;;
+              esac
+              if file "$f" | grep -qiE 'text|script|json|source'; then
+                grep -nEi -C 3 'ReplyKeyboard|ReplyKeyboardMarkup|KeyboardButton|Markup\.keyboard|reply_markup|replyMarkup|keyboard[[:space:]]*:' "$f"                   | sed "s#^#FILE: ${f#/tmp/nexus-src/}: #" || true
+              fi
+            done < <(find /tmp/nexus-src -type f | grep -i '/stacy\|stacy/' || true)
+          } > audit/stacy-keyboard-report.txt
+          test -s audit/stacy-keyboard-report.txt
+      - name: Commit audit report
+        shell: bash
+        run: |
+          git config user.name "Nextech Audit Bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add audit/stacy-keyboard-report.txt
+          git diff --cached --quiet && exit 0
+          git commit -m "audit(stacy): locate keyboard code [skip ci]"
+          git push
