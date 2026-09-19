@@ -20,8 +20,11 @@ import {
   linkIdentity,
   unlinkIdentity,
   getRuntimeSettings,
-  setRuntimeSettings
+  setRuntimeSettings,
+  listWebhookEvents,
+  markWebhookReplay
 } from './store.mjs';
+import { processWebhookPayload } from './processor.mjs';
 import { config } from './config.mjs';
 
 export const CONTROL_CAPABILITIES = Object.freeze([
@@ -31,6 +34,8 @@ export const CONTROL_CAPABILITIES = Object.freeze([
   'recent_audit',
   'runtime_settings',
   'set_runtime',
+  'list_webhook_events',
+  'replay_webhook',
   'link_identity',
   'unlink_identity',
   'send_text',
@@ -93,6 +98,7 @@ export function controlAuditMetadata(body) {
       safeAuditTarget(body?.commentId) ||
       safeAuditTarget(body?.conversationId) ||
       safeAuditTarget(body?.messageId) ||
+      safeAuditTarget(body?.eventKey) ||
       safeAuditTarget(body?.externalUserId) ||
       safeAuditTarget(body?.nexusUserId)
   };
@@ -109,6 +115,7 @@ export function controlAuditMetadata(body) {
 
 async function assertMetaWritesEnabled(action) {
   if (!META_WRITE_ACTIONS.has(action)) return;
+
   const settings = await getRuntimeSettings();
   if (!settings.outboundEnabled) {
     const error = new Error('outbound_disabled');
@@ -139,6 +146,36 @@ export async function executeControlAction(body) {
         inboundEnabled: body.inboundEnabled,
         outboundEnabled: body.outboundEnabled
       });
+
+    case 'list_webhook_events':
+      return listWebhookEvents({
+        status: optionalString(body.status, 40),
+        limit: body.limit
+      });
+
+    case 'replay_webhook':
+      {
+        const eventKey = requireString(body.eventKey, 'eventKey', 200);
+        const item = await markWebhookReplay(eventKey);
+
+        if (!item) {
+          const error = new Error('webhook_not_found');
+          error.status = 404;
+          throw error;
+        }
+
+        const result = await processWebhookPayload(
+          item.eventKey,
+          item.raw,
+          { throwOnFailure: true }
+        );
+
+        return {
+          eventKey: item.eventKey,
+          replayCount: item.replayCount,
+          ...result
+        };
+      }
 
     case 'link_identity':
       return linkIdentity({
