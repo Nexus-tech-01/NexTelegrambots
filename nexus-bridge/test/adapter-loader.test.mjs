@@ -12,7 +12,14 @@ test('loads an adapter that exports a handler', async () => {
 
   await writeFile(
     path.join(directory, 'nexgame.mjs'),
-    `export async function handle(envelope) {
+    `export const adapterManifest = {
+      version: '1.0.0',
+      mode: 'test',
+      productionReady: true,
+      capabilities: ['game'],
+      missing: []
+    };
+    export async function handle(envelope) {
       return { reply: { text: 'ok:' + envelope.event.text } };
     }`
   );
@@ -26,7 +33,15 @@ test('loads an adapter that exports a handler', async () => {
   assert.deepEqual(result.status, [
     {
       service: 'nexgame',
-      loaded: true
+      loaded: true,
+      manifest: {
+        service: 'nexgame',
+        version: '1.0.0',
+        mode: 'test',
+        productionReady: true,
+        capabilities: ['game'],
+        missing: []
+      }
     }
   ]);
 });
