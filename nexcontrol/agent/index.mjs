@@ -119,6 +119,142 @@ async function writeFile(p){
   const content=Buffer.from(String(p.content??''),'utf8');if(content.length>MAX_READ*4)throw new Error('Write payload too large');const tmp=`${out}.nxc-${crypto.randomBytes(4).toString('hex')}.tmp`;
   await fs.writeFile(tmp,content,{mode:0o600});await fs.rename(tmp,out);return{root:p.root,path:p.path,created:!exists,beforeSha,afterSha:sha(content),backupId,bytes:content.length};
 }
+async function copyPath(p){
+  const a=await safe(p.root,p.path),b=await safe(p.root,p.toPath,true),st=await fs.lstat(a.out);
+  if(fssync.existsSync(b.out)&&!p.overwrite)throw new Error('Destination exists');
+  if(fssync.existsSync(b.out)&&p.overwrite){
+    const bst=await fs.lstat(b.out);
+    if(bst.isFile())await backup(p.root,p.toPath,'pre-copy-overwrite');
+    await fs.rm(b.out,{recursive:true,force:true});
+  }
+  await fs.mkdir(path.dirname(b.out),{recursive:true});
+  if(st.isDirectory())await fs.cp(a.out,b.out,{recursive:true,errorOnExist:!p.overwrite,force:!!p.overwrite});
+  else await fs.copyFile(a.out,b.out);
+  return{root:p.root,path:p.path,toPath:p.toPath,copied:st.isDirectory()?'dir':'file'};
+}
+async function diskUsage(p={}){
+  const target=p.root?rootBase(p.root):process.cwd();
+  const st=await fs.statfs(target),block=Number(st.bsize||4096);
+  return{
+    target,
+    blockSize:block,
+    blocks:Number(st.blocks),
+    freeBlocks:Number(st.bfree),
+    availableBlocks:Number(st.bavail),
+    bytesTotal:Number(st.blocks)*block,
+    bytesFree:Number(st.bfree)*block,
+    bytesAvailable:Number(st.bavail)*block
+  };
+}
+async function envKeys(){
+  const secretLike=/token|secret|password|passwd|key|uri|dsn|credential|cookie|session|auth/i;
+  const keys=Object.keys(process.env).sort();
+  return{count:keys.length,keys:keys.map(name=>({name,sensitive:secretLike.test(name)}))};
+}
+
+
+async function envCheck(p={}){
+  const names=Array.isArray(p.names)?p.names.slice(0,200).map(x=>String(x).trim()).filter(Boolean):[];
+  const items=names.map(name=>({name,present:Object.prototype.hasOwnProperty.call(process.env,name)&&String(process.env[name]||'').length>0}));
+  return{count:items.length,present:items.filter(x=>x.present).length,missing:items.filter(x=>!x.present).map(x=>x.name),items};
+}
+async function fsTree(p={}){
+  const base=rootBase(p.root),start=lexical(p.root,p.path||'.').out,maxDepth=Math.min(8,Math.max(0,Number(p.maxDepth??3))),maxItems=Math.min(5000,Math.max(10,Number(p.maxItems||1000))),items=[];
+  async function walk(dir,depth){
+    if(depth>maxDepth||items.length>=maxItems)return;
+    for(const e of await fs.readdir(dir,{withFileTypes:true})){
+      if(items.length>=maxItems)break;
+      if(['node_modules','.git','.nexcontrol'].includes(e.name)&&p.includeHeavy!==true)continue;
+      const full=path.join(dir,e.name),st=await fs.lstat(full);
+      items.push({path:path.relative(base,full),type:e.isDirectory()?'dir':e.isFile()?'file':e.isSymbolicLink()?'symlink':'other',size:st.size,mtime:st.mtime.toISOString()});
+      if(e.isDirectory())await walk(full,depth+1);
+    }
+  }
+  await walk(start,0);return{root:p.root,path:p.path||'.',items,truncated:items.length>=maxItems};
+}
+async function compareFiles(p){
+  const a=await readFile({root:p.root,path:p.pathA,startLine:1,endLine:Number.MAX_SAFE_INTEGER});
+  const b=await readFile({root:p.root,path:p.pathB,startLine:1,endLine:Number.MAX_SAFE_INTEGER});
+  return{root:p.root,pathA:p.pathA,pathB:p.pathB,same:a.sha256===b.sha256,shaA:a.sha256,shaB:b.sha256,bytesA:a.bytes,bytesB:b.bytes};
+}
+async function searchLogs(p={}){
+  const f=cfg.logFiles?.[p.log];if(!f)throw new Error('Unknown log');
+  const query=String(p.query||'');if(!query)throw new Error('query required');
+  const out=path.resolve(String(f)),st=await fs.stat(out),bytes=Math.min(st.size,Math.max(4096,Math.min(2*1024*1024,Number(p.bytes||512000)))),h=await fs.open(out,'r'),buf=Buffer.alloc(bytes);
+  await h.read(buf,0,bytes,Math.max(0,st.size-bytes));await h.close();
+  const lines=buf.toString('utf8').split(/\r?\n/),want=p.caseSensitive?query:query.toLowerCase(),matches=[];
+  for(let i=0;i<lines.length&&matches.length<Math.min(500,Math.max(1,Number(p.maxResults||100)));i++){const hay=p.caseSensitive?lines[i]:lines[i].toLowerCase();if(hay.includes(want))matches.push({line:i+1,text:lines[i].slice(0,2000)})}
+  return{log:p.log,query,matches,scannedBytes:bytes};
+}
+async function httpCheck(p={}){
+  const url=String(p.url||'');const u=new URL(url);if(!['http:','https:'].includes(u.protocol))throw new Error('Only http/https allowed');
+  const started=Date.now(),r=await fetch(url,{method:String(p.method||'GET').toUpperCase(),redirect:'manual',signal:AbortSignal.timeout(Math.min(30000,Math.max(1000,Number(p.timeoutMs||10000))))});
+  const body=await r.text().catch(()=> '');
+  return{url,status:r.status,ok:r.ok,latencyMs:Date.now()-started,contentType:r.headers.get('content-type')||'',bodyPreview:body.slice(0,Math.min(2000,Math.max(0,Number(p.previewBytes||500))))};
+}
+async function gitLog(p={}){
+  const cwd=rootBase(p.root),n=Math.min(100,Math.max(1,Number(p.limit||20)));
+  return runProcess('git',['log','--oneline','--decorate','-'+n],{cwd,timeoutMs:p.timeoutMs||30000,maxOutput:200000});
+}
+async function gitBranches(p={}){
+  const cwd=rootBase(p.root);
+  return runProcess('git',['branch','--all','--no-color'],{cwd,timeoutMs:p.timeoutMs||30000,maxOutput:200000});
+}
+async function gitCheckout(p={}){
+  const cwd=rootBase(p.root),ref=gitName(p.ref,'ref');
+  const dirty=await runProcess('git',['status','--porcelain'],{cwd,timeoutMs:30000});
+  if(dirty.stdout.trim()&&p.allowDirty!==true)throw new Error('Working tree is dirty');
+  return runProcess('git',['checkout',ref],{cwd,timeoutMs:p.timeoutMs||60000,maxOutput:300000});
+}
+async function gitCommit(p={}){
+  const cwd=rootBase(p.root),message=String(p.message||'').trim().slice(0,300);if(!message)throw new Error('commit message required');
+  const paths=Array.isArray(p.paths)?p.paths.slice(0,100):[];
+  if(paths.length)for(const rel of paths)lexical(p.root,rel);
+  const add=await runProcess('git',paths.length?['add','--',...paths]:['add','-A'],{cwd,timeoutMs:60000,maxOutput:200000});if(!add.ok)return{stage:'add',add,ok:false};
+  const commit=await runProcess('git',['commit','-m',message],{cwd,timeoutMs:p.timeoutMs||60000,maxOutput:300000});
+  return{stage:'commit',add,commit,ok:commit.ok};
+}
+async function backupSnapshot(p={}){
+  const root=String(p.root||''),base=rootBase(root),paths=Array.isArray(p.paths)&&p.paths.length?p.paths.slice(0,100):['.'];
+  const id='snapshot-'+Date.now()+'-'+crypto.randomBytes(4).toString('hex'),dir=path.join(BACKUP_DIR,id);await fs.mkdir(dir,{recursive:true});
+  const copied=[];
+  for(const rel of paths){
+    const {out}=await safe(root,rel),dst=path.join(dir,rel==='.'?'root':rel),st=await fs.lstat(out);
+    await fs.mkdir(path.dirname(dst),{recursive:true});
+    if(st.isDirectory())await fs.cp(out,dst,{recursive:true,filter:(src)=>!/(^|[\\/])(node_modules|\.git|\.nexcontrol)([\\/]|$)/.test(src)});
+    else await fs.copyFile(out,dst);
+    copied.push(rel);
+  }
+  await fs.writeFile(path.join(dir,'snapshot.json'),JSON.stringify({id,root,paths:copied,createdAt:new Date().toISOString()},null,2));
+  return{snapshotId:id,root,paths:copied,dir};
+}
+async function deployPipeline(p={}){
+  const root=String(p.root||'');rootBase(root);
+  const files=Array.isArray(p.files)?p.files.slice(0,80):[];if(!files.length)throw new Error('files required');
+  const writes=[],rollbacks=[],checks=[];
+  try{
+    for(const f of files){
+      const r=await writeFile({root,path:String(f.path||''),content:String(f.content??''),expectedSha:f.expectedSha||undefined});
+      writes.push(r);
+    }
+    for(const c of (Array.isArray(p.checks)?p.checks.slice(0,30):[])){
+      const r=await runCheck({root,check:String(c.check||''),file:c.file?String(c.file):undefined,timeoutMs:c.timeoutMs});
+      checks.push(r);if(!r.ok)throw new Error('check failed: '+String(c.check||'unknown'));
+    }
+    const verified=[];
+    for(const w of writes){const h=await hashFile({root,path:w.path});verified.push({path:w.path,sha256:h.sha256,expected:w.afterSha,match:h.sha256===w.afterSha});if(h.sha256!==w.afterSha)throw new Error('post-write hash mismatch: '+w.path)}
+    const restartResult=p.restartTarget?await restart({target:String(p.restartTarget),reason:String(p.reason||'NexControl deploy.pipeline')}):null;
+    return{ok:true,root,writes,checks,verified,restart:restartResult,completedAt:new Date().toISOString()};
+  }catch(error){
+    for(const w of [...writes].reverse()){
+      try{
+        if(w.created){const {out}=await safe(root,w.path);await fs.rm(out,{force:true});rollbacks.push({path:w.path,removed:true});}
+        else if(w.backupId)rollbacks.push(await rollback({backupId:w.backupId}));
+      }catch(e){rollbacks.push({path:w.path,error:String(e?.message||e)})}
+    }
+    throw new Error('deploy.pipeline failed and rollback attempted: '+JSON.stringify({cause:String(error?.message||error),writes:writes.map(x=>({path:x.path,backupId:x.backupId,created:x.created})),checks:checks.map(x=>({check:x.check,ok:x.ok,code:x.code})),rollbacks}).slice(0,15000));
+  }
+}
 async function mkdir(p){const{out}=await safe(p.root,p.path,true);await fs.mkdir(out,{recursive:!!p.recursive});return{root:p.root,path:p.path,created:true}}
 async function move(p){const a=await safe(p.root,p.path),b=await safe(p.root,p.toPath,true);if(fssync.existsSync(b.out)&&!p.overwrite)throw new Error('Destination exists');await fs.mkdir(path.dirname(b.out),{recursive:true});if(p.overwrite)await fs.rm(b.out,{recursive:true,force:true});await fs.rename(a.out,b.out);return{root:p.root,path:p.path,toPath:p.toPath}}
 async function remove(p){const{out}=await safe(p.root,p.path),st=await fs.lstat(out);if(st.isDirectory()){if(!p.allowDir)throw new Error('Directory deletion disabled');const ents=await fs.readdir(out);if(ents.length)throw new Error('Directory not empty');await fs.rmdir(out);return{root:p.root,path:p.path,deleted:'dir'}}const b=await backup(p.root,p.path,'delete');await fs.unlink(out);return{root:p.root,path:p.path,deleted:'file',...b}}
@@ -146,10 +282,27 @@ async function runProcess(command,args,{cwd=process.cwd(),timeoutMs=60000,maxOut
 async function systemInfo(){
   return{hostname:os.hostname(),platform:process.platform,arch:process.arch,release:os.release(),nodeVersion:process.version,pid:process.pid,agentUptime:process.uptime(),hostUptime:os.uptime(),loadavg:os.loadavg(),cpus:os.cpus().map(x=>({model:x.model,speed:x.speed})),memory:{total:os.totalmem(),free:os.freemem(),rss:process.memoryUsage().rss},cwd:process.cwd()};
 }
-async function processList(p){
-  if(process.platform==='win32')throw new Error('process.list is not supported on Windows');
-  const r=await runProcess('ps',['-eo','pid,ppid,stat,%cpu,%mem,etime,args','--sort=-%cpu'],{timeoutMs:p.timeoutMs||15000,maxOutput:300000});
-  return{...r,stdout:r.stdout.split(/\r?\n/).slice(0,Math.min(500,Math.max(20,Number(p.limit||200)))).join('\n')};
+async function processList(p={}){
+  if(process.platform!=='linux')throw new Error('process.list currently requires Linux /proc');
+  const limit=Math.min(500,Math.max(20,Number(p.limit||200)));
+  const ids=(await fs.readdir('/proc')).filter(x=>/^\d+$/.test(x)).map(Number).sort((a,b)=>a-b);
+  const items=[];
+  for(const pid of ids){
+    try{
+      const [status,cmdBuf]=await Promise.all([
+        fs.readFile('/proc/'+pid+'/status','utf8'),
+        fs.readFile('/proc/'+pid+'/cmdline')
+      ]);
+      const name=(status.match(/^Name:\s+(.+)$/m)||[])[1]||'';
+      const state=(status.match(/^State:\s+(.+)$/m)||[])[1]||'';
+      const ppid=Number((status.match(/^PPid:\s+(\d+)$/m)||[])[1]||0);
+      const rssKb=Number((status.match(/^VmRSS:\s+(\d+)\s+kB$/m)||[])[1]||0);
+      const cmdline=cmdBuf.toString('utf8').split('\0').filter(Boolean).join(' ');
+      items.push({pid,ppid,name,state,rssKb,cmdline:cmdline.slice(0,8000)});
+      if(items.length>=limit)break;
+    }catch{}
+  }
+  return{count:items.length,items};
 }
 function gitName(x,label){const v=String(x||'');if(!/^[A-Za-z0-9._\/-]+$/.test(v))throw new Error('Invalid '+label);return v}
 async function gitStatus(p){const cwd=rootBase(p.root);return runProcess('git',['status','--porcelain=v1','--branch'],{cwd,timeoutMs:p.timeoutMs||30000});}
@@ -174,8 +327,8 @@ async function runtimeSignal(p){
 
 async function tailLogs(p){const f=cfg.logFiles?.[p.log];if(!f)throw new Error('Unknown log');const out=path.resolve(String(f)),st=await fs.stat(out),bytes=Math.min(st.size,Math.max(1024,Math.min(512000,Number(p.bytes||100000)))),h=await fs.open(out,'r'),buf=Buffer.alloc(bytes);await h.read(buf,0,bytes,st.size-bytes);await h.close();return{log:p.log,bytes,content:buf.toString('utf8')}}
 async function restart(p){if(cfg.restartHook?.mode!=='file')throw new Error('Restart hook not configured');const hook=path.resolve(cfg.restartHook.path);await fs.mkdir(path.dirname(hook),{recursive:true});await fs.writeFile(hook,JSON.stringify({target:p.target||'all',reason:p.reason||'NexControl',requestedAt:new Date().toISOString(),nonce:crypto.randomUUID()},null,2));return{queued:true,target:p.target||'all',hook}}
-async function execute(job){switch(job.kind){case'fs.list':return listDir(job.payload);case'fs.read':return readFile(job.payload);case'fs.search':return searchFiles(job.payload);case'fs.write':return writeFile(job.payload);case'fs.mkdir':return mkdir(job.payload);case'fs.move':return move(job.payload);case'fs.delete':return remove(job.payload);case'fs.rollback':return rollback(job.payload);case'fs.stat':return statPath(job.payload);case'fs.hash':return hashFile(job.payload);case'fs.chmod':return chmodPath(job.payload);case'check.run':return runCheck(job.payload);case'logs.tail':return tailLogs(job.payload);case'system.info':return systemInfo();case'process.list':return processList(job.payload);case'git.status':return gitStatus(job.payload);case'git.diff':return gitDiff(job.payload);case'git.sync':return gitSync(job.payload);case'runtime.exec':return runtimeExec(job.payload);case'runtime.signal':return runtimeSignal(job.payload);case'runtime.restart':return restart(job.payload);default:throw new Error(`Unsupported job kind: ${job.kind}`)}}
-async function heartbeat(){return api('/api/v1/agent/heartbeat',{displayName:NAME,version:'0.3.0',hostname:os.hostname(),platform:`${process.platform}/${process.arch}`,nodeVersion:process.version,pid:process.pid,uptime:process.uptime(),memory:process.memoryUsage(),capabilities:{jobs:['fs.list','fs.read','fs.search','fs.write','fs.mkdir','fs.move','fs.delete','fs.rollback','fs.stat','fs.hash','fs.chmod','check.run','logs.tail','system.info','process.list','git.status','git.diff','git.sync','runtime.exec','runtime.signal','runtime.restart'],safeChecks:Object.keys(cfg.safeChecks||{}),logs:Object.keys(cfg.logFiles||{})},roots:Object.keys(roots).map(key=>({key,path:roots[key]}))})}
+async function execute(job){switch(job.kind){case'fs.list':return listDir(job.payload);case'fs.tree':return fsTree(job.payload);case'fs.read':return readFile(job.payload);case'fs.search':return searchFiles(job.payload);case'fs.compare':return compareFiles(job.payload);case'fs.write':return writeFile(job.payload);case'fs.mkdir':return mkdir(job.payload);case'fs.move':return move(job.payload);case'fs.copy':return copyPath(job.payload);case'fs.delete':return remove(job.payload);case'fs.rollback':return rollback(job.payload);case'fs.stat':return statPath(job.payload);case'fs.hash':return hashFile(job.payload);case'fs.chmod':return chmodPath(job.payload);case'backup.snapshot':return backupSnapshot(job.payload);case'deploy.pipeline':return deployPipeline(job.payload);case'check.run':return runCheck(job.payload);case'logs.tail':return tailLogs(job.payload);case'logs.search':return searchLogs(job.payload);case'system.info':return systemInfo();case'process.list':return processList(job.payload);case'disk.usage':return diskUsage(job.payload);case'http.check':return httpCheck(job.payload);case'runtime.envKeys':return envKeys();case'runtime.envCheck':return envCheck(job.payload);case'git.status':return gitStatus(job.payload);case'git.diff':return gitDiff(job.payload);case'git.log':return gitLog(job.payload);case'git.branches':return gitBranches(job.payload);case'git.checkout':return gitCheckout(job.payload);case'git.commit':return gitCommit(job.payload);case'git.sync':return gitSync(job.payload);case'runtime.exec':return runtimeExec(job.payload);case'runtime.signal':return runtimeSignal(job.payload);case'runtime.restart':return restart(job.payload);default:throw new Error(`Unsupported job kind: ${job.kind}`)}}
+async function heartbeat(){return api('/api/v1/agent/heartbeat',{displayName:NAME,version:'0.5.0',hostname:os.hostname(),platform:`${process.platform}/${process.arch}`,nodeVersion:process.version,pid:process.pid,uptime:process.uptime(),memory:process.memoryUsage(),capabilities:{jobs:["fs.list","fs.tree","fs.read","fs.search","fs.compare","fs.write","fs.mkdir","fs.move","fs.copy","fs.delete","fs.rollback","fs.stat","fs.hash","fs.chmod","backup.snapshot","deploy.pipeline","check.run","logs.tail","logs.search","system.info","process.list","disk.usage","http.check","runtime.envKeys","runtime.envCheck","git.status","git.diff","git.log","git.branches","git.checkout","git.commit","git.sync","runtime.exec","runtime.signal","runtime.restart"],safeChecks:Object.keys(cfg.safeChecks||{}),logs:Object.keys(cfg.logFiles||{})},roots:Object.keys(roots).map(key=>({key,path:roots[key]}))})}
 
 let stopped=false;process.on('SIGINT',()=>stopped=true);process.on('SIGTERM',()=>stopped=true);let nextHeartbeat=0;
 while(!stopped){
