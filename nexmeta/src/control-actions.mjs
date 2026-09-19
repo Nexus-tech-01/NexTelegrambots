@@ -50,6 +50,20 @@ export const CONTROL_CAPABILITIES = Object.freeze([
   'delete_comment'
 ]);
 
+const META_WRITE_ACTIONS = new Set([
+  'send_text',
+  'send_media',
+  'send_quick_replies',
+  'sender_action',
+  'publish_page_post',
+  'edit_page_post',
+  'delete_page_post',
+  'reply_comment',
+  'hide_comment',
+  'unhide_comment',
+  'delete_comment'
+]);
+
 function requireString(value, name, max = 10000) {
   const result = String(value ?? '').trim();
   if (!result) throw new Error(`${name} is required`);
@@ -93,8 +107,19 @@ export function controlAuditMetadata(body) {
   return metadata;
 }
 
+async function assertMetaWritesEnabled(action) {
+  if (!META_WRITE_ACTIONS.has(action)) return;
+  const settings = await getRuntimeSettings();
+  if (!settings.outboundEnabled) {
+    const error = new Error('outbound_disabled');
+    error.status = 503;
+    throw error;
+  }
+}
+
 export async function executeControlAction(body) {
   const action = requireString(body?.action, 'action', 80);
+  await assertMetaWritesEnabled(action);
 
   switch (action) {
     case 'probe_page':
