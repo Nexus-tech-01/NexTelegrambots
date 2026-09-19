@@ -134,6 +134,17 @@ async function processInboundEvent(event) {
   }
 }
 
+async function processWebhookPayload(eventKey, payload) {
+  try {
+    const events = normalizeMessengerWebhook(payload);
+    for (const event of events) await processInboundEvent(event);
+    await markWebhookProcessed(eventKey);
+  } catch (error) {
+    console.error('[NexMeta webhook]', error);
+    await markWebhookProcessed(eventKey, 'failed', error?.stack || error);
+  }
+}
+
 async function metaWebhookPost(req, res) {
   const raw = await readRaw(req);
 
@@ -159,16 +170,15 @@ async function metaWebhookPost(req, res) {
     return writeJson(res, 200, { ok: true, duplicate: true });
   }
 
+  const background = processWebhookPayload(eventKey, payload);
   writeJson(res, 200, { ok: true });
 
-  try {
-    const events = normalizeMessengerWebhook(payload);
-    for (const event of events) await processInboundEvent(event);
-    await markWebhookProcessed(eventKey);
-  } catch (error) {
-    console.error('[NexMeta webhook]', error);
-    await markWebhookProcessed(eventKey, 'failed', error?.stack || error);
+  if (typeof req.nexmetaWaitUntil === 'function') {
+    req.nexmetaWaitUntil(background);
+    return;
   }
+
+  await background;
 }
 
 function publicActionError(error) {
@@ -194,7 +204,7 @@ async function control(req, res, url, path) {
     return writeJson(res, 200, {
       ok: true,
       service: 'nexmeta',
-      version: '0.2.0-dev',
+      version: '0.2.0',
       metaConfigured: metaConfigured(),
       runtime,
       capabilities: CONTROL_CAPABILITIES,
@@ -258,7 +268,7 @@ export async function handleRequest(req, res) {
       return writeJson(res, 200, {
         ok: true,
         service: 'nexmeta',
-        version: '0.2.0-dev',
+        version: '0.2.0',
         metaConfigured: metaConfigured(),
         runtime
       });
