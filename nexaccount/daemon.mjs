@@ -7,6 +7,7 @@ import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { ensureNexAiBot } from './bot-factory.mjs';
 import { ensureAnalyticsIndex } from './analytics-indexer.mjs';
+import { commandMap, registrySummary } from './commands.mjs';
 
 assertCoreConfig();
 
@@ -27,7 +28,8 @@ async function route(req,res){
   const url=new URL(req.url,'http://127.0.0.1');
   try{
     if(req.method==='GET'&&url.pathname==='/health'){
-      return json(res,200,{ok:true,service:'nexaccount',botConfigured:!!(await loadBotToken()),botUsername:cfg.botUsername||null,runtimes:runtimeStatus()});
+      const registry=registrySummary(commandMap());
+      return json(res,200,{ok:true,service:'nexaccount',botConfigured:!!(await loadBotToken()),botUsername:cfg.botUsername||null,commands:registry,runtimes:runtimeStatus()});
     }
     if(req.method==='GET'&&url.pathname==='/accounts'){
       return json(res,200,{ok:true,accounts:await listAccounts(),runtimes:runtimeStatus()});
