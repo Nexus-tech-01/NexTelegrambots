@@ -159,6 +159,13 @@ function normalizeGatewayReply(gatewayResult) {
     quickReplies: Array.isArray(reply.quickReplies)
       ? reply.quickReplies
       : [],
+    template: reply.template &&
+      typeof reply.template === 'object'
+      ? reply.template
+      : null,
+    imageUrls: Array.isArray(reply.imageUrls)
+      ? reply.imageUrls
+      : [],
     handledBy:
       gatewayResult.handledBy ||
       gatewayResult.service ||
