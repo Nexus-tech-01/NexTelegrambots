@@ -143,3 +143,33 @@ export async function sendNexMetaMessage(psid, text) {
     text
   });
 }
+
+
+export async function configureNexMetaWebhooks(fields) {
+  return nexMetaAction('configure_webhooks', {
+    ...(Array.isArray(fields) ? { fields } : {})
+  });
+}
+
+export async function inspectNexMetaAppWebhooks() {
+  return nexMetaAction('inspect_app_webhooks');
+}
+
+export async function subscribeNexMetaPageWebhooks(pageId, fields) {
+  return nexMetaAction('subscribe_page_webhooks', {
+    pageId,
+    ...(Array.isArray(fields) ? { fields } : {})
+  });
+}
+
+export async function inspectNexMetaPageWebhooks(pageId) {
+  return nexMetaAction('inspect_page_webhooks', {
+    pageId
+  });
+}
+
+export async function unsubscribeNexMetaPageWebhooks(pageId) {
+  return nexMetaAction('unsubscribe_page_webhooks', {
+    pageId
+  });
+}
