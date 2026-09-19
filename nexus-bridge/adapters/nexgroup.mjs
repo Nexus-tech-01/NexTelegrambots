@@ -8,6 +8,7 @@ import {
 } from './_shared.mjs';
 
 const token = String(
+  process.env.NEXGROUP__TELEGRAM_BOT_TOKEN ||
   process.env.NEXGROUP__BOT_TOKEN ||
   process.env.NEXGROUP_BOT_TOKEN ||
   process.env.NEXGROUP_TOKEN ||
