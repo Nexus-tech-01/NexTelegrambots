@@ -183,9 +183,7 @@ async function processMessengerEvent(event, settings) {
     });
   }
 
-  if (!['message', 'postback'].includes(event.type) || event.isEcho) {
-    return;
-  }
+  if (event.isEcho) return;
 
   if (!settings.inboundEnabled) {
     await audit('nexmeta.inbound.skipped', 'runtime', {
@@ -194,6 +192,20 @@ async function processMessengerEvent(event, settings) {
       senderId: event.senderId,
       eventType: event.type
     });
+    return;
+  }
+
+  if (!['message', 'postback'].includes(event.type)) {
+    const result = await routeNexusEvent(event);
+
+    await audit('nexmeta.messenger_event.routed', 'facebook', {
+      pageId: event.pageId,
+      senderId: event.senderId,
+      eventType: event.type,
+      handled: result?.handled === true,
+      handledBy: result?.handledBy || null
+    });
+
     return;
   }
 
