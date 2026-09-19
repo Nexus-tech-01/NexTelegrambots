@@ -1,5 +1,15 @@
 {
   "version": 2,
-  "functions": {"api/index.mjs": {"maxDuration": 30}},
-  "rewrites": [{"source": "/(.*)", "destination": "/api/index.mjs"}]
+  "functions": {
+    "api/index.mjs": {
+      "maxDuration": 30,
+      "includeFiles": "assets/**"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api/index.mjs"
+    }
+  ]
 }
