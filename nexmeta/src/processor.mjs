@@ -104,7 +104,12 @@ async function saveOutbound(event, sent, {
 }
 
 async function sendAndSave(event, text) {
-  const sent = await sendText(event.senderId, text);
+  const sent = await sendText(
+    event.senderId,
+    text,
+    'RESPONSE',
+    event.pageId
+  );
   await saveOutbound(event, sent, { text });
   return sent;
 }
@@ -124,7 +129,9 @@ async function sendTextReply(event, text, quickReplies = []) {
       const message = await sendQuickReplies(
         event.senderId,
         chunk,
-        quickReplies
+        quickReplies,
+        'RESPONSE',
+        event.pageId
       );
 
       await saveOutbound(event, message, {
@@ -159,7 +166,9 @@ async function renderNexusReply(event, result) {
   if (result.template && typeof result.template === 'object') {
     const sent = await sendTemplate(
       event.senderId,
-      result.template
+      result.template,
+      'RESPONSE',
+      event.pageId
     );
 
     await saveOutbound(event, sent, {
@@ -170,7 +179,9 @@ async function renderNexusReply(event, result) {
   if (Array.isArray(result.imageUrls) && result.imageUrls.length) {
     const sent = await sendImageGallery(
       event.senderId,
-      result.imageUrls
+      result.imageUrls,
+      'RESPONSE',
+      event.pageId
     );
 
     await saveOutbound(event, sent, {
@@ -190,7 +201,9 @@ async function renderNexusReply(event, result) {
     const sent = await sendMedia(
       event.senderId,
       String(media.type),
-      String(media.url)
+      String(media.url),
+      'RESPONSE',
+      event.pageId
     );
 
     await saveOutbound(event, sent, {
@@ -333,8 +346,16 @@ async function processMessengerEvent(event, settings) {
   }
 
   await Promise.allSettled([
-    senderAction(event.senderId, 'mark_seen'),
-    senderAction(event.senderId, 'typing_on')
+    senderAction(
+      event.senderId,
+      'mark_seen',
+      event.pageId
+    ),
+    senderAction(
+      event.senderId,
+      'typing_on',
+      event.pageId
+    )
   ]);
 
   try {
@@ -345,7 +366,11 @@ async function processMessengerEvent(event, settings) {
     });
     await renderNexusReply(event, result);
   } finally {
-    await senderAction(event.senderId, 'typing_off').catch(() => {});
+    await senderAction(
+      event.senderId,
+      'typing_off',
+      event.pageId
+    ).catch(() => {});
   }
 }
 
