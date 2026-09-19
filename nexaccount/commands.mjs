@@ -157,8 +157,43 @@ export function commandMap(extra=[]){
     map.set(key,{...cmd,name:key});
   };
 
+  // 1) NexAI core always wins.
   for(const cmd of CORE_COMMANDS)put(cmd);
 
+  // 2) Keep every source-bot command addressable with an explicit namespace.
+  //    This guarantees that no collision can make a source command disappear.
+  for(const [source,names] of Object.entries(SOURCE_COMMANDS)){
+    const meta=SOURCE_META[source]||{category:'TOOLS',sourceBot:source};
+    for(const raw of names||[]){
+      const name=normalize(raw);if(!name)continue;
+      const specific=source.replace(/^nex/,'')+'_'+name;
+      put(C(specific,meta.category,{
+        ...meta,
+        sourceCommand:name,
+        description:'NexAI · '+source+' · '+name,
+        hidden:false
+      }));
+    }
+  }
+
+  // 3) For the short/bare name, prefer the service that actually owns the
+  //    Telegram implementation. Dipper is an extension layer, not a mask.
+  const sourcePriority=['nexdownloader','nexgroup','nexstick','nexgame','nexwhisper'];
+  for(const source of sourcePriority){
+    const names=SOURCE_COMMANDS[source]||[];
+    const meta=SOURCE_META[source]||{category:'TOOLS',sourceBot:source};
+    for(const raw of names){
+      const name=normalize(raw);if(!name||map.has(name))continue;
+      put(C(name,meta.category,{
+        ...meta,
+        sourceCommand:name,
+        description:'NexAI · '+source+' · '+name
+      }));
+    }
+  }
+
+  // 4) Add THE BIG DIPPER commands. If a canonical command already has a
+  //    native Nexus owner, all Dipper aliases inherit that real implementation.
   for(const spec of DIPPER_COMMANDS){
     const canonical=normalize(spec.name);
     if(!canonical)continue;
@@ -177,20 +212,9 @@ export function commandMap(extra=[]){
     }
   }
 
-  for(const [source,names] of Object.entries(SOURCE_COMMANDS)){
-    const meta=SOURCE_META[source]||{category:'TOOLS',sourceBot:source};
-    for(const raw of names||[]){
-      const name=normalize(raw);if(!name)continue;
-      const specific=source.replace(/^nex/,'')+'_'+name;
-      if(!map.has(name))put(C(name,meta.category,{...meta,description:'NexAI · '+source+' · '+name}));
-      if(!map.has(specific))put(C(specific,meta.category,{...meta,sourceCommand:name,description:'NexAI · '+source+' · '+name,hidden:false}));
-    }
-  }
-
   for(const cmd of extra)put(cmd);
   return map;
 }
-
 export function commandsByCategory(commands){
   const out={};
   const seen=new Set();

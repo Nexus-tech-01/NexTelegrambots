@@ -41,7 +41,7 @@ export async function menuModel({account,settings,commands,view='home',category=
   const owner=isOwnerId(account.telegramUserId);
   const visible=c=>!c.hidden&&(!c.ownerOnly||owner);
   const header=await renderDipperHeader(style.id,{
-    botName:'NEXAI',
+    botName:String(settings.botDisplayName||'NEXAI').slice(0,64),
     ownerName:account.username?'@'+account.username:(account.firstName||localized(settings,'Utilisateur','User')),
     rank:owner?'owner':account.premium?'premium':'free',
     prefix:settings.prefix||'.',
@@ -125,7 +125,7 @@ export async function menuModel({account,settings,commands,view='home',category=
     text,
     entities:expandableEntities(text,spans),
     reply_markup:{inline_keyboard:buttons},
-    photoUrl:await resolveStyleImage(style.id,cfg.defaultMenuImage)
+    photoUrl:String(settings.menuImageUrl||'').trim()||await resolveStyleImage(style.id,cfg.defaultMenuImage)
   };
 }
 

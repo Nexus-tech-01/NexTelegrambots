@@ -26,6 +26,8 @@ jobs:
           node-version: '20'
       - run: node nexaccount/scripts/sync-dipper.mjs _dipper nexaccount
       - run: npm install --prefix nexaccount --ignore-scripts
+      - name: Validate command registry
+        run: node nexaccount/scripts/validate-registry.mjs
       - name: Syntax
         run: |
           for f in nexaccount/*.mjs nexaccount/scripts/*.mjs nexcontrol/api/index.mjs; do node --check "$f"; done
