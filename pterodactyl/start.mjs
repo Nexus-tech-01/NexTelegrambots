@@ -16,6 +16,9 @@ import {
   serveRemoteMedia,
   mediaRegistryStats
 } from '../nexus-bridge/media-registry.mjs';
+import {
+  classifyPublicPath
+} from './routing.mjs';
 
 const root = path.resolve(
   process.env.NEXUS_ROOT ||
@@ -549,13 +552,6 @@ function bridgeAuthorized(req) {
   );
 }
 
-const metaPrefixes = [
-  '/webhooks/meta',
-  '/oauth/meta/callback',
-  '/connect/meta',
-  '/internal/v1/'
-];
-
 const server = http.createServer(
   async (req, res) => {
     try {
@@ -564,11 +560,11 @@ const server = http.createServer(
         'http://nexus.local'
       );
 
-      if (
-        url.pathname.startsWith(
-          '/nexus-media/'
-        )
-      ) {
+      const route = classifyPublicPath(
+        url.pathname
+      );
+
+      if (route === 'media') {
         const token = url.pathname
           .slice('/nexus-media/'.length)
           .trim();
@@ -580,17 +576,11 @@ const server = http.createServer(
         );
       }
 
-      if (
-        url.pathname ===
-        '/internal/nexus/events'
-      ) {
+      if (route === 'bridge-events') {
         return bridge(req, res);
       }
 
-      if (
-        url.pathname ===
-        '/internal/nexus/bridge-status'
-      ) {
+      if (route === 'bridge-status') {
         if (!bridgeAuthorized(req)) {
           res.statusCode = 401;
           res.setHeader(
@@ -640,18 +630,14 @@ const server = http.createServer(
               adapterState.status,
             mediaRegistry:
               mediaRegistryStats(),
-            discovery:
-              discovery
+            discovery
           })
         );
 
         return;
       }
 
-      if (
-        url.pathname ===
-        '/health/all'
-      ) {
+      if (route === 'health-all') {
         const [
           telegram,
           nexmeta
@@ -700,10 +686,7 @@ const server = http.createServer(
         return;
       }
 
-      if (
-        url.pathname ===
-        '/health/meta'
-      ) {
+      if (route === 'meta-health') {
         return proxyRequest(
           metaPort,
           req,
@@ -715,15 +698,7 @@ const server = http.createServer(
         );
       }
 
-      if (
-        metaPrefixes.some(
-          prefix =>
-            url.pathname === prefix ||
-            url.pathname.startsWith(
-              prefix
-            )
-        )
-      ) {
+      if (route === 'nexmeta') {
         return proxyRequest(
           metaPort,
           req,
