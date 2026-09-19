@@ -40,7 +40,7 @@ export const config = {
   nexusGatewayKey: clean(process.env.NEXUS_COMMAND_GATEWAY_KEY),
   requiredNexusServices: csv(
     process.env.NEXMETA_REQUIRED_NEXUS_SERVICES ||
-    'nexdownloader,nexgame,nexstick,nexgroup,nexcanal'
+    'nexdownloader,nexgame,nexstick,nexgroup,nexcanal,nexwhisper,nexai'
   )
 };
 
