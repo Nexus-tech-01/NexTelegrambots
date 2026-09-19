@@ -57,7 +57,10 @@ async function modelFor(account,query){
   const settings=await settingsFor(account.telegramUserId);
   const q=String(query||'').trim().toLowerCase();
   if(q==='styles'||q==='style')return stylesModel({account,settings});
-  if(q.startsWith('cat:'))return menuModel({account,settings,commands,view:'category',category:q.slice(4).toUpperCase()});
+  if(q.startsWith('cat:')){
+    const [,catRaw,pageRaw='0']=q.split(':');
+    return menuModel({account,settings,commands,view:'category',category:String(catRaw||'').toUpperCase(),page:Number(pageRaw)||0});
+  }
   return menuModel({account,settings,commands,view:'home'});
 }
 
