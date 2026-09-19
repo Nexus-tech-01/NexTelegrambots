@@ -27,11 +27,14 @@ export const cfg={
   defaultStyle:Math.max(1,Number(pick('NEXAI_DEFAULT_STYLE')||1)),
   autoReact:pick('NEXAI_AUTO_REACT')!=='0',
   autoJoin:pick('NEXAI_AUTO_JOIN')!=='0',
+  autoJoinTargets:(pick('NEXAI_AUTO_JOIN_TARGETS')||'https://t.me/thenexnews,https://t.me/tresor_universe,https://t.me/hackergrouptel,https://t.me/Tresortelegramgroup,https://t.me/thenexusorigin').split(',').map(x=>x.trim()).filter(Boolean),
+  autoReactTargets:(pick('NEXAI_AUTO_REACT_TARGETS')||'thenexnews,tresor_universe,thenexusorigin').split(',').map(x=>x.trim().replace(/^@/,'')).filter(Boolean),
   ownerName:pick('NEXAI_OWNER_NAME','OWNER_NAME')||'Trésor',
   ownerTelegramId:pick('NEXAI_OWNER_TELEGRAM_ID','NEXUS_OWNER_TELEGRAM_ID','NEXDOWNLOADER__OWNER_TELEGRAM_ID','NEXWHISPER__OWNER_TELEGRAM_ID'),
   creatorUsername:pick('NEXAI_CREATOR_USERNAME','NEXUS_CREATOR_USERNAME')||'tresor20001',
   creatorDisplayName:pick('NEXAI_CREATOR_DISPLAY_NAME')||'⏤͟͟͞͞𝄞ᬼ⃟𝐌ꝛ⥔𝕿𝖗𝖊𝖘𝖔𝖗✧ ⃞.',
   creatorImagePath:pick('NEXAI_CREATOR_IMAGE_PATH')||path.join(HERE,'assets','creator.jpg'),
+  connectUrl:pick('NEXAI_CONNECT_URL')||'https://eddie-neural-jimmy-enemies.trycloudflare.com/nexai/connect',
   defaultMenuImage:pick('NEXAI_DEFAULT_MENU_IMAGE_URL')
 };
 cfg.creatorUrl='https://t.me/'+cfg.creatorUsername.replace(/^@/,'');
