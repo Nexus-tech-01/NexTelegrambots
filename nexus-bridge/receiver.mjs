@@ -147,6 +147,7 @@ export async function dispatchNexusEnvelope(
   envelope,
   {
     services = {},
+    serviceStatus = [],
     resolveAuto,
     claimEvent,
     releaseEvent
@@ -163,12 +164,27 @@ export async function dispatchNexusEnvelope(
       .map(([name]) => name)
       .sort();
 
+    const readyServices = Array.isArray(serviceStatus)
+      ? serviceStatus
+          .filter(
+            item =>
+              item?.loaded === true &&
+              item?.manifest?.productionReady === true
+          )
+          .map(item => String(item.service))
+          .sort()
+      : [];
+
     return {
       handledBy: 'nexus-bridge',
       duplicate: false,
       probe: true,
       services: {
-        available: availableServices
+        available: availableServices,
+        ready: readyServices,
+        status: Array.isArray(serviceStatus)
+          ? serviceStatus
+          : []
       },
       reply: null
     };
@@ -274,6 +290,7 @@ function writeJson(res, status, value) {
 export function createNexusBridgeHandler({
   sharedKey,
   services,
+  serviceStatus,
   resolveAuto,
   claimEvent,
   releaseEvent,
@@ -319,6 +336,7 @@ export function createNexusBridgeHandler({
         envelope,
         {
           services,
+          serviceStatus,
           resolveAuto,
           claimEvent,
           releaseEvent
