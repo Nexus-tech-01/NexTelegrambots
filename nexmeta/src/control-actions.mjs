@@ -14,10 +14,25 @@ import {
   replyToComment,
   setCommentHidden
 } from './meta-client.mjs';
+import {
+  getMetrics,
+  recentAudit,
+  linkIdentity,
+  unlinkIdentity,
+  getRuntimeSettings,
+  setRuntimeSettings
+} from './store.mjs';
+import { config } from './config.mjs';
 
 export const CONTROL_CAPABILITIES = Object.freeze([
   'status',
   'probe_page',
+  'metrics',
+  'recent_audit',
+  'runtime_settings',
+  'set_runtime',
+  'link_identity',
+  'unlink_identity',
   'send_text',
   'send_media',
   'send_quick_replies',
@@ -63,13 +78,17 @@ export function controlAuditMetadata(body) {
       safeAuditTarget(body?.objectId) ||
       safeAuditTarget(body?.commentId) ||
       safeAuditTarget(body?.conversationId) ||
-      safeAuditTarget(body?.messageId)
+      safeAuditTarget(body?.messageId) ||
+      safeAuditTarget(body?.externalUserId) ||
+      safeAuditTarget(body?.nexusUserId)
   };
 
   if (typeof body?.text === 'string') metadata.textLength = body.text.length;
   if (typeof body?.message === 'string') metadata.messageLength = body.message.length;
   if (typeof body?.url === 'string') metadata.hasUrl = true;
   if (Array.isArray(body?.quickReplies)) metadata.quickReplyCount = body.quickReplies.length;
+  if (typeof body?.inboundEnabled === 'boolean') metadata.inboundEnabled = body.inboundEnabled;
+  if (typeof body?.outboundEnabled === 'boolean') metadata.outboundEnabled = body.outboundEnabled;
 
   return metadata;
 }
@@ -80,6 +99,36 @@ export async function executeControlAction(body) {
   switch (action) {
     case 'probe_page':
       return getPageProfile();
+
+    case 'metrics':
+      return getMetrics();
+
+    case 'recent_audit':
+      return recentAudit(body.limit);
+
+    case 'runtime_settings':
+      return getRuntimeSettings({ force: true });
+
+    case 'set_runtime':
+      return setRuntimeSettings({
+        inboundEnabled: body.inboundEnabled,
+        outboundEnabled: body.outboundEnabled
+      });
+
+    case 'link_identity':
+      return linkIdentity({
+        platform: optionalString(body.platform, 40) || 'facebook',
+        pageId: optionalString(body.pageId, 300) || config.pageId,
+        externalUserId: requireString(body.externalUserId, 'externalUserId', 500),
+        nexusUserId: requireString(body.nexusUserId, 'nexusUserId', 500)
+      });
+
+    case 'unlink_identity':
+      return unlinkIdentity({
+        platform: optionalString(body.platform, 40) || 'facebook',
+        pageId: optionalString(body.pageId, 300) || config.pageId,
+        externalUserId: requireString(body.externalUserId, 'externalUserId', 500)
+      });
 
     case 'send_text':
       return sendText(
