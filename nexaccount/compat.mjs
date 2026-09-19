@@ -983,7 +983,14 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     if(cmd.sourceCategory==='games_entertainment'){await proxyCommand(client,peer,{name:'game',proxy:'@TheNexGame_bot'},[name,...args]);return true}
     if(cmd.sourceCategory==='download_tools'||cmd.sourceCategory==='social_media_download'){await proxyCommand(client,peer,{name:DL_MAP[name]||name,proxy:'@TheNexDownloader_bot'},args);return true}
     if(cmd.sourceCategory==='ai_images'){await proxyCommand(client,peer,{name,proxy:'@Stacytg_bot',proxyMode:'chat'},[argText||name]);return true}
-    await sendText(client,peer,'NexAI · '+name+'\nCommande THE BIG DIPPER reconnue et traduite pour Telegram. Utilise .menu pour son module actuel.');
+    try{
+      await proxyCommand(client,peer,{
+        name:cmd.dipperCanonical||name,
+        proxy:'@the_big_dipper_bot'
+      },args,event);
+    }catch(e){
+      await sendText(client,peer,'Commande '+name+' reconnue, mais le moteur THE BIG DIPPER n’a pas répondu : '+String(e.message||e));
+    }
     return true;
   }
 
