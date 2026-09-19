@@ -22,6 +22,19 @@ const BOT_NAMES = [
 const interestingName =
   /(core|service|handler|router|command|controller|manager|engine|index|main|app|server)/i;
 
+const botSpecificNames = Object.freeze({
+  nexdownloader:
+    /(ytdlp|yt-dlp|gallery|direct|provider|download|media|store|queue|access|runtime|bootstrap|server|bot)/i,
+  nexgame:
+    /(game|quiz|riddle|match|engine|store|queue|service|handler|server|bot)/i,
+  nexcanal:
+    /(channel|publish|relay|composer|draft|schedule|service|handler|server|bot)/i,
+  nexgroup:
+    /(group|moder|admin|member|permission|service|handler|server|bot)/i,
+  nexstick:
+    /(sticker|emoji|pack|clone|service|handler|server|bot)/i
+});
+
 const sourceExtension = /\.(?:mjs|cjs|js|ts)$/i;
 
 async function exists(file) {
@@ -158,7 +171,13 @@ async function inspectBot(name) {
   for (const full of files) {
     const relative = path.relative(botDir, full);
 
-    if (!interestingName.test(path.basename(full))) {
+    const basename = path.basename(full);
+    const specific = botSpecificNames[name];
+
+    if (
+      !interestingName.test(basename) &&
+      !(specific && specific.test(basename))
+    ) {
       continue;
     }
 
@@ -174,6 +193,11 @@ async function inspectBot(name) {
 
     const signals = [
       /handle/i.test(source) ? 'handle' : null,
+      /ytdlp|yt-dlp/i.test(source) ? 'ytdlp' : null,
+      /gallerydl|gallery-dl/i.test(source) ? 'gallerydl' : null,
+      /directMedia|direct\.download/i.test(source) ? 'direct-media' : null,
+      /createJob|updateJob|getJob/i.test(source) ? 'job-store' : null,
+      /queue\.add|class .*Queue/i.test(source) ? 'queue' : null,
       /sendMessage|reply|answer/i.test(source) ? 'messaging' : null,
       /download/i.test(source) ? 'download' : null,
       /game|quiz/i.test(source) ? 'game' : null,
@@ -203,7 +227,7 @@ async function inspectBot(name) {
     present: true,
     package: await readPackage(botDir),
     scannedFiles: files.length,
-    candidates: candidates.slice(0, 80)
+    candidates: candidates.slice(0, 160)
   };
 }
 
