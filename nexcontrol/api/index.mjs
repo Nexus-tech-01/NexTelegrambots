@@ -180,7 +180,9 @@ async function metaPage(req,res,url){
   const auth=await probeAdminSession(req);
 
   if(!auth.authenticated){
-    return proxyUpstream(req,res,url.pathname,url.search);
+    res.statusCode=303;
+    res.setHeader('location','/?next=%2Fmeta');
+    return res.end();
   }
 
   if(!nexMetaBridgeConfigured()){
