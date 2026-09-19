@@ -250,7 +250,7 @@ function connectPageHtml({
   disabled = false
 } = {}) {
   const message = disabled
-    ? 'La connexion directe est désactivée. Configure NEXMETA_CONNECT_KEY ou utilise NexControl.'
+    ? 'La connexion Facebook n’est pas encore prête. Vérifie l’URL HTTPS publique, l’App Meta, le verify token, la clé de chiffrement et NEXMETA_CONNECT_KEY avec pterodactyl/check.mjs.'
     : 'Entre la clé de connexion propriétaire configurée sur le serveur. Elle est envoyée uniquement en POST HTTPS et n’est jamais placée dans l’URL.';
 
   return `<!doctype html>
