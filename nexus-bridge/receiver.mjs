@@ -26,6 +26,14 @@ export function validateNexusEnvelope(envelope) {
   }
 
   const surface = String(envelope.source.surface || '');
+
+  if (surface === 'system') {
+    if (envelope.event.type !== 'system_probe') {
+      throw new Error('unsupported_system_event');
+    }
+    return envelope;
+  }
+
   if (!['messenger', 'page'].includes(surface)) {
     throw new Error('unsupported_surface');
   }
@@ -145,6 +153,18 @@ export async function dispatchNexusEnvelope(
   } = {}
 ) {
   validateNexusEnvelope(envelope);
+
+  if (
+    envelope.source.surface === 'system' &&
+    envelope.event.type === 'system_probe'
+  ) {
+    return {
+      handledBy: 'nexus-bridge',
+      duplicate: false,
+      probe: true,
+      reply: null
+    };
+  }
 
   const eventId = envelope.event?.id
     ? String(envelope.event.id)
