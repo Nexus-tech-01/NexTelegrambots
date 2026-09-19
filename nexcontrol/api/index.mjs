@@ -241,17 +241,31 @@ async function metaPage(req,res,url){
     );
   }
 
-  const [
-    statusResponse,
-    metricsResponse,
-    pagesResponse,
-    readinessResponse
-  ]=await Promise.all([
+  const results=await Promise.allSettled([
     nexMetaStatus(),
     nexMetaAction('metrics'),
     nexMetaAction('list_connected_pages'),
     nexMetaAction('deployment_readiness')
   ]);
+
+  const value=index=>
+    results[index]?.status==='fulfilled'
+      ? results[index].value
+      : null;
+
+  const error=index=>
+    results[index]?.status==='rejected'
+      ? String(
+          results[index].reason?.message ||
+          results[index].reason ||
+          'request_failed'
+        ).slice(0,300)
+      : null;
+
+  const statusResponse=value(0);
+  const metricsResponse=value(1);
+  const pagesResponse=value(2);
+  const readinessResponse=value(3);
 
   const html=renderMetaPage({
     status:statusResponse||{},
@@ -259,7 +273,13 @@ async function metaPage(req,res,url){
     pages:Array.isArray(pagesResponse?.result)
       ? pagesResponse.result
       : [],
-    readiness:readinessResponse?.result||{}
+    readiness:readinessResponse?.result||{},
+    loadErrors:[
+      ['status',error(0)],
+      ['metrics',error(1)],
+      ['pages',error(2)],
+      ['readiness',error(3)]
+    ].filter(([,message])=>message)
   });
 
   res.statusCode=200;
