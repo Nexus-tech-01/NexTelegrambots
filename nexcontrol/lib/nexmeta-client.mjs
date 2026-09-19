@@ -251,3 +251,8 @@ export async function nexMetaDeploymentReadiness() {
 export async function configureAllDefaultNexMetaMessengerProfiles() {
   return nexMetaAction('configure_all_default_messenger_profiles');
 }
+
+
+export async function nexMetaBridgeStatus() {
+  return nexMetaAction('bridge_status');
+}
