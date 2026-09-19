@@ -207,6 +207,36 @@ async function metaOAuthCallback(res, url) {
 }
 
 
+const ownerConnectFailures = [];
+
+function pruneOwnerConnectFailures() {
+  const cutoff = Date.now() - 15 * 60 * 1000;
+
+  while (
+    ownerConnectFailures.length &&
+    ownerConnectFailures[0] < cutoff
+  ) {
+    ownerConnectFailures.shift();
+  }
+}
+
+function ownerConnectRateLimited() {
+  pruneOwnerConnectFailures();
+  return ownerConnectFailures.length >= 20;
+}
+
+function connectSecurityHeaders(res) {
+  res.setHeader('cache-control', 'no-store');
+  res.setHeader('x-robots-tag', 'noindex, nofollow');
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('referrer-policy', 'no-referrer');
+  res.setHeader('x-frame-options', 'DENY');
+  res.setHeader(
+    'content-security-policy',
+    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+  );
+}
+
 function connectPageHtml({
   error = '',
   disabled = false
@@ -256,8 +286,7 @@ async function ownerConnect(req, res) {
   if (req.method === 'GET') {
     res.statusCode = connectKeyReady ? 200 : 503;
     res.setHeader('content-type', 'text/html; charset=utf-8');
-    res.setHeader('cache-control', 'no-store');
-    res.setHeader('x-robots-tag', 'noindex, nofollow');
+    connectSecurityHeaders(res);
     return res.end(
       connectPageHtml({
         disabled: !connectKeyReady
@@ -274,6 +303,13 @@ async function ownerConnect(req, res) {
   if (!connectKeyReady) {
     return writeJson(res, 503, {
       error: 'owner_connect_disabled'
+    });
+  }
+
+  if (ownerConnectRateLimited()) {
+    res.setHeader('retry-after', '900');
+    return writeJson(res, 429, {
+      error: 'owner_connect_rate_limited'
     });
   }
 
@@ -300,19 +336,23 @@ async function ownerConnect(req, res) {
     `Bearer ${String(supplied)}`,
     config.connectKey
   )) {
+    ownerConnectFailures.push(Date.now());
+
     await audit('nexmeta.owner_connect.denied', 'web', {
       ok: false
     }).catch(() => {});
 
     res.statusCode = 403;
     res.setHeader('content-type', 'text/html; charset=utf-8');
-    res.setHeader('cache-control', 'no-store');
+    connectSecurityHeaders(res);
     return res.end(
       connectPageHtml({
         error: 'Clé incorrecte.'
       })
     );
   }
+
+  ownerConnectFailures.length = 0;
 
   const start = await createMetaOAuthStart({
     actor: 'owner-connect-page',
@@ -325,7 +365,7 @@ async function ownerConnect(req, res) {
 
   res.statusCode = 303;
   res.setHeader('location', start.authorizationUrl);
-  res.setHeader('cache-control', 'no-store');
+  connectSecurityHeaders(res);
   return res.end();
 }
 
