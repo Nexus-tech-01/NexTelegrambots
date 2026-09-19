@@ -7,7 +7,7 @@ import {
   subscribePageToApp
 } from './meta-webhooks.mjs';
 import {
-  configureDefaultNexusMessengerProfile
+  configureAllDefaultNexusMessengerProfiles
 } from './messenger-profile.mjs';
 
 let clientPromise;
@@ -271,7 +271,7 @@ export async function completeMetaOAuth({
 
   if (stored.length) {
     try {
-      messengerProfile = await configureDefaultNexusMessengerProfile();
+      messengerProfile = await configureAllDefaultNexusMessengerProfiles();
     } catch (error) {
       messengerProfile = {
         success: false,
