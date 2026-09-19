@@ -1,12 +1,39 @@
-import {
-  createBuiltInApiProviders
-} from '/app/bots/nexdownloader/src/download/builtin-api-providers.js';
-import {
-  inspectUrl
-} from '/app/bots/nexdownloader/src/download/platforms.js';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   registerRemoteMedia
 } from '../media-registry.mjs';
+
+const nexusRoot = path.resolve(
+  process.env.NEXUS_ROOT ||
+  process.cwd()
+);
+
+const providersModule = await import(
+  pathToFileURL(
+    path.join(
+      nexusRoot,
+      'bots/nexdownloader/src/download/builtin-api-providers.js'
+    )
+  ).href
+);
+
+const platformsModule = await import(
+  pathToFileURL(
+    path.join(
+      nexusRoot,
+      'bots/nexdownloader/src/download/platforms.js'
+    )
+  ).href
+);
+
+const {
+  createBuiltInApiProviders
+} = providersModule;
+
+const {
+  inspectUrl
+} = platformsModule;
 import {
   createDirectNexDownloaderHandler
 } from '../nexdownloader-direct-core.mjs';
