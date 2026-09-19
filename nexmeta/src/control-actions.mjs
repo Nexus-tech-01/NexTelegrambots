@@ -40,6 +40,7 @@ import {
 import {
   configureMessengerProfile,
   configureDefaultNexusMessengerProfile,
+  configureAllDefaultNexusMessengerProfiles,
   inspectMessengerProfile,
   deleteMessengerProfileFields
 } from './messenger-profile.mjs';
@@ -71,6 +72,7 @@ export const CONTROL_CAPABILITIES = Object.freeze([
   'doctor_page',
   'doctor_all_pages',
   'configure_default_messenger_profile',
+  'configure_all_default_messenger_profiles',
   'configure_messenger_profile',
   'inspect_messenger_profile',
   'delete_messenger_profile_fields',
@@ -248,22 +250,38 @@ export async function executeControlAction(body) {
       return diagnoseAllMetaPages();
 
     case 'configure_default_messenger_profile':
-      return configureDefaultNexusMessengerProfile();
+      return configureDefaultNexusMessengerProfile({
+        pageId: optionalString(body.pageId, 300)
+      });
+
+    case 'configure_all_default_messenger_profiles':
+      return configureAllDefaultNexusMessengerProfiles();
 
     case 'configure_messenger_profile':
       return configureMessengerProfile(
         body.profile && typeof body.profile === 'object'
           ? body.profile
-          : null
+          : null,
+        {
+          pageId: optionalString(body.pageId, 300)
+        }
       );
 
     case 'inspect_messenger_profile':
       return inspectMessengerProfile(
-        Array.isArray(body.fields) ? body.fields : undefined
+        Array.isArray(body.fields) ? body.fields : undefined,
+        {
+          pageId: optionalString(body.pageId, 300)
+        }
       );
 
     case 'delete_messenger_profile_fields':
-      return deleteMessengerProfileFields(body.fields);
+      return deleteMessengerProfileFields(
+        body.fields,
+        {
+          pageId: optionalString(body.pageId, 300)
+        }
+      );
 
     case 'probe_page':
       return getPageProfile();
