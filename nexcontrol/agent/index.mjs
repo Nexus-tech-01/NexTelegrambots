@@ -255,6 +255,92 @@ async function deployPipeline(p={}){
     throw new Error('deploy.pipeline failed and rollback attempted: '+JSON.stringify({cause:String(error?.message||error),writes:writes.map(x=>({path:x.path,backupId:x.backupId,created:x.created})),checks:checks.map(x=>({check:x.check,ok:x.ok,code:x.code})),rollbacks}).slice(0,15000));
   }
 }
+
+function literalCount(source,needle){
+  if(!needle)return 0;let count=0,pos=0;
+  while((pos=source.indexOf(needle,pos))!==-1){count++;pos+=needle.length}
+  return count;
+}
+async function deployPatchPipeline(p={}){
+  const root=String(p.root||'');rootBase(root);
+  const specs=Array.isArray(p.patches)?p.patches.slice(0,80):[];
+  const creates=Array.isArray(p.createFiles)?p.createFiles.slice(0,40):[];
+  if(!specs.length&&!creates.length)throw new Error('patches or createFiles required');
+  const changed=[],checks=[],rollbacks=[];
+  try{
+    for(const spec of specs){
+      const rel=String(spec.path||''),{out}=await safe(root,rel),old=await fs.readFile(out);
+      if(old.includes(0))throw new Error('Binary patch target: '+rel);
+      const beforeSha=sha(old);
+      if(spec.expectedSha&&String(spec.expectedSha)!==beforeSha)throw new Error('SHA mismatch for '+rel+': expected '+spec.expectedSha+', actual '+beforeSha);
+      let next=old.toString('utf8');
+      const reps=Array.isArray(spec.replacements)?spec.replacements.slice(0,80):[];
+      if(!reps.length)throw new Error('replacements required for '+rel);
+      for(const r of reps){
+        const find=String(r.find??''),replace=String(r.replace??'');
+        if(!find||find.length>200000||replace.length>300000)throw new Error('invalid replacement for '+rel);
+        const count=literalCount(next,find);
+        if(r.expectedCount!=null&&count!==Number(r.expectedCount))throw new Error('replacement count mismatch for '+rel+': expected '+r.expectedCount+', actual '+count);
+        if(r.expectedCount==null&&count<1)throw new Error('replacement not found for '+rel);
+        next=r.all===true?next.split(find).join(replace):next.replace(find,replace);
+      }
+      const b=await backup(root,rel,'patch'),st=await fs.stat(out),buf=Buffer.from(next,'utf8'),tmp=out+'.nxc-patch-'+crypto.randomBytes(4).toString('hex')+'.tmp';
+      await fs.writeFile(tmp,buf,{mode:st.mode&0o777});await fs.rename(tmp,out);
+      const afterSha=sha(buf);
+      if(spec.expectedAfterSha&&String(spec.expectedAfterSha)!==afterSha)throw new Error('post-patch SHA mismatch for '+rel+': expected '+spec.expectedAfterSha+', actual '+afterSha);
+      changed.push({root,path:rel,beforeSha,afterSha,backupId:b.backupId,created:false,bytes:buf.length});
+    }
+    for(const spec of creates){
+      const rel=String(spec.path||''),r=await writeFile({root,path:rel,content:String(spec.content??''),expectedSha:spec.expectedSha||undefined});
+      if(spec.expectedAfterSha&&r.afterSha!==String(spec.expectedAfterSha))throw new Error('created file SHA mismatch for '+rel);
+      changed.push(r);
+    }
+    for(const c of (Array.isArray(p.checks)?p.checks.slice(0,30):[])){
+      const r=await runCheck({root,check:String(c.check||''),file:c.file?String(c.file):undefined,timeoutMs:c.timeoutMs});
+      checks.push(r);if(!r.ok)throw new Error('check failed: '+String(c.check||'unknown'));
+    }
+    const verified=[];
+    for(const w of changed){
+      const h=await hashFile({root,path:w.path});
+      verified.push({path:w.path,sha256:h.sha256,expected:w.afterSha,match:h.sha256===w.afterSha});
+      if(h.sha256!==w.afterSha)throw new Error('post-patch verify mismatch: '+w.path);
+    }
+    const restartResult=p.restartTarget?await restart({target:String(p.restartTarget),reason:String(p.reason||'NexControl deploy.patchPipeline')}):null;
+    return{ok:true,root,changed,checks:checks.map(x=>({check:x.check,ok:x.ok,code:x.code,stdout:x.stdout?.slice(-5000),stderr:x.stderr?.slice(-5000)})),verified,restart:restartResult,completedAt:new Date().toISOString()};
+  }catch(error){
+    for(const w of [...changed].reverse()){
+      try{
+        if(w.created){const {out}=await safe(root,w.path);await fs.rm(out,{force:true});rollbacks.push({path:w.path,removed:true});}
+        else if(w.backupId)rollbacks.push(await rollback({backupId:w.backupId}));
+      }catch(e){rollbacks.push({path:w.path,error:String(e?.message||e)})}
+    }
+    throw new Error('deploy.patchPipeline failed and rollback attempted: '+JSON.stringify({cause:String(error?.message||error),changed:changed.map(x=>({path:x.path,backupId:x.backupId,created:x.created})),checks:checks.map(x=>({check:x.check,ok:x.ok,code:x.code})),rollbacks}).slice(0,18000));
+  }
+}
+async function runtimeVersions(p={}){
+  const commands=[['node',['--version']],['npm',['--version']],['git',['--version']],['python3',['--version']],['pip3',['--version']],['ffmpeg',['-version']],['ffprobe',['-version']],['yt-dlp',['--version']],['gallery-dl',['--version']]];
+  const results=[];
+  for(const [command,args] of commands){
+    try{
+      const r=await runProcess(command,args,{cwd:p.root?rootBase(p.root):process.cwd(),timeoutMs:Math.min(15000,Number(p.timeoutMs||8000)),maxOutput:12000});
+      results.push({command,ok:r.ok,code:r.code,version:(r.stdout||r.stderr||'').split(/\r?\n/)[0].slice(0,500)});
+    }catch(e){results.push({command,ok:false,error:String(e?.message||e).slice(0,500)})}
+  }
+  return{results};
+}
+async function npmList(p={}){
+  const cwd=rootBase(p.root),r=await runProcess('npm',['ls','--depth=0','--json'],{cwd,timeoutMs:p.timeoutMs||60000,maxOutput:500000});
+  let parsed=null;try{parsed=JSON.parse(r.stdout)}catch{}
+  return{ok:r.ok,code:r.code,dependencies:parsed?.dependencies||null,stderr:r.stderr};
+}
+async function npmInstallSafe(p={}){
+  if(cfg.allowDependencyInstall!==true)throw new Error('dependency install disabled by agent config');
+  const pkg=String(p.package||'').trim();
+  if(!/^(@[a-z0-9._-]+\/)?[a-z0-9._-]+(@[a-z0-9._*^~<>=| -]+)?$/i.test(pkg)||pkg.length>180)throw new Error('invalid package spec');
+  const cwd=rootBase(p.root),args=['install',pkg,'--save-exact'];if(p.allowScripts!==true)args.push('--ignore-scripts');
+  const r=await runProcess('npm',args,{cwd,timeoutMs:Math.min(180000,Number(p.timeoutMs||180000)),maxOutput:500000});
+  return{package:pkg,allowScripts:p.allowScripts===true,...r};
+}
 async function mkdir(p){const{out}=await safe(p.root,p.path,true);await fs.mkdir(out,{recursive:!!p.recursive});return{root:p.root,path:p.path,created:true}}
 async function move(p){const a=await safe(p.root,p.path),b=await safe(p.root,p.toPath,true);if(fssync.existsSync(b.out)&&!p.overwrite)throw new Error('Destination exists');await fs.mkdir(path.dirname(b.out),{recursive:true});if(p.overwrite)await fs.rm(b.out,{recursive:true,force:true});await fs.rename(a.out,b.out);return{root:p.root,path:p.path,toPath:p.toPath}}
 async function remove(p){const{out}=await safe(p.root,p.path),st=await fs.lstat(out);if(st.isDirectory()){if(!p.allowDir)throw new Error('Directory deletion disabled');const ents=await fs.readdir(out);if(ents.length)throw new Error('Directory not empty');await fs.rmdir(out);return{root:p.root,path:p.path,deleted:'dir'}}const b=await backup(p.root,p.path,'delete');await fs.unlink(out);return{root:p.root,path:p.path,deleted:'file',...b}}
@@ -327,8 +413,8 @@ async function runtimeSignal(p){
 
 async function tailLogs(p){const f=cfg.logFiles?.[p.log];if(!f)throw new Error('Unknown log');const out=path.resolve(String(f)),st=await fs.stat(out),bytes=Math.min(st.size,Math.max(1024,Math.min(512000,Number(p.bytes||100000)))),h=await fs.open(out,'r'),buf=Buffer.alloc(bytes);await h.read(buf,0,bytes,st.size-bytes);await h.close();return{log:p.log,bytes,content:buf.toString('utf8')}}
 async function restart(p){if(cfg.restartHook?.mode!=='file')throw new Error('Restart hook not configured');const hook=path.resolve(cfg.restartHook.path);await fs.mkdir(path.dirname(hook),{recursive:true});await fs.writeFile(hook,JSON.stringify({target:p.target||'all',reason:p.reason||'NexControl',requestedAt:new Date().toISOString(),nonce:crypto.randomUUID()},null,2));return{queued:true,target:p.target||'all',hook}}
-async function execute(job){switch(job.kind){case'fs.list':return listDir(job.payload);case'fs.tree':return fsTree(job.payload);case'fs.read':return readFile(job.payload);case'fs.search':return searchFiles(job.payload);case'fs.compare':return compareFiles(job.payload);case'fs.write':return writeFile(job.payload);case'fs.mkdir':return mkdir(job.payload);case'fs.move':return move(job.payload);case'fs.copy':return copyPath(job.payload);case'fs.delete':return remove(job.payload);case'fs.rollback':return rollback(job.payload);case'fs.stat':return statPath(job.payload);case'fs.hash':return hashFile(job.payload);case'fs.chmod':return chmodPath(job.payload);case'backup.snapshot':return backupSnapshot(job.payload);case'deploy.pipeline':return deployPipeline(job.payload);case'check.run':return runCheck(job.payload);case'logs.tail':return tailLogs(job.payload);case'logs.search':return searchLogs(job.payload);case'system.info':return systemInfo();case'process.list':return processList(job.payload);case'disk.usage':return diskUsage(job.payload);case'http.check':return httpCheck(job.payload);case'runtime.envKeys':return envKeys();case'runtime.envCheck':return envCheck(job.payload);case'git.status':return gitStatus(job.payload);case'git.diff':return gitDiff(job.payload);case'git.log':return gitLog(job.payload);case'git.branches':return gitBranches(job.payload);case'git.checkout':return gitCheckout(job.payload);case'git.commit':return gitCommit(job.payload);case'git.sync':return gitSync(job.payload);case'runtime.exec':return runtimeExec(job.payload);case'runtime.signal':return runtimeSignal(job.payload);case'runtime.restart':return restart(job.payload);default:throw new Error(`Unsupported job kind: ${job.kind}`)}}
-async function heartbeat(){return api('/api/v1/agent/heartbeat',{displayName:NAME,version:'0.5.0',hostname:os.hostname(),platform:`${process.platform}/${process.arch}`,nodeVersion:process.version,pid:process.pid,uptime:process.uptime(),memory:process.memoryUsage(),capabilities:{jobs:["fs.list","fs.tree","fs.read","fs.search","fs.compare","fs.write","fs.mkdir","fs.move","fs.copy","fs.delete","fs.rollback","fs.stat","fs.hash","fs.chmod","backup.snapshot","deploy.pipeline","check.run","logs.tail","logs.search","system.info","process.list","disk.usage","http.check","runtime.envKeys","runtime.envCheck","git.status","git.diff","git.log","git.branches","git.checkout","git.commit","git.sync","runtime.exec","runtime.signal","runtime.restart"],safeChecks:Object.keys(cfg.safeChecks||{}),logs:Object.keys(cfg.logFiles||{})},roots:Object.keys(roots).map(key=>({key,path:roots[key]}))})}
+async function execute(job){switch(job.kind){case'fs.list':return listDir(job.payload);case'fs.tree':return fsTree(job.payload);case'fs.read':return readFile(job.payload);case'fs.search':return searchFiles(job.payload);case'fs.compare':return compareFiles(job.payload);case'fs.write':return writeFile(job.payload);case'fs.mkdir':return mkdir(job.payload);case'fs.move':return move(job.payload);case'fs.copy':return copyPath(job.payload);case'fs.delete':return remove(job.payload);case'fs.rollback':return rollback(job.payload);case'fs.stat':return statPath(job.payload);case'fs.hash':return hashFile(job.payload);case'fs.chmod':return chmodPath(job.payload);case'backup.snapshot':return backupSnapshot(job.payload);case'deploy.pipeline':return deployPipeline(job.payload);case'deploy.patchPipeline':return deployPatchPipeline(job.payload);case'check.run':return runCheck(job.payload);case'logs.tail':return tailLogs(job.payload);case'logs.search':return searchLogs(job.payload);case'system.info':return systemInfo();case'process.list':return processList(job.payload);case'disk.usage':return diskUsage(job.payload);case'runtime.versions':return runtimeVersions(job.payload);case'dependency.npmList':return npmList(job.payload);case'dependency.npmInstall':return npmInstallSafe(job.payload);case'http.check':return httpCheck(job.payload);case'runtime.envKeys':return envKeys();case'runtime.envCheck':return envCheck(job.payload);case'git.status':return gitStatus(job.payload);case'git.diff':return gitDiff(job.payload);case'git.log':return gitLog(job.payload);case'git.branches':return gitBranches(job.payload);case'git.checkout':return gitCheckout(job.payload);case'git.commit':return gitCommit(job.payload);case'git.sync':return gitSync(job.payload);case'runtime.exec':return runtimeExec(job.payload);case'runtime.signal':return runtimeSignal(job.payload);case'runtime.restart':return restart(job.payload);default:throw new Error(`Unsupported job kind: ${job.kind}`)}}
+async function heartbeat(){return api('/api/v1/agent/heartbeat',{displayName:NAME,version:'0.6.0',hostname:os.hostname(),platform:`${process.platform}/${process.arch}`,nodeVersion:process.version,pid:process.pid,uptime:process.uptime(),memory:process.memoryUsage(),capabilities:{jobs:["fs.list","fs.tree","fs.read","fs.search","fs.compare","fs.write","fs.mkdir","fs.move","fs.copy","fs.delete","fs.rollback","fs.stat","fs.hash","fs.chmod","backup.snapshot","deploy.pipeline","deploy.patchPipeline","check.run","logs.tail","logs.search","system.info","process.list","disk.usage","http.check","runtime.envKeys","runtime.envCheck","runtime.versions","dependency.npmList","dependency.npmInstall","git.status","git.diff","git.log","git.branches","git.checkout","git.commit","git.sync","runtime.exec","runtime.signal","runtime.restart"],safeChecks:Object.keys(cfg.safeChecks||{}),logs:Object.keys(cfg.logFiles||{})},roots:Object.keys(roots).map(key=>({key,path:roots[key]}))})}
 
 let stopped=false;process.on('SIGINT',()=>stopped=true);process.on('SIGTERM',()=>stopped=true);let nextHeartbeat=0;
 while(!stopped){
