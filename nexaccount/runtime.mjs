@@ -4,7 +4,7 @@ import { StringSession } from 'teleproto/sessions/index.js';
 import { NewMessage } from 'teleproto/events/index.js';
 import { cfg, isOwnerId } from './config.mjs';
 import { commandMap } from './commands.mjs';
-import { accountWithSession, listAccounts, patchSettings, settingsFor } from './store.mjs';
+import { accountWithSession, disableAccount, enableAccount, listAccounts, patchSettings, settingsFor } from './store.mjs';
 import { listStyles } from './styles.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { recordEvent } from './analytics.mjs';
@@ -230,9 +230,11 @@ async function maybeAutoReact(runtime,event){
   const targets=Array.isArray(cfgReact.targets)?cfgReact.targets:[];
   if(!targets.length)return;
   const chatId=String(event.chatId||event.message?.chatId||'');
-  const username=String(event.chat?.username||'').toLowerCase();
+  let chat=event.chat||null;
+  if(!chat){try{chat=await client.getEntity(event.message.peerId)}catch{}}
+  const username=String(chat?.username||'').toLowerCase().replace(/^@/,'');
   const matched=targets.some(x=>{
-    const v=String(x).trim().toLowerCase().replace(/^@/,'');
+    const v=String(x).trim().toLowerCase().replace(/^https?:\/\/(?:t\.me|telegram\.me)\//i,'').replace(/^@/,'').split(/[/?#]/)[0];
     return v===chatId||v===username;
   });
   if(!matched)return;
@@ -283,8 +285,41 @@ export async function attachConnectedClient(client,account){
   },new NewMessage({incoming:true}));
 
   runAutoJoin(runtime).catch(()=>{});
+  runtime.autoJoinTimer=setInterval(()=>runAutoJoin(runtime).catch(()=>{}),30*60*1000);
+  runtime.autoJoinTimer.unref?.();
   console.log('[NexAccount] account '+id+' attached'+(account.premium?' · Premium':''));
   return runtime;
+}
+
+export async function detachRuntime(telegramUserId){
+  const id=String(telegramUserId);
+  const runtime=runtimes.get(id);
+  if(runtime){
+    if(runtime.autoJoinTimer)clearInterval(runtime.autoJoinTimer);
+    try{await runtime.client.disconnect()}catch{}
+    runtimes.delete(id);
+  }
+  return true;
+}
+
+export async function reconnectRuntime(telegramUserId){
+  const id=String(telegramUserId);
+  await enableAccount(id);
+  try{
+    const account=await accountWithSession(id);
+    if(!account)throw new Error('No saved NexAccount session');
+    const client=new TelegramClient(new StringSession(account.session),cfg.apiId,cfg.apiHash,{connectionRetries:5,autoReconnect:true});
+    await client.connect();
+    if(!(await client.isUserAuthorized()))throw new Error('Saved Telegram session is no longer authorized');
+    const me=await client.getMe();
+    account.premium=me.premium===true;
+    account.username=me.username||account.username;
+    account.firstName=me.firstName||account.firstName;
+    return attachConnectedClient(client,account);
+  }catch(error){
+    await disableAccount(id).catch(()=>{});
+    throw error;
+  }
 }
 
 export async function loadSavedRuntimes(){
@@ -318,6 +353,9 @@ export function runtimeStatus(){
 }
 
 export async function stopRuntimes(){
-  for(const r of runtimes.values()){try{await r.client.disconnect()}catch{}}
+  for(const r of runtimes.values()){
+    if(r.autoJoinTimer)clearInterval(r.autoJoinTimer);
+    try{await r.client.disconnect()}catch{}
+  }
   runtimes.clear();
 }
