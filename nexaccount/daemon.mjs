@@ -6,7 +6,6 @@ import { listAccounts, patchSettings, closeStore } from './store.mjs';
 import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { ensureNexAiBot } from './bot-factory.mjs';
-import { ensureAnalyticsIndex } from './analytics-indexer.mjs';
 
 assertCoreConfig();
 
@@ -91,13 +90,8 @@ server.listen(cfg.port,cfg.host,async()=>{
 const cleanup=setInterval(cleanupPairings,60000);
 cleanup.unref();
 
-ensureAnalyticsIndex({maxAgeMs:0,waitForFirst:false}).catch(e=>console.error('[NexAI analytics]',e));
-const analyticsRefresh=setInterval(()=>ensureAnalyticsIndex({maxAgeMs:0,waitForFirst:false}).catch(e=>console.error('[NexAI analytics]',e)),5*60*1000);
-analyticsRefresh.unref();
-
 async function shutdown(){
   clearInterval(cleanup);
-  clearInterval(analyticsRefresh);
   try{server.close()}catch{}
   await stopInlineBot();
   await stopRuntimes();
