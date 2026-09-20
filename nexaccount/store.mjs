@@ -22,7 +22,8 @@ export async function db(){
       d.collection('nexaccount_accounts').createIndex({enabled:1,updatedAt:-1}),
       d.collection('nexaccount_accounts').createIndex({enabled:1,runtimeBucket:1,connectedAt:1}),
       d.collection('nexaccount_settings').createIndex({telegramUserId:1},{unique:true}),
-      d.collection('nexaccount_runtime_leases').createIndex({expiresAt:1},{expireAfterSeconds:0})
+      d.collection('nexaccount_runtime_leases').createIndex({expiresAt:1},{expireAfterSeconds:0}),
+      d.collection('nexaccount_pairing_state').createIndex({expiresAt:1},{expireAfterSeconds:0})
     ]).catch(e=>{indexesReady=false;throw e;});
     await d.collection('nexaccount_accounts').updateMany(
       {runtimeBucket:{$exists:false}},
@@ -239,6 +240,68 @@ export async function patchSettings(telegramUserId,patch){
 export async function disableAccount(telegramUserId){
   const d=await db();
   await d.collection('nexaccount_accounts').updateOne({telegramUserId:String(telegramUserId)},{$set:{enabled:false,updatedAt:new Date()}});
+}
+
+export async function savePairingState(state){
+  const d=await db(),now=new Date();
+  const createdAt=Number(state?.createdAt||Date.now());
+  const connected=String(state?.stage||'')==='connected';
+  const expiresAt=new Date(createdAt+(connected?60*60*1000:10*60*1000));
+  const session=state?.client?.session?.save?.()||state?.session||'';
+  const account=state?.account?{
+    telegramUserId:String(state.account.telegramUserId||''),
+    username:String(state.account.username||''),
+    firstName:String(state.account.firstName||''),
+    premium:state.account.premium===true,
+    phoneMasked:String(state.account.phoneMasked||'')
+  }:null;
+  const doc={
+    stage:String(state?.stage||'starting'),
+    error:String(state?.error||''),
+    errorCode:String(state?.errorCode||''),
+    codeViaApp:state?.codeViaApp===true,
+    codeAttempts:Number(state?.codeAttempts||0),
+    passwordAttempts:Number(state?.passwordAttempts||0),
+    expectedTelegramUserId:String(state?.expectedTelegramUserId||''),
+    phoneEncrypted:encryptSession(String(state?.phone||'')),
+    phoneCodeHashEncrypted:encryptSession(String(state?.phoneCodeHash||'')),
+    sessionEncrypted:encryptSession(String(session||'')),
+    handedOff:state?.handedOff===true,
+    account,
+    createdAt:new Date(createdAt),
+    updatedAt:now,
+    expiresAt
+  };
+  await d.collection('nexaccount_pairing_state').updateOne({_id:String(state.id)},{$set:doc},{upsert:true});
+  return true;
+}
+
+export async function pairingStateRecord(id){
+  const d=await db();
+  const row=await d.collection('nexaccount_pairing_state').findOne({_id:String(id),expiresAt:{$gt:new Date()}});
+  if(!row)return null;
+  return {
+    id:String(row._id),
+    stage:String(row.stage||'starting'),
+    error:String(row.error||''),
+    errorCode:String(row.errorCode||''),
+    codeViaApp:row.codeViaApp===true,
+    codeAttempts:Number(row.codeAttempts||0),
+    passwordAttempts:Number(row.passwordAttempts||0),
+    expectedTelegramUserId:String(row.expectedTelegramUserId||''),
+    phone:decryptSession(row.phoneEncrypted),
+    phoneCodeHash:decryptSession(row.phoneCodeHashEncrypted),
+    session:decryptSession(row.sessionEncrypted),
+    handedOff:row.handedOff===true,
+    account:row.account||null,
+    createdAt:new Date(row.createdAt||Date.now()).getTime()
+  };
+}
+
+export async function deletePairingState(id){
+  const d=await db();
+  await d.collection('nexaccount_pairing_state').deleteOne({_id:String(id)});
+  return true;
 }
 
 export async function closeStore(){
