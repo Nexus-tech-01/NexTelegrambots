@@ -21,7 +21,10 @@ import {
   completeMetaOAuth,
   createMetaOAuthStart
 } from './meta-oauth.mjs';
-import { connectedPageState } from './token-vault.mjs';
+import {
+  connectedPageState,
+  connectedAccountState
+} from './token-vault.mjs';
 import {
   CONTROL_CAPABILITIES,
   controlAuditMetadata,
@@ -163,11 +166,15 @@ async function metaOAuthCallback(res, url) {
     const result = await completeMetaOAuth({ code, state });
 
     await audit('nexmeta.oauth.connected', result.actor || 'nexcontrol', {
+      accountConnected: result.accountConnected === true,
+      accountUserId: result.account?.userId || null,
       pagesDiscovered: result.pagesDiscovered,
       pagesStored: result.pagesStored,
       messengerCapablePages: result.messengerCapablePages,
       pageIds: result.pages.map(page => page.pageId),
       webhookProvisioned: result.webhooks?.success === true,
+      permissionDiscoveryError: result.permissionDiscoveryError || null,
+      pageDiscoveryError: result.pageDiscoveryError || null,
       pageWebhookResults: (result.webhooks?.pages || []).map(item => ({
         pageId: item.pageId,
         success: item.success === true,
@@ -175,19 +182,31 @@ async function metaOAuthCallback(res, url) {
       }))
     });
 
-    const webhookMessage = result.webhooks?.success
-      ? ' Les webhooks Meta ont aussi été configurés automatiquement.'
-      : ' Les Pages sont enregistrées, mais au moins un abonnement webhook reste à corriger depuis NexControl.';
+    const pagesMessage = result.pagesStored > 0
+      ? ` ${result.pagesStored} Page(s) administrée(s) ont aussi été ajoutée(s) à NexMeta.`
+      : ' Aucune Page administrable n’a été ajoutée ; le compte reste néanmoins connecté à NexMeta.';
 
     const messengerMessage = result.messengerCapablePages > 0
       ? ` ${result.messengerCapablePages} Page(s) disposent d’un rôle Messenger.`
-      : ' Aucune Page retournée ne possède actuellement de tâche Messenger ; la connexion Page existe, mais Messenger ne pourra pas répondre tant que le rôle Page nécessaire n’est pas accordé.';
+      : result.pagesStored > 0
+        ? ' Messenger restera limité aux Pages qui disposent de la tâche de messagerie requise.'
+        : '';
+
+    const webhookMessage = result.pagesStored === 0
+      ? ''
+      : result.webhooks?.success
+        ? ' Les webhooks Meta ont aussi été configurés automatiquement.'
+        : ' Au moins un abonnement webhook Page reste à corriger depuis NexControl.';
+
+    const discoveryMessage = result.pageDiscoveryError
+      ? ' La découverte des Pages a rencontré une erreur Meta ; tu peux relancer cette partie depuis NexControl sans perdre la connexion du compte.'
+      : '';
 
     return writeHtml(
       res,
       200,
-      'Facebook connecté',
-      `${result.pagesStored} Page(s) ont été ajoutée(s) à NexMeta. Les tokens sont chiffrés côté serveur et ne sont pas affichés ici.${messengerMessage}${webhookMessage} Tu peux revenir dans NexControl.`
+      'Compte Facebook connecté',
+      `Le compte Facebook propriétaire est maintenant relié à NexMeta. Son token utilisateur est chiffré côté serveur et n’est jamais affiché dans le navigateur.${pagesMessage}${messengerMessage}${webhookMessage}${discoveryMessage} Tu peux revenir dans NexControl.`
     );
   } catch (error) {
     await audit('nexmeta.oauth.failed', 'facebook', {
@@ -195,21 +214,13 @@ async function metaOAuthCallback(res, url) {
       metaCode: error?.metaCode ?? null
     }).catch(() => {});
 
-    const noPages = error?.message === 'no_managed_facebook_pages';
-
     return writeHtml(
       res,
-      noPages
-        ? 422
-        : Number(error?.status) >= 400 && Number(error?.status) < 500
-          ? Number(error.status)
-          : 502,
-      noPages
-        ? 'Aucune Page disponible'
-        : 'Connexion échouée',
-      noPages
-        ? 'Ce compte Facebook n’a retourné aucune Page administrable à NexMeta. Utilise un compte qui gère au moins une Page Facebook, puis relance la connexion.'
-        : 'NexMeta n’a pas pu finaliser la connexion Facebook. Relance la connexion depuis /connect/meta ou NexControl ; aucun token n’est affiché dans cette page.'
+      Number(error?.status) >= 400 && Number(error?.status) < 500
+        ? Number(error.status)
+        : 502,
+      'Connexion échouée',
+      'NexMeta n’a pas pu finaliser la connexion du compte Facebook. Relance la connexion depuis /connect/meta ou NexControl ; aucun token n’est affiché dans cette page.'
     );
   }
 }
@@ -400,9 +411,10 @@ async function control(req, res, url, path) {
   }
 
   if (req.method === 'GET' && path === '/internal/v1/status') {
-    const [runtime, pages] = await Promise.all([
+    const [runtime, pages, account] = await Promise.all([
       getRuntimeSettings(),
-      connectedPageState()
+      connectedPageState(),
+      connectedAccountState()
     ]);
 
     await audit('nexmeta.status.read', 'nexcontrol');
@@ -419,6 +431,7 @@ async function control(req, res, url, path) {
         Boolean(config.publicBaseUrl),
       runtime,
       pages,
+      account,
       capabilities: CONTROL_CAPABILITIES,
       secretExposure: false
     });
@@ -492,7 +505,8 @@ export async function handleRequest(req, res) {
         publicBaseUrlConfigured:
           Boolean(config.publicBaseUrl),
         runtime,
-        pages
+        pages,
+        account
       });
     }
 
