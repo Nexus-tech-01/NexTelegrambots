@@ -1,3 +1,4 @@
+import { Button } from 'teleproto/tl/custom/button.js';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -360,9 +361,11 @@ async function canonicalizeCandidate(c,source={}){
 
 function releaseKey(c){
   const title=norm(c.title);
-  return [title,'s'+(c.season??1),'e'+c.episode,(c.language||'UNK').toUpperCase()].join('|');
+  return [title,'s'+(c.season??1),'e'+c.episode,(c.language||'UNK').toUpperCase(),(c.quality||'AUTO').toLowerCase()].join('|');
 }
-function presentationKey(c){return [norm(c.title),'presentation'].join('|')}
+function presentationKey(c){
+  return [norm(c.title),'presentation','s'+(c.season??0),'e'+(c.episode??0)].join('|');
+}
 function htmlEscape(value=''){
   return String(value).replace(/[&<>"']/g,ch=>({
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
@@ -404,10 +407,10 @@ function classifyMessage(message,source={}){
     };
   }
   if(message?.photo && text.trim() && PRESENTATION_RE.test(text) && !looksPromotional(text)){
-    const presentTitle=stripNoiseTitle(text.split(/\r?\n/)[0]||'');
+    const presentTitle=stripNoiseTitle(text.split(/\r?\n/)[0]||'',ep?.token||'');
     if(presentTitle.length>=2){
       return {
-        kind:'presentation',title:presentTitle,season:null,episode:null,language:'',quality:'',
+        kind:'presentation',title:presentTitle,season:ep?.season??null,episode:ep?.episode??null,language:lang,quality,
         mediaKind:'photo',originalFilename:'',cleanedFilename:'',
         cleanedCaption:cleanCaption(text,source),confidence:0.82
       };
@@ -539,7 +542,7 @@ async function enqueueCandidate(runtime,entity,message,c,{mode='live'}={}){
   const priority=mode==='live'?1000:100;
   const seriesKey=norm(c.title);
   const payload={
-    dedupeKey,status:'queued',kind:c.kind,seriesKey,title:c.title,
+    dedupeKey,status:'queued',kind:c.kind,seriesKey,title:c.title,anilistId:c.anilistId??null,
     season:c.season??null,episode:c.episode??null,language:c.language||'',
     quality:c.quality||'',mediaKind:c.mediaKind||'text',
     cleanedCaption:c.cleanedCaption||'',cleanedFilename:c.cleanedFilename||'',
@@ -862,19 +865,45 @@ async function destinationThumb(runtime,destination){
     return p;
   }catch{return null}
 }
+
+function targetMessageUrl(messageId){
+  return 'https://t.me/'+DESTINATION+'/'+Number(messageId);
+}
+async function previousEpisodeButton(item){
+  if(item?.episode==null)return undefined;
+  const d=await db();
+  const previous=await d.collection('nexanime_publications').findOne(
+    {
+      seriesKey:item.seriesKey,
+      kind:'episode',
+      season:item.season??1,
+      episode:{$lt:Number(item.episode)},
+      telegramMessageId:{$gt:0},
+      purgedAt:{$exists:false}
+    },
+    {sort:{episode:-1,publishedAt:-1}}
+  );
+  if(!previous?.telegramMessageId)return undefined;
+  return [[Button.url('Épisode précédent',targetMessageUrl(previous.telegramMessageId),Button.style.primary())]];
+}
+async function publicationButtons(item){
+  return previousEpisodeButton(item);
+}
+
 async function publishPresentation(runtime,item,resolved,destination){
   const message=resolved.message;
   const caption=quotedCaption(item);
+  const buttons=await publicationButtons(item);
   if(message?.photo){
     const tmp=path.join(TMP_ROOT,'presentation-'+crypto.randomUUID()+'.jpg');
     await fs.mkdir(TMP_ROOT,{recursive:true});
     try{
       const out=await runtime.client.downloadMedia(message.media,{outputFile:tmp,workers:1});
       const file=typeof out==='string'?out:tmp;
-      return await runtime.client.sendFile(destination,{file,caption,parseMode:'html',workers:1});
+      return await runtime.client.sendFile(destination,{file,caption,parseMode:'html',buttons,workers:1});
     }finally{await fs.rm(tmp,{force:true}).catch(()=>{})}
   }
-  return runtime.client.sendMessage(destination,{message:caption,parseMode:'html'});
+  return runtime.client.sendMessage(destination,{message:caption,parseMode:'html',buttons});
 }
 async function publishEpisode(runtime,item,resolved,destination){
   if(!(await mediaReuploadAllowed())){
@@ -884,6 +913,7 @@ async function publishEpisode(runtime,item,resolved,destination){
   }
   const message=resolved.message;
   if(!message?.media)throw new Error('source_media_missing');
+  const buttons=await publicationButtons(item);
 
   // Fast path: reuse Telegram's existing media reference. This avoids downloading
   // full anime episodes to the server and prevents disk-quota crashes.
@@ -892,6 +922,7 @@ async function publishEpisode(runtime,item,resolved,destination){
       file:message.media,
       caption:quotedCaption(item),
       parseMode:'html',
+      buttons,
       forceDocument:item.mediaKind==='document',
       supportsStreaming:item.mediaKind==='video'
     });
@@ -918,6 +949,7 @@ async function publishEpisode(runtime,item,resolved,destination){
       file,
       caption:quotedCaption(item),
       parseMode:'html',
+      buttons,
       fileName:finalName,
       workers:1,
       supportsStreaming:item.mediaKind==='video'
@@ -934,8 +966,8 @@ async function markPublication(item,sent,runtime){
   await d.collection('nexanime_publications').updateOne(
     {dedupeKey:item.dedupeKey},
     {$setOnInsert:{
-      dedupeKey:item.dedupeKey,title:item.title,season:item.season,episode:item.episode,
-      language:item.language||'',destination:'@'+DESTINATION,createdAt:now
+      dedupeKey:item.dedupeKey,seriesKey:item.seriesKey,kind:item.kind,title:item.title,season:item.season,episode:item.episode,
+      language:item.language||'',quality:item.quality||'',destination:'@'+DESTINATION,createdAt:now
     },$set:{
       publishedAt:now,publisherAccountId:String(runtime.account.telegramUserId),
       publisherUsername:String(runtime.account.username||''),
@@ -1154,7 +1186,7 @@ export const __test={
   parseEpisode,detectLanguage,detectQuality,stripNoiseTitle,cleanCaption,safeFilename,
   classifyMessage,sourceStats,titleSimilarity,releaseKey,presentationKey,
   cleanSeriesTitle,sourceTitleCandidate,deriveRawAnchors,commonPrefixTitle,verifyAnimeTitle,
-  standardizedCaption,quotedCaption,titleFromMessage,bestAnchor
+  standardizedCaption,quotedCaption,titleFromMessage,bestAnchor,releaseKey,presentationKey
 };
 
 
