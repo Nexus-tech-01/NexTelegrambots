@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { Api } from 'teleproto';
+import { getInputUser } from 'teleproto/Utils.js';
 import { cfg, isOwnerId } from './config.mjs';
 import { listAccounts, patchSettings, settingsFor } from './store.mjs';
 import { toSmallCaps } from './styles.mjs';
@@ -139,57 +140,64 @@ function isAdminParticipant(p){
 function displayName(p){
   return clean([p?.firstName,p?.lastName].filter(Boolean).join(' '))||p?.username||String(p?.id||'Utilisateur');
 }
-function mentionEntity(offset,text,userId){
-  return new Api.MessageEntityMentionName({
+async function inputMentionEntity(client,offset,text,user){
+  const entity=await client.getInputEntity(user);
+  return new Api.InputMessageEntityMentionName({
     offset,
     length:Buffer.from(String(text),'utf16le').length/2,
-    userId
+    userId:getInputUser(entity)
   });
+}
+async function buildMentionEntities(client,text,people,{hidden=false}={}){
+  const entities=[];
+  let message=String(text||'');
+  for(const p of people){
+    if(hidden){
+      const marker='\u2063';
+      const offset=Buffer.from(message,'utf16le').length/2;
+      message+=marker;
+      entities.push(await inputMentionEntity(client,offset,marker,p));
+    }else{
+      message+='• ';
+      const name=displayName(p);
+      const offset=Buffer.from(message,'utf16le').length/2;
+      message+=name+'\n';
+      entities.push(await inputMentionEntity(client,offset,name,p));
+    }
+  }
+  return {message,entities};
 }
 async function sendMentionList(client,peer,people,title){
   const list=(people||[]).filter(p=>p?.id);
   if(!list.length)return client.sendMessage(peer,{message:'Aucun membre trouvé.'});
   const chunks=[];
-  for(let i=0;i<list.length;i+=60)chunks.push(list.slice(i,i+60));
+  for(let i=0;i<list.length;i+=50)chunks.push(list.slice(i,i+50));
   for(let index=0;index<chunks.length;index++){
-    const chunk=chunks[index];
-    let text=String(title||'NexAi · Mention')+(chunks.length>1?' · '+(index+1)+'/'+chunks.length:'')+'\n\n';
-    const entities=[];
-    for(const p of chunk){
-      text+='• ';
-      const name=displayName(p);
-      const offset=Buffer.from(text,'utf16le').length/2;
-      text+=name+'\n';
-      entities.push(mentionEntity(offset,name,p.id));
-    }
-    await client.sendMessage(peer,{message:text.trimEnd(),formattingEntities:entities});
+    const intro=String(title||'Mention générale : tout le monde est invité à lire ce message.').trim();
+    const heading=intro+(chunks.length>1?'\nPartie '+(index+1)+'/'+chunks.length:'')+'\n\n';
+    const built=await buildMentionEntities(client,heading,chunks[index]);
+    await client.sendMessage(peer,{message:built.message.trimEnd(),formattingEntities:built.entities});
   }
 }
 async function sendHiddenMentions(client,peer,people,title){
   const list=(people||[]).filter(p=>p?.id);
   if(!list.length)return client.sendMessage(peer,{message:'Aucun membre trouvé.'});
   const chunks=[];
-  for(let i=0;i<list.length;i+=80)chunks.push(list.slice(i,i+80));
+  for(let i=0;i<list.length;i+=60)chunks.push(list.slice(i,i+60));
   for(let index=0;index<chunks.length;index++){
-    const chunk=chunks[index];
-    let text=String(title||'NexAi · Mention')+(chunks.length>1?' · '+(index+1)+'/'+chunks.length:'');
-    const entities=[];
-    for(const p of chunk){
-      const marker='\u2063';
-      text+=marker;
-      const offset=Buffer.from(text.slice(0,-marker.length),'utf16le').length/2;
-      entities.push(mentionEntity(offset,marker,p.id));
-    }
-    await client.sendMessage(peer,{message:text,formattingEntities:entities});
+    const visible=String(title||'Tout le monde est invité à lire ce message.').trim()+(chunks.length>1?' · '+(index+1)+'/'+chunks.length:'');
+    const built=await buildMentionEntities(client,visible,chunks[index],{hidden:true});
+    await client.sendMessage(peer,{message:built.message,formattingEntities:built.entities});
   }
 }
 async function sendSingleMention(client,peer,user,text){
   const name=displayName(user);
-  let message=String(text||'NexAi · Mention').trim();
+  let message=String(text||'Je te mentionne ici.').trim();
   if(message)message+='\n';
   const offset=Buffer.from(message,'utf16le').length/2;
   message+=name;
-  return client.sendMessage(peer,{message,formattingEntities:[mentionEntity(offset,name,user.id)]});
+  const entity=await inputMentionEntity(client,offset,name,user);
+  return client.sendMessage(peer,{message,formattingEntities:[entity]});
 }
 function parseToggle(v,current=false){
   const s=clean(v).toLowerCase();
@@ -544,22 +552,26 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       let user,text;
       if(reply?.senderId){
         user=await client.getEntity(reply.senderId);
-        text=argText||'NexAi · Mention';
+        text=argText||'Je te mentionne ici.';
       }else{
         const target=clean(args[0]);
         if(!target){await sendText(client,peer,'Usage : réponds à un membre avec .tag [message], ou .tag @username [message].');return true}
-        user=await client.getEntity(target);
-        text=args.slice(1).join(' ').trim()||'NexAi · Mention';
+        const ref=/^\d+$/.test(target)?BigInt(target):target;
+        user=await client.getEntity(ref);
+        text=args.slice(1).join(' ').trim()||'Je te mentionne ici.';
       }
       await sendSingleMention(client,peer,user,text);
-    }catch(e){await sendText(client,peer,'Tag impossible : '+String(e.errorMessage||e.message||e))}
+    }catch(e){
+      console.error('[NexAccount tag]',String(e?.errorMessage||e?.message||e));
+      await sendText(client,peer,'Tag impossible : '+String(e.errorMessage||e.message||e));
+    }
     return true;
   }
   if(name==='tagall'||name==='hidetag'||name==='mediatag'||name==='tagadmin'){
     const ps=await participants(client,peer,1000);
     const list=name==='tagadmin'?ps.filter(isAdminParticipant):ps;
     if(name==='hidetag'){
-      await sendHiddenMentions(client,peer,list,argText||'NexAi · Mention');
+      await sendHiddenMentions(client,peer,list,argText||'Tout le monde est invité à lire ce message.');
       return true;
     }
     if(name==='mediatag'){
@@ -568,18 +580,14 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
         try{
           const buffer=await client.downloadMedia(source);
           if(buffer?.length){
-            const hidden='\u2063'.repeat(Math.min(80,list.length));
-            const entities=list.slice(0,80).map((p,i)=>mentionEntity(
-              Buffer.from((argText||'NexAi · Media tag')+hidden.slice(0,i),'utf16le').length/2,
-              '\u2063',
-              p.id
-            ));
+            const visible=argText||'Tout le monde est invité à voir ce média.';
+            const built=await buildMentionEntities(client,visible,list.slice(0,60),{hidden:true});
             await sendTelegramMedia(client,peer,Buffer.from(buffer),{
               fileName:recoveredMediaName(source),
-              caption:(argText||'NexAi · Media tag')+hidden,
+              caption:built.message,
               mimeType:String(source?.media?.document?.mimeType||''),
               kind:'auto',
-              formattingEntities:entities
+              formattingEntities:built.entities
             });
             return true;
           }
@@ -588,7 +596,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       await sendHiddenMentions(client,peer,list,argText||'NexAi · Media tag');
       return true;
     }
-    await sendMentionList(client,peer,list,argText||'NexAi · Mention');
+    await sendMentionList(client,peer,list,argText||'Mention générale : tout le monde est invité à lire ce message.');
     return true;
   }
   if(name==='delete'){
