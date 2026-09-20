@@ -168,7 +168,7 @@ export function prepareTelegramMedia(data,{fileName='media',mimeType='',kind='au
 
 export async function sendTelegramMedia(client,peer,data,{
   fileName='media',mimeType='',kind='auto',caption='',formattingEntities,
-  voiceNote=false,buttons,replyTo,silent
+  voiceNote=false,buttons,replyTo,silent,parseMode,workers,thumb
 }={}){
   const media=prepareTelegramMedia(data,{fileName,mimeType,kind});
   const dir=path.join(
@@ -190,7 +190,10 @@ export async function sendTelegramMedia(client,peer,data,{
       formattingEntities,
       buttons,
       replyTo,
-      silent
+      silent,
+      parseMode,
+      workers,
+      thumb
     });
   }finally{
     await rm(dir,{recursive:true,force:true}).catch(()=>{});
