@@ -148,6 +148,7 @@ export const CORE_COMMANDS=[
   C('crop','MEDIA',{description:'Recadrer une image'}),
   C('resize','MEDIA',{description:'Redimensionner une image'}),
   C('analyzesound','MEDIA',{description:'Analyser un audio/une vidéo'}),
+  C('vv','MEDIA',{...P,description:'Renvoyer un média normal en vue unique Telegram'}),
 
   // STICKERS — kept as a compact WhatsApp-style surface.
   C('sticker','STICKERS',{description:'Créer un sticker',proxy:'@The_Nexus_techbot'}),
@@ -283,6 +284,7 @@ export const LEGACY_ALIASES={
   purification:'clean',debannissement:'unban',bannir:'ban',
   aveu:'truth',epreuve:'dare',bouffon:'joke',charme:'compliment',
   premiumemoji:'emoji_status',
+  viewonce:'vv',tovv:'vv',
   animesearch:'anisearch',searchanime:'anisearch',
   mangasearch:'manga',searchmanga:'manga',mangainfo:'manga',
   scheduleanime:'animecalendar',trendanime:'trendinganime',similar:'recommendanime',
@@ -300,7 +302,7 @@ export const LEGACY_ALIASES={
 // leftovers, placeholders, duplicates or commands that only pretended to work.
 export const REMOVED_COMMANDS=new Set([
   'execute','runeval','darkfile','save','crash','mise_a_jour','renaissance','reload',
-  'tostatus','tovv','antiwalink','antistatusmention','rejet_appels','autorecording',
+  'tostatus','antiwalink','antistatusmention','rejet_appels','autorecording',
   'annihiler','exaucee','setsudo','delsudo','setvip','delvip','transferowner',
   'filtervcf','pausequeue','adoration','arcanes','boutique','rang','sanctuaire',
   'fresque','quete_fresque','jugement_d','malediction','piege','destin','fakehack',
