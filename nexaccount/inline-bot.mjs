@@ -100,24 +100,36 @@ async function modelFor(account,query){
 
 async function editInline(ctx,model,accountId){
   const inlineId=ctx.callbackQuery.inline_message_id;
-  if(!inlineId)return;
+  if(!inlineId)throw new Error('inline_message_id_missing');
   const reply_markup=stampMarkup(model.reply_markup,accountId);
+  const errors=[];
+
+  // grammY context methods automatically target callbackQuery.inline_message_id.
+  // Using ctx.api.editMessageCaption/Text with a single object is the wrong
+  // signature in the installed grammY version and silently made buttons inert.
   try{
-    await ctx.api.editMessageCaption({
-      inline_message_id:inlineId,
+    await ctx.editMessageCaption({
       caption:model.text.slice(0,1024),
       caption_entities:model.entities.filter(e=>e.offset+e.length<=1024),
       reply_markup
     });
-  }catch{
-    await ctx.api.editMessageText({
-      inline_message_id:inlineId,
-      text:model.text.slice(0,4096),
+    return 'caption';
+  }catch(error){
+    errors.push('caption:'+String(error?.description||error?.message||error).slice(0,350));
+  }
+
+  try{
+    await ctx.editMessageText(model.text.slice(0,4096),{
       entities:model.entities.filter(e=>e.offset+e.length<=4096),
       link_preview_options:{is_disabled:true},
       reply_markup
-    }).catch(()=>{});
+    });
+    return 'text';
+  }catch(error){
+    errors.push('text:'+String(error?.description||error?.message||error).slice(0,350));
   }
+
+  throw new Error('inline_edit_failed '+errors.join(' | '));
 }
 
 async function preferredLanguage(userId,telegramLanguage=''){
@@ -303,6 +315,7 @@ export async function startInlineBot(){
   bot.on('callback_query:data',async ctx=>{
     const raw=String(ctx.callbackQuery.data||'');
     const cut=raw.lastIndexOf('|');
+    console.log('[NexAI callback] received',raw.slice(0,120),'from='+String(ctx.from?.id||''),'inline='+String(!!ctx.callbackQuery.inline_message_id));
     if(cut<0){await ctx.answerCallbackQuery();return}
     const action=raw.slice(0,cut),accountId=raw.slice(cut+1);
     if(String(ctx.from.id)!==String(accountId)){
@@ -316,9 +329,17 @@ export async function startInlineBot(){
     if(action==='menu:home')model=await modelFor(account,'menu');
     else if(action.startsWith('cat:'))model=await modelFor(account,action);
     else {await ctx.answerCallbackQuery();return}
-    await editInline(ctx,model,accountId);
-    await recordEvent(ctx.from,'callback',{source:'nexai',command:action,chatType:'inline'}).catch(()=>{});
-    await ctx.answerCallbackQuery();
+
+    try{
+      const mode=await editInline(ctx,model,accountId);
+      console.log('[NexAI callback] edited',action,'mode='+mode);
+      await recordEvent(ctx.from,'callback',{source:'nexai',command:action,chatType:'inline'}).catch(()=>{});
+      await ctx.answerCallbackQuery();
+    }catch(error){
+      const reason=String(error?.description||error?.message||error).slice(0,700);
+      console.error('[NexAI callback] failed',action,reason);
+      await ctx.answerCallbackQuery({text:'Impossible de mettre à jour ce menu. Réessaie avec .menu',show_alert:false}).catch(()=>{});
+    }
   });
 
   bot.catch(e=>console.error('[NexAI Bot]',e.error||e));
