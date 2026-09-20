@@ -993,12 +993,12 @@ export async function animeRuntimeDiscover(target=''){
     String(r.account.username||'').toLowerCase()===q
   );
   if(!runtime)throw new Error('anime_listener_runtime_not_active');
-  const sources=await animeDiscoverNow(runtime);
+  const discovery=await animeDiscoverNow(runtime);
   return {
     ok:true,
     telegramUserId:String(runtime.account.telegramUserId),
     username:runtime.account.username||'',
-    acceptedSources:sources.length,
+    ...discovery,
     anime:animeIngestStatus(runtime)
   };
 }
