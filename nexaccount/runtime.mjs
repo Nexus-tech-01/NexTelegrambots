@@ -983,6 +983,7 @@ export async function engineStatus(){
   const runtime=[...runtimes.values()][0]||null;
   const rows=[];
   for(const [service,row] of Object.entries(registry)){
+    if(!row||typeof row!=='object'||Array.isArray(row))continue;
     const username=String(row?.username||'').trim().replace(/^@/,'');
     const item={
       service,
