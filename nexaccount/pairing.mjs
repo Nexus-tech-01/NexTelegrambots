@@ -52,6 +52,8 @@ async function stateFor(id,{needClient=false}={}){
     const saved=await pairingStateRecord(key);
     if(!saved)return null;
     state={...saved,client:null,onConnected:defaultOnConnected};
+    if(state.stage==='verifying_code')state.stage='code';
+    if(state.stage==='verifying_password')state.stage='password';
     pending.set(key,state);
   }
   if(needClient&&!state.client&&!['connected','error','cancelled'].includes(state.stage)){
