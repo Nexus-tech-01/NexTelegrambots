@@ -98,41 +98,55 @@ async function resolveYoutube(input){
   const raw=clean(input);
   if(!raw)throw new Error('indique un titre ou un lien YouTube');
   if(youtubeUrl(raw))return {url:raw,title:'YouTube'};
-  const mod=await import('yt-search');
-  const yts=mod.default||mod;
-  const result=await yts(raw);
-  const item=result?.videos?.[0];
-  if(!item?.url)throw new Error('aucun résultat YouTube');
-  return {url:item.url,title:item.title||raw,thumbnail:item.thumbnail||''};
+  const html=await text(
+    'https://www.youtube.com/results?search_query='+encodeURIComponent(raw),
+    {headers:{accept:'text/html'}},
+    20000
+  );
+  const id=html.match(/"videoId":"([A-Za-z0-9_-]{11})"/)?.[1];
+  if(!id)throw new Error('aucun résultat YouTube');
+  return {url:'https://www.youtube.com/watch?v='+id,title:raw};
 }
 async function youtubeAudio(input){
   const raw=clean(input);
-  const target=await resolveYoutube(raw);
-  const u=encodeURIComponent(target.url);
-  const result=await cascade('audio YouTube',[
-    ['EliteProTech',async()=>{
-      const d=await json('https://eliteprotech-apis.zone.id/ytdown?url='+u+'&format=mp3');
-      return d?.success&&d?.downloadURL?{url:d.downloadURL,title:d.title||target.title}:null;
-    }],
-    ['Yupra',async()=>{
-      const d=await json('https://api.yupra.my.id/api/downloader/ytmp3?url='+u);
-      return d?.success&&d?.data?.download_url?{url:d.data.download_url,title:d.data.title||target.title}:null;
-    }],
-    ['Okatsu',async()=>{
-      const d=await json('https://okatsu-rolezapiiz.vercel.app/downloader/ytmp3?url='+u);
-      return d?.dl?{url:d.dl,title:d.title||target.title}:null;
-    }],
-    ['Izumi',async()=>{
-      const d=await json('https://izumiiiiiiii.dpdns.org/downloader/youtube?url='+u+'&format=mp3',{},60000);
-      return d?.result?.download?{url:d.result.download,title:d.result.title||target.title}:null;
-    }],
-    ['IzumiQuery',async()=>{
-      if(isHttp(raw))return null;
+  if(!raw)throw new Error('indique un titre ou un lien YouTube');
+
+  let target=null;
+  if(youtubeUrl(raw))target={url:raw,title:'YouTube'};
+  else{
+    try{target=await resolveYoutube(raw)}catch{}
+  }
+
+  const attempts=[];
+  if(target?.url){
+    const u=encodeURIComponent(target.url);
+    attempts.push(
+      ['EliteProTech',async()=>{
+        const d=await json('https://eliteprotech-apis.zone.id/ytdown?url='+u+'&format=mp3');
+        return d?.success&&d?.downloadURL?{url:d.downloadURL,title:d.title||target.title}:null;
+      }],
+      ['Yupra',async()=>{
+        const d=await json('https://api.yupra.my.id/api/downloader/ytmp3?url='+u);
+        return d?.success&&d?.data?.download_url?{url:d.data.download_url,title:d.data.title||target.title}:null;
+      }],
+      ['Okatsu',async()=>{
+        const d=await json('https://okatsu-rolezapiiz.vercel.app/downloader/ytmp3?url='+u);
+        return d?.dl?{url:d.dl,title:d.title||target.title}:null;
+      }],
+      ['Izumi',async()=>{
+        const d=await json('https://izumiiiiiiii.dpdns.org/downloader/youtube?url='+u+'&format=mp3',{},60000);
+        return d?.result?.download?{url:d.result.download,title:d.result.title||target.title}:null;
+      }]
+    );
+  }
+  if(!isHttp(raw)){
+    attempts.push(['IzumiQuery',async()=>{
       const d=await json('https://izumiiiiiiii.dpdns.org/downloader/youtube-play?query='+encodeURIComponent(raw),{},60000);
-      return d?.result?.download?{url:d.result.download,title:d.result.title||target.title}:null;
-    }]
-  ]);
-  return {...result,target};
+      return d?.result?.download?{url:d.result.download,title:d.result.title||raw}:null;
+    }]);
+  }
+  const result=await cascade('audio YouTube',attempts);
+  return {...result,target:target||{title:raw,url:''}};
 }
 async function youtubeVideo(input){
   const target=await resolveYoutube(input);
