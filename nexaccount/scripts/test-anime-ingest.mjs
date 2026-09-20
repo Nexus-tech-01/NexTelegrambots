@@ -108,3 +108,34 @@ console.log('NexAnime ingest regression tests: OK');
   assert.ok(q.endsWith('</blockquote>'));
   assert.ok(q.includes('BLACK TORCH'));
 }
+
+
+// caption must beat a generic filename when identifying the anime
+{
+  const msg=fileMessage('too.mp4','Classroom of the Elite S04 EP16 VOSTFR');
+  const ep=__test.parseEpisode(msg.message+'\n'+msg.document.attributes[0].fileName);
+  const title=__test.titleFromMessage(msg,ep);
+  assert.match(title,/Classroom of the Elite/i);
+}
+
+// a channel's current anime must never force an unrelated episode into that series
+{
+  const wrong=__test.bestAnchor('Classroom of the Elite',[
+    {raw:'BLACK TORCH',canonicalTitle:'BLACK TORCH',anilistId:187538},
+    {raw:'Mushoku Tensei: Jobless Reincarnation',canonicalTitle:'Mushoku Tensei: Jobless Reincarnation',anilistId:108465}
+  ]);
+  assert.equal(wrong,null);
+}
+
+// historical posts remain grouped from their own titles even if the channel was renamed later
+{
+  const source={username:'classroom_of_the_elitevf',title:'Mushoku Tensei 🇫🇷'};
+  const messages=[
+    fileMessage('Classroom_of_the_Elite_S04E01_VOSTFR.mkv','Classroom of the Elite S04 EP01 VOSTFR'),
+    fileMessage('Classroom_of_the_Elite_S04E02_VOSTFR.mkv','Classroom of the Elite S04 EP02 VOSTFR'),
+    fileMessage('Classroom_of_the_Elite_S04E03_VOSTFR.mkv','Classroom of the Elite S04 EP03 VOSTFR')
+  ];
+  const anchors=__test.deriveRawAnchors(messages,source);
+  assert.ok(anchors.some(x=>/Classroom of the Elite/i.test(x)),JSON.stringify(anchors));
+  assert.ok(!anchors.some(x=>/Mushoku/i.test(x)),JSON.stringify(anchors));
+}
