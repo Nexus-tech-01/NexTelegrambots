@@ -939,6 +939,12 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
   const id=String(account.telegramUserId);
   if(cfg.workerCount>1&&!accountAssignedToWorker(id)){
     try{await client.disconnect()}catch{}
+    if(leaseOwned)await releaseRuntimeLease(id).catch(()=>{});
+    return null;
+  }
+  if(!runtimes.has(id)&&runtimes.size>=cfg.maxRuntimesPerWorker){
+    try{await client.disconnect()}catch{}
+    if(leaseOwned)await releaseRuntimeLease(id).catch(()=>{});
     return null;
   }
   if(!leaseOwned){
@@ -1108,9 +1114,12 @@ export async function reconcileRuntimes(){
   if(reconcilingRuntimes)return [];
   reconcilingRuntimes=true;
   try{
+    for(const id of [...runtimes.keys()]){
+      if(cfg.workerCount>1&&!accountAssignedToWorker(id))await detachRuntime(id);
+    }
     const capacity=Math.max(0,cfg.maxRuntimesPerWorker-runtimes.size);
     if(capacity<=0)return [];
-    const accounts=await listAccountsForWorker({limit:cfg.maxRuntimesPerWorker});
+    const accounts=await listAccountsForWorker({limit:Math.max(cfg.maxRuntimesPerWorker,cfg.maxRuntimesPerWorker*2)});
     const pending=accounts.filter(a=>!runtimes.has(String(a.telegramUserId))).slice(0,capacity);
     const loaded=[];
     let cursor=0;
