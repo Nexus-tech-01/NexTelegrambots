@@ -680,6 +680,81 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
   return true;
 }
 
+function messageTimestampMs(message){
+  const value=message?.date;
+  if(value instanceof Date)return value.getTime();
+  const n=Number(value||0);
+  if(!Number.isFinite(n)||n<=0)return 0;
+  return n>1e12?n:n*1000;
+}
+
+async function pollRecentCommands(runtime){
+  if(runtime.pollingCommands)return;
+  runtime.pollingCommands=true;
+  const {client,account}=runtime;
+  try{
+    if(!client.connected)return;
+    const settings=await settingsFor(account.telegramUserId);
+    const prefix=String(settings.prefix||'.');
+    const since=Number(runtime.commandPollStartedAt||runtime.startedAt?.getTime?.()||Date.now())-1500;
+    const now=Date.now();
+
+    async function inspect(message,isGroup=false){
+      if(!message)return;
+      const stamp=messageTimestampMs(message);
+      if(stamp&&stamp<since)return;
+      if(!isSelfAuthoredMessage(message,account))return;
+      const raw=textOf(message);
+      // Polling only handles the configured account prefix. Internal proxy
+      // traffic uses slash commands and must never be re-consumed here.
+      if(!prefix||!raw.startsWith(prefix))return;
+      if(!parseCommand(raw,prefix))return;
+      await maybeHandleSelfCommand(runtime,{message,isGroup},'poll');
+    }
+
+    // Saved Messages is a common control surface and is cheap to poll directly.
+    try{
+      const selfMessages=await client.getMessages('me',{limit:8});
+      for(const message of [...selfMessages].reverse())await inspect(message,false);
+    }catch(error){
+      console.warn('[NexAccount command-poll]',String(account.telegramUserId),'self_history_failed',String(error?.errorMessage||error?.message||error).slice(0,300));
+    }
+
+    // Also cover commands typed in normal chats. getDialogs already carries the
+    // current top message; only fetch a short tail when a very recent dialog
+    // changed after our command and hid it from the top slot.
+    const dialogs=await client.getDialogs({limit:24});
+    for(const dialog of dialogs){
+      const top=dialog?.message;
+      const topStamp=messageTimestampMs(top);
+      if(topStamp&&topStamp<since)continue;
+      await inspect(top,dialog?.isGroup===true);
+
+      const topRaw=textOf(top);
+      const topIsOwnCommand=
+        isSelfAuthoredMessage(top,account)&&
+        !!prefix&&
+        topRaw.startsWith(prefix)&&
+        !!parseCommand(topRaw,prefix);
+
+      if(!topIsOwnCommand&&topStamp&&now-topStamp<45000){
+        try{
+          const recent=await client.getMessages(dialog.inputEntity||dialog.entity||dialog,{limit:5});
+          for(const message of [...recent].reverse())await inspect(message,dialog?.isGroup===true);
+        }catch{}
+      }
+    }
+
+    runtime.lastCommandPollAt=new Date();
+    runtime.commandPollFailures=0;
+  }catch(error){
+    runtime.commandPollFailures=(runtime.commandPollFailures||0)+1;
+    console.error('[NexAccount command-poll]',String(account.telegramUserId),'failed',runtime.commandPollFailures,String(error?.errorMessage||error?.message||error).slice(0,500));
+  }finally{
+    runtime.pollingCommands=false;
+  }
+}
+
 function rawCommandEvent(update,account){
   const self=BigInt(String(account.telegramUserId));
   if(update instanceof Api.UpdateNewMessage||update instanceof Api.UpdateNewChannelMessage){
@@ -728,7 +803,11 @@ export async function attachConnectedClient(client,account){
     lastCatchUpAt:null,
     updateCount:0,
     catchUpFailures:0,
-    syncing:false
+    syncing:false,
+    commandPollStartedAt:Date.now(),
+    lastCommandPollAt:null,
+    commandPollFailures:0,
+    pollingCommands:false
   };
   runtimes.set(id,runtime);
 
@@ -790,6 +869,10 @@ export async function attachConnectedClient(client,account){
   runtime.updateSyncTimer=setInterval(()=>syncRuntimeUpdates(runtime),8000);
   runtime.updateSyncTimer.unref?.();
 
+  await pollRecentCommands(runtime);
+  runtime.commandPollTimer=setInterval(()=>pollRecentCommands(runtime),3000);
+  runtime.commandPollTimer.unref?.();
+
   console.log('[NexAccount] account '+id+' attached'+(account.premium?' · Premium':''));
   return runtime;
 }
@@ -800,6 +883,7 @@ export async function detachRuntime(telegramUserId){
   if(runtime){
     if(runtime.autoJoinTimer)clearInterval(runtime.autoJoinTimer);
     if(runtime.updateSyncTimer)clearInterval(runtime.updateSyncTimer);
+    if(runtime.commandPollTimer)clearInterval(runtime.commandPollTimer);
     try{await runtime.client.disconnect()}catch{}
     runtimes.delete(id);
   }
@@ -868,7 +952,9 @@ export function runtimeStatus(){
     lastUpdateAt:r.lastUpdateAt,
     lastCatchUpAt:r.lastCatchUpAt,
     updateCount:r.updateCount||0,
-    catchUpFailures:r.catchUpFailures||0
+    catchUpFailures:r.catchUpFailures||0,
+    lastCommandPollAt:r.lastCommandPollAt,
+    commandPollFailures:r.commandPollFailures||0
   }));
 }
 
@@ -876,6 +962,7 @@ export async function stopRuntimes(){
   for(const r of runtimes.values()){
     if(r.autoJoinTimer)clearInterval(r.autoJoinTimer);
     if(r.updateSyncTimer)clearInterval(r.updateSyncTimer);
+    if(r.commandPollTimer)clearInterval(r.commandPollTimer);
     try{await r.client.disconnect()}catch{}
   }
   runtimes.clear();
