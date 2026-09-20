@@ -425,7 +425,7 @@ async function processItem(c,destination,st,sources,item){
 
 
 const processing=new Set();
-const workerLimit=Math.max(1,Math.min(4,Number(process.env.NEXCANAL__WATCHER_WORKERS||3)));
+const workerLimit=Math.max(1,Math.min(4,Number(process.env.NEXCANAL__WATCHER_WORKERS||1)));
 
 async function handleQueueItem(c,destination,st,sources,item){
   try{
