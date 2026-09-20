@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
+import { sendTelegramMedia } from './media-send.mjs';
 
 const FFMPEG=String(process.env.FFMPEG_PATH||'ffmpeg');
 const MAX_INPUT_BYTES=Number(process.env.NEXAI_AUDIO_MAX_BYTES||35*1024*1024);
@@ -340,7 +341,7 @@ export async function handleAudioLabCommand({runtime,event,name,args,sendText}){
       return await withInput(client,peer,event,async input=>{
         const output=await processAudio(input,name,args);
         try{
-          await client.sendFile(peer,{file:fs.readFileSync(output),fileName:'NexAI-'+name+'.mp3',caption:'NexAI · Audio Lab · '+name});
+          await sendTelegramMedia(client,peer,fs.readFileSync(output),{fileName:'NexAI-'+name+'.mp3',mimeType:'audio/mpeg',kind:'audio',caption:'NexAI · Audio Lab · '+name});
         }finally{cleanup(output)}
         return true;
       });
@@ -355,7 +356,7 @@ export async function handleAudioLabCommand({runtime,event,name,args,sendText}){
     if(name==='waveform'||name==='spectrogram'){
       return await withInput(client,peer,event,async input=>{
         const output=await waveform(input,name);
-        try{await client.sendFile(peer,{file:fs.readFileSync(output),fileName:name+'.png',caption:'NexAI · '+name})}
+        try{await sendTelegramMedia(client,peer,fs.readFileSync(output),{fileName:name+'.png',mimeType:'image/png',kind:'image',caption:'NexAI · '+name})}
         finally{cleanup(output)}
         return true;
       });
@@ -375,7 +376,7 @@ export async function handleAudioLabCommand({runtime,event,name,args,sendText}){
       const q=prune(chat);
       const mode=name==='joinaudio'?'join':name;
       const output=await mixFiles(q.map(x=>x.file),mode,{fade:args[0]});
-      try{await client.sendFile(peer,{file:fs.readFileSync(output),fileName:'NexAI-'+name+'.mp3',caption:'NexAI · DJ · '+name})}
+      try{await sendTelegramMedia(client,peer,fs.readFileSync(output),{fileName:'NexAI-'+name+'.mp3',mimeType:'audio/mpeg',kind:'audio',caption:'NexAI · DJ · '+name})}
       finally{cleanup(output)}
       return true;
     }
