@@ -16,6 +16,7 @@ const commands=commandMap();
 const runtimes=new Map();
 const spamWindows=new Map();
 const proxyFlows=new WeakMap();
+const handledCommands=new Map();
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 const PROXY_SERVICE_SPECS={
@@ -108,6 +109,36 @@ function parseCommand(text,prefix='.'){
     return {name:head.toLowerCase(),args};
   }
   return null;
+}
+
+function messageAuthorId(message){
+  return String(message?.senderId||message?.fromId?.userId||message?.fromId?.channelId||'');
+}
+
+function isSelfAuthoredMessage(message,account){
+  const self=String(account?.telegramUserId||'');
+  if(!self||!message)return false;
+  if(message.out===true)return true;
+  if(messageAuthorId(message)===self)return true;
+  // Saved Messages can be represented as a self peer across synchronized sessions.
+  if(String(message?.peerId?.userId||'')===self&&message.fromId==null)return true;
+  return false;
+}
+
+function commandEventKey(message){
+  const peer=String(message?.peerId?.userId||message?.peerId?.chatId||message?.peerId?.channelId||'peer');
+  return peer+':'+String(message?.id||'0');
+}
+
+function claimCommand(message){
+  const key=commandEventKey(message);
+  const now=Date.now();
+  for(const [k,t] of handledCommands){
+    if(now-t>10*60*1000)handledCommands.delete(k);
+  }
+  if(handledCommands.has(key))return false;
+  handledCommands.set(key,now);
+  return true;
 }
 
 async function sendText(client,peer,text){
@@ -628,6 +659,64 @@ async function syncRuntimeUpdates(runtime){
   }
 }
 
+async function maybeHandleSelfCommand(runtime,event,source='event'){
+  const {account}=runtime;
+  const message=event?.message;
+  if(!message||!isSelfAuthoredMessage(message,account))return false;
+  const settings=await settingsFor(account.telegramUserId);
+  const parsed=parseCommand(textOf(message),settings.prefix||'.');
+  if(!parsed)return false;
+  if(!claimCommand(message))return true;
+  console.log(
+    '[NexAccount command]',
+    String(account.telegramUserId),
+    parsed.name,
+    'source='+source,
+    'messageId='+String(message?.id||''),
+    'out='+String(message?.out===true),
+    'author='+messageAuthorId(message)
+  );
+  await handleCommand(runtime,event,parsed);
+  return true;
+}
+
+function rawCommandEvent(update,account){
+  const self=BigInt(String(account.telegramUserId));
+  if(update instanceof Api.UpdateNewMessage||update instanceof Api.UpdateNewChannelMessage){
+    if(!(update.message instanceof Api.Message))return null;
+    return {message:update.message,isGroup:!!(update.message?.peerId?.chatId||update.message?.peerId?.channelId)};
+  }
+  if(update instanceof Api.UpdateShortMessage){
+    return {
+      message:{
+        out:update.out===true,
+        id:update.id,
+        peerId:new Api.PeerUser({userId:update.userId}),
+        fromId:new Api.PeerUser({userId:update.out===true?self:update.userId}),
+        message:update.message,
+        date:update.date,
+        entities:update.entities
+      },
+      isGroup:false
+    };
+  }
+  if(update instanceof Api.UpdateShortChatMessage){
+    return {
+      message:{
+        out:update.out===true,
+        id:update.id,
+        peerId:new Api.PeerChat({chatId:update.chatId}),
+        fromId:new Api.PeerUser({userId:update.out===true?self:update.fromId}),
+        message:update.message,
+        date:update.date,
+        entities:update.entities
+      },
+      isGroup:true
+    };
+  }
+  return null;
+}
+
 export async function attachConnectedClient(client,account){
   const id=String(account.telegramUserId);
   if(runtimes.has(id)){try{await runtimes.get(id).client.disconnect()}catch{}}
@@ -646,13 +735,8 @@ export async function attachConnectedClient(client,account){
   client.addEventHandler(async event=>{
     markRuntimeUpdate(runtime);
     try{
-      const settings=await settingsFor(id);
-      const raw=textOf(event.message);
-      const parsed=parseCommand(raw,settings.prefix||'.');
-      if(parsed){
-        console.log('[NexAccount command]',id,parsed.name,'messageId='+String(event.message?.id||''));
-        await handleCommand(runtime,event,parsed);
-      }else if(!(await handleProxyFlowInput(runtime,event)))await maybeNlpMode(runtime,event);
+      if(await maybeHandleSelfCommand(runtime,event,'outgoing'))return;
+      if(!(await handleProxyFlowInput(runtime,event)))await maybeNlpMode(runtime,event);
     }catch(e){
       console.error('[NexAccount outgoing]',id,String(e?.errorMessage||e?.message||e));
       try{await sendText(client,event.message?.peerId,'NexAccount error: '+String(e?.errorMessage||e?.message||e).slice(0,300))}catch{}
@@ -662,12 +746,38 @@ export async function attachConnectedClient(client,account){
   client.addEventHandler(async event=>{
     markRuntimeUpdate(runtime);
     try{
+      // Messages sent by this same account from another Telegram session may
+      // arrive with out=false. Treat self-authored dot commands as commands.
+      if(await maybeHandleSelfCommand(runtime,event,'incoming-self'))return;
       await maybeAutoModerate(runtime,event);
       await maybeServiceGreeting(runtime,event);
       await maybeAutoReact(runtime,event);
       await maybeAutoReply(runtime,event);
     }catch(e){console.error('[NexAccount incoming]',id,e)}
   },new NewMessage({incoming:true}));
+
+  // Raw fallback: process command-bearing update shapes directly. This avoids
+  // relying exclusively on NewMessage direction classification across sessions.
+  client.addEventHandler(async update=>{
+    try{
+      const event=rawCommandEvent(update,account);
+      if(!event)return;
+      const settings=await settingsFor(id);
+      const parsed=parseCommand(textOf(event.message),settings.prefix||'.');
+      if(!parsed)return;
+      console.log(
+        '[NexAccount raw-command]',
+        id,
+        parsed.name,
+        'type='+String(update?.className||update?.constructor?.name||'Update'),
+        'out='+String(event.message?.out===true),
+        'author='+messageAuthorId(event.message)
+      );
+      await maybeHandleSelfCommand(runtime,event,'raw');
+    }catch(e){
+      console.error('[NexAccount raw]',id,String(e?.errorMessage||e?.message||e));
+    }
+  });
 
   runAutoJoin(runtime).catch(()=>{});
   runtime.autoJoinTimer=setInterval(()=>runAutoJoin(runtime).catch(()=>{}),30*60*1000);
