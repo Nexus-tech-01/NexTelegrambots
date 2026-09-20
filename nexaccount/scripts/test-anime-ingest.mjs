@@ -92,3 +92,19 @@ console.log('NexAnime ingest regression tests: OK');
 {
   assert.equal(__test.cleanSeriesTitle('%5BErai-raws%5D%20Blue%20Lock%20S01E12%20%5B1080p%5D.mkv'),'Blue Lock');
 }
+
+
+// blockquote caption formatting
+{
+  const q=__test.quotedCaption({
+    kind:'episode',
+    title:'BLACK TORCH',
+    season:1,
+    episode:2,
+    language:'VF',
+    quality:'1080p'
+  });
+  assert.ok(q.startsWith('<blockquote>'));
+  assert.ok(q.endsWith('</blockquote>'));
+  assert.ok(q.includes('BLACK TORCH'));
+}
