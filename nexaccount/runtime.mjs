@@ -219,34 +219,46 @@ function eventIsGroup(event){
   return Boolean(peer?.chatId)||Boolean(peer?.channelId&&event?.isPrivate!==true);
 }
 
-async function accountIsGroupAdmin(client,peer,account){
+async function userIsGroupAdmin(client,peer,userId){
+  const id=String(userId||'');
+  if(!id)return false;
   try{
     if(typeof client.getPermissions==='function'){
-      const p=await client.getPermissions(peer,account.telegramUserId);
+      const p=await client.getPermissions(peer,id);
       if(p?.isCreator||p?.isAdmin||p?.adminRights)return true;
     }
   }catch{}
   try{
     const channel=await client.getInputEntity(peer);
-    const participant=await client.getInputEntity('me');
+    const participant=await client.getInputEntity(id);
     const r=await client.invoke(new Api.channels.GetParticipant({channel,participant}));
     const p=r?.participant;
     const kind=String(p?.className||p?.constructor?.name||'');
     if(/Creator|Admin/i.test(kind)||p?.adminRights)return true;
   }catch{}
   try{
-    const ps=await client.getParticipants(peer,{limit:200});
-    const me=ps.find(p=>String(p?.id||'')===String(account.telegramUserId));
-    const kind=String(me?.participant?.className||me?.participant?.constructor?.name||'');
-    if(/Creator|Admin/i.test(kind)||me?.participant?.adminRights||me?.adminRights)return true;
+    const ps=await client.getParticipants(peer,{limit:500});
+    const user=ps.find(p=>String(p?.id||'')===id);
+    const kind=String(user?.participant?.className||user?.participant?.constructor?.name||'');
+    if(/Creator|Admin/i.test(kind)||user?.participant?.adminRights||user?.adminRights)return true;
   }catch{}
   return false;
+}
+
+async function accountIsGroupAdmin(client,peer,account){
+  return userIsGroupAdmin(client,peer,account?.telegramUserId);
 }
 
 async function enforceCommandContext(runtime,event,cmd,displayName){
   const {client,account}=runtime;
   const peer=event.message.peerId;
   const group=eventIsGroup(event);
+  const selfAuthored=isSelfAuthoredMessage(event.message,account);
+
+  if(cmd.selfOnly&&!selfAuthored){
+    await sendText(client,peer,'La commande .'+displayName+' est réservée au propriétaire du compte connecté.');
+    return false;
+  }
   if(cmd.privateOnly&&group){
     await sendText(client,peer,'La commande .'+displayName+' est réservée au privé.');
     return false;
@@ -261,8 +273,15 @@ async function enforceCommandContext(runtime,event,cmd,displayName){
       return false;
     }
     if(!(await accountIsGroupAdmin(client,peer,account))){
-      await sendText(client,peer,'La commande .'+displayName+' nécessite les droits administrateur du compte connecté.');
+      await sendText(client,peer,'Le compte connecté doit être administrateur pour exécuter .'+displayName+'.');
       return false;
+    }
+    if(!selfAuthored){
+      const callerId=messageAuthorId(event.message);
+      if(!callerId||!(await userIsGroupAdmin(client,peer,callerId))){
+        await sendText(client,peer,'La commande .'+displayName+' est réservée aux administrateurs du groupe.');
+        return false;
+      }
     }
   }
   return true;
@@ -600,8 +619,12 @@ async function syncRuntimeUpdates(runtime){
 async function maybeHandleSelfCommand(runtime,event,source='event'){
   const {account}=runtime;
   const message=event?.message;
-  if(!message||!isSelfAuthoredMessage(message,account))return false;
+  if(!message)return false;
   const settings=await settingsFor(account.telegramUserId);
+  const selfAuthored=isSelfAuthoredMessage(message,account);
+  const accessMode=settings.accessMode==='public'?'public':'private';
+  if(!selfAuthored&&accessMode!=='public')return false;
+  if(!selfAuthored&&event?.sender?.bot===true)return false;
   const parsed=parseCommand(textOf(message),settings.prefix||'.');
   if(!parsed)return false;
   if(!claimCommand(account.telegramUserId,message))return true;
@@ -610,6 +633,8 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
     String(account.telegramUserId),
     parsed.name,
     'source='+source,
+    'access='+accessMode,
+    'self='+String(selfAuthored),
     'messageId='+String(message?.id||''),
     'out='+String(message?.out===true),
     'author='+messageAuthorId(message)
@@ -641,7 +666,9 @@ async function pollRecentCommands(runtime){
       if(!message)return;
       const stamp=messageTimestampMs(message);
       if(stamp&&stamp<since)return;
-      if(!isSelfAuthoredMessage(message,account))return;
+      const selfAuthored=isSelfAuthoredMessage(message,account);
+      const accessMode=settings.accessMode==='public'?'public':'private';
+      if(!selfAuthored&&accessMode!=='public')return;
       const raw=textOf(message);
       // Polling only handles the configured account prefix. Internal
       // traffic uses slash commands and must never be re-consumed here.
@@ -670,7 +697,7 @@ async function pollRecentCommands(runtime){
 
       const topRaw=textOf(top);
       const topIsOwnCommand=
-        isSelfAuthoredMessage(top,account)&&
+        (isSelfAuthoredMessage(top,account)||settings.accessMode==='public')&&
         !!prefix&&
         topRaw.startsWith(prefix)&&
         !!parseCommand(topRaw,prefix);
