@@ -322,7 +322,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(name==='dashboard'||name==='settings'||name==='stats'||name==='premium'){
     const s=await settingsFor(account.telegramUserId);
     if(name==='premium'){
-      await sendText(client,peer,'NexAi Premium · 250 Stars/mois\nStatut : '+(account.premium?'Premium Telegram détecté':'Free')+'\nUn seul Premium pour les fonctions fusionnées NexDownloader, NexGroup, NexGame, NexStick et NexWhisper.');
+      await sendText(client,peer,'NexAi Premium · 250 Stars/mois\nStatut : '+(account.premium?'Premium Telegram détecté':'Free')+'\nUn seul Premium NexAi pour les fonctions avancées intégrées.');
       return true;
     }
     if(name==='dashboard'||name==='settings'){
@@ -478,7 +478,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     else if(name==='malediction')text='Malédiction légère : pendant 10 minutes, chaque typo compte double.';
     else if(name==='piege')text='Piège : qu’est-ce qui devient plus mouillé à mesure qu’il sèche ? Réponse : une serviette.';
     else if(name==='fakehack')text='[SIMULATION]\nConnexion… OK\nAnalyse… OK\nAccès fictif… 100%\nAucune action réelle n’a été effectuée.';
-    else text='Mode '+name+' : lance .game pour les jeux interactifs NexGame.';
+    else text='Mode '+name+' : utilise les commandes de jeux NexAi.';
     await sendText(client,peer,text);
     return true;
   }
@@ -770,7 +770,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       await patchGroupPolicy(account.telegramUserId,chat,{[name]:argText||true});await sendText(client,peer,toSmallCaps(name)+' enregistré.');return true;
     }
     if(name==='leaderboard'||name==='rep'){
-      await sendText(client,peer,'Classement NexAi : utilise .game / .leaderboard côté NexGame pour le classement de jeu ; la réputation de groupe sera alimentée par l’activité observée.');return true;
+      await sendText(client,peer,'Classement NexAi : les jeux et la réputation sont gérés directement par NexAi.');return true;
     }
     if(name==='transferowner'){
       await sendText(client,peer,'Le transfert de propriété Telegram exige une confirmation 2FA sensible et n’est jamais exécuté automatiquement depuis une commande texte.');return true;
