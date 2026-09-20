@@ -159,7 +159,7 @@ function ownerEntities(text){
 
 async function sendStart(ctx){
   const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
-  const paired=!!(await accountRecord(ctx.from.id));
+  const paired=(await accountRecord(ctx.from.id))?.enabled===true;
   const text=lang==='en'
     ? [
       '♰ ɴᴇxᴀɪ','',
@@ -318,7 +318,7 @@ export async function startInlineBot(){
   bot.on('inline_query',async ctx=>{
     await recordEvent(ctx.inlineQuery.from,'inline_query',{source:'nexai',chatType:'inline'}).catch(()=>{});
     const account=await accountRecord(ctx.inlineQuery.from.id);
-    if(!account){
+    if(!account||account.enabled!==true){
       await ctx.answerInlineQuery([], {cache_time:0,is_personal:true});
       return;
     }
@@ -348,7 +348,7 @@ export async function startInlineBot(){
       return;
     }
     const account=await accountRecord(accountId);
-    if(!account){await ctx.answerCallbackQuery({text:'Compte déconnecté.'});return}
+    if(!account||account.enabled!==true){await ctx.answerCallbackQuery({text:'Compte déconnecté.'});return}
     let model;
     if(action==='menu:home')model=await modelFor(account,'menu');
     else if(action.startsWith('cat:'))model=await modelFor(account,action);
