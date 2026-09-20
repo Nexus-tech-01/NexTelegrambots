@@ -35,7 +35,12 @@ export const cfg={
   creatorDisplayName:pick('NEXAI_CREATOR_DISPLAY_NAME')||'⏤͟͟͞͞𝄞ᬼ⃟𝐌ꝛ⥔𝕿𝖗𝖊𝖘𝖔𝖗✧ ⃞.',
   creatorImagePath:pick('NEXAI_CREATOR_IMAGE_PATH')||path.join(HERE,'assets','creator.jpg'),
   connectUrl:pick('NEXAI_CONNECT_URL')||'https://eddie-neural-jimmy-enemies.trycloudflare.com/nexai/connect',
-  defaultMenuImage:pick('NEXAI_DEFAULT_MENU_IMAGE_URL')
+  defaultMenuImage:pick('NEXAI_DEFAULT_MENU_IMAGE_URL'),
+  workerId:pick('NEXACCOUNT_WORKER_ID')||(String(process.env.HOSTNAME||'local')+':'+String(process.pid)),
+  maxRuntimesPerWorker:Math.max(1,Number(pick('NEXACCOUNT_MAX_RUNTIMES_PER_WORKER')||500)),
+  runtimeLeaseMs:Math.max(30000,Math.min(10*60*1000,Number(pick('NEXACCOUNT_RUNTIME_LEASE_MS')||90000))),
+  restoreConcurrency:Math.max(1,Math.min(32,Number(pick('NEXACCOUNT_RESTORE_CONCURRENCY')||8))),
+  independentExecution:pick('NEXACCOUNT_INDEPENDENT_EXECUTION')!=='0'
 };
 cfg.creatorUrl='https://t.me/'+cfg.creatorUsername.replace(/^@/,'');
 
