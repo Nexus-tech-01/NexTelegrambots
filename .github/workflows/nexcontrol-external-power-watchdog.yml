@@ -89,7 +89,7 @@ jobs:
             exit 0
           fi
           git commit -m "chore(nexcontrol): reserve external restart cooldown"
-          git push
+          git push origin HEAD:main
 
       - name: Resolve Pterodactyl server
         if: steps.decide.outputs.restart == 'true'
@@ -125,12 +125,29 @@ jobs:
 
           echo "identifier=$identifier" >> "$GITHUB_OUTPUT"
 
-      - name: Restart Pterodactyl server
+      - name: Recover Pterodactyl server power
         if: steps.decide.outputs.restart == 'true'
         shell: bash
         run: |
           set -euo pipefail
           identifier="${{ steps.server.outputs.identifier }}"
+
+          resources="$(curl --fail --silent --show-error --max-time 20 \
+            -H "Authorization: Bearer $PTERODACTYL_CLIENT_API_KEY" \
+            -H "Accept: Application/vnd.pterodactyl.v1+json" \
+            "$PANEL_URL/api/client/servers/$identifier/resources" || true)"
+
+          current_state="$(python3 -c 'import json,sys
+try:
+ d=json.load(sys.stdin); print(d.get("attributes",{}).get("current_state","unknown"))
+except Exception:
+ print("unknown")' <<<"$resources")"
+
+          signal="restart"
+          if [[ "$current_state" == "offline" ]]; then
+            signal="start"
+          fi
+
           status="$(curl --silent --show-error --max-time 25 \
             -o /tmp/pterodactyl-power-body.txt \
             -w "%{http_code}" \
@@ -138,13 +155,13 @@ jobs:
             -H "Authorization: Bearer $PTERODACTYL_CLIENT_API_KEY" \
             -H "Accept: Application/vnd.pterodactyl.v1+json" \
             -H "Content-Type: application/json" \
-            --data '{"signal":"restart"}' \
+            --data "{\"signal\":\"$signal\"}" \
             "$PANEL_URL/api/client/servers/$identifier/power")"
 
           if [[ "$status" != "204" && "$status" != "200" ]]; then
-            echo "Pterodactyl restart failed with HTTP $status" >&2
+            echo "Pterodactyl $signal failed with HTTP $status" >&2
             sed -n '1,20p' /tmp/pterodactyl-power-body.txt >&2 || true
             exit 1
           fi
 
-          echo "Pterodactyl restart accepted (HTTP $status)."
+          echo "Pterodactyl $signal accepted (HTTP $status; previous state: $current_state)."
