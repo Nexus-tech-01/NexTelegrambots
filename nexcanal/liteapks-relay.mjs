@@ -346,47 +346,93 @@ function ensureSourceState(st,key){
 function queueKey(sourceKey,id){return sourceKey+':'+id;}
 function isQueued(st,sourceKey,id){const k=queueKey(sourceKey,id);return st.queue.some(x=>x.key===k);}
 
+function isTlDecodeError(error){
+  return /Constructor ID|TLObject/i.test(String(error?.message||error||''));
+}
+async function fetchSourceSince(c,source,key,cursor){
+  try{
+    const fresh=await withTimeout(c.getMessages(source.entity,{limit:maxFetch,minId:Number(cursor||0)}),opTimeoutMs,key+' bulk fetch');
+    return {messages:fresh||[],scannedThrough:0,fallback:false};
+  }catch(error){
+    if(!isTlDecodeError(error))throw error;
+    warn('bulk decode failed; isolating source messages',key,String(error?.message||error));
+    const latestRows=await withTimeout(c.getMessages(source.entity,{limit:1}),opTimeoutMs,key+' latest');
+    const latest=Number(latestRows?.[0]?.id||0);
+    if(!latest||latest<=Number(cursor||0))return {messages:[],scannedThrough:Number(cursor||0),fallback:true};
+    const start=Math.max(Number(cursor||0)+1,latest-maxFetch+1);
+    const out=[];
+    for(let id=start;id<=latest;id++){
+      try{
+        const rows=await withTimeout(c.getMessages(source.entity,{ids:[id]}),opTimeoutMs,key+' message '+id);
+        const m=rows?.[0];
+        if(m&&Number(m.id)>Number(cursor||0))out.push(m);
+      }catch(one){
+        warn('skipping undecodable source message',key,'#'+id,String(one?.message||one));
+      }
+    }
+    return {messages:out,scannedThrough:latest,fallback:true};
+  }
+}
 async function discover(c,st,sources){
   let changed=false;
   for(const [key,source] of sources){
     const ss=ensureSourceState(st,key);
-    if(!ss.cursor){
-      const recent=await withTimeout(c.getMessages(source.entity,{limit:bootstrapLimit}),opTimeoutMs,key+' bootstrap');
-      const cutoff=Date.now()-bootstrapHours*60*60*1000;
-      const list=[...recent].filter(m=>{const d=Number(m?.date||0);return !d||d*1000>=cutoff;}).sort((a,b)=>Number(a.id)-Number(b.id));
+    try{
+      if(!ss.cursor){
+        const recent=await withTimeout(c.getMessages(source.entity,{limit:bootstrapLimit}),opTimeoutMs,key+' bootstrap');
+        const cutoff=Date.now()-bootstrapHours*60*60*1000;
+        const list=[...recent].filter(m=>{const d=Number(m?.date||0);return !d||d*1000>=cutoff;}).sort((a,b)=>Number(a.id)-Number(b.id));
+        for(const m of list){
+          const id=Number(m.id);
+          if(id&&!isQueued(st,key,id))st.queue.push({key:queueKey(key,id),source:key,id,addedAt:Date.now(),retries:0,nextRetryAt:0});
+          ss.cursor=Math.max(Number(ss.cursor||0),id||0);
+        }
+        log('bootstrapped',key,list.length,'message(s) through',ss.cursor);
+        changed=true;
+        continue;
+      }
+      const before=Number(ss.cursor||0);
+      const batch=await fetchSourceSince(c,source,key,before);
+      const list=(batch.messages||[]).filter(m=>Number(m.id)>before).sort((a,b)=>Number(a.id)-Number(b.id));
       for(const m of list){
         const id=Number(m.id);
-        if(id&&!isQueued(st,key,id))st.queue.push({key:queueKey(key,id),source:key,id,addedAt:Date.now(),retries:0,nextRetryAt:0});
-        ss.cursor=Math.max(Number(ss.cursor||0),id||0);
+        if(!isQueued(st,key,id)){
+          st.queue.push({key:queueKey(key,id),source:key,id,addedAt:Date.now(),retries:0,nextRetryAt:0});
+          changed=true;
+        }
+        ss.cursor=Math.max(Number(ss.cursor||0),id);
       }
-      log('bootstrapped',key,list.length,'message(s) through',ss.cursor);
-      changed=true;
-      continue;
-    }
-    const fresh=await c.getMessages(source.entity,{limit:maxFetch,minId:Number(ss.cursor||0)});
-    const list=fresh.filter(m=>Number(m.id)>Number(ss.cursor||0)).sort((a,b)=>Number(a.id)-Number(b.id));
-    if(!list.length)continue;
-    for(const m of list){
-      const id=Number(m.id);
-      if(!isQueued(st,key,id)){
-        st.queue.push({key:queueKey(key,id),source:key,id,addedAt:Date.now(),retries:0,nextRetryAt:0});
+      if(batch.scannedThrough&&Number(batch.scannedThrough)>Number(ss.cursor||0)){
+        ss.cursor=Number(batch.scannedThrough);
         changed=true;
       }
-      ss.cursor=Math.max(Number(ss.cursor||0),id);
+      if(list.length||batch.fallback)log('discovered',list.length,'new message(s) from',key,'through',ss.cursor,batch.fallback?'fallback':'bulk');
+    }catch(error){
+      warn('source scan failed; other sources continue',key,String(error?.message||error));
     }
-    log('discovered',list.length,'new message(s) from',key,'through',ss.cursor);
   }
   if(changed)await save(st);
 }
 
 function bestDescriptor(ss,m){
-  const recent=(ss.descriptors||[]).filter(d=>Date.now()-Number(d.at||0)<10*60*1000&&!d.used);
-  let best=null,bestScore=0;
-  for(const d of recent){
-    const s=descriptorScore(d,m);
-    if(s>bestScore){best=d;bestScore=s;}
-  }
-  return bestScore>=2?best:null;
+  const messageId=Number(m?.id||0);
+  const haystack=norm(filename(m)+' '+String(m?.message||''));
+  const apkVersion=version(filename(m)+' '+String(m?.message||''));
+  const candidates=(ss.descriptors||[])
+    .filter(d=>!d.used&&Number(d.id)>0&&Number(d.id)<messageId&&messageId-Number(d.id)<=3)
+    .map(d=>{
+      const words=norm(d.title).split(' ').filter(x=>x.length>2);
+      const hits=words.filter(x=>haystack.includes(x)).length;
+      const versionMatch=!!(d.version&&apkVersion&&d.version===apkVersion);
+      const titleMatch=hits>=Math.min(2,Math.max(1,words.length));
+      const score=(versionMatch?10:0)+(titleMatch?6:0)+hits-(messageId-Number(d.id));
+      return {d,versionMatch,titleMatch,score};
+    })
+    .filter(x=>(x.versionMatch&&x.titleMatch)||x.titleMatch);
+  candidates.sort((a,b)=>b.score-a.score||Number(b.d.id)-Number(a.d.id));
+  if(!candidates.length)return null;
+  if(candidates.length>1&&candidates[0].score===candidates[1].score)return null;
+  return candidates[0].d;
 }
 function pruneDescriptors(ss){
   const cutoff=Date.now()-30*60*1000;
@@ -425,7 +471,8 @@ async function processItem(c,destination,st,sources,item){
 
 
 const processing=new Set();
-const workerLimit=Math.max(1,Math.min(4,Number(process.env.NEXCANAL__WATCHER_WORKERS||1)));
+const processingSources=new Set();
+const workerLimit=Math.max(1,Math.min(4,Number(process.env.NEXCANAL__WATCHER_WORKERS||3)));
 
 async function handleQueueItem(c,destination,st,sources,item){
   try{
@@ -442,17 +489,20 @@ async function handleQueueItem(c,destination,st,sources,item){
     warn('message failed; queued for retry',item.key,'retry',item.retries,item.lastError);
   }finally{
     processing.delete(item.key);
+    processingSources.delete(item.source);
   }
 }
 
 function kickWorkers(c,destination,st,sources){
   if(processing.size>=workerLimit)return;
   const ready=[...st.queue]
-    .filter(item=>!processing.has(item.key)&&Number(item.nextRetryAt||0)<=Date.now())
+    .filter(item=>!processing.has(item.key)&&!processingSources.has(item.source)&&Number(item.nextRetryAt||0)<=Date.now())
     .sort((a,b)=>Number(a.addedAt||0)-Number(b.addedAt||0)||Number(a.id)-Number(b.id));
   for(const item of ready){
     if(processing.size>=workerLimit)break;
+    if(processingSources.has(item.source))continue;
     processing.add(item.key);
+    processingSources.add(item.source);
     void handleQueueItem(c,destination,st,sources,item);
   }
 }
