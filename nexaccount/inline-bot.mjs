@@ -94,11 +94,28 @@ async function modelFor(account,query){
   return menuModel({account,settings,commands,view:'home'});
 }
 
-async function editInline(ctx,model,accountId){
+async function editInline(ctx,model,accountId,{replaceMedia=false}={}){
   const inlineId=ctx.callbackQuery.inline_message_id;
   if(!inlineId)throw new Error('inline_message_id_missing');
   const reply_markup=stampMarkup(model.reply_markup,accountId);
   const errors=[];
+
+  // Returning to Menu also refreshes the style artwork. Dipper rotates its
+  // image pool on every menu opening; edit the inline media so Telegram does
+  // not keep the previous picture while only changing the caption.
+  if(replaceMedia&&model.photoUrl){
+    try{
+      await ctx.editMessageMedia({
+        type:'photo',
+        media:model.photoUrl,
+        caption:model.text.slice(0,1024),
+        caption_entities:model.entities.filter(e=>e.offset+e.length<=1024)
+      },{reply_markup});
+      return 'media';
+    }catch(error){
+      errors.push('media:'+String(error?.description||error?.message||error).slice(0,350));
+    }
+  }
 
   // grammY context methods automatically target callbackQuery.inline_message_id.
   // Using ctx.api.editMessageCaption/Text with a single object is the wrong
@@ -355,7 +372,7 @@ export async function startInlineBot(){
     else {await ctx.answerCallbackQuery();return}
 
     try{
-      const mode=await editInline(ctx,model,accountId);
+      const mode=await editInline(ctx,model,accountId,{replaceMedia:action==='menu:home'});
       console.log('[NexAI callback] edited',action,'mode='+mode);
       await recordEvent(ctx.from,'callback',{source:'nexai',command:action,chatType:'inline'}).catch(()=>{});
       await ctx.answerCallbackQuery();

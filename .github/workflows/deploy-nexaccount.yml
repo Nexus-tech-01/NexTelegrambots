@@ -49,6 +49,9 @@ jobs:
       - name: Validate command registry
         run: node nexaccount/scripts/validate-registry.mjs
 
+      - name: Media send regression
+        run: node nexaccount/scripts/test-media-send.mjs
+
       - name: Deploy through NexControl Agent
         shell: bash
         run: |

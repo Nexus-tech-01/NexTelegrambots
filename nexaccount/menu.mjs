@@ -1,6 +1,6 @@
 import { cfg, isOwnerId } from './config.mjs';
 import { CATEGORY_ICONS, CATEGORY_LABELS, CATEGORY_ORDER, commandsByCategory, commandStats } from './commands.mjs';
-import { getStyle, listStyles, renderDipperHeader, resolveStyleImage, toSmallCaps } from './styles.mjs';
+import { getStyle, listStyles, renderDipperHeader, resolveStyleImage, telegramizeDipperText, toSmallCaps } from './styles.mjs';
 
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
 const FALLBACK_EMOJI={
@@ -17,17 +17,29 @@ export function expandableEntities(text,commandSpans=[]){
   return entities;
 }
 
-function commandText(lines,styleId=1){
+function commandText(lines,style){
   let text='',spans=[];
+  const marker='98765432101234567890';
   for(const line of lines){
     const command='/'+line.name;
-    const prefix=styleId===1?'┃➻ ':'• ';
-    text+=prefix;
+    let before=style.id===1?'┃➻ ':'• ',after='\n';
+    if(style.exactCatCmd){
+      try{
+        const rendered=telegramizeDipperText(style.exactCatCmd({name:marker}));
+        const at=rendered.indexOf(marker);
+        if(at>=0){
+          before=rendered.slice(0,at);
+          after=rendered.slice(at+marker.length);
+          if(!after.endsWith('\n'))after+='\n';
+        }
+      }catch{}
+    }
+    text+=before;
     const start=text.length;
     text+=command;
     spans.push({start,text:command});
     if(line.suffix)text+=line.suffix;
-    text+='\n';
+    text+=after;
   }
   return {text,spans};
 }
@@ -57,16 +69,15 @@ export async function menuModel({account,settings,commands,view='home',category=
     page=Math.max(0,Math.min(pages-1,Number(page)||0));
     const pageList=list.slice(page*perPage,(page+1)*perPage);
     const label=toSmallCaps(CATEGORY_LABELS[category]||category);
-    if(style.id===1){
-      body=[
-        '╭╼━• '+(FALLBACK_EMOJI[category]||'🔮')+' '+label+' •━━━━',
-        '┃ 🔮 '+localized(settings,'ᴀʀᴄᴀɴᴇ','ᴀʀᴄᴀɴᴇ')+' : '+label,
-        '┃ 📜 '+localized(settings,'ᴄᴏᴍᴍᴀɴᴅᴇѕ','ᴄᴏᴍᴍᴀɴᴅѕ')+' : '+list.length+' · '+localized(settings,'ᴘᴀɢᴇ','ᴘᴀɢᴇ')+' '+(page+1)+'/'+pages,
-        '╰━━━━━━━━━━━━━━','','♰ '+localized(settings,'ᴄᴏᴍᴍᴀɴᴅᴇѕ','ᴄᴏᴍᴍᴀɴᴅѕ'),''
-      ].join('\n');
-    }else{
-      body+='\n'+label+'\n\n';
-    }
+    const themedLabel=(FALLBACK_EMOJI[category]||'')+' '+label;
+
+    body=header.trimEnd()+'\n\n';
+    if(style.exactCatOpen){
+      try{body+=telegramizeDipperText(style.exactCatOpen(themedLabel))}catch{body+=themedLabel+'\n'}
+    }else body+=themedLabel+'\n';
+    body+=toSmallCaps(localized(settings,'Commandes','Commands'))+' : '+list.length+
+      ' · '+toSmallCaps(localized(settings,'Page','Page'))+' '+(page+1)+'/'+pages+'\n';
+
     const visibleCommands=pageList.map(c=>({
       name:c.name,
       suffix:[
@@ -75,27 +86,26 @@ export async function menuModel({account,settings,commands,view='home',category=
         c.premium&&!account.premium?'  · 👑 '+toSmallCaps('Premium'):''
       ].join('')
     }));
-    const ct=commandText(visibleCommands,style.id);
+    const ct=commandText(visibleCommands,style);
     const shift=body.length;
     body+=ct.text;
     spans.push(...ct.spans.map(x=>({...x,start:x.start+shift})));
-    if(style.id===1){
-      body+='\n'+localized(settings,'🌑 ѕéʟᴇᴄᴛɪᴏɴɴᴇ ᴜɴᴇ ᴄᴏᴍᴍᴀɴᴅᴇ.','🌑 ѕᴇʟᴇᴄᴛ ᴀ ᴄᴏᴍᴍᴀɴᴅ.')+
-        '\n\n♛ ɴᴇxᴀɪ • ᴅɪᴘᴘᴇʀ × ɴᴇxᴛᴇᴄʜ ♛';
-    }else if(style.exactFooter){
-      try{body+='\n'+style.exactFooter()}catch{}
+
+    if(style.exactCatClose){
+      try{body+=telegramizeDipperText(style.exactCatClose())}catch{}
     }
+    if(style.exactFooter){
+      try{body+='\n'+telegramizeDipperText(style.exactFooter())}catch{}
+    }
+    body+='\n'+toSmallCaps('Powered by Nextech');
   }else{
-    if(style.id===1){
-      body+='\n♰ '+localized(settings,'ᴄʜᴏɪѕɪѕ ᴛᴏɴ ᴀʀᴄᴀɴᴇ','ᴄʜᴏᴏѕᴇ ʏᴏᴜʀ ᴀʀᴄᴀɴᴇ')+
-        '\n\n🌑 '+localized(settings,"ʟ'ᴏᴍʙʀᴇ ᴏʙѕᴇʀᴠᴇ.","ᴛʜᴇ ѕʜᴀᴅᴏᴡ ᴡᴀᴛᴄʜᴇѕ.")+
-        '\n🔮 '+localized(settings,'ʟᴇ ѕᴀɴᴄᴛᴜᴀɪʀᴇ ᴇѕᴛ ᴏᴜᴠᴇʀᴛ.','ᴛʜᴇ ѕᴀɴᴄᴛᴜᴀʀʏ ɪѕ ᴏᴘᴇɴ.')+
-        '\n\n♛ ɴᴇxᴀɪ • ᴅɪᴘᴘᴇʀ × ɴᴇxᴛᴇᴄʜ ♛';
-    }else{
-      if(style.tagline)body+='\n'+toSmallCaps(style.tagline)+'\n';
-      if(style.exactFooter){try{body+='\n'+style.exactFooter()}catch{}}
-      body+='\n'+toSmallCaps('Powered by Nextech');
+    body=header.trimEnd();
+    if(style.exactFooter){
+      try{body+='\n\n'+telegramizeDipperText(style.exactFooter())}catch{}
+    }else if(style.tagline){
+      body+='\n\n'+toSmallCaps(style.tagline);
     }
+    body+='\n'+toSmallCaps('Powered by Nextech');
   }
 
   const buttons=[];

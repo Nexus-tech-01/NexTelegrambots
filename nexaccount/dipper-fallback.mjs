@@ -174,24 +174,32 @@ async function youtubeVideo(input){
   ]);
   return {...result,target};
 }
-async function tiktokMedia(url){
+async function tiktokMedia(client,peer,url){
   if(!/tiktok\.com\//i.test(url))throw new Error('lien TikTok invalide');
   return cascade('TikTok',[
     ['Siputzx',async()=>{
       const d=await json('https://api.siputzx.my.id/api/d/tiktok?url='+encodeURIComponent(url));
       const v=d?.data?.urls?.[0]||d?.data?.video_url||d?.data?.url||d?.data?.download_url;
-      return isHttp(v)?{url:v,title:d?.data?.metadata?.title||'TikTok'}:null;
+      if(!isHttp(v))return null;
+      const title=d?.data?.metadata?.title||'TikTok';
+      await sendRemote(client,peer,v,{caption:'NexAi · Download\n'+title+'\nSource : Siputzx',fileName:'tiktok.mp4'});
+      return {sent:true,title};
     }],
     ['TikWM',async()=>{
       const r=await postForm('https://www.tikwm.com/api/',{url,hd:'1'});
       const d=await r.json();
       const v=d?.data?.hdplay||d?.data?.play;
-      return isHttp(v)?{url:v,title:d?.data?.title||'TikTok'}:null;
+      if(!isHttp(v))return null;
+      const title=d?.data?.title||'TikTok';
+      await sendRemote(client,peer,v,{caption:'NexAi · Download\n'+title+'\nSource : TikWM',fileName:'tiktok.mp4'});
+      return {sent:true,title};
     }],
     ['Cobalt',async()=>{
       const d=await postJson('https://api.cobalt.tools/',{url,downloadMode:'auto',videoQuality:'max',tiktokH265:false});
       const v=cobaltUrl(d);
-      return v?{url:v,title:'TikTok'}:null;
+      if(!v)return null;
+      await sendRemote(client,peer,v,{caption:'NexAi · Download\nTikTok\nSource : Cobalt',fileName:'tiktok.mp4'});
+      return {sent:true,title:'TikTok'};
     }]
   ]);
 }
@@ -362,8 +370,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
     return true;
   }
   if(command==='tiktok'){
-    const r=await tiktokMedia(input);
-    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+(r.title||'TikTok')+'\nSource : '+r.source,fileName:'tiktok.mp4'});
+    await tiktokMedia(client,peer,input);
     return true;
   }
   if(command==='instagram'){

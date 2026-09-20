@@ -1,4 +1,5 @@
 import { settingsFor, patchSettings } from './store.mjs';
+import { sendTelegramMedia } from './media-send.mjs';
 
 const UA='NexAi/1.0 (+https://github.com/Nexus-tech-01)';
 const CACHE=new Map();
@@ -76,10 +77,10 @@ async function sendImage(client,peer,url,caption=''){
   const r=await res(url,{headers:{accept:'image/*'}},25000);
   const b=Buffer.from(await r.arrayBuffer());
   if(b.length>15*1024*1024)throw new Error('image trop volumineuse');
-  return client.sendFile(peer,{file:b,fileName:'nexai-anime.jpg',caption});
+  return sendTelegramMedia(client,peer,b,{fileName:'nexai-anime',mimeType:r.headers.get('content-type')||'',kind:'image',caption});
 }
 async function sendAudio(client,peer,buffer,name='anime-voice.wav'){
-  return client.sendFile(peer,{file:Buffer.from(buffer),fileName:name,voiceNote:true});
+  return sendTelegramMedia(client,peer,Buffer.from(buffer),{fileName:name,kind:'audio',voiceNote:true});
 }
 async function remember(accountId,type,query){
   if(!query)return;

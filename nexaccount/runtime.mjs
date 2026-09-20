@@ -18,6 +18,7 @@ import { canHandleStickerCommand, handleStickerCommand } from './sticker-engine.
 import { loadBotToken } from './secrets.mjs';
 import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
 import { animeBeginRebuild, animeDiscoverNow, animeIngestStatus, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
+import { sendTelegramMedia } from './media-send.mjs';
 
 const commands=commandMap();
 const runtimes=new Map();
@@ -519,8 +520,7 @@ async function maybeAutoReply(runtime,event){
     const buffer=Buffer.from(await response.arrayBuffer());
     if(buffer.length>20*1024*1024)throw new Error('média > 20 Mo');
     const mime=String(auto.mime||response.headers.get('content-type')||'application/octet-stream');
-    const ext=mime.includes('video')?'mp4':mime.includes('audio')?'mp3':mime.includes('image')?'jpg':'bin';
-    await client.sendFile(event.message.peerId,{file:buffer,fileName:'nexai-autoreply.'+ext});
+    await sendTelegramMedia(client,event.message.peerId,buffer,{fileName:'nexai-autoreply',mimeType:mime,kind:'auto'});
     return true;
   }catch(e){
     console.error('[NexAccount autoReply]',account.telegramUserId,String(e.message||e));

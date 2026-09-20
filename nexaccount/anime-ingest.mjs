@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { db } from './store.mjs';
+import { sendTelegramMedia } from './media-send.mjs';
 
 const ENABLED=String(process.env.NEXANIME_ENABLED||'true').toLowerCase()!=='false';
 const LISTENERS=new Set(
@@ -989,18 +990,18 @@ async function publishSyntheticPresentation(runtime,item,destination){
   if(!item.imageUrl){
     return runtime.client.sendMessage(destination,{message:caption,parseMode:'html'});
   }
-  await fs.mkdir(TMP_ROOT,{recursive:true});
-  const tmp=path.join(TMP_ROOT,'anime-presentation-'+crypto.randomUUID()+'.jpg');
-  try{
-    const response=await fetch(String(item.imageUrl),{signal:AbortSignal.timeout(15000)});
-    if(!response.ok)throw new Error('presentation_image_http_'+response.status);
-    const data=Buffer.from(await response.arrayBuffer());
-    if(data.length>10*1024*1024)throw new Error('presentation_image_too_large');
-    await fs.writeFile(tmp,data);
-    return runtime.client.sendFile(destination,{file:tmp,caption,parseMode:'html',workers:1});
-  }finally{
-    await fs.rm(tmp,{force:true}).catch(()=>{});
-  }
+  const response=await fetch(String(item.imageUrl),{signal:AbortSignal.timeout(15000)});
+  if(!response.ok)throw new Error('presentation_image_http_'+response.status);
+  const data=Buffer.from(await response.arrayBuffer());
+  if(data.length>10*1024*1024)throw new Error('presentation_image_too_large');
+  return sendTelegramMedia(runtime.client,destination,data,{
+    fileName:'anime-presentation',
+    mimeType:response.headers.get('content-type')||'',
+    kind:'image',
+    caption,
+    parseMode:'html',
+    workers:1
+  });
 }
 
 async function publishPresentation(runtime,item,resolved,destination){
@@ -1056,17 +1057,16 @@ async function publishEpisode(runtime,item,resolved,destination){
   try{
     const out=await runtime.client.downloadMedia(message.media,{outputFile:tmp,workers:1});
     const file=typeof out==='string'?out:tmp;
-    const opts={
-      file,
+    const data=await fs.readFile(file);
+    return await sendTelegramMedia(runtime.client,destination,data,{
+      fileName:finalName,
+      mimeType:String(message?.document?.mimeType||''),
+      kind:item.mediaKind==='document'?'document':'auto',
       caption,
       parseMode:'html',
-      fileName:finalName,
       workers:1,
-      supportsStreaming:item.mediaKind==='video'
-    };
-    if(thumb)opts.thumb=thumb;
-    if(item.mediaKind==='document')opts.forceDocument=true;
-    return await runtime.client.sendFile(destination,opts);
+      thumb
+    });
   }finally{
     await fs.rm(tmp,{force:true}).catch(()=>{});
   }

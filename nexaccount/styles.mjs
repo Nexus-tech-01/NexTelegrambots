@@ -73,6 +73,9 @@ export async function loadStyleCatalog(){
       signature:meta.signature||'Nextech',
       images:generated.images?.[id]||generated.images?.[String(id)]||[],
       exactHeader:typeof old?.header==='function'?old.header:null,
+      exactCatOpen:typeof old?.catOpen==='function'?old.catOpen:null,
+      exactCatCmd:typeof old?.catCmd==='function'?old.catCmd:null,
+      exactCatClose:typeof old?.catClose==='function'?old.catClose:null,
       exactFooter:typeof old?.footer==='function'?old.footer:null
     };
   }
@@ -91,23 +94,17 @@ export async function listStyles(){
   return Object.values(themes).sort((a,b)=>a.id-b.id);
 }
 
+export function telegramizeDipperText(value){
+  return String(value??'')
+    .replace(/```/g,'')
+    .replace(/\*+/g,'')
+    .replace(/_([^_\n]+)_/g,'$1');
+}
+
 export async function renderDipperHeader(styleId,{botName='NEXAI',ownerName='Utilisateur',rank='utilisateur',prefix='.',count=0}={}){
   const s=await getStyle(styleId);
-  if(s.id===1){
-    const countLabel=Number(count)>=400?'400+':String(count);
-    return [
-      '╭╼━• 🔮 '+toSmallCaps(botName)+' •━━━━',
-      '┃ 🔮 ᴠɪɢɪʟᴀɴᴄᴇ : 🟢',
-      '┃ 👤 ᴘèʟᴇʀɪɴ : '+toSmallCaps(ownerName),
-      '┃ ⚜️ ʀᴀɴɢ : '+toSmallCaps(rank),
-      '┃ ⚡ ɪɴᴄᴀɴᴛᴀᴛɪᴏɴ : [ '+prefix+' ]',
-      '┃ 📜 ᴀʀᴄᴀɴᴇѕ : '+countLabel,
-      '╰━━━━━━━━━━━━━━',
-      ''
-    ].join('\n');
-  }
   if(s.exactHeader){
-    try{return s.exactHeader(botName,ownerName,rank,prefix,count)}catch{}
+    try{return telegramizeDipperText(s.exactHeader(botName,ownerName,rank,prefix,count))}catch{}
   }
   return [
     s.separator||s.mark,
@@ -123,23 +120,51 @@ export async function renderDipperHeader(styleId,{botName='NEXAI',ownerName='Uti
 }
 
 const directImageCache=new Map();
+const lastStyleImage=new Map();
+
+function randomOrder(values){
+  const out=[...new Set(values.filter(Boolean))];
+  for(let i=out.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [out[i],out[j]]=[out[j],out[i]];
+  }
+  return out;
+}
+
+async function directImage(url){
+  if(directImageCache.has(url))return directImageCache.get(url);
+  if(!/^https?:\/\//i.test(url))return '';
+  if(!/https?:\/\/(?:www\.)?ibb\.co\//i.test(url)){
+    directImageCache.set(url,url);
+    return url;
+  }
+  try{
+    const res=await fetch(url,{headers:{'user-agent':'Mozilla/5.0'},signal:AbortSignal.timeout(6000)});
+    const html=await res.text();
+    const m=html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)/i)||html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+    const v=m?.[1]?.replace(/&amp;/g,'&')||'';
+    if(v){directImageCache.set(url,v);return v}
+  }catch{}
+  return '';
+}
+
 export async function resolveStyleImage(styleId,fallback=''){
   const s=await getStyle(styleId);
-  const urls=[...(s.images||[])].filter(Boolean);
+  const key=Number(s.id)||1;
+  let urls=randomOrder([...(s.images||[])]);
+  const last=lastStyleImage.get(key);
+  if(urls.length>1&&urls[0]===last){
+    const swap=1+Math.floor(Math.random()*(urls.length-1));
+    [urls[0],urls[swap]]=[urls[swap],urls[0]];
+  }
   if(fallback)urls.push(fallback);
+
   for(const url of urls){
-    if(directImageCache.has(url))return directImageCache.get(url);
-    if(!/^https?:\/\//i.test(url))continue;
-    if(!/https?:\/\/(?:www\.)?ibb\.co\//i.test(url)){
-      directImageCache.set(url,url);return url;
-    }
-    try{
-      const res=await fetch(url,{headers:{'user-agent':'Mozilla/5.0'},signal:AbortSignal.timeout(6000)});
-      const html=await res.text();
-      const m=html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)/i)||html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
-      const v=m?.[1]?.replace(/&amp;/g,'&')||'';
-      if(v){directImageCache.set(url,v);return v}
-    }catch{}
+    const resolved=await directImage(url);
+    if(!resolved)continue;
+    if((s.images||[]).includes(url))lastStyleImage.set(key,url);
+    return resolved;
   }
   return fallback||'';
 }
+

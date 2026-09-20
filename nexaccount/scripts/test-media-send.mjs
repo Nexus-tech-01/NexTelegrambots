@@ -24,6 +24,34 @@ assert.equal(m4a.kind,'audio');
 assert.equal(m4a.mimeType,'audio/mp4');
 assert.equal(m4a.fileName,'audio.m4a');
 
+const mp4Header=Buffer.alloc(24);
+mp4Header.writeUInt32BE(24,0);
+mp4Header.write('ftyp',4,'ascii');
+mp4Header.write('isom',8,'ascii');
+const mp4=prepareTelegramMedia(mp4Header,{fileName:'tiktok.bin',mimeType:'application/octet-stream'});
+assert.equal(mp4.kind,'video');
+assert.equal(mp4.mimeType,'video/mp4');
+assert.equal(mp4.fileName,'tiktok.mp4');
+
+const pngDeclaredVideo=prepareTelegramMedia(png,{fileName:'wrong.mp4',mimeType:'video/mp4',kind:'video'});
+assert.equal(pngDeclaredVideo.kind,'image');
+assert.equal(pngDeclaredVideo.mimeType,'image/png');
+assert.equal(pngDeclaredVideo.fileName,'wrong.png');
+
+const fakeApk=Buffer.from([0x50,0x4b,0x03,0x04,0,0,0,0]);
+const apk=prepareTelegramMedia(fakeApk,{fileName:'app.apk',mimeType:'application/vnd.android.package-archive',kind:'document'});
+assert.equal(apk.kind,'document');
+assert.equal(apk.mimeType,'application/vnd.android.package-archive');
+assert.equal(apk.fileName,'app.apk');
+
+assert.throws(
+  ()=>prepareTelegramMedia(Buffer.from('#EXTM3U\n#EXT-X-VERSION:3'),{
+    fileName:'tiktok.mp4',
+    mimeType:'video/mp4'
+  }),
+  /playlist/
+);
+
 assert.throws(
   ()=>prepareTelegramMedia(Buffer.from('<!doctype html><html>blocked</html>'),{
     fileName:'tiktok.mp4',
