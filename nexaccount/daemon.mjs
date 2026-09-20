@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { cfg, assertCoreConfig } from './config.mjs';
 import { beginPairing, cancelPairing, cleanupPairings, pairingStatus, setPairingConnectedHandler, submitPairingCode, submitPairingPassword } from './pairing.mjs';
-import { animeRuntimeDiscover, attachConnectedClient, engineStatus, loadSavedRuntimes, reconcileRuntimes, runtimeCommandTest, runtimeStatus, stopRuntimes } from './runtime.mjs';
+import { animeRuntimeDiscover, animeRuntimeRebuild, attachConnectedClient, engineStatus, loadSavedRuntimes, reconcileRuntimes, runtimeCommandTest, runtimeStatus, stopRuntimes } from './runtime.mjs';
 import { listAccounts, patchSettings, closeStore } from './store.mjs';
 import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
 import { loadBotToken } from './secrets.mjs';
@@ -77,6 +77,10 @@ async function route(req,res){
     if(req.method==='POST'&&url.pathname==='/anime/discover'){
       const q=await body(req);
       return json(res,200,await animeRuntimeDiscover(q.telegramUserId||q.username||''));
+    }
+    if(req.method==='POST'&&url.pathname==='/anime/rebuild'){
+      const q=await body(req);
+      return json(res,200,await animeRuntimeRebuild(q.telegramUserId||q.username||'',q.deadline||null));
     }
     if(req.method==='POST'&&url.pathname==='/anime/retry'){
       const q=await body(req);
