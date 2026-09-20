@@ -295,7 +295,7 @@ async function handleCommand(runtime,event,parsed){
   // ownerOnly is an access-control flag, not an execution engine.
   // Only the native NexAI owner dashboard commands belong to handleOwner().
   // Other owner-only commands (mostly THE BIG DIPPER commands) must continue
-  // through compat/proxy routing after the owner identity check above.
+  // through local compatibility routing after the owner identity check above.
   if(cmd.ownerOnly&&LOCAL_OWNER_COMMANDS.has(name))return handleOwner(runtime,peer,name,parsed.args);
 
   if(cmd.premium&&!account.premium){
@@ -642,7 +642,7 @@ async function pollRecentCommands(runtime){
       if(stamp&&stamp<since)return;
       if(!isSelfAuthoredMessage(message,account))return;
       const raw=textOf(message);
-      // Polling only handles the configured account prefix. Internal proxy
+      // Polling only handles the configured account prefix. Internal
       // traffic uses slash commands and must never be re-consumed here.
       if(!prefix||!raw.startsWith(prefix))return;
       if(!parseCommand(raw,prefix))return;
