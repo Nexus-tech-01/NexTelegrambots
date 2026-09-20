@@ -47,7 +47,7 @@ const REQUIRED_ALIAS_TARGETS={
   dipper:'menu',grimoire:'menu',play:'song',dlmusic:'song',yta:'song',
   mp3:'tomp3',toaudio:'tomp3',paroles:'lyrics',lyric:'lyrics',lirik:'lyrics',
   identify:'shazam',identifie:'shazam',reconnaitre:'shazam',
-  ytv:'video',ytmp4:'video',dlyoutube:'video',ig:'instagram',fb:'facebook',tt:'tiktok'
+  ytv:'video',ytmp4:'video',dlyoutube:'video',ig:'instagram',fb:'facebook',fbdl:'facebook',tt:'tiktok',apksearch:'apk'
 };
 for(const [alias,target] of Object.entries(REQUIRED_ALIAS_TARGETS)){
   const cmd=commands.get(alias);
