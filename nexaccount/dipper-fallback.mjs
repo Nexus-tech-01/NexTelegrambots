@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
+import { sendTelegramMedia } from './media-send.mjs';
 
 const UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 NexAi/1.0';
 const MAX_MEDIA_BYTES=100*1024*1024;
@@ -98,7 +99,7 @@ async function sendRemote(client,peer,url,{caption='',fileName='media.bin',maxBy
   const type=r.headers.get('content-type')||'';
   const ext=extFromType(type,url);
   const finalName=fileName.includes('.')?fileName:(fileName+'.'+ext);
-  return client.sendFile(peer,{file:buf,fileName:finalName,caption});
+  return sendTelegramMedia(client,peer,buf,{fileName:finalName,caption,mimeType:type,kind:'auto'});
 }
 async function resolveYoutube(input){
   const raw=clean(input);
@@ -294,7 +295,7 @@ async function localToMp3(client,peer,message){
     await runFfmpeg(['-i',input,'-vn','-c:a','libmp3lame','-b:a','192k',output]);
     const out=fs.readFileSync(output);
     if(!out.length)throw new Error('conversion MP3 vide');
-    await client.sendFile(peer,{file:out,fileName:'nexai-audio.mp3',caption:'NexAi · conversion MP3 locale'});
+    await sendTelegramMedia(client,peer,out,{fileName:'nexai-audio.mp3',caption:'NexAi · conversion MP3 locale',mimeType:'audio/mpeg',kind:'audio'});
   }finally{
     try{fs.unlinkSync(input)}catch{}
     try{fs.unlinkSync(output)}catch{}
