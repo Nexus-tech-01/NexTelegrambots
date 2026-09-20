@@ -123,7 +123,8 @@ function stripNoiseTitle(raw='',episodeToken=''){
 }
 function titleFromMessage(message,ep){
   const f=filename(message);
-  const candidates=[f,String(message?.message||'')].filter(Boolean);
+  const caption=String(message?.message||'');
+  const candidates=[caption,f].filter(Boolean);
   for(const raw of candidates){
     const t=stripNoiseTitle(raw,ep?.token||'');
     if(t.length>=2 && !/^(episode|ep|e|vf|vostfr|vo)$/i.test(t))return t;
@@ -215,7 +216,6 @@ function commonPrefixTitle(items=[]){
   return cleanSeriesTitle(tokens.join(' '));
 }
 function deriveRawAnchors(messages=[],source={}){
-  const sourceCandidate=sourceTitleCandidate(source);
   const candidates=[];
   for(const message of messages){
     const c=classifyMessage(message,source);
@@ -225,12 +225,7 @@ function deriveRawAnchors(messages=[],source={}){
   }
   const clusters=[];
   for(const title of candidates){
-    let base=title;
-    if(sourceCandidate){
-      const sim=titleSimilarity(sourceCandidate,title);
-      const a=norm(sourceCandidate),b=norm(title);
-      if(sim>=0.32||b.includes(a)||a.includes(b))base=sourceCandidate;
-    }
+    const base=title;
     let cluster=clusters.find(g=>{
       const sim=titleSimilarity(g.seed,base);
       return sim>=0.46||prefixTokens(g.seed,base).length>=2;
@@ -325,8 +320,6 @@ async function verifyAnimeTitle(query){
 }
 function bestAnchor(title,anchors=[]){
   const q=cleanSeriesTitle(title);
-  const forced=anchors.find(a=>a.applyAll===true);
-  if(forced)return forced;
   let best=null,bestScore=0;
   for(const a of anchors){
     const raw=a.raw||a.canonicalTitle||'';
@@ -340,11 +333,6 @@ function bestAnchor(title,anchors=[]){
 async function verifiedSeriesAnchors(messages,source={}){
   const raw=deriveRawAnchors(messages,source);
   const out=[];
-  const sourceCandidate=sourceTitleCandidate(source);
-  if(sourceCandidate){
-    const v=await verifyAnimeTitle(sourceCandidate);
-    if(v.ok)out.push({raw:sourceCandidate,canonicalTitle:v.canonicalTitle,anilistId:v.anilistId,score:v.score,applyAll:true});
-  }
   for(const title of raw){
     const v=await verifyAnimeTitle(title);
     if(v.ok&&!out.some(x=>x.anilistId===v.anilistId)){
@@ -356,20 +344,17 @@ async function verifiedSeriesAnchors(messages,source={}){
 }
 async function canonicalizeCandidate(c,source={}){
   if(!c||!['episode','presentation'].includes(c.kind))return c;
-  const anchors=Array.isArray(source.seriesAnchors)?source.seriesAnchors:[];
-  let anchor=bestAnchor(c.title,anchors);
-  if(!anchor){
-    const sourceCandidate=sourceTitleCandidate(source);
-    let q=cleanSeriesTitle(c.title);
-    if(sourceCandidate){
-      const sim=titleSimilarity(q,sourceCandidate),qn=norm(q),sn=norm(sourceCandidate);
-      if(sim>=0.32||qn.includes(sn)||sn.includes(qn))q=sourceCandidate;
-    }
-    const v=await verifyAnimeTitle(q);
-    if(!v.ok)return {...c,verifiedAnime:false,verificationTemporary:v.temporary===true};
-    anchor={raw:q,canonicalTitle:v.canonicalTitle,anilistId:v.anilistId,score:v.score};
+  const q=cleanSeriesTitle(c.title);
+  const direct=await verifyAnimeTitle(q);
+  if(direct.ok){
+    return {...c,title:direct.canonicalTitle,anilistId:direct.anilistId,verifiedAnime:true};
   }
-  return {...c,title:anchor.canonicalTitle,anilistId:anchor.anilistId,verifiedAnime:true};
+  const anchors=Array.isArray(source.seriesAnchors)?source.seriesAnchors:[];
+  const anchor=bestAnchor(q,anchors);
+  if(anchor){
+    return {...c,title:anchor.canonicalTitle,anilistId:anchor.anilistId,verifiedAnime:true};
+  }
+  return {...c,verifiedAnime:false,verificationTemporary:direct.temporary===true};
 }
 
 function releaseKey(c){
@@ -605,9 +590,8 @@ async function backfillSource(runtime,entity){
   for(const m of history){
     let c=classifyMessage(m,source);
     if(c.kind!=='episode'&&c.kind!=='presentation')continue;
-    const anchor=bestAnchor(c.title,anchors);
-    if(!anchor)continue;
-    c={...c,title:anchor.canonicalTitle,anilistId:anchor.anilistId,verifiedAnime:true};
+    c=await canonicalizeCandidate(c,source);
+    if(!c?.verifiedAnime)continue;
     found.push({m,c});
   }
   found.sort((a,b)=>{
