@@ -151,8 +151,8 @@ async function waifuImage(kind='waifu'){
   }
   const tag=kind==='cosplay'?'uniform':'waifu';
   try{
-    const d=await json('https://api.waifu.im/images?included_tags='+encodeURIComponent(tag)+'&is_nsfw=false');
-    const u=d?.images?.[0]?.url;if(u)return u;
+    const d=await json('https://api.waifu.im/images?IncludedTags='+encodeURIComponent(tag)+'&IsNsfw=False',{headers:{'Accept-Version':'v7'}});
+    const u=d?.items?.[0]?.url;if(u)return u;
   }catch{}
   const d=await json('https://api.waifu.pics/sfw/'+(kind==='neko'?'neko':'waifu'));
   if(!d?.url)throw new Error('service image anime indisponible');
