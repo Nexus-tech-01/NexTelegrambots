@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import {
   config,
   metaConfigured,
@@ -225,6 +228,266 @@ async function metaOAuthCallback(res, url) {
   }
 }
 
+
+const META_APP_SETUP_FILE = path.resolve(
+  process.env.NEXMETA_APP_SETUP_FILE ||
+  '/home/container/.nexcontrol/meta-app-setup.json'
+);
+
+function readMetaAppSetupRecord() {
+  try {
+    const record = JSON.parse(
+      fs.readFileSync(META_APP_SETUP_FILE, 'utf8')
+    );
+
+    const expiresAt = new Date(record?.expiresAt || '').getTime();
+    if (
+      !record?.hash ||
+      !Number.isFinite(expiresAt) ||
+      expiresAt <= Date.now()
+    ) {
+      return null;
+    }
+
+    return {
+      hash: String(record.hash),
+      expiresAt
+    };
+  } catch {
+    return null;
+  }
+}
+
+function validMetaAppSetupNonce(nonce) {
+  const record = readMetaAppSetupRecord();
+  if (!record || !nonce) return false;
+  return sha256(String(nonce)) === record.hash;
+}
+
+function persistMetaAppCredentials(appId, appSecret) {
+  const envPath = '/home/container/.env';
+  const raw = fs.existsSync(envPath)
+    ? fs.readFileSync(envPath, 'utf8').replace(/^\uFEFF/, '')
+    : '';
+
+  const desired = new Map([
+    ['NEXMETA_APP_ID', String(appId)],
+    ['NEXMETA_APP_SECRET', String(appSecret)]
+  ]);
+
+  const output = [];
+  const seen = new Set();
+
+  for (const line of raw.split(/\r?\n/)) {
+    const index = line.indexOf('=');
+    const key = index > 0 ? line.slice(0, index).trim() : '';
+
+    if (desired.has(key)) {
+      if (!seen.has(key)) {
+        output.push(`${key}=${desired.get(key)}`);
+        seen.add(key);
+      }
+      continue;
+    }
+
+    output.push(line);
+  }
+
+  for (const [key, value] of desired) {
+    if (!seen.has(key)) output.push(`${key}=${value}`);
+  }
+
+  const tmp = `${envPath}.nexmeta-${process.pid}.tmp`;
+  fs.writeFileSync(
+    tmp,
+    output.join('\n').replace(/\n+$/, '') + '\n',
+    { mode: 0o600 }
+  );
+  fs.renameSync(tmp, envPath);
+
+  try {
+    fs.chmodSync(envPath, 0o600);
+  } catch {
+    // Best-effort on filesystems without chmod support.
+  }
+}
+
+function metaAppSetupSecurityHeaders(res) {
+  res.setHeader('cache-control', 'no-store');
+  res.setHeader('x-robots-tag', 'noindex, nofollow');
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('referrer-policy', 'no-referrer');
+  res.setHeader('x-frame-options', 'DENY');
+  res.setHeader(
+    'content-security-policy',
+    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://*.supabase.co; base-uri 'none'; frame-ancestors 'none'"
+  );
+}
+
+function metaAppSetupPage({ nonce, error = '' } = {}) {
+  const action = `${config.publicBaseUrl.replace(/\/+$/, '')}/setup/meta-app`
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;');
+
+  const safeNonce = String(nonce || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  const safeError = String(error || '')
+    .replace(/[&<>]/g, '');
+
+  return `<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Configurer Meta · NexMeta</title>
+<style>
+html{background:#080808;color:#f4f4f4;font-family:system-ui,-apple-system,sans-serif}
+body{min-height:100vh;margin:0;display:grid;place-items:center;padding:22px}
+main{width:min(620px,100%);box-sizing:border-box;border:1px solid #2a2a2a;border-radius:24px;padding:30px;background:#111}
+small{letter-spacing:.14em;text-transform:uppercase;color:#999}
+h1{font-size:36px;margin:12px 0 10px;letter-spacing:-.04em}
+p{color:#aaa;line-height:1.55}
+ol{color:#bbb;line-height:1.6;padding-left:22px}
+label{display:block;margin:20px 0 7px;font-size:12px;color:#aaa;text-transform:uppercase;letter-spacing:.08em}
+input{width:100%;box-sizing:border-box;background:#090909;color:#fff;border:1px solid #333;border-radius:14px;padding:14px 16px;font:inherit}
+button{margin-top:16px;width:100%;border:0;border-radius:14px;padding:14px 16px;background:#f2f2f2;color:#090909;font:700 15px system-ui;cursor:pointer}
+.err{color:#ffb0b0}
+.note{font-size:12px;color:#777;margin-top:18px}
+code{color:#ddd}
+</style>
+</head>
+<body><main>
+<small>NexMeta · Secure Meta setup</small>
+<h1>Relier ton App Meta</h1>
+<p>Cette page est temporaire et à usage unique. L’App Secret part directement vers NexMeta via HTTPS et n’est pas affiché dans le chat.</p>
+<ol>
+<li>Dans Meta for Developers, crée/ouvre l’app qui servira à NexMeta.</li>
+<li>Dans <b>Settings → Basic</b>, copie son <b>App ID</b> et son <b>App Secret</b>.</li>
+<li>Colle-les ci-dessous. Après validation, NexMeta ouvrira immédiatement l’autorisation Facebook.</li>
+</ol>
+${safeError ? `<p class="err">${safeError}</p>` : ''}
+<form method="post" action="${action}" autocomplete="off">
+<input type="hidden" name="setup" value="${safeNonce}">
+<label for="app_id">Meta App ID</label>
+<input id="app_id" name="app_id" inputmode="numeric" pattern="[0-9]{5,40}" required autocomplete="off">
+<label for="app_secret">Meta App Secret</label>
+<input id="app_secret" name="app_secret" type="password" minlength="16" maxlength="256" required autocomplete="off" spellcheck="false">
+<button type="submit">Enregistrer et connecter Facebook</button>
+</form>
+<p class="note">Le lien expire automatiquement et devient inutilisable après une configuration réussie.</p>
+</main></body></html>`;
+}
+
+async function metaAppSetup(req, res, url) {
+  if (req.method === 'GET') {
+    const nonce = String(url.searchParams.get('setup') || '');
+
+    if (!validMetaAppSetupNonce(nonce)) {
+      res.statusCode = 410;
+      res.setHeader('content-type', 'text/html; charset=utf-8');
+      metaAppSetupSecurityHeaders(res);
+      return res.end(
+        metaAppSetupPage({
+          nonce: '',
+          error: 'Lien invalide ou expiré.'
+        })
+      );
+    }
+
+    res.statusCode = 200;
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    metaAppSetupSecurityHeaders(res);
+    return res.end(metaAppSetupPage({ nonce }));
+  }
+
+  if (req.method !== 'POST') {
+    return writeJson(res, 405, { error: 'method_not_allowed' });
+  }
+
+  const raw = await readRaw(req, 16 * 1024);
+  const params = new URLSearchParams(raw.toString('utf8'));
+  const nonce = String(params.get('setup') || '');
+  const appId = String(params.get('app_id') || '').trim();
+  const appSecret = String(params.get('app_secret') || '').trim();
+
+  if (!validMetaAppSetupNonce(nonce)) {
+    return writeJson(res, 410, { error: 'setup_link_expired' });
+  }
+
+  if (!/^[0-9]{5,40}$/.test(appId)) {
+    res.statusCode = 400;
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    metaAppSetupSecurityHeaders(res);
+    return res.end(
+      metaAppSetupPage({
+        nonce,
+        error: 'App ID invalide.'
+      })
+    );
+  }
+
+  if (
+    appSecret.length < 16 ||
+    appSecret.length > 256 ||
+    /[\r\n]/.test(appSecret)
+  ) {
+    res.statusCode = 400;
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    metaAppSetupSecurityHeaders(res);
+    return res.end(
+      metaAppSetupPage({
+        nonce,
+        error: 'App Secret invalide.'
+      })
+    );
+  }
+
+  persistMetaAppCredentials(appId, appSecret);
+
+  config.appId = appId;
+  config.appSecret = appSecret;
+
+  let start;
+  try {
+    start = await createMetaOAuthStart({
+      actor: 'owner-meta-setup',
+      ttlSeconds: 600
+    });
+  } catch (error) {
+    await audit('nexmeta.meta_app_setup.failed', 'web', {
+      error: String(error?.message || error).slice(0, 400)
+    }).catch(() => {});
+
+    res.statusCode = 502;
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    metaAppSetupSecurityHeaders(res);
+    return res.end(
+      metaAppSetupPage({
+        nonce,
+        error: 'Les identifiants ont été enregistrés, mais le démarrage OAuth a échoué. Vérifie la configuration de l’app Meta puis réessaie.'
+      })
+    );
+  }
+
+  try {
+    fs.unlinkSync(META_APP_SETUP_FILE);
+  } catch {}
+
+  await audit('nexmeta.meta_app_setup.completed', 'web', {
+    appId,
+    oauthStarted: true
+  }).catch(() => {});
+
+  res.statusCode = 303;
+  res.setHeader('location', start.authorizationUrl);
+  metaAppSetupSecurityHeaders(res);
+  return res.end();
+}
 
 const ownerConnectFailures = [];
 
@@ -512,6 +775,10 @@ export async function handleRequest(req, res) {
         pages,
         account
       });
+    }
+
+    if (path === '/setup/meta-app') {
+      return metaAppSetup(req, res, url);
     }
 
     if (path === '/connect/meta') {
