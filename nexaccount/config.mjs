@@ -11,6 +11,9 @@ const pick=(...names)=>{
   return '';
 };
 
+const configuredWorkerCount=Math.max(1,Math.min(65536,Number(pick('NEXACCOUNT_WORKER_COUNT')||1)));
+const configuredWorkerIndex=Math.max(0,Number(pick('NEXACCOUNT_WORKER_INDEX')||0));
+
 export const cfg={
   apiId:Number(pick('NEXACCOUNT_TELEGRAM_API_ID','NEXGROUP__TELEGRAM_API_ID','TELEGRAM_API_ID')),
   apiHash:pick('NEXACCOUNT_TELEGRAM_API_HASH','NEXGROUP__TELEGRAM_API_HASH','TELEGRAM_API_HASH'),
@@ -19,7 +22,7 @@ export const cfg={
   mongoUri:pick('NEXUS_MONGODB_URI','MONGODB_URI'),
   dbName:pick('NEXACCOUNT_DB_NAME')||'nexus_bots',
   sessionSecret:pick('NEXACCOUNT_SESSION_KEY','NEXCONTROL_SESSION_SECRET','SESSION_SECRET','NEXCONTROL_FLEET_KEY'),
-  port:Number(pick('NEXACCOUNT_PORT')||3491),
+  port:Number(pick('NEXACCOUNT_PORT')||(3491+configuredWorkerIndex)),
   host:pick('NEXACCOUNT_HOST')||'127.0.0.1',
   nextechUrl:pick('NEXAI_NEXTECH_URL')||'https://t.me/thenexusorigin',
   nexnewsUrl:pick('NEXAI_NEXNEWS_URL')||'https://t.me/thenexnews',
@@ -36,8 +39,9 @@ export const cfg={
   creatorImagePath:pick('NEXAI_CREATOR_IMAGE_PATH')||path.join(HERE,'assets','creator.jpg'),
   connectUrl:pick('NEXAI_CONNECT_URL')||'https://eddie-neural-jimmy-enemies.trycloudflare.com/nexai/connect',
   defaultMenuImage:pick('NEXAI_DEFAULT_MENU_IMAGE_URL'),
-  workerCount:Math.max(1,Math.min(65536,Number(pick('NEXACCOUNT_WORKER_COUNT')||1))),
-  workerIndex:Math.max(0,Number(pick('NEXACCOUNT_WORKER_INDEX')||0)),
+  workerCount:configuredWorkerCount,
+  workerIndex:configuredWorkerIndex,
+  coordinator:configuredWorkerIndex===0,
   workerId:pick('NEXACCOUNT_WORKER_ID')||((process.env.HOSTNAME||'nexaccount')+':'+process.pid),
   runtimeBuckets:65536,
   runtimeLeaseMs:Math.max(30000,Number(pick('NEXACCOUNT_RUNTIME_LEASE_MS')||120000)),
