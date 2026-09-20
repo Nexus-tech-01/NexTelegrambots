@@ -8,10 +8,18 @@ import { handleRequest as handleNexMeta } from '../nexmeta/src/handler.mjs';
 
 const root = path.resolve(process.env.NEXUS_ROOT || process.cwd());
 const port = Number(process.env.NEXMETA_INTERNAL_PORT || 3110);
+const publicPort = Number(process.env.NEXMETA_PUBLIC_PORT || process.env.SERVER_PORT || 0);
 const sharedKey = String(process.env.NEXUS_COMMAND_GATEWAY_KEY || '').trim();
 
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error('NEXMETA_INTERNAL_PORT must be a valid TCP port');
+}
+
+if (
+  publicPort &&
+  (!Number.isInteger(publicPort) || publicPort < 1 || publicPort > 65535)
+) {
+  throw new Error('NEXMETA_PUBLIC_PORT/SERVER_PORT must be a valid TCP port');
 }
 
 const adapterState = await loadNexusAdapters({
@@ -77,7 +85,7 @@ function writeJson(res,status,value) {
   res.end(JSON.stringify(value));
 }
 
-const server=http.createServer(async(req,res)=>{
+async function internalRequest(req,res) {
   const url=new URL(req.url || '/','http://nexmeta.internal');
 
   if (url.pathname.startsWith('/nexus-media/')) {
@@ -105,17 +113,61 @@ const server=http.createServer(async(req,res)=>{
   }
 
   return handleNexMeta(req,res);
-});
+}
 
+async function publicRequest(req,res) {
+  const url=new URL(req.url || '/','http://nexmeta.public');
+  const path=url.pathname;
+
+  if (path.startsWith('/nexus-media/')) {
+    return serveRemoteMedia(req,res,path.slice('/nexus-media/'.length).trim());
+  }
+
+  if (path==='/health' || path==='/health/meta' || path==='/nexmeta/health') {
+    req.url='/health'+url.search;
+    return handleNexMeta(req,res);
+  }
+
+  if (
+    path==='/connect/meta' ||
+    path==='/oauth/meta/callback' ||
+    path==='/webhooks/meta'
+  ) {
+    return handleNexMeta(req,res);
+  }
+
+  return writeJson(res,404,{error:'not_found'});
+}
+
+const server=http.createServer(internalRequest);
 server.keepAliveTimeout=65000;
 server.headersTimeout=70000;
 server.listen(port,'127.0.0.1',()=>{
   console.log('[NexMetaRuntime] listening', {port, adapters:Object.keys(adapterState.services)});
 });
 
+let publicServer=null;
+if (publicPort && publicPort!==port) {
+  publicServer=http.createServer(publicRequest);
+  publicServer.keepAliveTimeout=65000;
+  publicServer.headersTimeout=70000;
+  publicServer.listen(publicPort,'0.0.0.0',()=>{
+    console.log('[NexMetaRuntime] public gateway listening', {publicPort});
+  });
+  publicServer.on('error',error=>{
+    console.error('[NexMetaRuntime] public gateway error',String(error?.message||error));
+  });
+}
+
 function shutdown(signal) {
   console.log('[NexMetaRuntime] shutting down',signal);
-  server.close(()=>process.exit(0));
+  let pending=1+(publicServer?1:0);
+  const done=()=>{
+    pending-=1;
+    if(pending<=0)process.exit(0);
+  };
+  server.close(done);
+  if(publicServer)publicServer.close(done);
   setTimeout(()=>process.exit(0),5000).unref();
 }
 process.once('SIGTERM',()=>shutdown('SIGTERM'));
