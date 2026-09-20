@@ -293,7 +293,7 @@ async function verifyAnimeTitle(query){
     SERIES_CACHE.set(key,{value,expires:Date.now()+6*3600_000});
     return value;
   }
-  const gql='query($search:String){Media(search:$search,type:ANIME,isAdult:false){id isAdult format seasonYear title{romaji english native} synonyms}}';
+  const gql='query($search:String){Media(search:$search,type:ANIME,isAdult:false){id isAdult format seasonYear episodes status genres description(asHtml:false) coverImage{extraLarge large} studios(isMain:true){nodes{name}} title{romaji english native} synonyms}}';
   let result;
   try{
     const body=await anilistRequest({query:gql,variables:{search:cleaned}});
@@ -310,6 +310,13 @@ async function verifyAnimeTitle(query){
         key,query:cleaned,ok,temporary:false,score:Number(score.toFixed(3)),
         canonicalTitle:ok?(media.title?.english||media.title?.romaji||cleaned):'',
         anilistId:ok?Number(media.id):null,aliases:ok?aliases.slice(0,12):[],
+        description:ok?String(media.description||'').replace(/<br\s*\/?>/gi,'\n').replace(/<[^>]+>/g,'').trim():'',
+        coverImage:ok?(media.coverImage?.extraLarge||media.coverImage?.large||''):'',
+        genres:ok?(media.genres||[]).slice(0,8):[],
+        episodes:ok?(media.episodes??null):null,
+        format:ok?(media.format||''):'',
+        status:ok?(media.status||''):'',
+        studios:ok?(media.studios?.nodes||[]).map(x=>x?.name).filter(Boolean).slice(0,4):[],
         checkedAt:new Date()
       };
     }
@@ -319,6 +326,28 @@ async function verifyAnimeTitle(query){
   }
   SERIES_CACHE.set(key,{value:result,expires:Date.now()+(result.temporary?10*60_000:6*3600_000)});
   return result;
+}
+async function animePresentationMetadata(title){
+  const first=await verifyAnimeTitle(title);
+  if(first.ok&&(first.coverImage||first.description))return first;
+  if(first.key){
+    try{
+      const d=await db();
+      await d.collection('nexanime_series_cache').deleteOne({key:first.key});
+      SERIES_CACHE.delete(first.key);
+    }catch{}
+  }
+  return verifyAnimeTitle(title);
+}
+function presentationText(meta){
+  const rows=[];
+  if(meta?.genres?.length)rows.push('Genres : '+meta.genres.join(' · '));
+  if(meta?.studios?.length)rows.push('Studio : '+meta.studios.join(', '));
+  if(meta?.episodes)rows.push('Épisodes : '+meta.episodes);
+  if(meta?.format)rows.push('Format : '+meta.format);
+  const description=String(meta?.description||'').trim();
+  if(description)rows.push('Synopsis\\n'+description);
+  return rows.join('\\n');
 }
 function bestAnchor(title,anchors=[]){
   const q=cleanSeriesTitle(title);
@@ -912,6 +941,26 @@ async function publicationButtons(item){
   return previousEpisodeButton(item);
 }
 
+async function publishSyntheticPresentation(runtime,item,destination){
+  const caption=quotedCaption(item);
+  const buttons=await publicationButtons(item);
+  if(!item.imageUrl){
+    return runtime.client.sendMessage(destination,{message:caption,parseMode:'html',buttons});
+  }
+  await fs.mkdir(TMP_ROOT,{recursive:true});
+  const tmp=path.join(TMP_ROOT,'anime-presentation-'+crypto.randomUUID()+'.jpg');
+  try{
+    const response=await fetch(String(item.imageUrl),{signal:AbortSignal.timeout(15000)});
+    if(!response.ok)throw new Error('presentation_image_http_'+response.status);
+    const data=Buffer.from(await response.arrayBuffer());
+    if(data.length>10*1024*1024)throw new Error('presentation_image_too_large');
+    await fs.writeFile(tmp,data);
+    return runtime.client.sendFile(destination,{file:tmp,caption,parseMode:'html',buttons,workers:1});
+  }finally{
+    await fs.rm(tmp,{force:true}).catch(()=>{});
+  }
+}
+
 async function publishPresentation(runtime,item,resolved,destination){
   const message=resolved.message;
   const caption=quotedCaption(item);
@@ -1105,12 +1154,61 @@ async function claimExactItem(d,item,accountId){
   );
 }
 
+async function ensureGeneralPresentation(d,seriesKey){
+  const existingQueue=await d.collection('nexanime_queue').findOne({
+    seriesKey,kind:'presentation',
+    $or:[{episode:null},{episode:{$exists:false}}],
+    status:{$in:['queued','publishing']}
+  },{projection:{_id:1}});
+  if(existingQueue)return;
+
+  const existingPublished=await d.collection('nexanime_publications').findOne({
+    seriesKey,kind:'presentation',
+    $or:[{episode:null},{episode:{$exists:false}}],
+    purgedAt:{$exists:false}
+  },{projection:{_id:1}});
+  if(existingPublished)return;
+
+  const episode=await d.collection('nexanime_queue').findOne(
+    {seriesKey,kind:'episode',status:'queued'},
+    {sort:{season:1,episode:1,createdAt:1}}
+  );
+  if(!episode?.title)return;
+  const meta=await animePresentationMetadata(episode.title);
+  if(!meta?.ok)return;
+  const now=new Date();
+  const c={
+    kind:'presentation',
+    title:meta.canonicalTitle||episode.title,
+    anilistId:meta.anilistId||episode.anilistId||null,
+    season:null,episode:null,language:'',quality:'',
+    cleanedCaption:presentationText(meta)
+  };
+  const dedupeKey=presentationKey(c);
+  await d.collection('nexanime_queue').updateOne(
+    {dedupeKey},
+    {
+      $setOnInsert:{
+        dedupeKey,status:'queued',kind:'presentation',seriesKey,
+        title:c.title,anilistId:c.anilistId,season:null,episode:null,
+        language:'',quality:'',mediaKind:'photo',cleanedCaption:c.cleanedCaption,
+        cleanedFilename:'',originalFilename:'',confidence:1,
+        destination:'@'+DESTINATION,mode:'synthetic',synthetic:true,
+        imageUrl:meta.coverImage||'',createdAt:now,attempts:0,ingestedAt:new Date(0)
+      },
+      $set:{updatedAt:now}
+    },
+    {upsert:true}
+  );
+}
+
 async function claimNext(runtime){
   await ensureIndexes();
   const d=await db();
   const accountId=String(runtime.account.telegramUserId);
   const seriesKey=await chooseActiveSeries(d);
   if(!seriesKey)return null;
+  await ensureGeneralPresentation(d,seriesKey);
 
   // 1) One general anime presentation first.
   const generalPresentation=await d.collection('nexanime_queue').findOne(
@@ -1179,12 +1277,16 @@ async function publishOne(runtime){
       await (await db()).collection('nexanime_queue').updateOne({_id:item._id},{$set:{status:'published',updatedAt:new Date(),deduplicated:true}});
       return true;
     }
-    const resolved=await resolveSource(runtime,item);
-    if(!resolved)throw new Error('source_message_unavailable_for_runtime');
     const destination=await destinationEntity(runtime);
     let sent;
-    if(item.kind==='presentation')sent=await publishPresentation(runtime,item,resolved,destination);
-    else sent=await publishEpisode(runtime,item,resolved,destination);
+    if(item.synthetic===true){
+      sent=await publishSyntheticPresentation(runtime,item,destination);
+    }else{
+      const resolved=await resolveSource(runtime,item);
+      if(!resolved)throw new Error('source_message_unavailable_for_runtime');
+      if(item.kind==='presentation')sent=await publishPresentation(runtime,item,resolved,destination);
+      else sent=await publishEpisode(runtime,item,resolved,destination);
+    }
     await markPublication(item,sent,runtime);
     runtime.animeIngest.lastPublishedAt=new Date();
     runtime.animeIngest.published=(runtime.animeIngest.published||0)+1;
@@ -1245,7 +1347,7 @@ export const __test={
   parseEpisode,detectLanguage,detectQuality,stripNoiseTitle,cleanCaption,safeFilename,
   classifyMessage,sourceStats,titleSimilarity,releaseKey,presentationKey,
   cleanSeriesTitle,sourceTitleCandidate,deriveRawAnchors,commonPrefixTitle,verifyAnimeTitle,
-  standardizedCaption,quotedCaption,titleFromMessage,bestAnchor,releaseKey,presentationKey
+  standardizedCaption,quotedCaption,titleFromMessage,bestAnchor
 };
 
 
