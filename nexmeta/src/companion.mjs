@@ -141,7 +141,7 @@ export async function createCompanionPairing({
   ttlSeconds = 900
 } = {}) {
   const db = await database();
-  const ttl = Math.max(60, Math.min(3600, Number(ttlSeconds) || 900));
+  const ttl = Math.max(60, Math.min(86400, Number(ttlSeconds) || 900));
   const code = randomPairCode();
   const createdAt = now();
   const expiresAt = new Date(createdAt.getTime() + ttl * 1000);
