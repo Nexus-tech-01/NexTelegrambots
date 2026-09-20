@@ -489,15 +489,16 @@ export async function handleRequest(req, res) {
     if (req.method === 'GET' && path === '/health') {
       await healthStore();
 
-      const [runtime, pages] = await Promise.all([
+      const [runtime, pages, account] = await Promise.all([
         getRuntimeSettings(),
-        connectedPageState()
+        connectedPageState(),
+        connectedAccountState()
       ]);
 
       return writeJson(res, 200, {
         ok: true,
         service: 'nexmeta',
-        version: '0.5.0',
+        version: '0.6.0',
         metaConfigured: metaConfigured(),
         oauthConfigured: oauthConfigured(),
         ownerConnectConfigured:
