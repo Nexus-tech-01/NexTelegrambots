@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url';
 
 const HERE=path.dirname(fileURLToPath(import.meta.url));
 const C=(name,category,options={})=>({name,category,...options});
-const G={groupOnly:true};
-const GA={groupOnly:true,adminOnly:true};
-const P={privateOnly:true};
+const G={groupOnly:true,engine:'group'};
+const GA={groupOnly:true,adminOnly:true,engine:'group'};
+const P={privateOnly:true,selfOnly:true};
 
 export const CORE_COMMANDS=[
   // MAIN — commands that make sense everywhere.
@@ -28,6 +28,7 @@ export const CORE_COMMANDS=[
   C('stats','ACCOUNT',{...P,description:'Statistiques du compte'}),
   C('premium','ACCOUNT',{...P,description:'Statut Premium'}),
   C('prefix','ACCOUNT',{...P,description:'Changer le préfixe'}),
+  C('mode','ACCOUNT',{...P,description:'Mode d’accès privé/public'}),
   C('language','ACCOUNT',{...P,description:'Changer la langue'}),
   C('device','ACCOUNT',{...P,description:'Informations de la session'}),
   C('autoreact','ACCOUNT',{...P,description:'Activer/désactiver les réactions automatiques',handler:'reflexe_systeme'}),
@@ -62,49 +63,50 @@ export const CORE_COMMANDS=[
   C('groupstats','GROUP',{...G,engine:'group',localOnly:true,description:'Statistiques du groupe'}),
   C('admins','GROUP',{...G,engine:'group',localOnly:true,description:'Lister les admins'}),
   C('tagadmin','GROUP',{...G,description:'Mentionner les admins'}),
+  C('tag','GROUP',{...G,description:'Mentionner un membre'}),
   C('rules','GROUP',{...G,engine:'group',localOnly:true,description:'Afficher les règles'}),
   C('notes','GROUP',{...G,engine:'group',localOnly:true,description:'Afficher les notes'}),
   C('privacy','GROUP',{...G,engine:'group',localOnly:true,description:'Informations de confidentialité'}),
 
   // ADMIN — destructive/configuration commands require a group admin.
-  C('promote','ADMIN',{...GA,description:'Promouvoir un membre'}),
-  C('demote','ADMIN',{...GA,description:'Rétrograder un admin'}),
-  C('kick','ADMIN',{...GA,description:'Retirer un membre'}),
-  C('ban','ADMIN',{...GA,description:'Bannir un membre'}),
-  C('unban','ADMIN',{...GA,description:'Débannir un membre'}),
-  C('mute','ADMIN',{...GA,description:'Rendre un membre muet'}),
-  C('unmute','ADMIN',{...GA,description:'Rendre la parole à un membre'}),
-  C('warn','ADMIN',{...GA,description:'Avertir un membre'}),
-  C('resetwarn','ADMIN',{...GA,description:'Réinitialiser les avertissements'}),
-  C('warnings','ADMIN',{...GA,engine:'group',localOnly:true,description:'Voir les avertissements'}),
-  C('clearwarns','ADMIN',{...GA,engine:'group',localOnly:true,description:'Effacer les avertissements'}),
-  C('add','ADMIN',{...GA,description:'Inviter un membre'}),
-  C('delete','ADMIN',{...GA,description:'Supprimer le message répondu'}),
-  C('clean','ADMIN',{...GA,description:'Nettoyer des messages'}),
-  C('grouplink','ADMIN',{...GA,description:'Créer le lien du groupe'}),
-  C('tagall','ADMIN',{...GA,description:'Mentionner tous les membres'}),
-  C('hidetag','ADMIN',{...GA,description:'Mention silencieuse des membres'}),
-  C('mediatag','ADMIN',{...GA,description:'Mentionner les membres avec un média'}),
-  C('welcome','ADMIN',{...GA,description:'Activer/désactiver le message de bienvenue'}),
-  C('goodbye','ADMIN',{...GA,description:'Activer/désactiver le message de départ'}),
-  C('setwelcome','ADMIN',{...GA,description:'Définir le message de bienvenue'}),
-  C('setgoodbye','ADMIN',{...GA,description:'Définir le message de départ'}),
-  C('approve','ADMIN',{...GA,description:'Approuver une demande d’adhésion'}),
-  C('approveall','ADMIN',{...GA,description:'Approuver toutes les demandes'}),
-  C('approvepending','ADMIN',{...GA,engine:'group',localOnly:true,description:'Approuver les demandes en attente'}),
-  C('autoapprove','ADMIN',{...GA,engine:'group',localOnly:true,description:'Approbation automatique'}),
-  C('slowmode','ADMIN',{...GA,engine:'group',localOnly:true,description:'Configurer le slow mode'}),
-  C('mutechat','ADMIN',{...GA,description:'Fermer le groupe en écriture'}),
-  C('unmutechat','ADMIN',{...GA,description:'Ouvrir le groupe en écriture'}),
-  C('setrules','ADMIN',{...GA,engine:'group',localOnly:true,description:'Définir les règles'}),
-  C('setcommand','ADMIN',{...GA,engine:'group',localOnly:true,description:'Créer une commande personnalisée'}),
-  C('broadcast','ADMIN',{...GA,engine:'group',localOnly:true,description:'Publier une annonce dans le groupe'}),
-  C('config','ADMIN',{...GA,engine:'group',localOnly:true,description:'Configuration du groupe'}),
-  C('permissions','ADMIN',{...GA,engine:'group',localOnly:true,description:'Permissions du compte'}),
-  C('backup','ADMIN',{...GA,engine:'group',localOnly:true,description:'Sauvegarder la configuration du groupe'}),
-  C('restore','ADMIN',{...GA,engine:'group',localOnly:true,description:'Restaurer la configuration du groupe'}),
-  C('copyconfig','ADMIN',{...GA,engine:'group',localOnly:true,description:'Copier une configuration de groupe'}),
-  C('kickall','ADMIN',{...GA,engine:'group',localOnly:true,description:'Retirer les membres non-admins'}),
+  C('promote','GROUP',{...GA,description:'Promouvoir un membre'}),
+  C('demote','GROUP',{...GA,description:'Rétrograder un admin'}),
+  C('kick','GROUP',{...GA,description:'Retirer un membre'}),
+  C('ban','GROUP',{...GA,description:'Bannir un membre'}),
+  C('unban','GROUP',{...GA,description:'Débannir un membre'}),
+  C('mute','GROUP',{...GA,description:'Rendre un membre muet'}),
+  C('unmute','GROUP',{...GA,description:'Rendre la parole à un membre'}),
+  C('warn','GROUP',{...GA,description:'Avertir un membre'}),
+  C('resetwarn','GROUP',{...GA,description:'Réinitialiser les avertissements'}),
+  C('warnings','GROUP',{...GA,engine:'group',localOnly:true,description:'Voir les avertissements'}),
+  C('clearwarns','GROUP',{...GA,engine:'group',localOnly:true,description:'Effacer les avertissements'}),
+  C('add','GROUP',{...GA,description:'Inviter un membre'}),
+  C('delete','GROUP',{...GA,description:'Supprimer le message répondu'}),
+  C('clean','GROUP',{...GA,description:'Nettoyer des messages'}),
+  C('grouplink','GROUP',{...GA,description:'Créer le lien du groupe'}),
+  C('tagall','GROUP',{...GA,description:'Mentionner tous les membres'}),
+  C('hidetag','GROUP',{...GA,description:'Mention silencieuse des membres'}),
+  C('mediatag','GROUP',{...GA,description:'Mentionner les membres avec un média'}),
+  C('welcome','GROUP',{...GA,description:'Activer/désactiver le message de bienvenue'}),
+  C('goodbye','GROUP',{...GA,description:'Activer/désactiver le message de départ'}),
+  C('setwelcome','GROUP',{...GA,description:'Définir le message de bienvenue'}),
+  C('setgoodbye','GROUP',{...GA,description:'Définir le message de départ'}),
+  C('approve','GROUP',{...GA,description:'Approuver une demande d’adhésion'}),
+  C('approveall','GROUP',{...GA,description:'Approuver toutes les demandes'}),
+  C('approvepending','GROUP',{...GA,engine:'group',localOnly:true,description:'Approuver les demandes en attente'}),
+  C('autoapprove','GROUP',{...GA,engine:'group',localOnly:true,description:'Approbation automatique'}),
+  C('slowmode','GROUP',{...GA,engine:'group',localOnly:true,description:'Configurer le slow mode'}),
+  C('mutechat','GROUP',{...GA,description:'Fermer le groupe en écriture'}),
+  C('unmutechat','GROUP',{...GA,description:'Ouvrir le groupe en écriture'}),
+  C('setrules','GROUP',{...GA,engine:'group',localOnly:true,description:'Définir les règles'}),
+  C('setcommand','GROUP',{...GA,engine:'group',localOnly:true,description:'Créer une commande personnalisée'}),
+  C('broadcast','GROUP',{...GA,engine:'group',localOnly:true,description:'Publier une annonce dans le groupe'}),
+  C('config','GROUP',{...GA,engine:'group',localOnly:true,description:'Configuration du groupe'}),
+  C('permissions','GROUP',{...GA,engine:'group',localOnly:true,description:'Permissions du compte'}),
+  C('backup','GROUP',{...GA,engine:'group',localOnly:true,description:'Sauvegarder la configuration du groupe'}),
+  C('restore','GROUP',{...GA,engine:'group',localOnly:true,description:'Restaurer la configuration du groupe'}),
+  C('copyconfig','GROUP',{...GA,engine:'group',localOnly:true,description:'Copier une configuration de groupe'}),
+  C('kickall','GROUP',{...GA,engine:'group',localOnly:true,description:'Retirer les membres non-admins'}),
 
   // PROTECTION.
   C('antilink','PROTECTION',{...GA,description:'Anti-liens'}),
@@ -273,7 +275,7 @@ export const CORE_COMMANDS=[
 export const LEGACY_ALIASES={
   dipper:'menu',grimoire:'menu',allmenu:'menu',
   about:'creator',founder:'creator',ceo:'creator',
-  stylelist:'style',
+  stylelist:'style',accessmode:'mode',botmode:'mode',
   reflexe_systeme:'autoreact',reponseauto:'autoreply',dark:'aimode',
   apparence_systeme:'botname',illustration_grimoire:'menuimage',
   traduction:'translate',meteo:'weather',algebre:'calc',
@@ -326,18 +328,18 @@ function loadSourceManifest(){
 export const SOURCE_COMMANDS=loadSourceManifest();
 
 export const CATEGORY_ORDER=[
-  'GENERAL','ACCOUNT','AI','DOWNLOAD','GROUP','ADMIN','PROTECTION',
+  'GENERAL','ACCOUNT','AI','DOWNLOAD','GROUP','GROUP','PROTECTION',
   'TOOLS','MEDIA','STICKERS','FUN','SEARCH','ANIME','PREMIUM','OWNER'
 ];
 export const CATEGORY_LABELS={
   GENERAL:'MAIN',ACCOUNT:'ACCOUNT',AI:'AI',DOWNLOAD:'DOWNLOAD',GROUP:'GROUP',
-  ADMIN:'ADMIN',PROTECTION:'PROTECTION',TOOLS:'TOOLS',MEDIA:'MEDIA',
+  PROTECTION:'PROTECTION',TOOLS:'TOOLS',MEDIA:'MEDIA',
   STICKERS:'STICKERS',FUN:'FUN',SEARCH:'SEARCH',ANIME:'ANIME',
   PREMIUM:'PREMIUM',OWNER:'OWNER'
 };
 export const CATEGORY_ICONS={
   GENERAL:'general',ACCOUNT:'account',AI:'ai',DOWNLOAD:'download',GROUP:'group',
-  ADMIN:'admin',PROTECTION:'shield',TOOLS:'tools',MEDIA:'media',
+  PROTECTION:'shield',TOOLS:'tools',MEDIA:'media',
   STICKERS:'sticker',FUN:'games',SEARCH:'search',ANIME:'anime',
   PREMIUM:'premium',OWNER:'owner'
 };
