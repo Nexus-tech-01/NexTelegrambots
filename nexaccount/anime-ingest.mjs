@@ -12,6 +12,7 @@ const LISTENERS=new Set(
 const DESTINATION=String(process.env.NEXANIME_DESTINATION||'theotaku_nexus').trim().replace(/^@/,'');
 const DISCOVERY_MS=Math.max(15*60*1000,Number(process.env.NEXANIME_DISCOVERY_MS||6*60*60*1000));
 const PUBLISH_MS=Math.max(5000,Number(process.env.NEXANIME_PUBLISH_MS||15000));
+const POLL_MS=Math.max(30000,Number(process.env.NEXANIME_POLL_MS||60000));
 const SOURCE_SAMPLE_LIMIT=Math.min(80,Math.max(12,Number(process.env.NEXANIME_SOURCE_SAMPLE_LIMIT||40)));
 const DIALOG_LIMIT=Math.min(250,Math.max(20,Number(process.env.NEXANIME_DIALOG_LIMIT||120)));
 const BACKFILL_LIMIT=Math.min(3000,Math.max(50,Number(process.env.NEXANIME_BACKFILL_LIMIT||900)));
@@ -25,7 +26,7 @@ let indexesReady=false;
 
 const BLOCK_RE=[
   /\b(?:porn|porno|pornographie|xxx|nsfw|nudes?|naked|onlyfans|sex(?:e|ual)?|hentai|18\+|🔞)\b/i,
-  /\b(?:1xbet|melbet|betwinner|betting|pari(?:s)? sportif|pronostic(?:s)?|casino|aviator|stake\.com|jackpot)\b/i,
+  /\b(?:1xbet|melbet|betwinner|betting|pari(?:s)? sportif|prono(?:s|stic|stics)?|pronostic(?:s)?|casino|aviator|stake\.com|jackpot)\b/i,
   /\b(?:forex|crypto(?:currency)?|bitcoin|binance|investment|investissement|trading signal|pump signal)\b/i,
   /\b(?:adult(?:e)?|rencontre(?:s)? chaude|escort|camgirl|sextape)\b/i
 ];
@@ -36,6 +37,7 @@ const PROMO_RE=[
 const NON_EPISODE_RE=/\b(?:trailer|teaser|opening|ending|ost|amv|clip|preview|pv\b|scan(?:s)?|manga|manhwa|manhua|news|actualit[ée]|annonce|announcement|birthday|cosplay|wallpaper)\b/i;
 const PRESENTATION_RE=/\b(?:synopsis|genre(?:s)?|studio|type\s*:|status|statut|episodes?\s*:|titre alternatif|alternative title|diffusion|aired|premiere)\b/i;
 const VIDEO_EXT_RE=/\.(?:mp4|mkv|avi|mov|webm|m4v|ts)$/i;
+const SOURCE_BLOCK_RE=/\b(?:hentai\w*|porn\w*|adult\w*|nsfw\w*|xxx\w*|prono\w*|bet(?:ting)?\w*|casino\w*|1xbet\w*|melbet\w*|stake\w*)\b/i;
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const norm=s=>String(s||'')
@@ -248,7 +250,11 @@ async function saveSource(accountId,entity,stats){
   };
   await d.collection('nexanime_sources').updateOne(
     {accountId:String(accountId),channelId},
-    {$set:doc,$setOnInsert:{createdAt:now}},
+    {
+      $set:doc,
+      $setOnInsert:{createdAt:now},
+      ...(Number(stats.latestMessageId||0)>0?{$max:{lastSeenMessageId:Number(stats.latestMessageId)}}:{})
+    },
     {upsert:true}
   );
   SOURCE_CACHE.set(key,{...doc,expires:Date.now()+15*60*1000});
@@ -263,6 +269,10 @@ async function cachedSource(accountId,entity){
   return row;
 }
 function sourceStats(messages,source={}){
+  const sourceIdentity=norm([source?.title,source?.username].filter(Boolean).join(' '));
+  if(SOURCE_BLOCK_RE.test(sourceIdentity)){
+    return {classification:'blocked',animeSignals:0,blockedSignals:Math.max(1,(messages||[]).length),sampleSize:Math.max(1,(messages||[]).length),confidence:0.99};
+  }
   let animeSignals=0,blockedSignals=0,presentations=0;
   for(const m of messages||[]){
     const c=classifyMessage(m,source);
@@ -301,7 +311,7 @@ async function enqueueCandidate(runtime,entity,message,c,{mode='live'}={}){
     quality:c.quality||'',mediaKind:c.mediaKind||'text',
     cleanedCaption:c.cleanedCaption||'',cleanedFilename:c.cleanedFilename||'',
     originalFilename:c.originalFilename||'',confidence:c.confidence||0,
-    destination:'@'+DESTINATION,priority,mode,updatedAt:now
+    destination:'@'+DESTINATION,mode
   };
   await d.collection('nexanime_queue').updateOne(
     {dedupeKey},
@@ -328,6 +338,7 @@ async function classifySource(runtime,entity){
   const accountId=String(runtime.account.telegramUserId);
   const sample=await runtime.client.getMessages(entity,{limit:SOURCE_SAMPLE_LIMIT});
   const stats=sourceStats(sample,{username:entity?.username||'',title:entity?.title||''});
+  stats.latestMessageId=Math.max(0,...(sample||[]).map(m=>Number(m?.id||0)));
   return saveSource(accountId,entity,stats);
 }
 async function activeTitles(runtime,entity){
@@ -400,6 +411,61 @@ async function discoverSources(runtime){
   return accepted;
   }finally{
     runtime.animeIngest.discovering=false;
+  }
+}
+
+
+async function pollAnimeSources(runtime){
+  if(!isListenerRuntime(runtime)||runtime.animeIngest?.polling)return 0;
+  runtime.animeIngest ??={};
+  runtime.animeIngest.polling=true;
+  let processed=0;
+  try{
+    await ensureIndexes();
+    if(!runtime.client?.connected){
+      try{await runtime.client.connect()}catch{return 0}
+    }
+    const d=await db();
+    const rows=await d.collection('nexanime_sources')
+      .find({accountId:String(runtime.account.telegramUserId),classification:{$in:['anime','mixed']}})
+      .sort({confidence:-1,updatedAt:-1})
+      .limit(80).toArray();
+    for(const row of rows){
+      let entity;
+      try{
+        entity=await runtime.client.getEntity(row.username||BigInt(row.channelId));
+      }catch{
+        try{entity=await runtime.client.getEntity(BigInt(row.channelId))}catch{continue}
+      }
+      const last=Number(row.lastSeenMessageId||0);
+      let fresh=[];
+      try{fresh=await runtime.client.getMessages(entity,{limit:50,minId:last})}catch{continue}
+      const list=(fresh||[]).filter(m=>Number(m?.id||0)>last).sort((a,b)=>Number(a.id)-Number(b.id));
+      let newest=last;
+      for(const message of list){
+        newest=Math.max(newest,Number(message?.id||0));
+        const c=classifyMessage(message,{username:entity?.username||'',title:entity?.title||''});
+        if(c.kind==='blocked'||c.kind==='ignore')continue;
+        if(c.confidence<0.70){
+          await quarantine(runtime,entity,message,c,'low_confidence_poll');
+          continue;
+        }
+        await enqueueCandidate(runtime,entity,message,c,{mode:'live'});
+        processed++;
+      }
+      if(newest>last){
+        await d.collection('nexanime_sources').updateOne(
+          {accountId:String(runtime.account.telegramUserId),channelId:String(row.channelId)},
+          {$max:{lastSeenMessageId:newest},$set:{lastPolledAt:new Date()}}
+        );
+      }
+      await sleep(80);
+    }
+    runtime.animeIngest.lastPollAt=new Date();
+    runtime.animeIngest.lastPollCount=processed;
+    return processed;
+  }finally{
+    runtime.animeIngest.polling=false;
   }
 }
 
@@ -617,12 +683,15 @@ export async function startAnimeIngest(runtime){
   runtime.animeIngest.discoveryTimer.unref?.();
   runtime.animeIngest.publishTimer=setInterval(()=>publishOne(runtime).catch(()=>{}),PUBLISH_MS);
   runtime.animeIngest.publishTimer.unref?.();
+  runtime.animeIngest.pollTimer=setInterval(()=>pollAnimeSources(runtime).catch(()=>{}),POLL_MS);
+  runtime.animeIngest.pollTimer.unref?.();
   return true;
 }
 export async function stopAnimeIngest(runtime){
   if(!runtime?.animeIngest)return;
   if(runtime.animeIngest.discoveryTimer)clearInterval(runtime.animeIngest.discoveryTimer);
   if(runtime.animeIngest.publishTimer)clearInterval(runtime.animeIngest.publishTimer);
+  if(runtime.animeIngest.pollTimer)clearInterval(runtime.animeIngest.pollTimer);
   runtime.animeIngest.enabled=false;
 }
 export function animeIngestStatus(runtime){
@@ -632,7 +701,8 @@ export function animeIngestStatus(runtime){
     mediaPolicy:a.mediaPolicy||MEDIA_POLICY,sources:a.sources||0,queued:a.queued||0,published:a.published||0,
     lastQueuedAt:a.lastQueuedAt||null,lastPublishedAt:a.lastPublishedAt||null,
     lastDiscoveryAt:a.lastDiscoveryAt||null,lastBackfillAt:a.lastBackfillAt||null,
-    lastBackfillCount:a.lastBackfillCount||0
+    lastBackfillCount:a.lastBackfillCount||0,lastPollAt:a.lastPollAt||null,
+    lastPollCount:a.lastPollCount||0,discovering:a.discovering===true,polling:a.polling===true
   };
 }
 
