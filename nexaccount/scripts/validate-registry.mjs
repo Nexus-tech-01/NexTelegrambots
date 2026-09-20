@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CORE_COMMANDS, REMOVED_COMMANDS, commandMap, commandStats } from '../commands.mjs';
 import { canUseDipperFallback } from '../dipper-fallback.mjs';
+import { canHandleAnimeCommand } from '../anime-engine.mjs';
 
 const HERE=path.dirname(fileURLToPath(import.meta.url));
 const ROOT=path.dirname(HERE);
@@ -26,6 +27,7 @@ const invalid=[];
 const unresolved=[];
 const policyErrors=[];
 const fallbackErrors=[];
+const animeErrors=[];
 
 for(const [token,cmd] of commands){
   if(!token||token.length>64||/[\s/@]/u.test(token))invalid.push(token);
@@ -33,6 +35,7 @@ for(const [token,cmd] of commands){
   if(cmd.adminOnly&&!cmd.groupOnly)policyErrors.push(token+': adminOnly without groupOnly');
   if(REMOVED_COMMANDS.has(token))policyErrors.push(token+': removed command leaked into registry');
   if(cmd.fallback==='dipper'&&!canUseDipperFallback(cmd.aliasFor||cmd.name))fallbackErrors.push(token+': unknown Dipper fallback');
+  if(cmd.engine==='anime'&&!canHandleAnimeCommand(cmd.aliasFor||cmd.name))animeErrors.push(token+': unknown Anime engine route');
 
   if(cmd.hidden&&cmd.aliasFor){
     if(!commands.has(String(cmd.aliasFor).toLowerCase()))policyErrors.push(token+': alias target missing');
@@ -40,7 +43,7 @@ for(const [token,cmd] of commands){
   }
 
   const route=String(cmd.handler||cmd.sourceCommand||cmd.name||token).toLowerCase();
-  if(cmd.proxy)continue;
+  if(cmd.proxy||cmd.engine==='anime')continue;
   if(textMentionsRoute(route))continue;
   unresolved.push(token+' -> '+route);
 }
@@ -60,11 +63,12 @@ for(const [alias,target] of Object.entries(REQUIRED_ALIAS_TARGETS)){
 }
 
 if(stats.visible<70)throw new Error('NexAi useful command surface unexpectedly low: '+stats.visible);
-if(stats.visible>180)throw new Error('NexAi visible command surface grew too large: '+stats.visible);
+if(stats.visible>260)throw new Error('NexAi visible command surface grew too large: '+stats.visible);
 if(stats.dipperSourceCanonical<150)throw new Error('Dipper source manifest unexpectedly low: '+stats.dipperSourceCanonical);
 if(invalid.length)throw new Error('Invalid command tokens: '+invalid.slice(0,30).join(', '));
 if(policyErrors.length)throw new Error('Invalid command policies: '+policyErrors.slice(0,40).join(', '));
 if(fallbackErrors.length)throw new Error('Invalid Dipper fallbacks: '+fallbackErrors.slice(0,40).join(', '));
+if(animeErrors.length)throw new Error('Invalid Anime routes: '+animeErrors.slice(0,40).join(', '));
 if(unresolved.length)throw new Error('Unrouted commands: '+unresolved.slice(0,60).join(', '));
 
 console.log(JSON.stringify({
