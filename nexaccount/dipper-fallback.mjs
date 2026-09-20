@@ -1,3 +1,9 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { execFile } from 'node:child_process';
+
 const UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 NexAi/1.0';
 const MAX_MEDIA_BYTES=100*1024*1024;
 
@@ -266,6 +272,36 @@ async function repliedOrCurrentMedia(client,peer,message){
   const rows=await client.getMessages(peer,{ids:[id]});
   return Array.isArray(rows)?rows[0]:rows;
 }
+function runFfmpeg(args,timeout=120000){
+  const bin=String(process.env.FFMPEG_PATH||'ffmpeg');
+  return new Promise((resolve,reject)=>{
+    execFile(bin,['-hide_banner','-loglevel','error','-y',...args],{timeout,maxBuffer:8*1024*1024},(err,stdout,stderr)=>{
+      if(err)return reject(new Error(String(stderr||err.message||err).trim().slice(0,900)));
+      resolve({stdout,stderr});
+    });
+  });
+}
+async function localToMp3(client,peer,message){
+  const source=await repliedOrCurrentMedia(client,peer,message);
+  if(!source?.media)throw new Error('Réponds à un audio ou une vidéo, ou donne un lien/titre après .tomp3.');
+  const buffer=Buffer.from(await client.downloadMedia(source));
+  if(!buffer.length)throw new Error('média vide');
+  if(buffer.length>MAX_MEDIA_BYTES)throw new Error('média trop volumineux');
+  const base='nexai-mp3-'+process.pid+'-'+Date.now()+'-'+crypto.randomBytes(4).toString('hex');
+  const input=path.join(os.tmpdir(),base+'.bin'),output=path.join(os.tmpdir(),base+'.mp3');
+  fs.writeFileSync(input,buffer);
+  try{
+    await runFfmpeg(['-i',input,'-vn','-c:a','libmp3lame','-b:a','192k',output]);
+    const out=fs.readFileSync(output);
+    if(!out.length)throw new Error('conversion MP3 vide');
+    await client.sendFile(peer,{file:out,fileName:'nexai-audio.mp3',caption:'NexAi · conversion MP3 locale'});
+  }finally{
+    try{fs.unlinkSync(input)}catch{}
+    try{fs.unlinkSync(output)}catch{}
+  }
+  return true;
+}
+
 async function identifyAudio(client,peer,message){
   const source=await repliedOrCurrentMedia(client,peer,message);
   if(!source?.media)throw new Error('réponds à un audio ou une vidéo');
@@ -300,13 +336,15 @@ async function apkSearch(raw){
   };
 }
 
-export const DIPPER_FALLBACK_COMMANDS=new Set([
-  'song','video','tiktok','instagram','facebook','pinterest','lyrics','shazam','apk'
+export const DOWNLOAD_ENGINE_COMMANDS=new Set([
+  'song','video','tiktok','instagram','facebook','pinterest','tomp3','lyrics','shazam','apk'
 ]);
+export const DIPPER_FALLBACK_COMMANDS=DOWNLOAD_ENGINE_COMMANDS;
 
-export function canUseDipperFallback(name){
-  return DIPPER_FALLBACK_COMMANDS.has(String(name||'').toLowerCase());
+export function canHandleDownloadCommand(name){
+  return DOWNLOAD_ENGINE_COMMANDS.has(String(name||'').toLowerCase());
 }
+export const canUseDipperFallback=canHandleDownloadCommand;
 
 export async function executeDipperFallback({client,peer,name,args=[],event}){
   const command=String(name||'').toLowerCase();
@@ -314,17 +352,17 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
 
   if(command==='song'){
     const r=await youtubeAudio(input);
-    await sendRemote(client,peer,r.url,{caption:'NexAi · Dipper fallback\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'audio')+'.mp3'});
+    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'audio')+'.mp3'});
     return true;
   }
   if(command==='video'){
     const r=await youtubeVideo(input);
-    await sendRemote(client,peer,r.url,{caption:'NexAi · Dipper fallback\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'video')+'.mp4'});
+    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'video')+'.mp4'});
     return true;
   }
   if(command==='tiktok'){
     const r=await tiktokMedia(input);
-    await sendRemote(client,peer,r.url,{caption:'NexAi · Dipper fallback\n'+(r.title||'TikTok')+'\nSource : '+r.source,fileName:'tiktok.mp4'});
+    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+(r.title||'TikTok')+'\nSource : '+r.source,fileName:'tiktok.mp4'});
     return true;
   }
   if(command==='instagram'){
@@ -332,26 +370,34 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
     const urls=(r.urls||[]).slice(0,10);
     if(!urls.length)throw new Error('aucun média Instagram');
     for(let i=0;i<urls.length;i++){
-      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Dipper fallback\nInstagram · '+r.source:'',fileName:'instagram-'+(i+1)});
+      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\nInstagram · '+r.source:'',fileName:'instagram-'+(i+1)});
     }
     return true;
   }
   if(command==='facebook'){
     const r=await facebookMedia(input);
-    await sendRemote(client,peer,r.url,{caption:'NexAi · Dipper fallback\nFacebook · '+r.source,fileName:'facebook.mp4'});
+    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\nFacebook · '+r.source,fileName:'facebook.mp4'});
     return true;
   }
   if(command==='pinterest'){
     const r=await pinterestMedia(input);
-    await sendRemote(client,peer,r.url,{caption:'NexAi · Dipper fallback\n'+r.title+(r.author?'\nAuteur : '+r.author:'')+'\nSource : '+r.source,fileName:'pinterest'});
+    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+(r.author?'\nAuteur : '+r.author:'')+'\nSource : '+r.source,fileName:'pinterest'});
     return true;
+  }
+  if(command==='tomp3'){
+    if(input){
+      const r=await youtubeAudio(input);
+      await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'audio')+'.mp3'});
+      return true;
+    }
+    return localToMp3(client,peer,event?.message);
   }
   if(command==='lyrics'){
     const r=await lyricsSearch(input);
     const body=String(r.lyrics||'');
     const clipped=body.length>3500?body.slice(0,3500)+'\n…':body;
     await client.sendMessage(peer,{message:[
-      'NexAi · Dipper fallback',
+      'NexAi · Download',
       r.artist?('Artiste : '+r.artist):'',
       'Titre : '+r.title,
       'Source : '+r.source,
@@ -364,7 +410,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
     const r=await identifyAudio(client,peer,event?.message);
     const links=[r.spotify?.external_urls?.spotify,r.apple_music?.url].filter(Boolean);
     await client.sendMessage(peer,{message:[
-      'NexAi · Dipper fallback',
+      'NexAi · Download',
       'Titre : '+(r.title||'?'),
       'Artiste : '+(r.artist||'?'),
       'Album : '+(r.album||'?'),
@@ -376,8 +422,10 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
   }
   if(command==='apk'){
     const r=await apkSearch(input);
-    await sendRemote(client,peer,r.url,{caption:'NexAi · Dipper fallback\n'+r.title+'\n'+r.pkg+' · '+r.version+'\nSource : F-Droid',fileName:safeName(r.pkg+'_'+r.version)+'.apk',maxBytes:MAX_MEDIA_BYTES});
+    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\n'+r.pkg+' · '+r.version+'\nSource : F-Droid',fileName:safeName(r.pkg+'_'+r.version)+'.apk',maxBytes:MAX_MEDIA_BYTES});
     return true;
   }
   return false;
 }
+
+export const handleDownloadCommand=executeDipperFallback;

@@ -4,6 +4,10 @@ import { cfg, isOwnerId } from './config.mjs';
 import { listAccounts, patchSettings, settingsFor } from './store.mjs';
 import { toSmallCaps } from './styles.mjs';
 import { AUDIO_LAB_COMMANDS, handleAudioLabCommand } from './audio-lab.mjs';
+import { canHandleDownloadCommand, handleDownloadCommand } from './dipper-fallback.mjs';
+import { canHandleStickerCommand, handleStickerCommand } from './sticker-engine.mjs';
+import { canHandleAiCommand, handleAiCommand } from './ai-engine.mjs';
+import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
 
 const DL_MAP={
   cobalt:'facebook',facebook:'facebook',
@@ -286,11 +290,11 @@ async function doModeration(client,peer,message,name,args){
   return '';
 }
 
-export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,proxyCommand,sendInline}){
+export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,sendInline}){
   const {client,account}=runtime;
   const peer=event.message.peerId;
   const requestedName=name;
-  if(cmd?.sourceBot==='nexgroup'&&cmd?.sourceCommand)name=cmd.sourceCommand;
+  if(cmd?.engine==='group'&&cmd?.sourceCommand)name=cmd.sourceCommand;
   name=GROUP_ALIAS[name]||name;
   const argText=args.join(' ').trim();
 
@@ -298,16 +302,19 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return handleAudioLabCommand({runtime,event,name,args,sendText});
   }
 
-  if(DL_MAP[name]){
-    return proxyCommand(client,peer,{name:DL_MAP[name],proxy:'@TheNexDownloader_bot'},args),true;
+  if(DL_MAP[name]&&canHandleDownloadCommand(DL_MAP[name])){
+    await handleDownloadCommand({client,peer,name:DL_MAP[name],args,event});
+    return true;
   }
-  if(STICKER_MAP[name]){
-    return proxyCommand(client,peer,{name:STICKER_MAP[name],proxy:'@The_Nexus_techbot'},args),true;
+  if(STICKER_MAP[name]&&canHandleStickerCommand(STICKER_MAP[name])){
+    await handleStickerCommand({runtime,event,name:STICKER_MAP[name],args});
+    return true;
   }
   if(['oracle','ai','code','deepseek'].includes(name)){
     if(!argText){await sendText(client,peer,'Écris ta demande après la commande.');return true}
-    const prefix=name==='code'?'Aide-moi avec ce code ou cette tâche de programmation : ':name==='deepseek'?'Raisonne soigneusement sur ceci : ':'';
-    await proxyCommand(client,peer,{name,proxy:'@Stacytg_bot',proxyMode:'chat'},[prefix+argText]);
+    const mode=name==='oracle'?'ai':name;
+    const prefix=mode==='code'?'Aide-moi avec ce code ou cette tâche de programmation : ':mode==='deepseek'?'Raisonne soigneusement sur ceci : ':'';
+    await handleAiCommand({runtime,event,name:canHandleAiCommand(mode)?mode:'ai',args:[prefix+argText]});
     return true;
   }
 
@@ -315,7 +322,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(name==='dashboard'||name==='settings'||name==='stats'||name==='premium'){
     const s=await settingsFor(account.telegramUserId);
     if(name==='premium'){
-      await sendText(client,peer,'NexAi Premium · 250 Stars/mois\nStatut : '+(account.premium?'Premium Telegram détecté':'Free')+'\nUn seul Premium pour les fonctions fusionnées NexDownloader, NexGroup, NexGame, NexStick et NexWhisper.');
+      await sendText(client,peer,'NexAi Premium · 250 Stars/mois\nStatut : '+(account.premium?'Premium Telegram détecté':'Free')+'\nUn seul Premium NexAi pour les fonctions avancées intégrées.');
       return true;
     }
     if(name==='dashboard'||name==='settings'){
@@ -471,7 +478,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     else if(name==='malediction')text='Malédiction légère : pendant 10 minutes, chaque typo compte double.';
     else if(name==='piege')text='Piège : qu’est-ce qui devient plus mouillé à mesure qu’il sèche ? Réponse : une serviette.';
     else if(name==='fakehack')text='[SIMULATION]\nConnexion… OK\nAnalyse… OK\nAccès fictif… 100%\nAucune action réelle n’a été effectuée.';
-    else text='Mode '+name+' : lance .game pour les jeux interactifs NexGame.';
+    else text='Mode '+name+' : utilise les commandes de jeux NexAi.';
     await sendText(client,peer,text);
     return true;
   }
@@ -673,13 +680,13 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     }catch(e){await sendText(client,peer,'Information indisponible : '+String(e.errorMessage||e.message||e))}
     return true;
   }
-  if(name==='groupstats'||(cmd?.sourceBot==='nexgroup'&&name==='stats')){
+  if(name==='groupstats'||(cmd?.engine==='group'&&name==='stats')){
     const ps=await participants(client,peer,10000);
     const admins=ps.filter(p=>p.participant?.adminRights||p.adminRights||p.participant?.constructor?.name?.includes('Admin')).length;
     await sendText(client,peer,'Membres : '+ps.length+'\nAdmins détectés : '+admins);return true;
   }
 
-  if(cmd?.sourceBot==='nexgroup'){
+  if(cmd?.engine==='group'){
     const chat=String(event.chatId||peer?.channelId||peer?.chatId||'global');
     const s=await settingsFor(account.telegramUserId);
     const {policy}=groupPolicy(s,chat);
@@ -734,7 +741,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       const ps=await participants(client,peer,500);let done=0;for(const p of ps){if(p.bot||p.participant?.adminRights||p.adminRights||String(p.id)===String(account.telegramUserId))continue;try{await doModeration(client,peer,event.message,'kick',[''+p.id]);done++}catch{}}
       await sendText(client,peer,done+' membre(s) retiré(s).');return true;
     }
-    if(name==='purge'){return handleCompatCommand({runtime,event,name:'clean',args,cmd:{},sendText,proxyCommand,sendInline})}
+    if(name==='purge'){return handleCompatCommand({runtime,event,name:'clean',args,cmd:{},sendText,sendInline})}
     if(name==='slowmode'){
       const seconds=Math.max(0,Math.min(21600,Number(args[0])||0));try{const input=await client.getInputEntity(peer);await client.invoke(new Api.channels.ToggleSlowMode({channel:input,seconds}));await sendText(client,peer,'Slow mode : '+seconds+' s')}catch(e){await sendText(client,peer,'Slow mode impossible : '+String(e.errorMessage||e.message||e))}return true;
     }
@@ -763,7 +770,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       await patchGroupPolicy(account.telegramUserId,chat,{[name]:argText||true});await sendText(client,peer,toSmallCaps(name)+' enregistré.');return true;
     }
     if(name==='leaderboard'||name==='rep'){
-      await sendText(client,peer,'Classement NexAi : utilise .game / .leaderboard côté NexGame pour le classement de jeu ; la réputation de groupe sera alimentée par l’activité observée.');return true;
+      await sendText(client,peer,'Classement NexAi : les jeux et la réputation sont gérés directement par NexAi.');return true;
     }
     if(name==='transferowner'){
       await sendText(client,peer,'Le transfert de propriété Telegram exige une confirmation 2FA sensible et n’est jamais exécuté automatiquement depuis une commande texte.');return true;
@@ -980,13 +987,13 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
 
   if(name==='adoration'){
     const query=argText||'christian worship';
-    try{await proxyCommand(client,peer,{name:'song',proxy:'@TheNexDownloader_bot'},[query])}
+    try{await handleDownloadCommand({client,peer,name:'song',args:[query],event})}
     catch(e){await sendText(client,peer,'Recherche musicale indisponible : '+String(e.message||e))}
     return true;
   }
 
   if(name==='arcanes'){
-    return handleCompatCommand({runtime,event,name:'inspecter',args,cmd:{},sendText,proxyCommand,sendInline});
+    return handleCompatCommand({runtime,event,name:'inspecter',args,cmd:{},sendText,sendInline});
   }
 
   if(name==='boutique'){
@@ -1029,17 +1036,14 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
 
   if(cmd?.dipper){
-    if(cmd.sourceCategory==='games_entertainment'){await proxyCommand(client,peer,{name:'game',proxy:'@TheNexGame_bot'},[name,...args]);return true}
-    if(cmd.sourceCategory==='download_tools'||cmd.sourceCategory==='social_media_download'){await proxyCommand(client,peer,{name:DL_MAP[name]||name,proxy:'@TheNexDownloader_bot'},args);return true}
-    if(cmd.sourceCategory==='ai_images'){await proxyCommand(client,peer,{name,proxy:'@Stacytg_bot',proxyMode:'chat'},[argText||name]);return true}
-    try{
-      await proxyCommand(client,peer,{
-        name:cmd.dipperCanonical||name,
-        proxy:'@the_big_dipper_bot'
-      },args,event);
-    }catch(e){
-      await sendText(client,peer,'Commande '+name+' reconnue, mais le moteur THE BIG DIPPER n’a pas répondu : '+String(e.message||e));
+    const downloadName=DL_MAP[name]||name;
+    if((cmd.sourceCategory==='download_tools'||cmd.sourceCategory==='social_media_download')&&canHandleDownloadCommand(downloadName)){
+      await handleDownloadCommand({client,peer,name:downloadName,args,event});return true;
     }
+    if(cmd.sourceCategory==='games_entertainment'&&canHandleGameCommand(name)){
+      await handleGameCommand({runtime,event,name,args});return true;
+    }
+    await sendText(client,peer,'Commande legacy '+name+' reconnue, mais aucune route locale NexAi n’est activée pour elle.');
     return true;
   }
 
