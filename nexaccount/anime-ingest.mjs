@@ -623,3 +623,52 @@ export const __test={
   parseEpisode,detectLanguage,detectQuality,stripNoiseTitle,cleanCaption,safeFilename,
   classifyMessage,sourceStats,titleSimilarity,releaseKey,presentationKey
 };
+
+
+export async function animeSystemStatus(){
+  await ensureIndexes();
+  const d=await db();
+  const [sourceRows,queueRows,published]=await Promise.all([
+    d.collection('nexanime_sources').aggregate([
+      {$group:{_id:'$classification',count:{$sum:1}}}
+    ]).toArray(),
+    d.collection('nexanime_queue').aggregate([
+      {$group:{_id:'$status',count:{$sum:1}}}
+    ]).toArray(),
+    d.collection('nexanime_publications').countDocuments()
+  ]);
+  const sources=Object.fromEntries(sourceRows.map(x=>[x._id||'unknown',x.count]));
+  const queue=Object.fromEntries(queueRows.map(x=>[x._id||'unknown',x.count]));
+  const recent=await d.collection('nexanime_queue')
+    .find({},{
+      projection:{
+        dedupeKey:1,status:1,kind:1,title:1,season:1,episode:1,language:1,quality:1,
+        destination:1,mode:1,priority:1,lastError:1,updatedAt:1,createdAt:1
+      }
+    })
+    .sort({updatedAt:-1}).limit(20).toArray();
+  return {
+    ok:true,enabled:ENABLED,destination:'@'+DESTINATION,
+    listeners:[...LISTENERS].map(x=>'@'+x),
+    mediaPolicy:MEDIA_POLICY,
+    sources,queue,published,recent
+  };
+}
+
+export async function animeRetryQueue({includeQuarantine=true,includeFailures=true}={}){
+  await ensureIndexes();
+  const d=await db();
+  const statuses=[];
+  if(includeQuarantine)statuses.push('quarantine');
+  if(includeFailures)statuses.push('publishing');
+  if(!statuses.length)return {ok:true,matched:0,modified:0};
+  const r=await d.collection('nexanime_queue').updateMany(
+    {status:{$in:statuses}},
+    {$set:{status:'queued',updatedAt:new Date()},$unset:{claimAt:'',claimBy:'',quarantineReason:''}}
+  );
+  return {ok:true,matched:r.matchedCount,modified:r.modifiedCount};
+}
+
+export async function animeDiscoverNow(runtime){
+  return discoverSources(runtime);
+}
