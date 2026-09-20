@@ -249,7 +249,7 @@ export const CORE_COMMANDS=[
   C('birthdayanime','ANIME',{engine:'anime',description:'Anniversaires de personnages du jour'}),
   C('birthdaychar','ANIME',{engine:'anime',description:'Anniversaires par date'}),
   C('animecountdown','ANIME',{engine:'anime',description:'Compte à rebours prochain épisode'}),
-  C('anitts','ANIME',{engine:'anime',description:'Texte vers voix anime synthétique'})
+  C('anitts','ANIME',{engine:'anime',description:'Texte vers voix anime synthétique'}),
 
   // PREMIUM Telegram features.
   C('customreact','PREMIUM',{premium:true,description:'Réactions personnalisées'}),
