@@ -79,7 +79,7 @@ function signalText(message){return [String(message?.message||''),filename(messa
 
 function parseEpisode(raw=''){
   const text=String(raw).replace(/_/g,' ');
-  let m=text.match(/\bS(?:eason|aison)?\s*0*(\d{1,2})\s*[-_. ]*E(?:P(?:ISODE)?)?\s*0*(\d{1,4})(?:\.(\d))?\b/i);
+  let m=text.match(/\bS(?:eason|aison)?\s*0*(\d{1,2})\s*[-_.•·:|/ ]*E(?:P(?:ISODE)?)?\s*[-_.•·:|/ ]*0*(\d{1,4})(?:\.(\d))?\b/i);
   if(m)return {season:Number(m[1]),episode:Number(m[2])+(m[3]?Number('0.'+m[3]):0),token:m[0]};
   m=text.match(/\b(?:Season|Saison)\s*0*(\d{1,2})\s*(?:Episode|Épisode|Ep)\s*0*(\d{1,4})(?:\.(\d))?\b/i);
   if(m)return {season:Number(m[1]),episode:Number(m[2])+(m[3]?Number('0.'+m[3]):0),token:m[0]};
