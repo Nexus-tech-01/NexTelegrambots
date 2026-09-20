@@ -20,7 +20,7 @@ After Telegram authentication, the MTProto session string is encrypted with AES-
 
 ## Runtime
 
-Saved accounts reconnect automatically after daemon restart. The current foundation includes command detection, Premium capability gating, configured auto-join, configured auto-react, AntiLink, and proxy adapters for NexDownloader/NexStick/NexGame. Telegram-native adapters continue to live in `runtime.mjs`.
+Saved accounts reconnect automatically after daemon restart. NexAi × Dipper now executes its command engines locally: AI, downloads, group/admin tools, stickers, games, anime and audio processing do not depend on sibling Telegram bots. Telegram-native adapters live inside `nexaccount`.
 
 The account session is not disguised as an official Telegram client: it is a normal third-party MTProto client and remains subject to Telegram permissions, flood limits and feature restrictions.
 
