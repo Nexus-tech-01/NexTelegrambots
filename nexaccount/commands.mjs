@@ -148,7 +148,7 @@ export const CORE_COMMANDS=[
   C('crop','MEDIA',{description:'Recadrer une image'}),
   C('resize','MEDIA',{description:'Redimensionner une image'}),
   C('analyzesound','MEDIA',{description:'Analyser un audio/une vidéo'}),
-  C('vv','MEDIA',{...P,description:'Renvoyer un média normal en vue unique Telegram'}),
+  C('vv','MEDIA',{description:'Récupérer un de mes médias éphémères/vue unique Telegram'}),
 
   // STICKERS — kept as a compact WhatsApp-style surface.
   C('sticker','STICKERS',{description:'Créer un sticker',proxy:'@The_Nexus_techbot'}),
