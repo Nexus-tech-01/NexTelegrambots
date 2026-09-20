@@ -5,7 +5,7 @@ ENV NODE_ENV=production \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates ffmpeg python3 python3-pip xz-utils \
+ && apt-get install -y --no-install-recommends ca-certificates ffmpeg gzip python3 python3-pip xz-utils \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -31,10 +31,15 @@ RUN set -eux; \
     for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do test -d "/app/bots/$bot"; done; \
     rm -f /tmp/render-src.b64.part-* /tmp/nexus-bots.tar.xz
 
-# NexCanal public-channel watcher runs beside the bundled bot processes.
+# NexCanal public-channel watchers run beside the bundled bot processes.
 COPY watchers /app/watchers
 
-# Secrets are supplied only through Render environment variables.
+# Rehydrate and validate the intelligent anime pipeline at build time.
+RUN set -eux; \
+    base64 -d /app/watchers/anime-pipeline.mjs.gz.b64 | gzip -dc > /app/watchers/anime-pipeline.mjs; \
+    node --check /app/watchers/anime-pipeline.mjs
+
+# Secrets are supplied only through environment variables.
 # Never COPY a repository .env file into the image.
 RUN python3 -m pip install --break-system-packages --no-cache-dir -r bots/nexdownloader/requirements.txt
 RUN node scripts/install-all.mjs && node scripts/build-all.mjs
@@ -42,4 +47,4 @@ RUN cd /app/watchers && npm install --omit=dev --no-audit --no-fund
 
 EXPOSE 10000
 
-CMD ["sh", "-c", "if [ -z \"${NEXUS_PUBLIC_BASE_URL:-}\" ] && [ -n \"${RENDER_EXTERNAL_HOSTNAME:-}\" ]; then export NEXUS_PUBLIC_BASE_URL=\"https://${RENDER_EXTERNAL_HOSTNAME}\"; fi; if [ -n \"${NEXCANAL__WATCHER_SESSION:-}\" ]; then node watchers/liteapks-relay.mjs & fi; node scripts/preflight.mjs && exec node scripts/orchestrator.mjs"]
+CMD ["sh", "-c", "if [ -z \"${NEXUS_PUBLIC_BASE_URL:-}\" ] && [ -n \"${RENDER_EXTERNAL_HOSTNAME:-}\" ]; then export NEXUS_PUBLIC_BASE_URL=\"https://${RENDER_EXTERNAL_HOSTNAME}\"; fi; if [ -n \"${NEXCANAL__WATCHER_SESSION:-}\" ]; then node watchers/liteapks-relay.mjs & fi; if [ \"${NEXANIME__ENABLED:-true}\" != \"false\" ]; then node watchers/anime-pipeline.mjs & fi; node scripts/preflight.mjs && exec node scripts/orchestrator.mjs"]
