@@ -2,11 +2,12 @@ import { decryptPairingEnvelope, pairingPublicKey } from './secure-rpc.mjs';
 
 const port=Number(process.env.NEXACCOUNT_PORT||3491);
 const base='http://127.0.0.1:'+port;
+const controlKey=String(process.env.NEXACCOUNT_CONTROL_KEY||process.env.NEXCONTROL_FLEET_KEY||process.env.NEXACCOUNT_SESSION_KEY||process.env.NEXCONTROL_SESSION_SECRET||process.env.SESSION_SECRET||'').trim();
 
 async function call(method,path,payload){
   const r=await fetch(base+path,{
     method,
-    headers:payload?{'content-type':'application/json'}:undefined,
+    headers:{...(payload?{'content-type':'application/json'}:{}),...(controlKey?{'x-nexaccount-key':controlKey}:{})},
     body:payload?JSON.stringify(payload):undefined,
     signal:AbortSignal.timeout(30000)
   });
