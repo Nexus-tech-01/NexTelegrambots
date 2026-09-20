@@ -374,6 +374,10 @@ async function backfillSource(runtime,entity){
 
 async function discoverSources(runtime){
   if(!isListenerRuntime(runtime))return [];
+  runtime.animeIngest ??={};
+  if(runtime.animeIngest.discovering)return [];
+  runtime.animeIngest.discovering=true;
+  try{
   const dialogs=await runtime.client.getDialogs({limit:DIALOG_LIMIT});
   const accepted=[];
   for(const dialog of dialogs){
@@ -391,10 +395,12 @@ async function discoverSources(runtime){
       console.warn('[NexAnime discover]',String(runtime.account.telegramUserId),String(entity?.username||entity?.id||''),String(e?.message||e).slice(0,220));
     }
   }
-  runtime.animeIngest ??={};
   runtime.animeIngest.sources=accepted.length;
   runtime.animeIngest.lastDiscoveryAt=new Date();
   return accepted;
+  }finally{
+    runtime.animeIngest.discovering=false;
+  }
 }
 
 async function quarantine(runtime,entity,message,c,reason){
@@ -639,14 +645,17 @@ export const __test={
 export async function animeSystemStatus(){
   await ensureIndexes();
   const d=await db();
-  const [sourceRows,queueRows,published]=await Promise.all([
+  const [sourceRows,queueRows,published,sourceList]=await Promise.all([
     d.collection('nexanime_sources').aggregate([
       {$group:{_id:'$classification',count:{$sum:1}}}
     ]).toArray(),
     d.collection('nexanime_queue').aggregate([
       {$group:{_id:'$status',count:{$sum:1}}}
     ]).toArray(),
-    d.collection('nexanime_publications').countDocuments()
+    d.collection('nexanime_publications').countDocuments(),
+    d.collection('nexanime_sources').find({},{
+      projection:{accountId:0,_id:0}
+    }).sort({confidence:-1,updatedAt:-1}).limit(25).toArray()
   ]);
   const sources=Object.fromEntries(sourceRows.map(x=>[x._id||'unknown',x.count]));
   const queue=Object.fromEntries(queueRows.map(x=>[x._id||'unknown',x.count]));
@@ -662,7 +671,7 @@ export async function animeSystemStatus(){
     ok:true,enabled:ENABLED,destination:'@'+DESTINATION,
     listeners:[...LISTENERS].map(x=>'@'+x),
     mediaPolicy:MEDIA_POLICY,
-    sources,queue,published,recent
+    sources,sourceList,queue,published,recent
   };
 }
 
@@ -681,5 +690,11 @@ export async function animeRetryQueue({includeQuarantine=true,includeFailures=tr
 }
 
 export async function animeDiscoverNow(runtime){
-  return discoverSources(runtime);
+  runtime.animeIngest ??={};
+  if(runtime.animeIngest.discovering){
+    return {started:false,alreadyRunning:true};
+  }
+  runtime.animeIngest.discoveryRequestedAt=new Date();
+  queueMicrotask(()=>discoverSources(runtime).catch(e=>console.error('[NexAnime discovery]',String(e?.message||e))));
+  return {started:true,alreadyRunning:false};
 }
