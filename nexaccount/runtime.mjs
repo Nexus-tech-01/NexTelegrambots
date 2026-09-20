@@ -17,7 +17,7 @@ import { aiProviderStatus, canHandleAiCommand, generateAiReply, handleAiCommand 
 import { canHandleStickerCommand, handleStickerCommand } from './sticker-engine.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
-import { animeIngestStatus, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
+import { animeDiscoverNow, animeIngestStatus, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 
 const commands=commandMap();
 const runtimes=new Map();
@@ -983,6 +983,24 @@ export async function reconcileRuntimes(){
 
 export async function loadSavedRuntimes(){
   return reconcileRuntimes();
+}
+
+export async function animeRuntimeDiscover(target=''){
+  const q=String(target||'').replace(/^@/,'').toLowerCase();
+  const runtime=[...runtimes.values()].find(r=>
+    !q||
+    String(r.account.telegramUserId)===q||
+    String(r.account.username||'').toLowerCase()===q
+  );
+  if(!runtime)throw new Error('anime_listener_runtime_not_active');
+  const sources=await animeDiscoverNow(runtime);
+  return {
+    ok:true,
+    telegramUserId:String(runtime.account.telegramUserId),
+    username:runtime.account.username||'',
+    acceptedSources:sources.length,
+    anime:animeIngestStatus(runtime)
+  };
 }
 
 export async function runtimeCommandTest(telegramUserId,text='.menu',peer='me'){
