@@ -821,6 +821,28 @@ async function publishEpisode(runtime,item,resolved,destination){
   }
   const message=resolved.message;
   if(!message?.media)throw new Error('source_media_missing');
+
+  // Fast path: reuse Telegram's existing media reference. This avoids downloading
+  // full anime episodes to the server and prevents disk-quota crashes.
+  try{
+    return await runtime.client.sendFile(destination,{
+      file:message.media,
+      caption:quotedCaption(item),
+      parseMode:'html',
+      forceDocument:item.mediaKind==='document',
+      supportsStreaming:item.mediaKind==='video'
+    });
+  }catch(directError){
+    const size=Number(message?.document?.size||0);
+    // Only fall back to a local re-upload for small files. Large files must never
+    // fill the server disk; they are retried/quarantined instead.
+    if(size>25*1024*1024){
+      const err=new Error('telegram_direct_copy_failed: '+String(directError?.message||directError));
+      err.code='DIRECT_COPY';
+      throw err;
+    }
+  }
+
   await fs.mkdir(TMP_ROOT,{recursive:true});
   const finalName=item.cleanedFilename||safeFilename(item.title,item.season,item.episode,item.language,item.quality,filename(message));
   const ext=path.extname(finalName)||'.bin';
@@ -829,11 +851,20 @@ async function publishEpisode(runtime,item,resolved,destination){
   try{
     const out=await runtime.client.downloadMedia(message.media,{outputFile:tmp,workers:1});
     const file=typeof out==='string'?out:tmp;
-    const opts={file,caption:quotedCaption(item),parseMode:'html',fileName:finalName,workers:1};
+    const opts={
+      file,
+      caption:quotedCaption(item),
+      parseMode:'html',
+      fileName:finalName,
+      workers:1,
+      supportsStreaming:item.mediaKind==='video'
+    };
     if(thumb)opts.thumb=thumb;
     if(item.mediaKind==='document')opts.forceDocument=true;
     return await runtime.client.sendFile(destination,opts);
-  }finally{await fs.rm(tmp,{force:true}).catch(()=>{})}
+  }finally{
+    await fs.rm(tmp,{force:true}).catch(()=>{});
+  }
 }
 async function markPublication(item,sent,runtime){
   const d=await db(),now=new Date();
