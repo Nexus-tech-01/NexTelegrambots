@@ -15,7 +15,7 @@ export const config = {
   mongoUri: clean(process.env.NEXUS_MONGODB_URI || process.env.MONGODB_URI),
   dbName: clean(process.env.NEXMETA_DB_NAME || 'nexmeta'),
 
-  graphVersion: clean(process.env.NEXMETA_GRAPH_VERSION),
+  graphVersion: clean(process.env.NEXMETA_GRAPH_VERSION || 'v26.0'),
   appId: clean(process.env.NEXMETA_APP_ID),
   appSecret: clean(process.env.NEXMETA_APP_SECRET),
   verifyToken: clean(process.env.NEXMETA_VERIFY_TOKEN),
