@@ -245,7 +245,9 @@ async function metaPage(req,res,url){
     nexMetaStatus(),
     nexMetaAction('metrics'),
     nexMetaAction('list_connected_pages'),
-    nexMetaAction('deployment_readiness')
+    nexMetaAction('deployment_readiness'),
+    nexMetaAction('connection_readiness'),
+    nexMetaAction('get_connected_account')
   ]);
 
   const value=index=>
@@ -267,6 +269,7 @@ async function metaPage(req,res,url){
   const pagesResponse=value(2);
   const readinessResponse=value(3);
   const connectionResponse=value(4);
+  const accountResponse=value(5);
 
   const html=renderMetaPage({
     status:statusResponse||{},
@@ -276,12 +279,14 @@ async function metaPage(req,res,url){
       : [],
     readiness:readinessResponse?.result||{},
     connection:connectionResponse?.result||{},
+    account:accountResponse?.result||null,
     loadErrors:[
       ['status',error(0)],
       ['metrics',error(1)],
       ['pages',error(2)],
       ['readiness',error(3)],
-      ['connection',error(4)]
+      ['connection',error(4)],
+      ['account',error(5)]
     ].filter(([,message])=>message)
   });
 
