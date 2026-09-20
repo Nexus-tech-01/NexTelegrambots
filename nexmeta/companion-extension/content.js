@@ -1,4 +1,7 @@
 (() => {
+  if (window.__NEXMETA_COMPANION_CONTENT__) return;
+  window.__NEXMETA_COMPANION_CONTENT__ = true;
+
   const POLL_MS = 2500;
   const MAX_READ_ITEMS = 120;
   let polling = false;
@@ -25,6 +28,7 @@
         'facebook.com',
         'www.facebook.com',
         'web.facebook.com',
+        'm.facebook.com',
         'messenger.com',
         'www.messenger.com'
       ].includes(url.hostname.toLowerCase());
@@ -482,6 +486,36 @@
       polling = false;
     }
   }
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (String(message?.type || '') !== 'NEXMETA_WAKE') return false;
+
+    Promise.resolve()
+      .then(() => resumePendingCommand())
+      .then(() => tick())
+      .then(() => sendResponse({
+        ok: true,
+        context: pageContext()
+      }))
+      .catch(error => {
+        sendResponse({
+          ok: false,
+          error: String(error?.message || error)
+        });
+      });
+
+    return true;
+  });
+
+  window.addEventListener('pageshow', () => {
+    tick().catch(() => {});
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      tick().catch(() => {});
+    }
+  });
 
   resumePendingCommand().catch(() => {});
   tick().catch(() => {});
