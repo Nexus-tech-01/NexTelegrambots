@@ -453,6 +453,15 @@ export async function handleAnimeCommand({runtime,event,name,args=[]}){
     await say('Watching\n'+listBucket(lib,'watching')+'\n\nCompleted\n'+listBucket(lib,'completed')+'\n\nPlanned\n'+listBucket(lib,'planned')+'\n\nDropped\n'+listBucket(lib,'dropped'));return true;
   }
   if(name==='mangalist'){
+    if(raw){
+      const m=await mediaSearch(raw,'MANGA');
+      const lib=await patchLibrary(account.telegramUserId,lib=>{
+        lib.manga=[...(lib.manga||[]).filter(x=>x.id!==m.id),{id:m.id,title:titleOf(m),siteUrl:m.siteUrl}];
+        return lib;
+      });
+      await say(titleOf(m)+' ajouté à la manga list.\nTotal : '+(lib.manga?.length||0));
+      return true;
+    }
     const s=await settingsFor(account.telegramUserId),lib=s.animeLibrary||{};await say('Manga list\n'+listBucket(lib,'manga'));return true;
   }
   if(['watching','completed','planned','dropped'].includes(name)){
