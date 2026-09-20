@@ -13,20 +13,47 @@ for(const [token,cmd] of commands){
   if(!token||token!==token.toLowerCase())errors.push('invalid-token:'+token);
   if(!cmd.category)errors.push('missing-category:'+token);
   if(cmd.aliasFor&&!commands.has(cmd.aliasFor))errors.push('broken-alias:'+token+'->'+cmd.aliasFor);
-  if(cmd.proxy&&!/^@[A-Za-z0-9_]{5,}$/.test(cmd.proxy))errors.push('bad-proxy:'+token+':'+cmd.proxy);
+  if(cmd.proxy)errors.push('standalone-proxy-present:'+token+':'+cmd.proxy);
+  if(cmd.sourceBot)errors.push('sibling-source-present:'+token+':'+cmd.sourceBot);
 }
 if(DIPPER_COMMANDS.length!==178)errors.push('dipper-count:'+DIPPER_COMMANDS.length);
 const sourceCount=Object.values(SOURCE_COMMANDS).reduce((n,v)=>n+(Array.isArray(v)?v.length:0),0);
 if(sourceCount<150)errors.push('source-count:'+sourceCount);
 
-const expectedProxies=['@TheNexDownloader_bot','@TheNexGame_bot','@The_Nexus_techbot','@Nexwhisper_bot','@Stacytg_bot'];
-for(const p of expectedProxies)if(![...commands.values()].some(c=>c.proxy===p))errors.push('proxy-missing:'+p);
+const requiredGroup=['tag','tagall','hidetag','mediatag','tagadmin','promote','demote','kick','ban','unban','mute','unmute','warn','warnings','slowmode','config','permissions'];
+for(const name of requiredGroup){
+  const cmd=commands.get(name);
+  if(!cmd)errors.push('group-command-missing:'+name);
+  else{
+    if(cmd.category!=='GROUP')errors.push('group-category:'+name+':'+cmd.category);
+    if(cmd.engine!=='group')errors.push('group-engine:'+name+':'+String(cmd.engine||''));
+    if(cmd.groupOnly!==true)errors.push('group-only-missing:'+name);
+  }
+}
+for(const name of ['tagall','hidetag','mediatag','promote','demote','kick','ban','unban','mute','unmute','warn','warnings','slowmode','config','permissions']){
+  if(commands.get(name)?.adminOnly!==true)errors.push('admin-flag-missing:'+name);
+}
+if(groups.ADMIN?.length)errors.push('legacy-admin-category:'+groups.ADMIN.length);
+
+const mode=commands.get('mode');
+if(!mode||mode.category!=='ACCOUNT'||mode.selfOnly!==true)errors.push('access-mode-command-invalid');
 
 const runtime=fs.readFileSync(path.join(HERE,'..','runtime.mjs'),'utf8');
 const compat=fs.readFileSync(path.join(HERE,'..','compat.mjs'),'utf8');
 if(runtime.includes('adaptateur Telegram n’est pas encore chargé'))errors.push('legacy-placeholder-runtime');
 if(!runtime.includes('handleCompatCommand'))errors.push('compat-router-not-loaded');
-if(!compat.includes("cmd?.sourceBot==='nexgroup'"))errors.push('nexgroup-compat-missing');
+if(!runtime.includes("settings.accessMode==='public'"))errors.push('public-mode-runtime-missing');
+if(!runtime.includes('userIsGroupAdmin'))errors.push('public-admin-guard-missing');
+if(!runtime.includes('messageAuthorIsBot'))errors.push('public-bot-guard-missing');
+if(!compat.includes("if(name==='tag')"))errors.push('tag-handler-missing');
+if(!compat.includes("name==='tagall'||name==='hidetag'||name==='mediatag'||name==='tagadmin'"))errors.push('mass-tag-handler-missing');
+if(!compat.includes('sendHiddenMentions'))errors.push('hidetag-handler-missing');
+if(!compat.includes("name==='mode'||name==='accessmode'||name==='botmode'"))errors.push('access-mode-handler-missing');
+
+const forbiddenSiblingRefs=['@TheNexDownloader_bot','@TheNexGame_bot','@The_Nexus_techbot','@Nexwhisper_bot','@Stacytg_bot'];
+for(const ref of forbiddenSiblingRefs){
+  if(runtime.includes(ref))errors.push('runtime-sibling-ref:'+ref);
+}
 
 const perPage=16;
 let maxEstimatedCaption=0;
@@ -41,9 +68,12 @@ for(const [category,list] of Object.entries(groups)){
 
 const report={
   ok:errors.length===0,
+  standalone:true,
   stats,
   sourceCanonicalTokens:sourceCount,
   categories:Object.fromEntries(Object.entries(groups).map(([k,v])=>[k,v.length])),
+  groupAdminUnified:!groups.ADMIN?.length,
+  publicPrivateMode:Boolean(mode),
   maxEstimatedCaption,
   errors
 };
