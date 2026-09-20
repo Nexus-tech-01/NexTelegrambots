@@ -590,13 +590,61 @@ async function runAutoJoin(runtime){
   }
 }
 
+function markRuntimeUpdate(runtime){
+  runtime.lastUpdateAt=new Date();
+  runtime.updateCount=(runtime.updateCount||0)+1;
+}
+
+async function syncRuntimeUpdates(runtime){
+  if(runtime.syncing)return;
+  runtime.syncing=true;
+  const {client,account}=runtime;
+  try{
+    if(!client.connected){
+      console.warn('[NexAccount updates]',String(account.telegramUserId),'disconnected; reconnecting');
+      await client.connect();
+    }
+    await client.catchUp();
+    runtime.lastCatchUpAt=new Date();
+    runtime.catchUpFailures=0;
+  }catch(error){
+    runtime.catchUpFailures=(runtime.catchUpFailures||0)+1;
+    console.error('[NexAccount updates]',String(account.telegramUserId),'catchup_failed',runtime.catchUpFailures,String(error?.errorMessage||error?.message||error).slice(0,500));
+    if(runtime.catchUpFailures>=3){
+      try{
+        await client.disconnect();
+        await sleep(750);
+        await client.connect();
+        await client.catchUp();
+        runtime.lastCatchUpAt=new Date();
+        runtime.catchUpFailures=0;
+        console.log('[NexAccount updates]',String(account.telegramUserId),'stream_recovered');
+      }catch(reconnectError){
+        console.error('[NexAccount updates]',String(account.telegramUserId),'reconnect_failed',String(reconnectError?.errorMessage||reconnectError?.message||reconnectError).slice(0,500));
+      }
+    }
+  }finally{
+    runtime.syncing=false;
+  }
+}
+
 export async function attachConnectedClient(client,account){
   const id=String(account.telegramUserId);
   if(runtimes.has(id)){try{await runtimes.get(id).client.disconnect()}catch{}}
-  const runtime={client,account,startedAt:new Date()};
+  const runtime={
+    client,
+    account,
+    startedAt:new Date(),
+    lastUpdateAt:null,
+    lastCatchUpAt:null,
+    updateCount:0,
+    catchUpFailures:0,
+    syncing:false
+  };
   runtimes.set(id,runtime);
 
   client.addEventHandler(async event=>{
+    markRuntimeUpdate(runtime);
     try{
       const settings=await settingsFor(id);
       const raw=textOf(event.message);
@@ -612,6 +660,7 @@ export async function attachConnectedClient(client,account){
   },new NewMessage({outgoing:true}));
 
   client.addEventHandler(async event=>{
+    markRuntimeUpdate(runtime);
     try{
       await maybeAutoModerate(runtime,event);
       await maybeServiceGreeting(runtime,event);
@@ -623,6 +672,14 @@ export async function attachConnectedClient(client,account){
   runAutoJoin(runtime).catch(()=>{});
   runtime.autoJoinTimer=setInterval(()=>runAutoJoin(runtime).catch(()=>{}),30*60*1000);
   runtime.autoJoinTimer.unref?.();
+
+  // Telegram can leave a session transport connected while the update stream
+  // has silently stopped advancing. catchUp() asks Telegram for the missing
+  // difference and dispatches those updates through the normal event handlers.
+  await syncRuntimeUpdates(runtime);
+  runtime.updateSyncTimer=setInterval(()=>syncRuntimeUpdates(runtime),8000);
+  runtime.updateSyncTimer.unref?.();
+
   console.log('[NexAccount] account '+id+' attached'+(account.premium?' · Premium':''));
   return runtime;
 }
@@ -632,6 +689,7 @@ export async function detachRuntime(telegramUserId){
   const runtime=runtimes.get(id);
   if(runtime){
     if(runtime.autoJoinTimer)clearInterval(runtime.autoJoinTimer);
+    if(runtime.updateSyncTimer)clearInterval(runtime.updateSyncTimer);
     try{await runtime.client.disconnect()}catch{}
     runtimes.delete(id);
   }
@@ -695,13 +753,19 @@ export function runtimeStatus(){
     username:r.account.username,
     firstName:r.account.firstName,
     premium:r.account.premium,
-    startedAt:r.startedAt
+    startedAt:r.startedAt,
+    connected:r.client.connected===true,
+    lastUpdateAt:r.lastUpdateAt,
+    lastCatchUpAt:r.lastCatchUpAt,
+    updateCount:r.updateCount||0,
+    catchUpFailures:r.catchUpFailures||0
   }));
 }
 
 export async function stopRuntimes(){
   for(const r of runtimes.values()){
     if(r.autoJoinTimer)clearInterval(r.autoJoinTimer);
+    if(r.updateSyncTimer)clearInterval(r.updateSyncTimer);
     try{await r.client.disconnect()}catch{}
   }
   runtimes.clear();
