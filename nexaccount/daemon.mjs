@@ -1,7 +1,8 @@
+import crypto from 'node:crypto';
 import http from 'node:http';
 import { cfg, assertCoreConfig } from './config.mjs';
 import { beginPairing, cancelPairing, cleanupPairings, pairingStatus, submitPairingCode, submitPairingPassword } from './pairing.mjs';
-import { attachConnectedClient, engineStatus, loadSavedRuntimes, runtimeCommandTest, runtimeStatus, stopRuntimes } from './runtime.mjs';
+import { attachConnectedClient, engineStatus, loadSavedRuntimes, reconcileRuntimes, runtimeCommandTest, runtimeStatus, stopRuntimes } from './runtime.mjs';
 import { listAccounts, patchSettings, closeStore } from './store.mjs';
 import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
 import { loadBotToken } from './secrets.mjs';
@@ -16,6 +17,12 @@ function json(res,status,data){
   res.end(body);
 }
 
+function authorized(req){
+  const expected=Buffer.from(String(cfg.controlKey||''));
+  const actual=Buffer.from(String(req.headers['x-nexaccount-key']||''));
+  return expected.length>0&&actual.length===expected.length&&crypto.timingSafeEqual(actual,expected);
+}
+
 async function body(req){
   const chunks=[];
   for await(const c of req)chunks.push(c);
@@ -27,8 +34,17 @@ async function route(req,res){
   const url=new URL(req.url,'http://127.0.0.1');
   try{
     if(req.method==='GET'&&url.pathname==='/health'){
-      return json(res,200,{ok:true,service:'nexaccount',botConfigured:!!(await loadBotToken()),botUsername:cfg.botUsername||null,runtimes:runtimeStatus()});
+      const runtimes=runtimeStatus();
+      return json(res,200,{
+        ok:true,
+        service:'nexaccount',
+        botConfigured:!!(await loadBotToken()),
+        botUsername:cfg.botUsername||null,
+        worker:{id:cfg.workerId,index:cfg.workerIndex,count:cfg.workerCount,capacity:cfg.maxRuntimesPerWorker},
+        runtimeCount:runtimes.length
+      });
     }
+    if(!authorized(req))return json(res,401,{ok:false,error:'unauthorized'});
     if(req.method==='GET'&&url.pathname==='/accounts'){
       return json(res,200,{ok:true,accounts:await listAccounts(),runtimes:runtimeStatus()});
     }
@@ -41,7 +57,6 @@ async function route(req,res){
     if(req.method==='POST'&&url.pathname==='/pair/start'){
       const q=await body(req);
       const state=await beginPairing(q.phone,async(client,account)=>{
-        await attachConnectedClient(client,account);
         if(!(await loadBotToken())){
           try{
             const made=await ensureNexAiBot(client,account);
@@ -53,6 +68,7 @@ async function route(req,res){
             console.error('[NexAccount BotFactory]',String(e?.message||e));
           }
         }
+        await attachConnectedClient(client,account);
       });
       return json(res,200,{ok:true,...state});
     }
@@ -99,8 +115,11 @@ server.listen(cfg.port,cfg.host,async()=>{
   console.log('[NexAccount] local control http://'+cfg.host+':'+cfg.port);
   await startInlineBot().catch(e=>console.error('[NexAI bot]',e));
   const loaded=await loadSavedRuntimes().catch(e=>{console.error('[NexAccount restore]',e);return[]});
-  console.log('[NexAccount] restored '+loaded.length+' account(s)');
+  console.log('[NexAccount] worker '+cfg.workerIndex+'/'+cfg.workerCount+' restored '+loaded.length+' account(s), capacity '+cfg.maxRuntimesPerWorker);
 });
+
+const reconcile=setInterval(()=>reconcileRuntimes().catch(e=>console.error('[NexAccount reconcile]',e)),cfg.reconcileMs);
+reconcile.unref();
 
 const cleanup=setInterval(cleanupPairings,60000);
 cleanup.unref();
@@ -111,6 +130,7 @@ analyticsRefresh.unref();
 
 async function shutdown(){
   clearInterval(cleanup);
+  clearInterval(reconcile);
   clearInterval(analyticsRefresh);
   try{server.close()}catch{}
   await stopInlineBot();
