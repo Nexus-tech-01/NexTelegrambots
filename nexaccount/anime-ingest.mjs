@@ -559,6 +559,14 @@ async function enqueueCandidate(runtime,entity,message,c,{mode='live'}={}){
     },
     {upsert:true}
   );
+  await d.collection('nexanime_queue').updateOne(
+    {dedupeKey,status:'superseded'},
+    {
+      $set:{...payload,status:'queued',updatedAt:now},
+      $unset:{supersededAt:'',claimAt:'',claimBy:'',lastError:'',quarantineReason:''},
+      $addToSet:{sources:source}
+    }
+  );
   runtime.animeIngest ??={};
   runtime.animeIngest.queued=(runtime.animeIngest.queued||0)+1;
   runtime.animeIngest.lastQueuedAt=now;
@@ -972,7 +980,7 @@ async function markPublication(item,sent,runtime){
       publishedAt:now,publisherAccountId:String(runtime.account.telegramUserId),
       publisherUsername:String(runtime.account.username||''),
       telegramMessageId:Number(sent?.id||sent?.messageId||0)
-    }},
+    },$unset:{purgedAt:'',purgedBy:'',purgeError:''}},
     {upsert:true}
   );
   await d.collection('nexanime_queue').updateOne(
@@ -1084,26 +1092,57 @@ async function claimNext(runtime){
   const seriesKey=await chooseActiveSeries(d);
   if(!seriesKey)return null;
 
-  // A series presentation is always sent before any of its episodes.
-  const presentation=await d.collection('nexanime_queue').findOne(
-    {seriesKey,status:'queued',kind:'presentation'},
+  // 1) One general anime presentation first.
+  const generalPresentation=await d.collection('nexanime_queue').findOne(
+    {
+      seriesKey,status:'queued',kind:'presentation',
+      $or:[{episode:null},{episode:{$exists:false}}]
+    },
     {sort:{createdAt:1}}
   );
-  if(presentation)return claimExactItem(d,presentation,accountId);
+  if(generalPresentation){
+    const claimed=await claimExactItem(d,generalPresentation,accountId);
+    if(claimed)return claimed;
+  }
 
-  // Then drain the entire anime in season/episode order before switching series.
-  const episode=await d.collection('nexanime_queue').findOne(
-    {seriesKey,status:'queued',kind:'episode'},
-    {sort:{season:1,episode:1,language:1,quality:-1,createdAt:1}}
+  // 2) Find the earliest episode that still has either its synopsis or media.
+  const nextEpisode=await d.collection('nexanime_queue').findOne(
+    {
+      seriesKey,status:'queued',
+      episode:{$ne:null},
+      kind:{$in:['presentation','episode']}
+    },
+    {sort:{season:1,episode:1,createdAt:1}}
   );
-  if(episode)return claimExactItem(d,episode,accountId);
+  if(!nextEpisode)return null;
+  const season=nextEpisode.season??1;
+  const episode=nextEpisode.episode;
 
+  // 3) Episode-specific image/synopsis precedes that episode.
+  const episodePresentation=await d.collection('nexanime_queue').findOne(
+    {seriesKey,status:'queued',kind:'presentation',season,episode},
+    {sort:{createdAt:1}}
+  );
+  if(episodePresentation){
+    const claimed=await claimExactItem(d,episodePresentation,accountId);
+    if(claimed)return claimed;
+  }
+
+  // 4) Publish every language/quality found for this episode before moving on.
+  const media=await d.collection('nexanime_queue').findOne(
+    {seriesKey,status:'queued',kind:'episode',season,episode},
+    {sort:{language:1,quality:-1,createdAt:1}}
+  );
+  if(media){
+    const claimed=await claimExactItem(d,media,accountId);
+    if(claimed)return claimed;
+  }
   return null;
 }
 
 async function alreadyPublished(dedupeKey){
   const d=await db();
-  return !!(await d.collection('nexanime_publications').findOne({dedupeKey},{projection:{_id:1}}));
+  return !!(await d.collection('nexanime_publications').findOne({dedupeKey,purgedAt:{$exists:false}},{projection:{_id:1}}));
 }
 async function publishOne(runtime){
   if(!isListenerRuntime(runtime)||runtime.animeIngest?.publishing)return false;
@@ -1189,6 +1228,89 @@ export const __test={
   standardizedCaption,quotedCaption,titleFromMessage,bestAnchor,releaseKey,presentationKey
 };
 
+
+
+export async function animeBeginRebuild(runtime,{deadline=null}={}){
+  if(!isListenerRuntime(runtime))throw new Error('anime_listener_runtime_required');
+  await ensureIndexes();
+  const d=await db();
+  const destination=await destinationEntity(runtime);
+  const now=new Date();
+  const rebuildId=crypto.randomUUID();
+
+  await d.collection('nexanime_config').updateOne(
+    {_id:'rebuild'},
+    {$set:{
+      mode:'rebuild',
+      rebuildId,
+      startedAt:now,
+      deadline:deadline?new Date(deadline):null,
+      publisherAccountId:String(runtime.account.telegramUserId),
+      publisherUsername:String(runtime.account.username||''),
+      updatedAt:now
+    }},
+    {upsert:true}
+  );
+
+  const pubs=await d.collection('nexanime_publications')
+    .find({telegramMessageId:{$gt:0},purgedAt:{$exists:false}})
+    .project({_id:1,telegramMessageId:1})
+    .sort({telegramMessageId:1}).toArray();
+
+  let deleted=0,failed=0;
+  for(let i=0;i<pubs.length;i+=100){
+    const chunk=pubs.slice(i,i+100);
+    const ids=chunk.map(x=>Number(x.telegramMessageId)).filter(Boolean);
+    if(!ids.length)continue;
+    try{
+      await runtime.client.deleteMessages(destination,ids,{revoke:true});
+      deleted+=ids.length;
+      await d.collection('nexanime_publications').updateMany(
+        {_id:{$in:chunk.map(x=>x._id)}},
+        {$set:{purgedAt:new Date(),purgedBy:rebuildId}}
+      );
+    }catch(error){
+      failed+=ids.length;
+      await d.collection('nexanime_publications').updateMany(
+        {_id:{$in:chunk.map(x=>x._id)}},
+        {$set:{purgeError:String(error?.message||error).slice(0,300),purgeAttemptAt:new Date()}}
+      );
+    }
+    await sleep(250);
+  }
+
+  const superseded=await d.collection('nexanime_queue').updateMany(
+    {status:{$ne:'superseded'}},
+    {
+      $set:{status:'superseded',supersededAt:new Date(),rebuildId,updatedAt:new Date()},
+      $unset:{claimAt:'',claimBy:'',lastError:'',quarantineReason:''}
+    }
+  );
+  await d.collection('nexanime_sources').updateMany(
+    {},
+    {
+      $set:{lastSeenMessageId:0,needsReindex:true,selected:false,updatedAt:new Date()},
+      $unset:{seriesAnchors:'',seriesVerifiedAt:'',verifiedAnimeSeries:'',lastPolledAt:'',sourceRank:'',selectionPosition:'',selectionUpdatedAt:''}
+    }
+  );
+  await d.collection('nexanime_listener_state').updateMany({},{$set:{discovering:false,updatedAt:new Date()}});
+  await d.collection('nexanime_locks').updateMany({},{$set:{expiresAt:new Date(0),updatedAt:new Date()}});
+  await d.collection('nexanime_config').updateOne(
+    {_id:'scheduler'},
+    {$unset:{activeSeriesKey:'',activeSeriesStartedAt:''},$set:{updatedAt:new Date()}},
+    {upsert:true}
+  );
+
+  runtime.animeIngest ??={};
+  runtime.animeIngest.discoveryRequestedAt=new Date();
+  queueMicrotask(()=>discoverSources(runtime).catch(e=>console.error('[NexAnime rebuild discovery]',String(e?.message||e))));
+  return {
+    ok:true,rebuildId,deleted,deleteFailed:failed,
+    superseded:superseded.modifiedCount,
+    destination:'@'+DESTINATION,
+    deadline:deadline||null
+  };
+}
 
 export async function animeSystemStatus(){
   await ensureIndexes();
