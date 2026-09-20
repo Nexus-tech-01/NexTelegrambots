@@ -681,13 +681,17 @@ async function backfillSource(runtime,entity,knownAnchors=null){
 async function setDiscoveryState(runtime,discovering){
   try{
     const d=await db();
+    const now=new Date();
+    const patch={
+      username:String(runtime.account.username||''),
+      discovering:discovering===true,
+      updatedAt:now
+    };
+    if(discovering===true)patch.lastDiscoveryStartedAt=now;
+    else patch.lastDiscoveryCompletedAt=now;
     await d.collection('nexanime_listener_state').updateOne(
       {_id:String(runtime.account.telegramUserId)},
-      {$set:{
-        username:String(runtime.account.username||''),
-        discovering:discovering===true,
-        updatedAt:new Date()
-      }},
+      {$set:patch},
       {upsert:true}
     );
   }catch{}
@@ -702,6 +706,16 @@ async function anyDiscoveryInProgress(){
     updatedAt:{$gt:new Date(Date.now()-2*60*60*1000)}
   },{projection:{_id:1}});
   if(active)return true;
+
+  const startedAt=new Date(rebuild.startedAt||0);
+  const completed=await d.collection('nexanime_listener_state').find({
+    username:{$in:[...LISTENERS]},
+    lastDiscoveryCompletedAt:{$gte:startedAt}
+  },{projection:{username:1}}).toArray();
+  const doneUsers=new Set(completed.map(x=>String(x.username||'').toLowerCase()));
+  for(const username of LISTENERS){
+    if(!doneUsers.has(username))return true;
+  }
 
   const fresh=await d.collection('nexanime_queue').findOne(
     {
@@ -1235,7 +1249,7 @@ async function chooseActiveSeries(d){
 }
 async function claimExactItem(d,item,accountId){
   if(!item)return null;
-  const owns=(item.sources||[]).some(x=>String(x.accountId)===String(accountId));
+  const owns=item.synthetic===true || (item.sources||[]).some(x=>String(x.accountId)===String(accountId));
   if(!owns)return null;
   return d.collection('nexanime_queue').findOneAndUpdate(
     {_id:item._id,status:'queued'},
@@ -1356,8 +1370,7 @@ async function claimNext(runtime){
     {sort:{createdAt:1}}
   );
   if(generalPresentation){
-    const claimed=await claimExactItem(d,generalPresentation,accountId);
-    if(claimed)return claimed;
+    return claimExactItem(d,generalPresentation,accountId);
   }
 
   // 2) Find the earliest episode that still has either its synopsis or media.
@@ -1383,8 +1396,7 @@ async function claimNext(runtime){
     {sort:{createdAt:1}}
   );
   if(episodePresentation){
-    const claimed=await claimExactItem(d,episodePresentation,accountId);
-    if(claimed)return claimed;
+    return claimExactItem(d,episodePresentation,accountId);
   }
 
   // 4) Publish every language/quality found for this episode before moving on.
@@ -1393,8 +1405,7 @@ async function claimNext(runtime){
     {sort:{language:1,quality:-1,createdAt:1}}
   );
   if(media){
-    const claimed=await claimExactItem(d,media,accountId);
-    if(claimed)return claimed;
+    return claimExactItem(d,media,accountId);
   }
   return null;
 }
@@ -1508,6 +1519,7 @@ export async function animeBeginRebuild(runtime,{deadline=null}={}){
       mode:'rebuild',
       rebuildId,
       startedAt:now,
+      scanBarrier:true,
       deadline:deadline?new Date(deadline):null,
       publisherAccountId:String(runtime.account.telegramUserId),
       publisherUsername:String(runtime.account.username||''),
