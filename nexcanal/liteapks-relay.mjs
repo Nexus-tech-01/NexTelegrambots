@@ -34,6 +34,14 @@ const dlRe=/\b(download(?:\s+(?:fast|now|apk|direct))?|fast\s+download|direct\s+
 const fileRe=/\.(?:apk|xapk|apks|apkm|zip)$/i;
 const urlRe=/https?:\/\/[^\s<>]+/gi;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const opTimeoutMs=Math.max(5000,Number(process.env.NEXCANAL__WATCHER_OP_TIMEOUT_MS||20000));
+const bootstrapLimit=Math.max(1,Math.min(maxFetch,Number(process.env.NEXCANAL__WATCHER_BOOTSTRAP_LIMIT||80)));
+const bootstrapHours=Math.max(1,Number(process.env.NEXCANAL__WATCHER_BOOTSTRAP_HOURS||48));
+function withTimeout(promise,ms=opTimeoutMs,label='operation'){
+  let timer;
+  const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(label+' timeout after '+ms+'ms')),ms);});
+  return Promise.race([promise,timeout]).finally(()=>clearTimeout(timer));
+}
 const log=(...x)=>console.log('[nexcanal-watcher]',...x);
 const warn=(...x)=>console.warn('[nexcanal-watcher]',...x);
 
@@ -253,12 +261,31 @@ async function postDescriptor(c,m,sourceKind){
 }
 async function postApk(c,dstEntity,m,sourceKind,linked){
   const name=filename(m)||`package-${m.id}.apk`;
-  const size=Number(m.document?.size||0);
   const u=chooseUrl(m);
   const text=clean(m,sourceKind,u);
   const kb=markup(u);
+  const doc=m.document||m?.media?.document;
+  if(doc?.id&&doc?.accessHash){
+    try{
+      const input=new Api.InputDocument({id:doc.id,accessHash:doc.accessHash,fileReference:doc.fileReference||Buffer.alloc(0)});
+      const peer=await c.getInputEntity(dstEntity);
+      const randomId=BigInt.asIntN(64,(BigInt(Date.now())<<16n)|BigInt(Math.floor(Math.random()*65536)));
+      let replyMarkup;
+      if(!linked&&u){
+        replyMarkup=new Api.ReplyInlineMarkup({rows:[new Api.KeyboardButtonRow({buttons:[new Api.KeyboardButtonUrl({text:'Download Fast ⬇️',url:u})]})]});
+      }
+      return await c.invoke(new Api.messages.SendMedia({
+        peer,
+        media:new Api.InputMediaDocument({id:input}),
+        message:linked?'':text.slice(0,1024),
+        randomId,
+        replyMarkup
+      }));
+    }catch(e){warn('server-side document copy failed; falling back',e?.message||e);}
+  }
+  const size=Number(m.document?.size||0);
   if(size&&size<=botLimit){
-    const b=await media(c,m);
+    const b=await withTimeout(media(c,m),120000,'small APK download');
     return bot('sendDocument',{
       chat_id:`@${dst}`,
       caption:linked?'':text.slice(0,1024),
@@ -266,9 +293,9 @@ async function postApk(c,dstEntity,m,sourceKind,linked){
     },{field:'document',buf:b,name,mime:m.document?.mimeType||'application/vnd.android.package-archive'});
   }
   if(!linked&&u&&(text||kb))await bot('sendMessage',{chat_id:`@${dst}`,text:text||name,reply_markup:kb,disable_web_page_preview:true});
-  const tmp=await mediaToFile(c,m,name);
+  const tmp=await withTimeout(mediaToFile(c,m,name),180000,'large APK download');
   try{
-    return await c.sendFile(dstEntity,{file:new CustomFile(name,tmp.size,tmp.file),caption:linked||u?'':text.slice(0,1024),forceDocument:true,workers:1});
+    return await withTimeout(c.sendFile(dstEntity,{file:new CustomFile(name,tmp.size,tmp.file),caption:linked||u?'':text.slice(0,1024),forceDocument:true,workers:1}),180000,'large APK upload');
   }finally{await tmp.cleanup();}
 }
 
@@ -324,9 +351,15 @@ async function discover(c,st,sources){
   for(const [key,source] of sources){
     const ss=ensureSourceState(st,key);
     if(!ss.cursor){
-      const latest=await c.getMessages(source.entity,{limit:1});
-      ss.cursor=Number(latest?.[0]?.id||0);
-      log('initialized',key,'at',ss.cursor);
+      const recent=await withTimeout(c.getMessages(source.entity,{limit:bootstrapLimit}),opTimeoutMs,key+' bootstrap');
+      const cutoff=Date.now()-bootstrapHours*60*60*1000;
+      const list=[...recent].filter(m=>{const d=Number(m?.date||0);return !d||d*1000>=cutoff;}).sort((a,b)=>Number(a.id)-Number(b.id));
+      for(const m of list){
+        const id=Number(m.id);
+        if(id&&!isQueued(st,key,id))st.queue.push({key:queueKey(key,id),source:key,id,addedAt:Date.now(),retries:0,nextRetryAt:0});
+        ss.cursor=Math.max(Number(ss.cursor||0),id||0);
+      }
+      log('bootstrapped',key,list.length,'message(s) through',ss.cursor);
       changed=true;
       continue;
     }
@@ -442,8 +475,17 @@ async function run(session){
   es.owner='nexcanal-watcher';
   es.ownerCheckedAt=Date.now();
   await save(st);
-  await joinEngagementTargets(c,st,{force:true}).catch(e=>warn('engagement join bootstrap failed',e?.message||e));
-  await pollEngagementReactions(c,st).catch(e=>warn('engagement reaction bootstrap failed',e?.message||e));
+  let engagementRunning=false;
+  const runEngagement=async(force=false)=>{
+    if(engagementRunning)return;
+    engagementRunning=true;
+    try{
+      await withTimeout(joinEngagementTargets(c,st,{force}),15000,'engagement join');
+      await withTimeout(pollEngagementReactions(c,st),15000,'engagement reactions');
+    }catch(e){warn('engagement cycle failed',e?.message||e);}
+    finally{engagementRunning=false;}
+  };
+  void runEngagement(true);
   let nextEngagementAt=Date.now()+engagementPollMs;
 
   // Migrate the old LiteAPK cursor if this is the first v2 run.
@@ -462,14 +504,17 @@ async function run(session){
     const live=await sessionSecret();
     if(!live)throw new Error('reader session disconnected');
     try{
-      await discover(c,st,sources);
+      await withTimeout(discover(c,st,sources),opTimeoutMs,'source discovery');
       kickWorkers(c,destination,st,sources);
       if(Date.now()>=nextEngagementAt){
-        await joinEngagementTargets(c,st).catch(e=>warn('engagement join cycle failed',e?.message||e));
-        await pollEngagementReactions(c,st).catch(e=>warn('engagement reaction cycle failed',e?.message||e));
         nextEngagementAt=Date.now()+engagementPollMs;
+        void runEngagement(false);
       }
-    }catch(e){warn('cycle failed',e?.message||e);}
+    }catch(e){
+      const message=String(e?.message||e);
+      warn('cycle failed',message);
+      if(/timeout/i.test(message)){await c.disconnect().catch(()=>{});throw e;}
+    }
     await sleep(poll);
   }
 }
