@@ -4,8 +4,9 @@ import { getStyle, listStyles, renderDipperHeader, resolveStyleImage, toSmallCap
 
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
 const FALLBACK_EMOJI={
-  GENERAL:'🏠',AI:'🧠',DOWNLOAD:'📥',GROUP:'🛡️',TOOLS:'🛠️',STICKERS:'🎴',
-  GAMES:'🎮',PROTECTION:'🛡️',ANIME:'🌸',SEARCH:'🔎',PREMIUM:'👑',OWNER:'🔮',ALIASES:'⌘'
+  GENERAL:'🏠',ACCOUNT:'👤',AI:'🧠',DOWNLOAD:'📥',GROUP:'👥',ADMIN:'🛡️',
+  PROTECTION:'🔒',TOOLS:'🛠️',MEDIA:'🎞️',STICKERS:'🎴',FUN:'🎮',ANIME:'🌸',
+  SEARCH:'🔎',PREMIUM:'👑',OWNER:'🔮'
 };
 
 export function expandableEntities(text,commandSpans=[]){
@@ -41,7 +42,7 @@ export async function menuModel({account,settings,commands,view='home',category=
   const owner=isOwnerId(account.telegramUserId);
   const visible=c=>!c.hidden&&(!c.ownerOnly||owner);
   const header=await renderDipperHeader(style.id,{
-    botName:String(settings.botDisplayName||'NEXAI').slice(0,64),
+    botName:String(settings.botDisplayName||'NexAi · Dipper').slice(0,64),
     ownerName:account.username?'@'+account.username:(account.firstName||localized(settings,'Utilisateur','User')),
     rank:owner?'owner':account.premium?'premium':'free',
     prefix:settings.prefix||'.',
@@ -68,7 +69,11 @@ export async function menuModel({account,settings,commands,view='home',category=
     }
     const visibleCommands=pageList.map(c=>({
       name:c.name,
-      suffix:c.premium&&!account.premium?'  · 👑 '+toSmallCaps('Premium'):''
+      suffix:[
+        c.privateOnly?'  · '+toSmallCaps(localized(settings,'Privé','Private')):'',
+        c.groupOnly?(c.adminOnly?'  · '+toSmallCaps(localized(settings,'Groupe/Admin','Group/Admin')):'  · '+toSmallCaps(localized(settings,'Groupe','Group'))):'',
+        c.premium&&!account.premium?'  · 👑 '+toSmallCaps('Premium'):''
+      ].join('')
     }));
     const ct=commandText(visibleCommands,style.id);
     const shift=body.length;
@@ -76,7 +81,7 @@ export async function menuModel({account,settings,commands,view='home',category=
     spans.push(...ct.spans.map(x=>({...x,start:x.start+shift})));
     if(style.id===1){
       body+='\n'+localized(settings,'🌑 ѕéʟᴇᴄᴛɪᴏɴɴᴇ ᴜɴᴇ ᴄᴏᴍᴍᴀɴᴅᴇ.','🌑 ѕᴇʟᴇᴄᴛ ᴀ ᴄᴏᴍᴍᴀɴᴅ.')+
-        '\n\n♛ ɴᴇxᴀɪ × ɴᴇxᴛᴇᴄʜ ♛';
+        '\n\n♛ ɴᴇxᴀɪ • ᴅɪᴘᴘᴇʀ × ɴᴇxᴛᴇᴄʜ ♛';
     }else if(style.exactFooter){
       try{body+='\n'+style.exactFooter()}catch{}
     }
@@ -85,7 +90,7 @@ export async function menuModel({account,settings,commands,view='home',category=
       body+='\n♰ '+localized(settings,'ᴄʜᴏɪѕɪѕ ᴛᴏɴ ᴀʀᴄᴀɴᴇ','ᴄʜᴏᴏѕᴇ ʏᴏᴜʀ ᴀʀᴄᴀɴᴇ')+
         '\n\n🌑 '+localized(settings,"ʟ'ᴏᴍʙʀᴇ ᴏʙѕᴇʀᴠᴇ.","ᴛʜᴇ ѕʜᴀᴅᴏᴡ ᴡᴀᴛᴄʜᴇѕ.")+
         '\n🔮 '+localized(settings,'ʟᴇ ѕᴀɴᴄᴛᴜᴀɪʀᴇ ᴇѕᴛ ᴏᴜᴠᴇʀᴛ.','ᴛʜᴇ ѕᴀɴᴄᴛᴜᴀʀʏ ɪѕ ᴏᴘᴇɴ.')+
-        '\n\n♛ ɴᴇxᴀɪ × ɴᴇxᴛᴇᴄʜ ♛';
+        '\n\n♛ ɴᴇxᴀɪ • ᴅɪᴘᴘᴇʀ × ɴᴇxᴛᴇᴄʜ ♛';
     }else{
       if(style.tagline)body+='\n'+toSmallCaps(style.tagline)+'\n';
       if(style.exactFooter){try{body+='\n'+style.exactFooter()}catch{}}
@@ -131,7 +136,7 @@ export async function menuModel({account,settings,commands,view='home',category=
 
 export async function stylesModel({account,settings}){
   const styles=(await listStyles()).filter(s=>s.id>0);
-  let text='🔮 ɴᴇxᴀɪ • ѕᴛʏʟᴇѕ\n\n',spans=[];
+  let text='🔮 ɴᴇxᴀɪ • ᴅɪᴘᴘᴇʀ • ѕᴛʏʟᴇѕ\n\n',spans=[];
   for(const s of styles){
     const command='/style'+s.id;
     const start=text.length;
@@ -140,7 +145,7 @@ export async function stylesModel({account,settings}){
     text+=' • '+toSmallCaps(s.name)+(Number(settings.style)===s.id?' • '+toSmallCaps(localized(settings,'Actif','Active')):'')+'\n';
   }
   text+='\n'+toSmallCaps(localized(settings,'Utilise aussi .style <numéro>.','You can also use .style <number>.'))+
-    '\n♛ ɴᴇxᴀɪ × ɴᴇxᴛᴇᴄʜ ♛';
+    '\n♛ ɴᴇxᴀɪ • ᴅɪᴘᴘᴇʀ × ɴᴇxᴛᴇᴄʜ ♛';
   return {
     text,
     entities:expandableEntities(text,spans),

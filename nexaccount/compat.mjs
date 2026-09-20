@@ -193,7 +193,7 @@ async function doModeration(client,peer,message,name,args){
       adminRights:new Api.ChatAdminRights({
         changeInfo:true,deleteMessages:true,banUsers:true,inviteUsers:true,pinMessages:true,manageCall:true
       }),
-      rank:'NexAI'
+      rank:'NexAi'
     }));
     return 'Administrateur ajouté.';
   }
@@ -277,15 +277,14 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(name==='dashboard'||name==='settings'||name==='stats'||name==='premium'){
     const s=await settingsFor(account.telegramUserId);
     if(name==='premium'){
-      await sendText(client,peer,'NexAI Premium · 250 Stars/mois\nStatut : '+(account.premium?'Premium Telegram détecté':'Free')+'\nUn seul Premium pour les fonctions fusionnées NexDownloader, NexGroup, NexGame, NexStick et NexWhisper.');
+      await sendText(client,peer,'NexAi Premium · 250 Stars/mois\nStatut : '+(account.premium?'Premium Telegram détecté':'Free')+'\nUn seul Premium pour les fonctions fusionnées NexDownloader, NexGroup, NexGame, NexStick et NexWhisper.');
       return true;
     }
     if(name==='dashboard'||name==='settings'){
-      await sendText(client,peer,'NexAI · '+toSmallCaps(name)+'\nCompte : '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nPréfixe : '+(s.prefix||'.')+'\nLangue : '+(s.language||'fr')+'\nStyle : '+(s.style||1)+'\nAuto-join : '+(s.autoJoin?.enabled?'ON':'OFF')+'\nAuto-react : '+(s.autoReact?.enabled?'ON':'OFF'));
+      await sendText(client,peer,'NexAi · '+toSmallCaps(name)+'\nCompte : '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nPréfixe : '+(s.prefix||'.')+'\nLangue : '+(s.language||'fr')+'\nStyle : '+(s.style||1)+'\nAuto-join : '+(s.autoJoin?.enabled?'ON':'OFF')+'\nAuto-react : '+(s.autoReact?.enabled?'ON':'OFF'));
       return true;
     }
-    const accounts=await listAccounts();
-    await sendText(client,peer,'NexAI · stats\nSessions NexAccount : '+accounts.length+'\nCompte courant : '+account.telegramUserId+'\nPremium : '+(account.premium?'oui':'non'));
+    await sendText(client,peer,'NexAi · stats\nCompte : '+(account.username?'@'+account.username:account.telegramUserId)+'\nTelegram ID : '+account.telegramUserId+'\nPremium : '+(account.premium?'oui':'non'));
     return true;
   }
   if(name==='stylelist'){await sendInline(client,peer,'styles');return true}
@@ -294,9 +293,9 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(name==='support'){await sendText(client,peer,'Support : https://t.me/tresor20001');return true}
   if(name==='repo'){await sendText(client,peer,'Nextech : https://github.com/Nexus-tech-01');return true}
 
-  if(name==='fliptext'){await sendText(client,peer,(argText||'NexAI').split('').reverse().join(''));return true}
+  if(name==='fliptext'){await sendText(client,peer,(argText||'NexAi').split('').reverse().join(''));return true}
   if(name==='genpass'){await sendText(client,peer,password(args[0]));return true}
-  if(name==='smallcaps'||name==='fancy'){await sendText(client,peer,toSmallCaps(argText||'NexAI'));return true}
+  if(name==='smallcaps'||name==='fancy'){await sendText(client,peer,toSmallCaps(argText||'NexAi'));return true}
   if(name==='calc'){try{await sendText(client,peer,String(safeCalc(argText)))}catch(e){await sendText(client,peer,'Calcul : '+e.message)}return true}
 
   if(name==='tinyurl'){
@@ -351,28 +350,28 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     try{
       const j=await fetchJson('https://api.waifu.pics/sfw/waifu');
       if(!j?.url)throw new Error('no image');
-      await sendRemoteFile(client,peer,j.url,{caption:'NexAI · Waifu',name:'waifu.jpg'});
+      await sendRemoteFile(client,peer,j.url,{caption:'NexAi · Waifu',name:'waifu.jpg'});
     }catch(e){await sendText(client,peer,'Image anime indisponible : '+e.message)}
     return true;
   }
   if(name==='qr'){
     if(!argText){await sendText(client,peer,'Usage : .qr texte ou URL');return true}
     const u='https://api.qrserver.com/v1/create-qr-code/?size=512x512&data='+encodeURIComponent(argText);
-    try{await sendRemoteFile(client,peer,u,{caption:'NexAI · QR',name:'qr.png'})}catch(e){await sendText(client,peer,'QR indisponible : '+e.message)}
+    try{await sendRemoteFile(client,peer,u,{caption:'NexAi · QR',name:'qr.png'})}catch(e){await sendText(client,peer,'QR indisponible : '+e.message)}
     return true;
   }
   if(name==='tts'){
     if(!argText){await sendText(client,peer,'Usage : .tts texte');return true}
     const text=argText.slice(0,180),lang=(await settingsFor(account.telegramUserId)).language||'fr';
     const u='https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl='+encodeURIComponent(lang)+'&q='+encodeURIComponent(text);
-    try{await sendRemoteFile(client,peer,u,{caption:'NexAI · TTS',name:'tts.mp3'})}catch(e){await sendText(client,peer,'TTS indisponible : '+e.message)}
+    try{await sendRemoteFile(client,peer,u,{caption:'NexAi · TTS',name:'tts.mp3'})}catch(e){await sendText(client,peer,'TTS indisponible : '+e.message)}
     return true;
   }
   if(name==='ssweb'||name==='sswebpc'){
     if(!/^https?:\/\//i.test(argText)){await sendText(client,peer,'Usage : .'+name+' https://...');return true}
     const width=name==='sswebpc'?'1440':'390';
     const u='https://image.thum.io/get/width/'+width+'/crop/900/noanimate/'+argText;
-    try{await sendRemoteFile(client,peer,u,{caption:'NexAI · Screenshot',name:'screenshot.png'})}catch(e){await sendText(client,peer,'Capture indisponible : '+e.message)}
+    try{await sendRemoteFile(client,peer,u,{caption:'NexAi · Screenshot',name:'screenshot.png'})}catch(e){await sendText(client,peer,'Capture indisponible : '+e.message)}
     return true;
   }
   if(name==='browse'){
@@ -422,7 +421,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     else if(name==='charme')text=pick(PICKUPS);
     else if(name==='louange')text=pick(COMPLIMENTS);
     else if(name==='destin')text='Compatibilité : '+(crypto.randomInt(41,101))+'% · '+(argText||'destin mystère');
-    else if(name==='jugement_d')text='Jugement NexAI : '+crypto.randomInt(1,11)+'/10 · '+(argText||'aucune cible');
+    else if(name==='jugement_d')text='Jugement NexAi : '+crypto.randomInt(1,11)+'/10 · '+(argText||'aucune cible');
     else if(name==='malediction')text='Malédiction légère : pendant 10 minutes, chaque typo compte double.';
     else if(name==='piege')text='Piège : qu’est-ce qui devient plus mouillé à mesure qu’il sèche ? Réponse : une serviette.';
     else if(name==='fakehack')text='[SIMULATION]\nConnexion… OK\nAnalyse… OK\nAccès fictif… 100%\nAucune action réelle n’a été effectuée.';
@@ -438,7 +437,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(name==='tagall'||name==='hidetag'||name==='mediatag'||name==='tagadmin'){
     const ps=await participants(client,peer,200);
     const list=name==='tagadmin'?ps.filter(p=>p.participant?.adminRights||p.adminRights):ps;
-    await sendMentionList(client,peer,list,argText||'NexAI · Mention');
+    await sendMentionList(client,peer,list,argText||'NexAi · Mention');
     return true;
   }
   if(name==='delete'){
@@ -546,16 +545,20 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     await sendText(client,peer,'Auto-react : '+(enabled?'ON':'OFF'));return true;
   }
   if(name==='sessions'){
+    if(!isOwnerId(account.telegramUserId)){
+      await sendText(client,peer,'NexAi · session\nCompte : '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nTelegram ID : '+account.telegramUserId+'\nÉtat : connectée');
+      return true;
+    }
     const accounts=await listAccounts();
     const lines=accounts.map((a,i)=>(i+1)+'. '+(a.username?'@'+a.username:a.firstName||a.telegramUserId)+' · '+a.telegramUserId);
-    await sendText(client,peer,'NexAccount sessions : '+accounts.length+'\n\n'+(lines.join('\n')||'Aucune autre session.'));return true;
+    await sendText(client,peer,'NexAi · sessions plateforme : '+accounts.length+'\n\n'+(lines.join('\n')||'Aucune session.'));return true;
   }
   if(name==='pair'){
-    await sendText(client,peer,'Pour ajouter un compte : ouvre @NexAi01_bot et utilise /pair +numéro, ou NexAI Connect sur le site.');return true;
+    await sendText(client,peer,'Pour ajouter un compte : ouvre @NexAi01_bot et utilise /pair +numéro, ou NexAi Connect sur le site.');return true;
   }
   if(name==='botstatus'){
     const s=await settingsFor(account.telegramUserId);
-    await sendText(client,peer,'NexAI · actif\nCompte : '+(account.username?'@'+account.username:account.telegramUserId)+'\nPréfixe : '+(s.prefix||'.')+'\nAuto-react : '+(s.autoReact?.enabled?'ON':'OFF'));return true;
+    await sendText(client,peer,'NexAi · actif\nCompte : '+(account.username?'@'+account.username:account.telegramUserId)+'\nPréfixe : '+(s.prefix||'.')+'\nAuto-react : '+(s.autoReact?.enabled?'ON':'OFF'));return true;
   }
   if(name==='customreact'){
     const values=args.filter(Boolean).slice(0,12);
@@ -615,7 +618,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       const entity=await client.getEntity(target);
       if(name==='getpp'){
         const b=await client.downloadProfilePhoto(entity,{isBig:true});
-        if(b)await client.sendFile(peer,{file:b,fileName:'profile.jpg',caption:'NexAI · Profile'});else await sendText(client,peer,'Aucune photo publique.');
+        if(b)await client.sendFile(peer,{file:b,fileName:'profile.jpg',caption:'NexAi · Profile'});else await sendText(client,peer,'Aucune photo publique.');
       }else{
         let about='';
         try{const full=await client.invoke(new Api.users.GetFullUser({id:target}));about=full?.fullUser?.about||''}catch{}
@@ -636,7 +639,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const {policy}=groupPolicy(s,chat);
     if(name==='admins'){
       const ps=await participants(client,peer,500);const admins=ps.filter(p=>p.participant?.adminRights||p.adminRights||p.participant?.constructor?.name?.includes('Admin'));
-      await sendMentionList(client,peer,admins,'NexAI · Admins');return true;
+      await sendMentionList(client,peer,admins,'NexAi · Admins');return true;
     }
     if(['approval','joinapproval','autoapprove','captcha','raidmode','logs','nightmode'].includes(name)){
       const enabled=parseToggle(args[0],policy[name]===true);await patchGroupPolicy(account.telegramUserId,chat,{[name]:enabled});
@@ -649,11 +652,11 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       const c=await currentChat(client,peer);const ps=await participants(client,peer,500);
       const snapshot={createdAt:new Date().toISOString(),chatId:chat,title:c?.title||'',username:c?.username||'',memberCount:ps.length,policy};
       const backups={...(s.groupBackups||{}),[chat]:snapshot};await patchSettings(account.telegramUserId,{groupBackups:backups});
-      await client.sendFile(peer,{file:Buffer.from(JSON.stringify(snapshot,null,2)),fileName:'nexai-group-backup.json',caption:'NexAI · Backup'});return true;
+      await client.sendFile(peer,{file:Buffer.from(JSON.stringify(snapshot,null,2)),fileName:'nexai-group-backup.json',caption:'NexAi · Backup'});return true;
     }
     if(name==='restore'){
-      const snap=s.groupBackups?.[chat];if(!snap){await sendText(client,peer,'Aucune sauvegarde NexAI pour ce groupe.');return true}
-      await patchGroupPolicy(account.telegramUserId,chat,snap.policy||{});await sendText(client,peer,'Configuration NexAI restaurée.');return true;
+      const snap=s.groupBackups?.[chat];if(!snap){await sendText(client,peer,'Aucune sauvegarde NexAi pour ce groupe.');return true}
+      await patchGroupPolicy(account.telegramUserId,chat,snap.policy||{});await sendText(client,peer,'Configuration NexAi restaurée.');return true;
     }
     if(name==='copyconfig'){
       const target=clean(args[0]);if(!target){await sendText(client,peer,'Usage : .copyconfig <chatId source>');return true}
@@ -670,14 +673,14 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     if(name==='broadcast'){
       if(!argText){await sendText(client,peer,'Usage : .broadcast message');return true}await sendText(client,peer,argText);return true;
     }
-    if(name==='cancel'){await sendText(client,peer,'Aucun flux NexAI actif à annuler dans ce chat.');return true}
+    if(name==='cancel'){await sendText(client,peer,'Aucun flux NexAi actif à annuler dans ce chat.');return true}
     if(name==='clearwarns'){
       const warnings={...(s.warnings||{})};warnings[chat]={};await patchSettings(account.telegramUserId,{warnings});await sendText(client,peer,'Avertissements du groupe réinitialisés.');return true;
     }
     if(['config','status','permissions'].includes(name)){
       const c=await currentChat(client,peer);let extra='';
       if(name==='permissions')extra='\nLes actions utilisent les permissions réelles du compte Telegram connecté.';
-      await sendText(client,peer,'NexAI · '+name+'\nChat : '+(c?.title||c?.username||chat)+'\nID : '+chat+'\nAnti-link : '+(policy.antilink?'ON':'OFF')+'\nAnti-spam : '+(policy.antispam?'ON':'OFF')+'\nAnti-raid : '+(policy.antiraid?'ON':'OFF')+'\nWelcome : '+(policy.welcome?'ON':'OFF')+extra);return true;
+      await sendText(client,peer,'NexAi · '+name+'\nChat : '+(c?.title||c?.username||chat)+'\nID : '+chat+'\nAnti-link : '+(policy.antilink?'ON':'OFF')+'\nAnti-spam : '+(policy.antispam?'ON':'OFF')+'\nAnti-raid : '+(policy.antiraid?'ON':'OFF')+'\nWelcome : '+(policy.welcome?'ON':'OFF')+extra);return true;
     }
     if(name==='id'){await sendText(client,peer,'Chat ID : '+chat+'\nCompte : '+account.telegramUserId);return true}
     if(name==='kickall'){
@@ -703,9 +706,9 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     }
     if(name==='risk'){
       let score=0;if(!policy.antilink)score+=20;if(!policy.antispam)score+=20;if(!policy.antiraid)score+=20;if(!policy.captcha)score+=20;if(!policy.logs)score+=20;
-      await sendText(client,peer,'Indice de risque configuration : '+score+'/100\nPlus le score est bas, plus les protections NexAI configurées sont nombreuses.');return true;
+      await sendText(client,peer,'Indice de risque configuration : '+score+'/100\nPlus le score est bas, plus les protections NexAi configurées sont nombreuses.');return true;
     }
-    if(name==='privacy'){await sendText(client,peer,'NexAI utilise uniquement les données Telegram nécessaires aux fonctions activées. Les sessions NexAccount sont chiffrées au repos.');return true}
+    if(name==='privacy'){await sendText(client,peer,'NexAi utilise uniquement les données Telegram nécessaires aux fonctions activées. Les sessions NexAccount sont chiffrées au repos.');return true}
     if(name==='report'||name==='appeal'){
       const reply=await repliedMessage(client,peer,event.message);const subject=reply?('message #'+reply.id):(argText||'signalement');
       await sendText(client,peer,(name==='report'?'Signalement':'Appel')+' enregistré pour '+subject+'.');return true;
@@ -714,7 +717,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       await patchGroupPolicy(account.telegramUserId,chat,{[name]:argText||true});await sendText(client,peer,toSmallCaps(name)+' enregistré.');return true;
     }
     if(name==='leaderboard'||name==='rep'){
-      await sendText(client,peer,'Classement NexAI : utilise .game / .leaderboard côté NexGame pour le classement de jeu ; la réputation de groupe sera alimentée par l’activité observée.');return true;
+      await sendText(client,peer,'Classement NexAi : utilise .game / .leaderboard côté NexGame pour le classement de jeu ; la réputation de groupe sera alimentée par l’activité observée.');return true;
     }
     if(name==='transferowner'){
       await sendText(client,peer,'Le transfert de propriété Telegram exige une confirmation 2FA sensible et n’est jamais exécuté automatiquement depuis une commande texte.');return true;
@@ -736,22 +739,22 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const values=args.filter(Boolean);
     if(!values.length){await sendText(client,peer,'Usage : .vcf +229... +33...');return true}
     const cards=values.map((v,i)=>'BEGIN:VCARD\nVERSION:3.0\nFN:Contact '+(i+1)+'\nTEL;TYPE=CELL:'+v+'\nEND:VCARD').join('\n');
-    await client.sendFile(peer,{file:Buffer.from(cards),fileName:'contacts.vcf',caption:'NexAI · VCF'});return true;
+    await client.sendFile(peer,{file:Buffer.from(cards),fileName:'contacts.vcf',caption:'NexAi · VCF'});return true;
   }
   if(name==='filtervcf'){
     await sendText(client,peer,'Réponds à un fichier .vcf avec les critères à conserver. Cette commande est reconnue ; le moteur Telegram ne modifie jamais silencieusement un carnet de contacts.');return true;
   }
   if(name==='texttopdf'){
     if(!argText){await sendText(client,peer,'Usage : .texttopdf ton texte');return true}
-    try{await client.sendFile(peer,{file:simplePdf(argText),fileName:'nexai-text.pdf',caption:'NexAI · PDF'})}catch(e){await sendText(client,peer,'PDF impossible : '+e.message)}
+    try{await client.sendFile(peer,{file:simplePdf(argText),fileName:'nexai-text.pdf',caption:'NexAi · PDF'})}catch(e){await sendText(client,peer,'PDF impossible : '+e.message)}
     return true;
   }
   if(name==='toimage'){
     if(!argText){await sendText(client,peer,'Usage : .toimage ton texte');return true}
     const lines=argText.match(/.{1,44}(?:\s|$)/g)||[argText];
     const tspans=lines.slice(0,12).map((l,i)=>'<tspan x="60" dy="'+(i?54:0)+'">'+xmlEscape(l.trim())+'</tspan>').join('');
-    const svg='<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080"><rect width="1080" height="1080" rx="64" fill="#17130d"/><text x="60" y="130" fill="#ffe39a" font-family="sans-serif" font-size="42" font-weight="700">'+tspans+'</text><text x="60" y="1010" fill="#aa9162" font-family="sans-serif" font-size="24">NexAI · Nextech</text></svg>';
-    await client.sendFile(peer,{file:Buffer.from(svg),fileName:'nexai-text.svg',caption:'NexAI · Image SVG'});return true;
+    const svg='<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080"><rect width="1080" height="1080" rx="64" fill="#17130d"/><text x="60" y="130" fill="#ffe39a" font-family="sans-serif" font-size="42" font-weight="700">'+tspans+'</text><text x="60" y="1010" fill="#aa9162" font-family="sans-serif" font-size="24">NexAi · Nextech</text></svg>';
+    await client.sendFile(peer,{file:Buffer.from(svg),fileName:'nexai-text.svg',caption:'NexAi · Image SVG'});return true;
   }
   if(name==='crop'||name==='resize'){
     const reply=await repliedMessage(client,peer,event.message);
@@ -765,7 +768,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       }
       const mode=name==='crop'?'fit=cover&a=attention&':'fit=contain&';
       const u='https://images.weserv.nl/?url='+encodeURIComponent(src)+'&w='+width+'&h='+height+'&'+mode+'output=jpg';
-      await sendRemoteFile(client,peer,u,{caption:'NexAI · '+name,name:name+'.jpg'});
+      await sendRemoteFile(client,peer,u,{caption:'NexAi · '+name,name:name+'.jpg'});
     }catch(e){await sendText(client,peer,'Traitement image impossible : '+e.message)}
     return true;
   }
@@ -776,7 +779,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const audio=attrs.find(a=>a?.duration!=null);const size=Number(d?.size||0);
     await sendText(client,peer,'Média : '+(d?.mimeType||'inconnu')+'\nDurée : '+(audio?.duration??'?')+' s\nTaille : '+(size?Math.round(size/1024)+' Ko':'?'));return true;
   }
-  if(name==='pausequeue'){await sendText(client,peer,'La file média NexAI n’a pas de lecture locale active dans ce chat.');return true}
+  if(name==='pausequeue'){await sendText(client,peer,'La file média NexAi n’a pas de lecture locale active dans ce chat.');return true}
   if(name==='emojimix'){
     const a=args[0]||'',b=args[1]||'';if(!a||!b){await sendText(client,peer,'Usage : .emojimix 😀 😎');return true}
     await sendText(client,peer,a+'  ×  '+b+'  →  '+a+b);return true;
@@ -792,7 +795,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const current=settings.nlpMode?.enabled===true;
     const enabled=parseToggle(args[0],current);
     await patchSettings(account.telegramUserId,{nlpMode:{...(settings.nlpMode||{}),enabled}});
-    await sendText(client,peer,'NexAI · mode IA naturel : '+(enabled?'ON':'OFF'));
+    await sendText(client,peer,'NexAi · mode IA naturel : '+(enabled?'ON':'OFF'));
     return true;
   }
 
@@ -804,14 +807,14 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     if(!action){
       const until=Number(policy.nexaiMuteUntil||0);
       const active=policy.nexaiMuted===true&&(until===0||until>Date.now());
-      await sendText(client,peer,'NexAI auto-features : '+(active?'MUTED':'ACTIVE')+(until>Date.now()?' · '+Math.ceil((until-Date.now())/60000)+' min restantes':''));
+      await sendText(client,peer,'NexAi auto-features : '+(active?'MUTED':'ACTIVE')+(until>Date.now()?' · '+Math.ceil((until-Date.now())/60000)+' min restantes':''));
       return true;
     }
     const enabled=!['off','0','false','unmute','wake','reveil','réveil'].includes(action);
     const minutes=enabled?Math.max(0,Math.min(10080,Number(args[1])||0)):0;
     const until=enabled&&minutes?Date.now()+minutes*60000:0;
     await patchGroupPolicy(account.telegramUserId,chat,{nexaiMuted:enabled,nexaiMuteUntil:until});
-    await sendText(client,peer,'NexAI auto-features : '+(enabled?'MUTED'+(minutes?' · '+minutes+' min':''):'ACTIVE'));
+    await sendText(client,peer,'NexAi auto-features : '+(enabled?'MUTED'+(minutes?' · '+minutes+' min':''):'ACTIVE'));
     return true;
   }
 
@@ -861,7 +864,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       }
       const entity=await client.getEntity(target);
       await sendText(client,peer,[
-        'NexAI · infos canal',
+        'NexAi · infos canal',
         entity?.title||entity?.firstName||'Telegram',
         entity?.username?'@'+entity.username:'',
         entity?.id?'ID : '+entity.id:'',
@@ -888,7 +891,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const value=argText.slice(0,64);
     if(!value){
       const settings=await settingsFor(account.telegramUserId);
-      await sendText(client,peer,'Nom NexAI du menu : '+(settings.botDisplayName||'NEXAI'));
+      await sendText(client,peer,'Nom NexAi du menu : '+(settings.botDisplayName||'NEXAI'));
       return true;
     }
     await patchSettings(account.telegramUserId,{botDisplayName:value});
@@ -905,7 +908,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       if(buffer.length>10*1024*1024)throw new Error('image > 10 Mo');
       const url=await uploadCatbox(Buffer.from(buffer),'nexai-menu-'+Date.now()+'.jpg');
       await patchSettings(account.telegramUserId,{menuImageUrl:url});
-      await sendText(client,peer,'Illustration du menu NexAI mise à jour.');
+      await sendText(client,peer,'Illustration du menu NexAi mise à jour.');
     }catch(e){await sendText(client,peer,'Image du menu impossible : '+String(e.message||e))}
     return true;
   }
@@ -918,14 +921,14 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       return true;
     }
     await patchSettings(account.telegramUserId,{relayChannel:value});
-    await sendText(client,peer,'Canal lié à NexAI : '+value);
+    await sendText(client,peer,'Canal lié à NexAi : '+value);
     return true;
   }
 
   if(name==='eveil'){
     const seconds=Math.max(0,Math.floor((Date.now()-new Date(runtime.startedAt||Date.now()).getTime())/1000));
     const h=Math.floor(seconds/3600),m=Math.floor(seconds%3600/60),sec=seconds%60;
-    await sendText(client,peer,'NexAI actif depuis '+h+'h '+m+'m '+sec+'s.');
+    await sendText(client,peer,'NexAi actif depuis '+h+'h '+m+'m '+sec+'s.');
     return true;
   }
 
@@ -952,7 +955,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
 
   if(name==='rang'){
     const settings=await settingsFor(account.telegramUserId);
-    await sendText(client,peer,'Rang NexAI\nCompte : '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nTelegram Premium : '+(account.premium?'oui':'non')+'\nStyle : '+(settings.style||1));
+    await sendText(client,peer,'Rang NexAi\nCompte : '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nTelegram Premium : '+(account.premium?'oui':'non')+'\nStyle : '+(settings.style||1));
     return true;
   }
 
@@ -961,7 +964,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const ps=await participants(client,peer,500);
     const admins=ps.filter(p=>p.participant?.adminRights||p.adminRights||p.participant?.constructor?.name?.includes('Admin')).length;
     await sendText(client,peer,[
-      'NexAI · sanctuaire',
+      'NexAi · sanctuaire',
       c?.title||c?.username||'Chat Telegram',
       c?.username?'@'+c.username:'',
       'ID : '+String(c?.id||event.chatId||''),
@@ -974,7 +977,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(SAFE_UNSUPPORTED.has(name)){
     const note=['execute','runeval','darkfile','save','crash','mise_a_jour','renaissance','reload'].includes(name)
       ? 'Cette commande d’administration serveur passe obligatoirement par NexControl et n’exécute pas de code arbitraire depuis Telegram.'
-      : 'Cette commande provenait d’une capacité WhatsApp. NexAI la garde comme alias de compatibilité, sans simuler une fonction Telegram inexistante.';
+      : 'Cette commande provenait d’une capacité WhatsApp. NexAi la garde comme alias de compatibilité, sans simuler une fonction Telegram inexistante.';
     await sendText(client,peer,note);
     return true;
   }
