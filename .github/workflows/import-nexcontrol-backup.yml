@@ -1,0 +1,95 @@
+name: Import NexControl encrypted backup
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".nexcontrol-transfer/current.json"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nexcontrol-backup-import
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Download and verify encrypted backup
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, hashlib, pathlib, urllib.request
+
+          transfer = pathlib.Path(".nexcontrol-transfer/current.json")
+          m = json.loads(transfer.read_text())
+          backup_id = m["backupId"]
+          parts = sorted(m["parts"], key=lambda x: int(x["index"]))
+          outdir = pathlib.Path("secure-backups") / backup_id / "parts"
+          outdir.mkdir(parents=True, exist_ok=True)
+
+          h = hashlib.sha256()
+          total = 0
+          for p in parts:
+              idx = int(p["index"])
+              req = urllib.request.Request(p["signedUrl"], headers={"User-Agent": "NexTelegrambots-backup-import"})
+              with urllib.request.urlopen(req, timeout=180) as r:
+                  data = r.read()
+              target = outdir / f"{idx:06d}.part"
+              target.write_bytes(data)
+              h.update(data)
+              total += len(data)
+
+          digest = h.hexdigest()
+          expected_digest = m["archiveSha256"]
+          expected_bytes = int(m["archiveBytes"])
+          expected_parts = int(m["chunkCount"])
+
+          if len(parts) != expected_parts:
+              raise SystemExit(f"part count mismatch: {len(parts)} != {expected_parts}")
+          if total != expected_bytes:
+              raise SystemExit(f"byte count mismatch: {total} != {expected_bytes}")
+          if digest != expected_digest:
+              raise SystemExit(f"sha256 mismatch: {digest} != {expected_digest}")
+
+          safe_manifest = {
+              "backupId": backup_id,
+              "format": "NXCBK1",
+              "encrypted": True,
+              "cipher": "AES-256-GCM",
+              "archiveSha256": digest,
+              "archiveBytes": total,
+              "chunkCount": len(parts),
+              "source": "NexControl backup vault",
+              "restore": "Concatenate parts in numeric order, then restore through .nexcontrol/backup/worker.mjs / NexControl. The decryption key is intentionally kept out of Git history."
+          }
+          root = outdir.parent
+          (root / "manifest.json").write_text(json.dumps(safe_manifest, indent=2) + "\n")
+          (root / "README.md").write_text(
+              "# Encrypted full-server Telegram bots backup\n\n"
+              "This directory contains a verified AES-256-GCM NexControl backup of the Telegram-bot server. "
+              "It includes the server files captured by NexControl, including hidden files and runtime configuration. "
+              "Secrets and Telegram sessions are present only inside the encrypted archive parts, never in plaintext Git history.\n"
+          )
+          PY
+
+      - name: Commit verified backup
+        shell: bash
+        run: |
+          BACKUP_ID="$(python3 -c 'import json; print(json.load(open(".nexcontrol-transfer/current.json"))["backupId"])')"
+          git config user.name "NexControl Backup"
+          git config user.email "nexcontrol-backup@users.noreply.github.com"
+          git add "secure-backups/$BACKUP_ID"
+          if git diff --cached --quiet; then
+            echo "Backup already present."
+            exit 0
+          fi
+          git commit -m "backup: full encrypted Telegram bots server $BACKUP_ID"
+          git push origin HEAD:main
