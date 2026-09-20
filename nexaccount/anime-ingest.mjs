@@ -18,6 +18,7 @@ const DIALOG_LIMIT=Math.min(250,Math.max(20,Number(process.env.NEXANIME_DIALOG_L
 const BACKFILL_LIMIT=Math.min(3000,Math.max(50,Number(process.env.NEXANIME_BACKFILL_LIMIT||900)));
 const ACTIVE_SAMPLE_LIMIT=Math.min(120,Math.max(20,Number(process.env.NEXANIME_ACTIVE_SAMPLE_LIMIT||80)));
 const MAX_ACTIVE_SERIES=Math.min(20,Math.max(1,Number(process.env.NEXANIME_MAX_ACTIVE_SERIES||8)));
+const MAX_SELECTED_SOURCES=Math.min(25,Math.max(3,Number(process.env.NEXANIME_MAX_SELECTED_SOURCES||10)));
 const MEDIA_POLICY_DEFAULT=String(process.env.NEXANIME_MEDIA_POLICY||'authorized_only').toLowerCase();
 let MEDIA_POLICY_CACHE={value:MEDIA_POLICY_DEFAULT,expires:0};
 const TMP_ROOT=process.env.NEXANIME_TMP_DIR||path.join(os.tmpdir(),'nexanime');
@@ -512,6 +513,15 @@ function sourceStats(messages,source={}){
   return {classification,animeSignals,blockedSignals,sampleSize,confidence:Number(confidence.toFixed(2))};
 }
 function acceptedSource(row){return row?.classification==='anime'||row?.classification==='mixed'}
+function sourceRank(row={}){
+  const sample=Math.max(1,Number(row.sampleSize||1));
+  const anime=Number(row.animeSignals||0);
+  const blocked=Number(row.blockedSignals||0);
+  const ratio=anime/sample;
+  const blockedRatio=blocked/sample;
+  return ratio*100 + Math.min(30,anime*1.2) - blockedRatio*90 - blocked*1.5;
+}
+function selectedSource(row){return acceptedSource(row)&&row?.selected===true}
 
 async function enqueueCandidate(runtime,entity,message,c,{mode='live'}={}){
   await ensureIndexes();
@@ -642,32 +652,52 @@ async function discoverSources(runtime){
   runtime.animeIngest.discovering=true;
   await setDiscoveryState(runtime,true);
   try{
-  const dialogs=await runtime.client.getDialogs({limit:DIALOG_LIMIT});
-  const accepted=[];
-  for(const dialog of dialogs){
-    const entity=dialog?.entity;
-    if(!entity?.id||!entity?.broadcast)continue;
-    if(String(entity?.username||'').toLowerCase()===DESTINATION.toLowerCase())continue;
-    try{
-      const row=await classifySource(runtime,entity);
-      if(acceptedSource(row)){
-        accepted.push(row);
-        await backfillSource(runtime,entity);
+    const dialogs=await runtime.client.getDialogs({limit:DIALOG_LIMIT});
+    const candidates=[];
+    for(const dialog of dialogs){
+      const entity=dialog?.entity;
+      if(!entity?.id||!entity?.broadcast)continue;
+      if(String(entity?.username||'').toLowerCase()===DESTINATION.toLowerCase())continue;
+      try{
+        const row=await classifySource(runtime,entity);
+        if(acceptedSource(row))candidates.push({row,entity,rank:sourceRank(row)});
+        await sleep(80);
+      }catch(e){
+        console.warn('[NexAnime discover]',String(runtime.account.telegramUserId),String(entity?.username||entity?.id||''),String(e?.message||e).slice(0,220));
       }
-      await sleep(120);
-    }catch(e){
-      console.warn('[NexAnime discover]',String(runtime.account.telegramUserId),String(entity?.username||entity?.id||''),String(e?.message||e).slice(0,220));
     }
-  }
-  runtime.animeIngest.sources=accepted.length;
-  runtime.animeIngest.lastDiscoveryAt=new Date();
-  return accepted;
+
+    candidates.sort((a,b)=>b.rank-a.rank||Number(b.row.animeSignals||0)-Number(a.row.animeSignals||0));
+    const selected=candidates.slice(0,MAX_SELECTED_SOURCES);
+    const d=await db();
+    const accountId=String(runtime.account.telegramUserId);
+    await d.collection('nexanime_sources').updateMany(
+      {accountId},
+      {$set:{selected:false,selectionUpdatedAt:new Date()}}
+    );
+    for(let i=0;i<selected.length;i++){
+      const {row,entity,rank}=selected[i];
+      await d.collection('nexanime_sources').updateOne(
+        {accountId,channelId:String(row.channelId)},
+        {$set:{selected:true,sourceRank:Number(rank.toFixed(3)),selectionPosition:i+1,selectionUpdatedAt:new Date()}}
+      );
+      const cacheKey=accountId+':'+String(row.channelId);
+      const cached=SOURCE_CACHE.get(cacheKey);
+      if(cached)SOURCE_CACHE.set(cacheKey,{...cached,selected:true,sourceRank:rank,selectionPosition:i+1});
+      try{
+        await backfillSource(runtime,entity);
+      }catch(e){
+        console.warn('[NexAnime backfill]',accountId,String(entity?.username||entity?.id||''),String(e?.message||e).slice(0,220));
+      }
+    }
+    runtime.animeIngest.sources=selected.length;
+    runtime.animeIngest.lastDiscoveryAt=new Date();
+    return selected.map(x=>({...x.row,selected:true,sourceRank:x.rank}));
   }finally{
     runtime.animeIngest.discovering=false;
     await setDiscoveryState(runtime,false);
   }
 }
-
 
 async function pollAnimeSources(runtime){
   if(!isListenerRuntime(runtime)||runtime.animeIngest?.polling)return 0;
@@ -681,7 +711,7 @@ async function pollAnimeSources(runtime){
     }
     const d=await db();
     const rows=await d.collection('nexanime_sources')
-      .find({accountId:String(runtime.account.telegramUserId),classification:{$in:['anime','mixed']}})
+      .find({accountId:String(runtime.account.telegramUserId),selected:true,classification:{$in:['anime','mixed']}})
       .sort({confidence:-1,updatedAt:-1})
       .limit(80).toArray();
     for(const row of rows){
@@ -760,7 +790,7 @@ export async function handleAnimeIngestEvent(runtime,event){
   if(!source || source.classification==='candidate'){
     source=await classifySource(runtime,entity);
   }
-  if(!acceptedSource(source))return false;
+  if(!selectedSource(source))return false;
   let c=classifyMessage(message,{username:entity.username||'',title:entity.title||''});
   if(c.kind==='blocked')return true;
   if(c.kind==='ignore')return false;
