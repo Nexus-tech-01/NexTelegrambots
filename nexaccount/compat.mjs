@@ -70,6 +70,59 @@ async function repliedMessage(client,peer,message){
     return Array.isArray(rows)?rows[0]:rows;
   }catch{return null}
 }
+function randomViewOnceId(){
+  return BigInt.asIntN(64,BigInt('0x'+crypto.randomBytes(8).toString('hex')));
+}
+function mediaTtlSeconds(media){
+  return Number(media?.ttlSeconds ?? media?.ttl_seconds ?? 0);
+}
+function toInputPhoto(photo){
+  if(!photo?.id||photo?.accessHash==null||!photo?.fileReference)return null;
+  return new Api.InputPhoto({id:photo.id,accessHash:photo.accessHash,fileReference:photo.fileReference});
+}
+function toInputDocument(document){
+  if(!document?.id||document?.accessHash==null||!document?.fileReference)return null;
+  return new Api.InputDocument({id:document.id,accessHash:document.accessHash,fileReference:document.fileReference});
+}
+function isViewOnceCapableDocument(media,document){
+  if(media?.video===true||media?.voice===true||media?.round===true)return true;
+  const attrs=Array.isArray(document?.attributes)?document.attributes:[];
+  return attrs.some(a=>/DocumentAttribute(Video|Audio)/i.test(String(a?.className||a?.constructor?.name||'')));
+}
+async function resendAsTelegramViewOnce(client,peer,commandMessage){
+  const source=await repliedMessage(client,peer,commandMessage);
+  if(!source?.media)throw new Error('Réponds à une photo, vidéo ou note vocale normale avec .vv.');
+  if(mediaTtlSeconds(source.media)>0){
+    throw new Error('Ce média est déjà éphémère/vue unique. NexAi ne contourne pas sa protection.');
+  }
+
+  let media=null;
+  if(source.media instanceof Api.MessageMediaPhoto){
+    const id=toInputPhoto(source.media.photo);
+    if(!id)throw new Error('Photo Telegram indisponible.');
+    media=new Api.InputMediaPhoto({id,ttlSeconds:0x7fffffff});
+  }else if(source.media instanceof Api.MessageMediaDocument){
+    const document=source.media.document;
+    if(!isViewOnceCapableDocument(source.media,document)){
+      throw new Error('Le mode vue unique est limité ici aux vidéos et notes vocales/vidéo.');
+    }
+    const id=toInputDocument(document);
+    if(!id)throw new Error('Média Telegram indisponible.');
+    media=new Api.InputMediaDocument({id,ttlSeconds:0x7fffffff});
+  }else{
+    throw new Error('Format non pris en charge par .vv.');
+  }
+
+  const inputPeer=await client.getInputEntity(peer);
+  return client.invoke(new Api.messages.SendMedia({
+    peer:inputPeer,
+    media,
+    message:'',
+    randomId:randomViewOnceId(),
+    noforwards:true
+  }));
+}
+
 async function targetEntity(client,peer,message,args,{optional=false}={}){
   const reply=await repliedMessage(client,peer,message);
   if(reply?.senderId){
