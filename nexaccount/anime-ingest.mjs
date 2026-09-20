@@ -274,7 +274,9 @@ function animeAliasScore(query,aliases=[]){
     const a=norm(alias);
     if(!a)continue;
     if(q===a)return 1;
-    if(q.length>=5&&a.length>=5&&(q.includes(a)||a.includes(q)))best=Math.max(best,0.9);
+    const qTokens=q.split(' ').filter(Boolean).length;
+    const aTokens=a.split(' ').filter(Boolean).length;
+    if(q.length>=5&&a.length>=5&&(q.includes(a)||a.includes(q))&&(Math.min(qTokens,aTokens)>=2))best=Math.max(best,0.9);
     best=Math.max(best,titleSimilarity(q,a));
   }
   return best;
@@ -323,6 +325,8 @@ async function verifyAnimeTitle(query){
 }
 function bestAnchor(title,anchors=[]){
   const q=cleanSeriesTitle(title);
+  const forced=anchors.find(a=>a.applyAll===true);
+  if(forced)return forced;
   let best=null,bestScore=0;
   for(const a of anchors){
     const raw=a.raw||a.canonicalTitle||'';
@@ -336,12 +340,19 @@ function bestAnchor(title,anchors=[]){
 async function verifiedSeriesAnchors(messages,source={}){
   const raw=deriveRawAnchors(messages,source);
   const out=[];
+  const sourceCandidate=sourceTitleCandidate(source);
+  if(sourceCandidate){
+    const v=await verifyAnimeTitle(sourceCandidate);
+    if(v.ok)out.push({raw:sourceCandidate,canonicalTitle:v.canonicalTitle,anilistId:v.anilistId,score:v.score,applyAll:true});
+  }
   for(const title of raw){
     const v=await verifyAnimeTitle(title);
-    if(v.ok)out.push({raw:title,canonicalTitle:v.canonicalTitle,anilistId:v.anilistId,score:v.score});
+    if(v.ok&&!out.some(x=>x.anilistId===v.anilistId)){
+      out.push({raw:title,canonicalTitle:v.canonicalTitle,anilistId:v.anilistId,score:v.score});
+    }
     await sleep(180);
   }
-  return out;
+  return out.slice(0,MAX_ACTIVE_SERIES);
 }
 async function canonicalizeCandidate(c,source={}){
   if(!c||!['episode','presentation'].includes(c.kind))return c;
