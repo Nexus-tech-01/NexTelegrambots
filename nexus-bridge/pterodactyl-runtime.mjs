@@ -129,6 +129,7 @@ async function publicRequest(req,res) {
   }
 
   if (
+    path.startsWith('/companion/v1/') ||
     path==='/setup/meta-app' ||
     path==='/connect/meta' ||
     path==='/oauth/meta/callback' ||
