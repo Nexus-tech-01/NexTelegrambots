@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 
 const ROOT=path.resolve(process.env.NEXCONTROL_FLEET_ROOT||'.');
 const ENTRY=path.resolve(ROOT,'nexcontrol/agent/index.mjs');
+const WATCHDOG_ENTRY=path.resolve(ROOT,'nexcontrol/agent/resource-watchdog.mjs');
 const CONFIG=path.resolve(ROOT,process.env.NEXCONTROL_AGENT_CONFIG||'nexcontrol/agent/agent.config.json');
 const STATE_DIR=path.resolve(ROOT,'.nexcontrol/fleet');
 const STATE_FILE=path.join(STATE_DIR,'status.json');
@@ -13,9 +14,9 @@ const RESTART_MIN_MS=1500;
 const RESTART_MAX_MS=15000;
 
 const workers=[
-  {slug:'nexus-failover-a',name:'Nexus Failover A'},
-  {slug:'nexus-failover-b',name:'Nexus Failover B'},
-  {slug:'nexus-watchdog',name:'Nexus Watchdog'}
+  {slug:'nexus-failover-a',name:'Nexus Failover A',entry:ENTRY},
+  {slug:'nexus-failover-b',name:'Nexus Failover B',entry:ENTRY},
+  {slug:'nexus-watchdog',name:'Nexus Watchdog',entry:WATCHDOG_ENTRY}
 ];
 
 await fs.mkdir(STATE_DIR,{recursive:true});
@@ -36,6 +37,7 @@ try{
 await fs.writeFile(LOCK_FILE,JSON.stringify({pid:process.pid,startedAt:new Date().toISOString()},null,2),{mode:0o600});
 
 if(!fssync.existsSync(ENTRY))throw new Error('NexControl agent entry missing: '+ENTRY);
+if(!fssync.existsSync(WATCHDOG_ENTRY))throw new Error('NexControl watchdog entry missing: '+WATCHDOG_ENTRY);
 if(!fssync.existsSync(CONFIG))throw new Error('NexControl agent config missing: '+CONFIG);
 if(!String(process.env.NEXCONTROL_AGENT_KEY||process.env.NEXCONTROL_FLEET_KEY||'').trim()){
   throw new Error('NEXCONTROL_AGENT_KEY/NEXCONTROL_FLEET_KEY missing');
@@ -73,7 +75,8 @@ function pipe(child,slug,stream,label){
   });
 }
 
-async function findExistingWorker(slug){
+async function findExistingWorker(def){
+  const slug=def.slug;
   if(process.platform!=='linux')return null;
   let entries=[];
   try{entries=await fs.readdir('/proc')}catch{return null}
@@ -88,7 +91,7 @@ async function findExistingWorker(slug){
       ]);
       const cmd=cmdBuf.toString('utf8').replace(/\0/g,' ');
       const env='\0'+envBuf.toString('utf8')+'\0';
-      if(cmd.includes(ENTRY)&&env.includes('\0NEXCONTROL_AGENT_SLUG='+slug+'\0'))return pid;
+      if(cmd.includes(def.entry)&&env.includes('\0NEXCONTROL_AGENT_SLUG='+slug+'\0'))return pid;
     }catch{}
   }
   return null;
@@ -123,7 +126,7 @@ function startWorker(def,delayMs=0){
     row.status='starting';
     row.lastStartAt=new Date().toISOString();
 
-    const child=spawn(process.execPath,[ENTRY],{
+    const child=spawn(process.execPath,[def.entry],{
       cwd:ROOT,
       env:{
         ...process.env,
@@ -164,7 +167,7 @@ function startWorker(def,delayMs=0){
 
 for(let i=0;i<workers.length;i++){
   const def=workers[i];
-  const existingPid=await findExistingWorker(def.slug);
+  const existingPid=await findExistingWorker(def);
   if(existingPid)monitorExisting(def,existingPid);
   else startWorker(def,i*1200);
 }
