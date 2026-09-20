@@ -612,11 +612,35 @@ async function backfillSource(runtime,entity){
   return count;
 }
 
+
+async function setDiscoveryState(runtime,discovering){
+  try{
+    const d=await db();
+    await d.collection('nexanime_listener_state').updateOne(
+      {_id:String(runtime.account.telegramUserId)},
+      {$set:{
+        username:String(runtime.account.username||''),
+        discovering:discovering===true,
+        updatedAt:new Date()
+      }},
+      {upsert:true}
+    );
+  }catch{}
+}
+async function anyDiscoveryInProgress(){
+  const d=await db();
+  return !!(await d.collection('nexanime_listener_state').findOne({
+    discovering:true,
+    updatedAt:{$gt:new Date(Date.now()-2*60*60*1000)}
+  },{projection:{_id:1}}));
+}
+
 async function discoverSources(runtime){
   if(!isListenerRuntime(runtime))return [];
   runtime.animeIngest ??={};
   if(runtime.animeIngest.discovering)return [];
   runtime.animeIngest.discovering=true;
+  await setDiscoveryState(runtime,true);
   try{
   const dialogs=await runtime.client.getDialogs({limit:DIALOG_LIMIT});
   const accepted=[];
@@ -640,6 +664,7 @@ async function discoverSources(runtime){
   return accepted;
   }finally{
     runtime.animeIngest.discovering=false;
+    await setDiscoveryState(runtime,false);
   }
 }
 
@@ -885,20 +910,111 @@ async function releaseClaim(item,error){
     await d.collection('nexanime_queue').updateOne({_id:item._id},{$set:{status:'quarantine',quarantineReason:'publish_failures',updatedAt:now}});
   }
 }
-async function claimNext(runtime){
+
+async function acquireGlobalPublishLock(runtime){
   await ensureIndexes();
-  const d=await db(),now=new Date();
-  const accountId=String(runtime.account.telegramUserId);
+  const d=await db();
+  const owner=String(runtime.account.telegramUserId);
+  const now=new Date();
+  try{
+    const row=await d.collection('nexanime_locks').findOneAndUpdate(
+      {
+        _id:'publisher',
+        $or:[
+          {expiresAt:{$exists:false}},
+          {expiresAt:{$lte:now}},
+          {owner}
+        ]
+      },
+      {$set:{owner,expiresAt:new Date(Date.now()+120_000),updatedAt:now}},
+      {upsert:true,returnDocument:'after'}
+    );
+    const doc=row?.value||row;
+    return doc?.owner===owner;
+  }catch(error){
+    if(Number(error?.code)===11000)return false;
+    throw error;
+  }
+}
+async function releaseGlobalPublishLock(runtime){
+  const d=await db();
+  await d.collection('nexanime_locks').updateOne(
+    {_id:'publisher',owner:String(runtime.account.telegramUserId)},
+    {$set:{expiresAt:new Date(0),updatedAt:new Date()}}
+  ).catch(()=>{});
+}
+async function chooseActiveSeries(d){
+  const scheduler=d.collection('nexanime_config');
+  const current=await scheduler.findOne({_id:'scheduler'});
+  if(current?.activeSeriesKey){
+    const remaining=await d.collection('nexanime_queue').countDocuments({
+      seriesKey:current.activeSeriesKey,
+      status:{$in:['queued','publishing']}
+    });
+    if(remaining>0)return current.activeSeriesKey;
+    await scheduler.updateOne(
+      {_id:'scheduler'},
+      {$unset:{activeSeriesKey:'',activeSeriesStartedAt:''},$set:{updatedAt:new Date()}},
+      {upsert:true}
+    );
+  }
+
+  const rows=await d.collection('nexanime_queue').aggregate([
+    {$match:{status:'queued',seriesKey:{$type:'string'}}},
+    {$group:{
+      _id:'$seriesKey',
+      firstCreated:{$min:'$createdAt'},
+      hasPresentation:{$max:{$cond:[{$eq:['$kind','presentation']},1,0]}},
+      episodeCount:{$sum:{$cond:[{$eq:['$kind','episode']},1,0]}}
+    }},
+    {$match:{episodeCount:{$gt:0}}},
+    {$sort:{hasPresentation:-1,firstCreated:1,_id:1}},
+    {$limit:1}
+  ]).toArray();
+  const next=rows?.[0]?._id||'';
+  if(!next)return '';
+  await scheduler.updateOne(
+    {_id:'scheduler'},
+    {$set:{activeSeriesKey:next,activeSeriesStartedAt:new Date(),updatedAt:new Date()}},
+    {upsert:true}
+  );
+  return next;
+}
+async function claimExactItem(d,item,accountId){
+  if(!item)return null;
+  const owns=(item.sources||[]).some(x=>String(x.accountId)===String(accountId));
+  if(!owns)return null;
   return d.collection('nexanime_queue').findOneAndUpdate(
-    {
-      status:'queued',
-      'sources.accountId':accountId,
-      $or:[{claimAt:{$exists:false}},{claimAt:{$lt:new Date(Date.now()-10*60*1000)}}]
-    },
-    {$set:{status:'publishing',claimAt:now,claimBy:accountId,updatedAt:now}},
-    {sort:{priority:-1,seriesKey:1,season:1,episode:1,createdAt:1},returnDocument:'after'}
+    {_id:item._id,status:'queued'},
+    {$set:{status:'publishing',claimAt:new Date(),claimBy:String(accountId),updatedAt:new Date()}},
+    {returnDocument:'after'}
   );
 }
+
+async function claimNext(runtime){
+  await ensureIndexes();
+  const d=await db();
+  const accountId=String(runtime.account.telegramUserId);
+  const seriesKey=await chooseActiveSeries(d);
+  if(!seriesKey)return null;
+
+  // A series presentation is always sent before any of its episodes.
+  const presentation=await d.collection('nexanime_queue').findOne(
+    {seriesKey,status:'queued',kind:'presentation'},
+    {sort:{createdAt:1}}
+  );
+  if(presentation)return claimExactItem(d,presentation,accountId);
+
+  // Then drain the entire anime in season/episode order before switching series.
+  const episode=await d.collection('nexanime_queue').findOne(
+    {seriesKey,status:'queued',kind:'episode'},
+    {sort:{season:1,episode:1,language:1,quality:-1,createdAt:1}}
+  );
+  if(episode)return claimExactItem(d,episode,accountId);
+
+  return null;
+}
+
 async function alreadyPublished(dedupeKey){
   const d=await db();
   return !!(await d.collection('nexanime_publications').findOne({dedupeKey},{projection:{_id:1}}));
@@ -906,6 +1022,9 @@ async function alreadyPublished(dedupeKey){
 async function publishOne(runtime){
   if(!isListenerRuntime(runtime)||runtime.animeIngest?.publishing)return false;
   runtime.animeIngest ??={};
+  if(await anyDiscoveryInProgress())return false;
+  const locked=await acquireGlobalPublishLock(runtime);
+  if(!locked)return false;
   runtime.animeIngest.publishing=true;
   let item=null;
   try{
@@ -934,6 +1053,7 @@ async function publishOne(runtime){
     return false;
   }finally{
     runtime.animeIngest.publishing=false;
+    await releaseGlobalPublishLock(runtime);
   }
 }
 
