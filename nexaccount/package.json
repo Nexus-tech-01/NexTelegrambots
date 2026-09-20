@@ -1,6 +1,6 @@
 {
   "name": "nexaccount",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node daemon.mjs",
-    "check": "node --check daemon.mjs && node --check cli.mjs && node --check bootstrap.mjs && node --check dipper-fallback.mjs && node --check anime-engine.mjs && node scripts/validate-registry.mjs"
+    "check": "for f in *.mjs scripts/*.mjs; do node --check \"$f\"; done && node scripts/validate-registry.mjs"
   },
   "dependencies": {
     "grammy": "1.46.0",
