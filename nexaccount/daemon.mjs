@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { cfg, assertCoreConfig } from './config.mjs';
 import { beginPairing, cancelPairing, cleanupPairings, pairingStatus, submitPairingCode, submitPairingPassword } from './pairing.mjs';
-import { attachConnectedClient, loadSavedRuntimes, runtimeCommandTest, runtimeStatus, stopRuntimes } from './runtime.mjs';
+import { attachConnectedClient, engineStatus, loadSavedRuntimes, runtimeCommandTest, runtimeStatus, stopRuntimes } from './runtime.mjs';
 import { listAccounts, patchSettings, closeStore } from './store.mjs';
 import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
 import { loadBotToken } from './secrets.mjs';
@@ -31,6 +31,9 @@ async function route(req,res){
     }
     if(req.method==='GET'&&url.pathname==='/accounts'){
       return json(res,200,{ok:true,accounts:await listAccounts(),runtimes:runtimeStatus()});
+    }
+    if(req.method==='GET'&&url.pathname==='/engines'){
+      return json(res,200,await engineStatus());
     }
     if(req.method==='GET'&&url.pathname==='/pair/status'){
       return json(res,200,{ok:true,...pairingStatus(url.searchParams.get('id')||'')});
