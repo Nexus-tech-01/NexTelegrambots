@@ -51,6 +51,14 @@ function messageAuthorId(message){
   return String(message?.senderId||message?.fromId?.userId||message?.fromId?.channelId||'');
 }
 
+function connectedAccountIds(account){
+  return new Set([
+    account?.telegramUserId,
+    account?.connectedTelegramUserId,
+    account?.sessionTelegramUserId
+  ].filter(v=>v!==undefined&&v!==null&&String(v)!=='').map(v=>String(v)));
+}
+
 async function messageAuthorIsBot(client,message,eventSender=null){
   if(eventSender?.bot===true)return true;
   const id=messageAuthorId(message);
@@ -62,12 +70,14 @@ async function messageAuthorIsBot(client,message,eventSender=null){
 }
 
 function isSelfAuthoredMessage(message,account){
-  const self=String(account?.telegramUserId||'');
-  if(!self||!message)return false;
+  const selfIds=connectedAccountIds(account);
+  if(!selfIds.size||!message)return false;
   if(message.out===true)return true;
-  if(messageAuthorId(message)===self)return true;
+  const author=messageAuthorId(message);
+  if(author&&selfIds.has(author))return true;
   // Saved Messages can be represented as a self peer across synchronized sessions.
-  if(String(message?.peerId?.userId||'')===self&&message.fromId==null)return true;
+  const peerUserId=String(message?.peerId?.userId||'');
+  if(peerUserId&&selfIds.has(peerUserId)&&message.fromId==null)return true;
   return false;
 }
 
@@ -770,6 +780,21 @@ function rawCommandEvent(update,account){
 
 export async function attachConnectedClient(client,account,{leaseOwned=false}={}){
   const id=String(account.telegramUserId);
+  try{
+    const me=await client.getMe();
+    if(me?.id!==undefined&&me?.id!==null){
+      account.connectedTelegramUserId=String(me.id);
+      account.sessionTelegramUserId=String(me.id);
+      if(account.connectedTelegramUserId!==id){
+        console.warn('[NexAccount identity]',id,'session_user='+account.connectedTelegramUserId);
+      }
+      account.premium=me.premium===true;
+      account.username=me.username||account.username;
+      account.firstName=me.firstName||account.firstName;
+    }
+  }catch(error){
+    console.warn('[NexAccount identity]',id,'getMe_failed',String(error?.errorMessage||error?.message||error).slice(0,300));
+  }
   if(cfg.workerCount>1&&!accountAssignedToWorker(id)){
     try{await client.disconnect()}catch{}
     if(leaseOwned)await releaseRuntimeLease(id).catch(()=>{});
