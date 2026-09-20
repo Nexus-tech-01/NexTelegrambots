@@ -139,3 +139,11 @@ console.log('NexAnime ingest regression tests: OK');
   assert.ok(anchors.some(x=>/Classroom of the Elite/i.test(x)),JSON.stringify(anchors));
   assert.ok(!anchors.some(x=>/Mushoku/i.test(x)),JSON.stringify(anchors));
 }
+
+
+// bullet-separated season/episode labels must keep the real season number
+{
+  const x=__test.parseEpisode('Classroom of the Elite\nS4 • EP12\nVOSTFR');
+  assert.equal(x.season,4);
+  assert.equal(x.episode,12);
+}
