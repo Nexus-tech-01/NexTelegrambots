@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node daemon.mjs",
-    "check": "node --check daemon.mjs && node --check cli.mjs && node --check bootstrap.mjs && node --check dipper-fallback.mjs && node scripts/validate-registry.mjs"
+    "check": "node --check daemon.mjs && node --check cli.mjs && node --check bootstrap.mjs && node --check dipper-fallback.mjs && node --check anime-engine.mjs && node scripts/validate-registry.mjs"
   },
   "dependencies": {
     "grammy": "1.46.0",
