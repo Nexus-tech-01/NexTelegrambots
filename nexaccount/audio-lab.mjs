@@ -334,7 +334,7 @@ async function withInput(client,peer,event,fn){
 export async function handleAudioLabCommand({runtime,event,name,args,sendText}){
   name=String(name||'').toLowerCase();
   if(!AUDIO_LAB_COMMANDS.has(name))return false;
-  const {client}=runtime,peer=event.message.peerId,chat=messageKey(event);
+  const {client,account}=runtime,peer=event.message.peerId,chat=String(account.telegramUserId)+':'+messageKey(event);
   try{
     if(AUDIO_EFFECT_COMMANDS.has(name)){
       return await withInput(client,peer,event,async input=>{
