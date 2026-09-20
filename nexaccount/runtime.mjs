@@ -11,6 +11,7 @@ import { recordEvent } from './analytics.mjs';
 import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
 import { handleCompatCommand } from './compat.mjs';
 import { menuModel } from './menu.mjs';
+import { canHandleAnimeCommand, handleAnimeCommand } from './anime-engine.mjs';
 import { canUseDipperFallback, executeDipperFallback } from './dipper-fallback.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -534,6 +535,19 @@ async function handleCommand(runtime,event,parsed){
 
   if(cmd.premium&&!account.premium){
     await premiumDenied(client,peer,name);
+    return true;
+  }
+  if(cmd.engine==='anime'){
+    const canonical=cmd.aliasFor||cmd.name||name;
+    if(!canHandleAnimeCommand(canonical)){
+      await sendText(client,peer,'Erreur interne : route Anime inconnue pour .'+canonical);
+      return true;
+    }
+    try{
+      await handleAnimeCommand({runtime,event,name:canonical,args:parsed.args});
+    }catch(error){
+      await sendText(client,peer,'Anime · '+canonical+' : '+String(error?.message||error).slice(0,500));
+    }
     return true;
   }
   if(cmd.proxy){
