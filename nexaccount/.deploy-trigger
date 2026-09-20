@@ -1,3 +1,4 @@
 Deploy request: NexAi × Dipper standalone
-Target commit: 62fd056c6fa989649e802fe654e4004968596be7
-Requested: 2026-09-20T14:39:00+01:00
+Target commit: 506cdfe71d55fdcdb885138a298b0196dc233aa6
+Requested: 2026-09-20T14:56:00+01:00
+Reason: complete deployment verification and restart through NexControl Agent
