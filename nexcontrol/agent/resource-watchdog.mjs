@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import fssync from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import crypto from 'node:crypto';
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const ROOT=path.resolve(process.env.NEXCONTROL_FLEET_ROOT||'.');
