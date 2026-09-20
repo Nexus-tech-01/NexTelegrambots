@@ -38,49 +38,49 @@ function systemPrompt(mode='ai',language='fr'){
 
 function providerList(mode='ai'){
   const providers=[];
-  const customBase=normalizeBase(first('NEXAI_LLM_BASE_URL','STACY_LLM_BASE_URL'));
+  const customBase=normalizeBase(first('NEXAI_LLM_BASE_URL'));
   if(customBase){
     providers.push({
       kind:'openai',
       name:'custom',
       base:customBase,
-      key:first('NEXAI_LLM_API_KEY','STACY_LLM_API_KEY'),
+      key:first('NEXAI_LLM_API_KEY'),
       model:first(
         mode==='deepseek'?'NEXAI_DEEPSEEK_MODEL':'',
         mode==='code'?'NEXAI_CODE_MODEL':'',
-        'NEXAI_LLM_MODEL','STACY_LLM_MODEL'
+        'NEXAI_LLM_MODEL'
       )||'local-model'
     });
   }
 
-  const deepseek=first('DEEPSEEK_API_KEY','NEXAI_DEEPSEEK_API_KEY','STACY_DEEPSEEK_API_KEY');
+  const deepseek=first('DEEPSEEK_API_KEY','NEXAI_DEEPSEEK_API_KEY');
   if(deepseek)providers.push({
     kind:'openai',name:'deepseek',base:'https://api.deepseek.com',
     key:deepseek,model:first('NEXAI_DEEPSEEK_MODEL')||'deepseek-chat',
     priority:mode==='deepseek'?0:4
   });
 
-  const gemini=first('GEMINI_API_KEY','GOOGLE_AI_API_KEY','NEXAI_GEMINI_API_KEY','STACY_GEMINI_API_KEY');
+  const gemini=first('GEMINI_API_KEY','GOOGLE_AI_API_KEY','NEXAI_GEMINI_API_KEY');
   if(gemini)providers.push({
     kind:'gemini',name:'gemini',key:gemini,
-    model:first('NEXAI_GEMINI_MODEL','STACY_GEMINI_MODEL')||'gemini-2.5-flash',
+    model:first('NEXAI_GEMINI_MODEL')||'gemini-2.5-flash',
     priority:mode==='deepseek'?3:1
   });
 
-  const openrouter=first('OPENROUTER_API_KEY','NEXAI_OPENROUTER_API_KEY','STACY_OPENROUTER_API_KEY');
+  const openrouter=first('OPENROUTER_API_KEY','NEXAI_OPENROUTER_API_KEY');
   if(openrouter)providers.push({
     kind:'openai',name:'openrouter',base:'https://openrouter.ai/api/v1',
     key:openrouter,model:first('NEXAI_OPENROUTER_MODEL')||'openai/gpt-4o-mini',priority:2,
     extraHeaders:{'HTTP-Referer':'https://t.me/NexAi01_bot','X-Title':'NexAi'}
   });
 
-  const groq=first('GROQ_API_KEY','NEXAI_GROQ_API_KEY','STACY_GROQ_API_KEY');
+  const groq=first('GROQ_API_KEY','NEXAI_GROQ_API_KEY');
   if(groq)providers.push({
     kind:'openai',name:'groq',base:'https://api.groq.com/openai/v1',
     key:groq,model:first('NEXAI_GROQ_MODEL')||'llama-3.3-70b-versatile',priority:3
   });
 
-  const openai=first('OPENAI_API_KEY','NEXAI_OPENAI_API_KEY','STACY_OPENAI_API_KEY');
+  const openai=first('OPENAI_API_KEY','NEXAI_OPENAI_API_KEY');
   if(openai)providers.push({
     kind:'openai',name:'openai',base:'https://api.openai.com/v1',
     key:openai,model:first('NEXAI_OPENAI_MODEL')||'gpt-4o-mini',priority:2
