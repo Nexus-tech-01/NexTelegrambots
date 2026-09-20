@@ -10,7 +10,7 @@ import { patchSettings, settingsFor } from './store.mjs';
 const FFMPEG=String(process.env.FFMPEG_PATH||'ffmpeg');
 const MAX_SOURCE_BYTES=Math.max(1024*1024,Number(process.env.NEXAI_STICKER_MAX_SOURCE_BYTES||25*1024*1024));
 const MAX_CLONE=Math.max(1,Math.min(120,Number(process.env.NEXAI_STICKER_CLONE_LIMIT||50)));
-const MAX_EXPORT=Math.max(1,Math.min(120,Number(process.env.NEXAI_STICKER_EXPORT_LIMIT||50));
+const MAX_EXPORT=Math.max(1,Math.min(120,Number(process.env.NEXAI_STICKER_EXPORT_LIMIT||50)));
 
 const clean=v=>String(v??'').trim();
 const randomLong=()=>BigInt.asIntN(64,BigInt('0x'+crypto.randomBytes(8).toString('hex')));
