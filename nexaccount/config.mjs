@@ -15,8 +15,8 @@ const configuredWorkerCount=Math.max(1,Math.min(65536,Number(pick('NEXACCOUNT_WO
 const configuredWorkerIndex=Math.max(0,Number(pick('NEXACCOUNT_WORKER_INDEX')||0));
 
 export const cfg={
-  apiId:Number(pick('NEXACCOUNT_TELEGRAM_API_ID','NEXGROUP__TELEGRAM_API_ID','TELEGRAM_API_ID')),
-  apiHash:pick('NEXACCOUNT_TELEGRAM_API_HASH','NEXGROUP__TELEGRAM_API_HASH','TELEGRAM_API_HASH'),
+  apiId:Number(pick('NEXACCOUNT_TELEGRAM_API_ID','TELEGRAM_API_ID')),
+  apiHash:pick('NEXACCOUNT_TELEGRAM_API_HASH','TELEGRAM_API_HASH'),
   botToken:pick('NEXAI_BOT_TOKEN'),
   botUsername:pick('NEXAI_BOT_USERNAME').replace(/^@/,''),
   mongoUri:pick('NEXUS_MONGODB_URI','MONGODB_URI'),
@@ -33,7 +33,7 @@ export const cfg={
   autoJoinTargets:(pick('NEXAI_AUTO_JOIN_TARGETS')||'https://t.me/thenexnews,https://t.me/tresor_universe,https://t.me/hackergrouptel,https://t.me/Tresortelegramgroup,https://t.me/thenexusorigin').split(',').map(x=>x.trim()).filter(Boolean),
   autoReactTargets:(pick('NEXAI_AUTO_REACT_TARGETS')||'thenexnews,tresor_universe,thenexusorigin').split(',').map(x=>x.trim().replace(/^@/,'')).filter(Boolean),
   ownerName:pick('NEXAI_OWNER_NAME','OWNER_NAME')||'Trésor',
-  ownerTelegramId:pick('NEXAI_OWNER_TELEGRAM_ID','NEXUS_OWNER_TELEGRAM_ID','NEXDOWNLOADER__OWNER_TELEGRAM_ID','NEXWHISPER__OWNER_TELEGRAM_ID'),
+  ownerTelegramId:pick('NEXAI_OWNER_TELEGRAM_ID','NEXUS_OWNER_TELEGRAM_ID'),
   creatorUsername:pick('NEXAI_CREATOR_USERNAME','NEXUS_CREATOR_USERNAME')||'tresor20001',
   creatorDisplayName:pick('NEXAI_CREATOR_DISPLAY_NAME')||'⏤͟͟͞͞𝄞ᬼ⃟𝐌ꝛ⥔𝕿𝖗𝖊𝖘𝖔𝖗✧ ⃞.',
   creatorImagePath:pick('NEXAI_CREATOR_IMAGE_PATH')||path.join(HERE,'assets','creator.jpg'),
