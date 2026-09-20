@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import fssync from 'node:fs';
+import fssync from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
@@ -8,6 +9,19 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const ROOT=path.resolve(process.env.NEXCONTROL_FLEET_ROOT||'.');
 const CONFIG=path.resolve(ROOT,process.env.NEXCONTROL_AGENT_CONFIG||'nexcontrol/agent/agent.config.json');
 const DEFAULT_STATE=path.join(ROOT,'.nexcontrol','runtime','resource-watchdog.json');
+const LOCK_FILE=path.join(ROOT,'.nexcontrol','runtime','resource-watchdog.lock.json');
+await fs.mkdir(path.dirname(LOCK_FILE),{recursive:true});
+try{
+  const old=JSON.parse(await fs.readFile(LOCK_FILE,'utf8'));
+  const oldPid=Number(old?.pid||0);
+  if(oldPid>1&&oldPid!==process.pid){
+    try{process.kill(oldPid,0);console.log('[ResourceWatchdog] already running pid='+oldPid);process.exit(0)}catch{}
+  }
+}catch{}
+await fs.writeFile(LOCK_FILE,JSON.stringify({pid:process.pid,startedAt:new Date().toISOString()},null,2),{mode:0o600});
+const releaseLock=()=>{try{const row=JSON.parse(fssync.readFileSync(LOCK_FILE,'utf8'));if(Number(row?.pid)===process.pid)fssync.rmSync(LOCK_FILE,{force:true})}catch{}};
+process.on('exit',releaseLock);
+
 
 let cfg={};
 try{cfg=JSON.parse(await fs.readFile(CONFIG,'utf8'))}catch{}
