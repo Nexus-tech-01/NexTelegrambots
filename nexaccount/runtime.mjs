@@ -50,6 +50,16 @@ function messageAuthorId(message){
   return String(message?.senderId||message?.fromId?.userId||message?.fromId?.channelId||'');
 }
 
+async function messageAuthorIsBot(client,message,eventSender=null){
+  if(eventSender?.bot===true)return true;
+  const id=messageAuthorId(message);
+  if(!id)return false;
+  try{
+    const entity=await client.getEntity(id);
+    return entity?.bot===true;
+  }catch{return false}
+}
+
 function isSelfAuthoredMessage(message,account){
   const self=String(account?.telegramUserId||'');
   if(!self||!message)return false;
@@ -617,14 +627,14 @@ async function syncRuntimeUpdates(runtime){
 }
 
 async function maybeHandleSelfCommand(runtime,event,source='event'){
-  const {account}=runtime;
+  const {client,account}=runtime;
   const message=event?.message;
   if(!message)return false;
   const settings=await settingsFor(account.telegramUserId);
   const selfAuthored=isSelfAuthoredMessage(message,account);
   const accessMode=settings.accessMode==='public'?'public':'private';
   if(!selfAuthored&&accessMode!=='public')return false;
-  if(!selfAuthored&&event?.sender?.bot===true)return false;
+  if(!selfAuthored&&await messageAuthorIsBot(client,message,event?.sender))return false;
   const parsed=parseCommand(textOf(message),settings.prefix||'.');
   if(!parsed)return false;
   if(!claimCommand(account.telegramUserId,message))return true;
