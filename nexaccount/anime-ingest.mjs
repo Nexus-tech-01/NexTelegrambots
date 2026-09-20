@@ -12,7 +12,7 @@ const LISTENERS=new Set(
 const DESTINATION=String(process.env.NEXANIME_DESTINATION||'theotaku_nexus').trim().replace(/^@/,'');
 const DISCOVERY_MS=Math.max(15*60*1000,Number(process.env.NEXANIME_DISCOVERY_MS||6*60*60*1000));
 const PUBLISH_MS=Math.max(5000,Number(process.env.NEXANIME_PUBLISH_MS||15000));
-const SOURCE_SAMPLE_LIMIT=Math.min(60,Math.max(10,Number(process.env.NEXANIME_SOURCE_SAMPLE_LIMIT||24)));
+const SOURCE_SAMPLE_LIMIT=Math.min(80,Math.max(12,Number(process.env.NEXANIME_SOURCE_SAMPLE_LIMIT||40)));
 const DIALOG_LIMIT=Math.min(250,Math.max(20,Number(process.env.NEXANIME_DIALOG_LIMIT||120)));
 const BACKFILL_LIMIT=Math.min(3000,Math.max(50,Number(process.env.NEXANIME_BACKFILL_LIMIT||900)));
 const ACTIVE_SAMPLE_LIMIT=Math.min(120,Math.max(20,Number(process.env.NEXANIME_ACTIVE_SAMPLE_LIMIT||80)));
@@ -207,6 +207,18 @@ function classifyMessage(message,source={}){
   return {kind:'ignore',reason:obviousNonEpisode?'non_episode_anime_content':'not_anime_release'};
 }
 
+async function cleanupTmpFiles(){
+  await fs.mkdir(TMP_ROOT,{recursive:true});
+  const now=Date.now();
+  for(const name of await fs.readdir(TMP_ROOT).catch(()=>[])){
+    const p=path.join(TMP_ROOT,name);
+    try{
+      const st=await fs.stat(p);
+      if(st.isFile()&&now-st.mtimeMs>6*60*60*1000)await fs.rm(p,{force:true});
+    }catch{}
+  }
+}
+
 async function ensureIndexes(){
   if(indexesReady)return;
   const d=await db();
@@ -260,7 +272,7 @@ function sourceStats(messages,source={}){
   const sampleSize=Math.max(1,(messages||[]).length);
   const ratio=animeSignals/sampleSize;
   let classification='non_anime';
-  if(animeSignals>=3 && ratio>=0.10)classification=blockedSignals>0||ratio<0.55?'mixed':'anime';
+  if(animeSignals>=2 && ratio>=0.05)classification=blockedSignals>0||ratio<0.55?'mixed':'anime';
   else if(animeSignals>=1)classification='candidate';
   const confidence=Math.min(0.99,0.45+animeSignals*0.09+(presentations?0.04:0)-blockedSignals*0.01);
   return {classification,animeSignals,blockedSignals,sampleSize,confidence:Number(confidence.toFixed(2))};
@@ -552,8 +564,9 @@ async function publishOne(runtime){
   if(!isListenerRuntime(runtime)||runtime.animeIngest?.publishing)return false;
   runtime.animeIngest ??={};
   runtime.animeIngest.publishing=true;
+  let item=null;
   try{
-    const item=await claimNext(runtime);
+    item=await claimNext(runtime);
     if(!item)return false;
     if(await alreadyPublished(item.dedupeKey)){
       await (await db()).collection('nexanime_queue').updateOne({_id:item._id},{$set:{status:'published',updatedAt:new Date(),deduplicated:true}});
@@ -574,11 +587,7 @@ async function publishOne(runtime){
     if(e?.message!=='source_message_unavailable_for_runtime'){
       console.warn('[NexAnime publish]',String(runtime.account.telegramUserId),String(e?.message||e).slice(0,300));
     }
-    const d=await db().catch(()=>null);
-    if(d){
-      const claimed=await d.collection('nexanime_queue').findOne({status:'publishing',claimBy:String(runtime.account.telegramUserId)});
-      if(claimed)await releaseClaim(claimed,e).catch(()=>{});
-    }
+    if(item)await releaseClaim(item,e).catch(()=>{});
     return false;
   }finally{
     runtime.animeIngest.publishing=false;
@@ -592,6 +601,7 @@ export async function startAnimeIngest(runtime){
     enabled:true,destination:'@'+DESTINATION,listener:true,mediaPolicy:MEDIA_POLICY
   };
   await ensureIndexes();
+  queueMicrotask(()=>cleanupTmpFiles().catch(()=>{}));
   queueMicrotask(()=>discoverSources(runtime).catch(e=>console.error('[NexAnime discovery]',String(e?.message||e))));
   runtime.animeIngest.discoveryTimer=setInterval(
     ()=>discoverSources(runtime).catch(e=>console.error('[NexAnime discovery]',String(e?.message||e))),
