@@ -102,10 +102,10 @@ jobs:
             -H "Accept: Application/vnd.pterodactyl.v1+json" \
             "$PANEL_URL/api/client")"
 
-          identifier="$(python3 - "$SERVER_UUID_HINT" <<'PY' <<<"$response"
-          import json,sys
+          identifier="$(RESPONSE="$response" python3 - "$SERVER_UUID_HINT" <<'PY'
+          import json,os,sys
           hint=sys.argv[1]
-          doc=json.load(sys.stdin)
+          doc=json.loads(os.environ["RESPONSE"])
           servers=[x.get("attributes",{}) for x in doc.get("data",[]) if x.get("attributes",{}).get("identifier")]
           match=next((x for x in servers if str(x.get("identifier"))==hint),None)
           if not match:
