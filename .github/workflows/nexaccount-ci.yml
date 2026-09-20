@@ -1,6 +1,12 @@
 name: NexAccount CI
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'nexaccount/**'
+      - 'nexcontrol/api/index.mjs'
+      - '.github/workflows/nexaccount-ci.yml'
   pull_request:
     paths:
       - 'nexaccount/**'
@@ -32,6 +38,8 @@ jobs:
         run: node nexaccount/scripts/audit-command-routing.mjs
       - name: Group commands regression
         run: node nexaccount/scripts/test-group-commands.mjs
+      - name: NexAnime regression
+        run: node nexaccount/scripts/test-anime-ingest.mjs
       - name: Syntax
         run: |
           for f in nexaccount/*.mjs nexaccount/scripts/*.mjs nexcontrol/api/index.mjs; do node --check "$f"; done
