@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import http from 'node:http';
 import { cfg, assertCoreConfig } from './config.mjs';
-import { beginPairing, cancelPairing, cleanupPairings, pairingStatus, submitPairingCode, submitPairingPassword } from './pairing.mjs';
+import { beginPairing, cancelPairing, cleanupPairings, pairingStatus, setPairingConnectedHandler, submitPairingCode, submitPairingPassword } from './pairing.mjs';
 import { attachConnectedClient, engineStatus, loadSavedRuntimes, reconcileRuntimes, runtimeCommandTest, runtimeStatus, stopRuntimes } from './runtime.mjs';
 import { listAccounts, patchSettings, closeStore } from './store.mjs';
 import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
@@ -30,6 +30,23 @@ async function body(req){
   try{return JSON.parse(Buffer.concat(chunks).toString('utf8'))}catch{return {}}
 }
 
+async function onPaired(client,account){
+  if(!(await loadBotToken())){
+    try{
+      const made=await ensureNexAiBot(client,account);
+      if(made.created){
+        console.log('[NexAccount] NexAI created @'+made.username);
+        await startInlineBot();
+      }
+    }catch(e){
+      console.error('[NexAccount BotFactory]',String(e?.message||e));
+    }
+  }
+  await attachConnectedClient(client,account);
+}
+
+setPairingConnectedHandler(onPaired);
+
 async function route(req,res){
   const url=new URL(req.url,'http://127.0.0.1');
   try{
@@ -52,24 +69,11 @@ async function route(req,res){
       return json(res,200,await engineStatus());
     }
     if(req.method==='GET'&&url.pathname==='/pair/status'){
-      return json(res,200,{ok:true,...pairingStatus(url.searchParams.get('id')||'')});
+      return json(res,200,{ok:true,...await pairingStatus(url.searchParams.get('id')||'')});
     }
     if(req.method==='POST'&&url.pathname==='/pair/start'){
       const q=await body(req);
-      const state=await beginPairing(q.phone,async(client,account)=>{
-        if(!(await loadBotToken())){
-          try{
-            const made=await ensureNexAiBot(client,account);
-            if(made.created){
-              console.log('[NexAccount] NexAI created @'+made.username);
-              await startInlineBot();
-            }
-          }catch(e){
-            console.error('[NexAccount BotFactory]',String(e?.message||e));
-          }
-        }
-        await attachConnectedClient(client,account);
-      });
+      const state=await beginPairing(q.phone);
       return json(res,200,{ok:true,...state});
     }
     if(req.method==='POST'&&url.pathname==='/pair/code'){
@@ -121,7 +125,7 @@ server.listen(cfg.port,cfg.host,async()=>{
 const reconcile=setInterval(()=>reconcileRuntimes().catch(e=>console.error('[NexAccount reconcile]',e)),cfg.reconcileMs);
 reconcile.unref();
 
-const cleanup=setInterval(cleanupPairings,60000);
+const cleanup=setInterval(()=>cleanupPairings().catch(e=>console.error('[NexAccount pairing cleanup]',e)),60000);
 cleanup.unref();
 
 ensureAnalyticsIndex({maxAgeMs:0,waitForFirst:false}).catch(e=>console.error('[NexAI analytics]',e));
