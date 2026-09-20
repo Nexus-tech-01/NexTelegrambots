@@ -28,6 +28,10 @@ jobs:
       - run: npm install --prefix nexaccount --ignore-scripts
       - name: Validate command registry
         run: node nexaccount/scripts/validate-registry.mjs
+      - name: Audit standalone routing
+        run: node nexaccount/scripts/audit-command-routing.mjs
+      - name: Group commands regression
+        run: node nexaccount/scripts/test-group-commands.mjs
       - name: Syntax
         run: |
           for f in nexaccount/*.mjs nexaccount/scripts/*.mjs nexcontrol/api/index.mjs; do node --check "$f"; done
