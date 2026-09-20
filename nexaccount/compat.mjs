@@ -76,14 +76,27 @@ async function repliedMessage(client,peer,message){
     return Array.isArray(rows)?rows[0]:rows;
   }catch{return null}
 }
-function mediaTtlSeconds(media){
-  return Number(media?.ttlSeconds ?? media?.ttl_seconds ?? 0);
+function mediaTtlSeconds(source){
+  const media=source?.media||source;
+  return Number(
+    media?.ttlSeconds ??
+    media?.ttl_seconds ??
+    source?.ttlPeriod ??
+    source?.ttl_period ??
+    source?.ttlSeconds ??
+    source?.ttl_seconds ??
+    0
+  );
 }
 function sourceBelongsToConnectedAccount(source,account){
   if(source?.out===true)return true;
-  const self=String(account?.telegramUserId||'');
+  const ids=new Set([
+    account?.telegramUserId,
+    account?.connectedTelegramUserId,
+    account?.sessionTelegramUserId
+  ].filter(v=>v!==undefined&&v!==null&&String(v)!=='').map(v=>String(v)));
   const sender=String(source?.senderId||source?.fromId?.userId||'');
-  return Boolean(self&&sender&&self===sender);
+  return Boolean(sender&&ids.has(sender));
 }
 function recoveredMediaName(source){
   if(source?.media instanceof Api.MessageMediaPhoto)return 'vv-photo.jpg';
@@ -99,7 +112,7 @@ function recoveredMediaName(source){
 async function recoverOwnViewOnce(client,peer,commandMessage,account){
   const source=await repliedMessage(client,peer,commandMessage);
   if(!source?.media)throw new Error('Réponds à ton média vue unique avec .vv.');
-  if(mediaTtlSeconds(source.media)<=0)throw new Error('Le média répondu n’est pas éphémère/vue unique.');
+  if(mediaTtlSeconds(source)<=0)throw new Error('Le média répondu n’est pas éphémère/vue unique.');
   if(!sourceBelongsToConnectedAccount(source,account)){
     throw new Error('VV ne récupère que les médias éphémères envoyés par le compte connecté.');
   }
