@@ -165,13 +165,13 @@ function isSelfAuthoredMessage(message,account){
   return false;
 }
 
-function commandEventKey(message){
+function commandEventKey(telegramUserId,message){
   const peer=String(message?.peerId?.userId||message?.peerId?.chatId||message?.peerId?.channelId||'peer');
-  return peer+':'+String(message?.id||'0');
+  return String(telegramUserId)+':'+peer+':'+String(message?.id||'0');
 }
 
-function claimCommand(message){
-  const key=commandEventKey(message);
+function claimCommand(telegramUserId,message){
+  const key=commandEventKey(telegramUserId,message);
   const now=Date.now();
   for(const [k,t] of handledCommands){
     if(now-t>10*60*1000)handledCommands.delete(k);
@@ -809,7 +809,7 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
   const settings=await settingsFor(account.telegramUserId);
   const parsed=parseCommand(textOf(message),settings.prefix||'.');
   if(!parsed)return false;
-  if(!claimCommand(message))return true;
+  if(!claimCommand(account.telegramUserId,message))return true;
   console.log(
     '[NexAccount command]',
     String(account.telegramUserId),
