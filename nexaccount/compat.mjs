@@ -127,23 +127,67 @@ async function targetEntity(client,peer,message,args,{optional=false}={}){
 async function currentChat(client,peer){
   try{return await client.getEntity(peer)}catch{return null}
 }
-async function participants(client,peer,limit=200){
-  try{return await client.getParticipants(peer,{limit})}catch{return []}
+async function participants(client,peer,limit=500){
+  try{return await client.getParticipants(peer,{limit:Math.max(1,Math.min(10000,Number(limit)||500))})}catch{return []}
+}
+function isAdminParticipant(p){
+  const kind=String(p?.participant?.className||p?.participant?.constructor?.name||'');
+  return /Creator|Admin/i.test(kind)||Boolean(p?.participant?.adminRights||p?.adminRights);
+}
+function displayName(p){
+  return clean([p?.firstName,p?.lastName].filter(Boolean).join(' '))||p?.username||String(p?.id||'Utilisateur');
+}
+function mentionEntity(offset,text,userId){
+  return new Api.MessageEntityMentionName({
+    offset,
+    length:Buffer.from(String(text),'utf16le').length/2,
+    userId
+  });
 }
 async function sendMentionList(client,peer,people,title){
-  const lines=[title,''];
-  const entities=[];
-  let text='';
-  for(const line of lines)text+=line+'\n';
-  for(const p of people.slice(0,200)){
-    const name=clean([p.firstName,p.lastName].filter(Boolean).join(' '))||p.username||String(p.id);
-    const prefix='• ';
-    text+=prefix;
-    const offset=Buffer.from(text,'utf16le').length/2;
-    text+=name+'\n';
-    entities.push(new Api.MessageEntityMentionName({offset,length:Buffer.from(name,'utf16le').length/2,userId:p.id}));
+  const list=(people||[]).filter(p=>p?.id);
+  if(!list.length)return client.sendMessage(peer,{message:'Aucun membre trouvé.'});
+  const chunks=[];
+  for(let i=0;i<list.length;i+=60)chunks.push(list.slice(i,i+60));
+  for(let index=0;index<chunks.length;index++){
+    const chunk=chunks[index];
+    let text=String(title||'NexAi · Mention')+(chunks.length>1?' · '+(index+1)+'/'+chunks.length:'')+'\n\n';
+    const entities=[];
+    for(const p of chunk){
+      text+='• ';
+      const name=displayName(p);
+      const offset=Buffer.from(text,'utf16le').length/2;
+      text+=name+'\n';
+      entities.push(mentionEntity(offset,name,p.id));
+    }
+    await client.sendMessage(peer,{message:text.trimEnd(),formattingEntities:entities});
   }
-  return client.sendMessage(peer,{message:text.trim(),formattingEntities:entities});
+}
+async function sendHiddenMentions(client,peer,people,title){
+  const list=(people||[]).filter(p=>p?.id);
+  if(!list.length)return client.sendMessage(peer,{message:'Aucun membre trouvé.'});
+  const chunks=[];
+  for(let i=0;i<list.length;i+=80)chunks.push(list.slice(i,i+80));
+  for(let index=0;index<chunks.length;index++){
+    const chunk=chunks[index];
+    let text=String(title||'NexAi · Mention')+(chunks.length>1?' · '+(index+1)+'/'+chunks.length:'');
+    const entities=[];
+    for(const p of chunk){
+      const marker='\u2063';
+      text+=marker;
+      const offset=Buffer.from(text.slice(0,-marker.length),'utf16le').length/2;
+      entities.push(mentionEntity(offset,marker,p.id));
+    }
+    await client.sendMessage(peer,{message:text,formattingEntities:entities});
+  }
+}
+async function sendSingleMention(client,peer,user,text){
+  const name=displayName(user);
+  let message=String(text||'NexAi · Mention').trim();
+  if(message)message+='\n';
+  const offset=Buffer.from(message,'utf16le').length/2;
+  message+=name;
+  return client.sendMessage(peer,{message,formattingEntities:[mentionEntity(offset,name,user.id)]});
 }
 function parseToggle(v,current=false){
   const s=clean(v).toLowerCase();
@@ -326,7 +370,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       return true;
     }
     if(name==='dashboard'||name==='settings'){
-      await sendText(client,peer,'NexAi · '+toSmallCaps(name)+'\nCompte : '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nPréfixe : '+(s.prefix||'.')+'\nLangue : '+(s.language||'fr')+'\nStyle : '+(s.style||1)+'\nAuto-join : '+(s.autoJoin?.enabled?'ON':'OFF')+'\nAuto-react : '+(s.autoReact?.enabled?'ON':'OFF'));
+      await sendText(client,peer,'NexAi · '+toSmallCaps(name)+'\nCompte : '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nPréfixe : '+(s.prefix||'.')+'\nMode : '+(s.accessMode==='public'?'PUBLIC':'PRIVÉ')+'\nLangue : '+(s.language||'fr')+'\nStyle : '+(s.style||1)+'\nAuto-join : '+(s.autoJoin?.enabled?'ON':'OFF')+'\nAuto-react : '+(s.autoReact?.enabled?'ON':'OFF'));
       return true;
     }
     await sendText(client,peer,'NexAi · stats\nCompte : '+(account.username?'@'+account.username:account.telegramUserId)+'\nTelegram ID : '+account.telegramUserId+'\nPremium : '+(account.premium?'oui':'non'));
@@ -487,9 +531,54 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     try{await sendText(client,peer,await doModeration(client,peer,event.message,name,args))}catch(e){await sendText(client,peer,'Action impossible : '+String(e.errorMessage||e.message||e))}
     return true;
   }
+  if(name==='tag'){
+    try{
+      const reply=await repliedMessage(client,peer,event.message);
+      let user,text;
+      if(reply?.senderId){
+        user=await client.getEntity(reply.senderId);
+        text=argText||'NexAi · Mention';
+      }else{
+        const target=clean(args[0]);
+        if(!target){await sendText(client,peer,'Usage : réponds à un membre avec .tag [message], ou .tag @username [message].');return true}
+        user=await client.getEntity(target);
+        text=args.slice(1).join(' ').trim()||'NexAi · Mention';
+      }
+      await sendSingleMention(client,peer,user,text);
+    }catch(e){await sendText(client,peer,'Tag impossible : '+String(e.errorMessage||e.message||e))}
+    return true;
+  }
   if(name==='tagall'||name==='hidetag'||name==='mediatag'||name==='tagadmin'){
-    const ps=await participants(client,peer,200);
-    const list=name==='tagadmin'?ps.filter(p=>p.participant?.adminRights||p.adminRights):ps;
+    const ps=await participants(client,peer,1000);
+    const list=name==='tagadmin'?ps.filter(isAdminParticipant):ps;
+    if(name==='hidetag'){
+      await sendHiddenMentions(client,peer,list,argText||'NexAi · Mention');
+      return true;
+    }
+    if(name==='mediatag'){
+      const source=await repliedMessage(client,peer,event.message);
+      if(source?.media){
+        try{
+          const buffer=await client.downloadMedia(source);
+          if(buffer?.length){
+            const hidden='\u2063'.repeat(Math.min(80,list.length));
+            const entities=list.slice(0,80).map((p,i)=>mentionEntity(
+              Buffer.from((argText||'NexAi · Media tag')+hidden.slice(0,i),'utf16le').length/2,
+              '\u2063',
+              p.id
+            ));
+            await client.sendFile(peer,{
+              file:Buffer.from(buffer),
+              caption:(argText||'NexAi · Media tag')+hidden,
+              formattingEntities:entities
+            });
+            return true;
+          }
+        }catch{}
+      }
+      await sendHiddenMentions(client,peer,list,argText||'NexAi · Media tag');
+      return true;
+    }
     await sendMentionList(client,peer,list,argText||'NexAi · Mention');
     return true;
   }
@@ -580,6 +669,26 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return true;
   }
 
+  if(name==='mode'||name==='accessmode'||name==='botmode'){
+    const s=await settingsFor(account.telegramUserId);
+    const current=s.accessMode==='public'?'public':'private';
+    const value=clean(args[0]).toLowerCase();
+    if(!value){
+      await sendText(client,peer,'Mode d’accès : '+current.toUpperCase()+'\nUsage : .mode private | .mode public');
+      return true;
+    }
+    if(!['private','privé','prive','public'].includes(value)){
+      await sendText(client,peer,'Usage : .mode private | .mode public');
+      return true;
+    }
+    const accessMode=value==='public'?'public':'private';
+    await patchSettings(account.telegramUserId,{accessMode});
+    await sendText(client,peer,accessMode==='public'
+      ? 'Mode PUBLIC activé : les autres utilisateurs peuvent lancer les commandes non sensibles. Les commandes compte/propriétaire restent privées et les commandes admin exigent que l’auteur soit admin du groupe.'
+      : 'Mode PRIVÉ activé : seul le compte connecté peut lancer les commandes.');
+    return true;
+  }
+
   if(name==='prefix'||name==='signe_commande'){
     const v=clean(args[0]);
     if(!v){const s=await settingsFor(account.telegramUserId);await sendText(client,peer,'Préfixe : '+(s.prefix||'.'));return true}
@@ -611,7 +720,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
   if(name==='botstatus'){
     const s=await settingsFor(account.telegramUserId);
-    await sendText(client,peer,'NexAi · actif\nCompte : '+(account.username?'@'+account.username:account.telegramUserId)+'\nPréfixe : '+(s.prefix||'.')+'\nAuto-react : '+(s.autoReact?.enabled?'ON':'OFF'));return true;
+    await sendText(client,peer,'NexAi · actif\nCompte : '+(account.username?'@'+account.username:account.telegramUserId)+'\nPréfixe : '+(s.prefix||'.')+'\nMode : '+(s.accessMode==='public'?'PUBLIC':'PRIVÉ')+'\nAuto-react : '+(s.autoReact?.enabled?'ON':'OFF'));return true;
   }
   if(name==='customreact'){
     const values=args.filter(Boolean).slice(0,12);
@@ -682,7 +791,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
   if(name==='groupstats'||(cmd?.engine==='group'&&name==='stats')){
     const ps=await participants(client,peer,10000);
-    const admins=ps.filter(p=>p.participant?.adminRights||p.adminRights||p.participant?.constructor?.name?.includes('Admin')).length;
+    const admins=ps.filter(isAdminParticipant).length;
     await sendText(client,peer,'Membres : '+ps.length+'\nAdmins détectés : '+admins);return true;
   }
 
@@ -691,7 +800,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const s=await settingsFor(account.telegramUserId);
     const {policy}=groupPolicy(s,chat);
     if(name==='admins'){
-      const ps=await participants(client,peer,500);const admins=ps.filter(p=>p.participant?.adminRights||p.adminRights||p.participant?.constructor?.name?.includes('Admin'));
+      const ps=await participants(client,peer,500);const admins=ps.filter(isAdminParticipant);
       await sendMentionList(client,peer,admins,'NexAi · Admins');return true;
     }
     if(['approval','joinapproval','autoapprove','captcha','raidmode','logs','nightmode'].includes(name)){
