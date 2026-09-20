@@ -956,6 +956,7 @@ export async function runtimeCommandTest(telegramUserId,text='.menu',peer='me'){
 export async function engineStatus(){
   const runtime=[...runtimes.values()][0]||null;
   const providers=aiProviderStatus();
+  const stickerToken=await loadBotToken();
   return {
     ok:true,
     standalone:true,
@@ -964,7 +965,7 @@ export async function engineStatus(){
       {service:'ai',type:'local',configured:providers.length>0,reachable:providers.length>0,providers},
       {service:'download',type:'local',configured:true,reachable:true},
       {service:'group',type:'local',configured:true,reachable:true},
-      {service:'sticker',type:'local',configured:Boolean(await loadBotToken()),reachable:Boolean(await loadBotToken())},
+      {service:'sticker',type:'local',configured:Boolean(stickerToken),reachable:Boolean(stickerToken)},
       {service:'game',type:'local',configured:true,reachable:true},
       {service:'anime',type:'local',configured:true,reachable:true},
       {service:'audio',type:'local',configured:true,reachable:true}
