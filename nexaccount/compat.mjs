@@ -8,6 +8,7 @@ import { canHandleDownloadCommand, handleDownloadCommand } from './dipper-fallba
 import { canHandleStickerCommand, handleStickerCommand } from './sticker-engine.mjs';
 import { canHandleAiCommand, handleAiCommand } from './ai-engine.mjs';
 import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
+import { sendTelegramMedia } from './media-send.mjs';
 
 const DL_MAP={
   cobalt:'facebook',facebook:'facebook',
@@ -105,10 +106,11 @@ async function recoverOwnViewOnce(client,peer,commandMessage,account){
   if(!buffer||!buffer.length){
     throw new Error('Telegram ne fournit plus les octets de ce média à cette session.');
   }
-  return client.sendFile(peer,{
-    file:buffer,
+  return sendTelegramMedia(client,peer,buffer,{
     fileName:recoveredMediaName(source),
-    caption:'VV · média récupéré'
+    caption:'VV · média récupéré',
+    mimeType:String(source?.media?.document?.mimeType||''),
+    kind:'auto'
   });
 }
 
@@ -222,7 +224,12 @@ async function sendRemoteFile(client,peer,url,{caption='',name}={}){
   const r=await fetch(url,{headers:{'user-agent':'Mozilla/5.0'},signal:AbortSignal.timeout(20000)});
   if(!r.ok)throw new Error('Téléchargement impossible ('+r.status+').');
   const buf=Buffer.from(await r.arrayBuffer());
-  return client.sendFile(peer,{file:buf,caption,fileName:name});
+  return sendTelegramMedia(client,peer,buf,{
+    fileName:name||'media',
+    caption,
+    mimeType:r.headers.get('content-type')||'',
+    kind:'auto'
+  });
 }
 function xmlEscape(s){return String(s).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&apos;'}[c]))}
 function pdfEscape(s){return String(s).replace(/[^\x20-\x7E]/g,'?').replace(/([\\()])/g,'\\$1')}
@@ -567,9 +574,11 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
               '\u2063',
               p.id
             ));
-            await client.sendFile(peer,{
-              file:Buffer.from(buffer),
+            await sendTelegramMedia(client,peer,Buffer.from(buffer),{
+              fileName:recoveredMediaName(source),
               caption:(argText||'NexAi · Media tag')+hidden,
+              mimeType:String(source?.media?.document?.mimeType||''),
+              kind:'auto',
               formattingEntities:entities
             });
             return true;
@@ -780,7 +789,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       const entity=await client.getEntity(target);
       if(name==='getpp'){
         const b=await client.downloadProfilePhoto(entity,{isBig:true});
-        if(b)await client.sendFile(peer,{file:b,fileName:'profile.jpg',caption:'NexAi · Profile'});else await sendText(client,peer,'Aucune photo publique.');
+        if(b)await sendTelegramMedia(client,peer,b,{fileName:'profile.jpg',caption:'NexAi · Profile',mimeType:'image/jpeg',kind:'image'});else await sendText(client,peer,'Aucune photo publique.');
       }else{
         let about='';
         try{const full=await client.invoke(new Api.users.GetFullUser({id:target}));about=full?.fullUser?.about||''}catch{}
@@ -814,7 +823,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       const c=await currentChat(client,peer);const ps=await participants(client,peer,500);
       const snapshot={createdAt:new Date().toISOString(),chatId:chat,title:c?.title||'',username:c?.username||'',memberCount:ps.length,policy};
       const backups={...(s.groupBackups||{}),[chat]:snapshot};await patchSettings(account.telegramUserId,{groupBackups:backups});
-      await client.sendFile(peer,{file:Buffer.from(JSON.stringify(snapshot,null,2)),fileName:'nexai-group-backup.json',caption:'NexAi · Backup'});return true;
+      await sendTelegramMedia(client,peer,Buffer.from(JSON.stringify(snapshot,null,2)),{fileName:'nexai-group-backup.json',caption:'NexAi · Backup',mimeType:'application/json',kind:'document'});return true;
     }
     if(name==='restore'){
       const snap=s.groupBackups?.[chat];if(!snap){await sendText(client,peer,'Aucune sauvegarde NexAi pour ce groupe.');return true}
@@ -901,14 +910,14 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const values=args.filter(Boolean);
     if(!values.length){await sendText(client,peer,'Usage : .vcf +229... +33...');return true}
     const cards=values.map((v,i)=>'BEGIN:VCARD\nVERSION:3.0\nFN:Contact '+(i+1)+'\nTEL;TYPE=CELL:'+v+'\nEND:VCARD').join('\n');
-    await client.sendFile(peer,{file:Buffer.from(cards),fileName:'contacts.vcf',caption:'NexAi · VCF'});return true;
+    await sendTelegramMedia(client,peer,Buffer.from(cards),{fileName:'contacts.vcf',caption:'NexAi · VCF',mimeType:'text/vcard',kind:'document'});return true;
   }
   if(name==='filtervcf'){
     await sendText(client,peer,'Réponds à un fichier .vcf avec les critères à conserver. Cette commande est reconnue ; le moteur Telegram ne modifie jamais silencieusement un carnet de contacts.');return true;
   }
   if(name==='texttopdf'){
     if(!argText){await sendText(client,peer,'Usage : .texttopdf ton texte');return true}
-    try{await client.sendFile(peer,{file:simplePdf(argText),fileName:'nexai-text.pdf',caption:'NexAi · PDF'})}catch(e){await sendText(client,peer,'PDF impossible : '+e.message)}
+    try{await sendTelegramMedia(client,peer,simplePdf(argText),{fileName:'nexai-text.pdf',caption:'NexAi · PDF',mimeType:'application/pdf',kind:'document'})}catch(e){await sendText(client,peer,'PDF impossible : '+e.message)}
     return true;
   }
   if(name==='toimage'){
@@ -916,7 +925,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const lines=argText.match(/.{1,44}(?:\s|$)/g)||[argText];
     const tspans=lines.slice(0,12).map((l,i)=>'<tspan x="60" dy="'+(i?54:0)+'">'+xmlEscape(l.trim())+'</tspan>').join('');
     const svg='<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080"><rect width="1080" height="1080" rx="64" fill="#17130d"/><text x="60" y="130" fill="#ffe39a" font-family="sans-serif" font-size="42" font-weight="700">'+tspans+'</text><text x="60" y="1010" fill="#aa9162" font-family="sans-serif" font-size="24">NexAi · Nextech</text></svg>';
-    await client.sendFile(peer,{file:Buffer.from(svg),fileName:'nexai-text.svg',caption:'NexAi · Image SVG'});return true;
+    await sendTelegramMedia(client,peer,Buffer.from(svg),{fileName:'nexai-text.svg',caption:'NexAi · Image SVG',mimeType:'image/svg+xml',kind:'document'});return true;
   }
   if(name==='crop'||name==='resize'){
     const reply=await repliedMessage(client,peer,event.message);
