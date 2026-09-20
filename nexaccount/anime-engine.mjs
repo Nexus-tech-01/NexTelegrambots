@@ -136,12 +136,15 @@ async function jikanFullAnime(name){
   const d=await jikan('/anime/'+a.mal_id+'/full');
   return d||a;
 }
-async function animeQuote(filter=''){
+async function animeQuote(filter='',mode='random'){
   try{
-    const d=await json('https://animechan.io/api/v1/quotes/random');
-    const row=d?.data||d;
-    const quote=clip(row?.content||row?.quote,180);
-    if(quote)return {quote,character:row?.character?.name||row?.character||'?',anime:row?.anime?.name||row?.anime||filter||'?'};
+    let url='https://api.animechan.io/v1/quotes/random';
+    if(filter&&mode==='character')url='https://api.animechan.io/v1/quotes?character='+encodeURIComponent(filter);
+    else if(filter&&mode==='anime')url='https://api.animechan.io/v1/quotes?anime='+encodeURIComponent(filter);
+    const d=await json(url);
+    const candidate=Array.isArray(d?.data)?random(d.data):Array.isArray(d)?random(d):(d?.data||d);
+    const quote=clip(candidate?.content||candidate?.quote,180);
+    if(quote)return {quote,character:candidate?.character?.name||candidate?.character||'?',anime:candidate?.anime?.name||candidate?.anime||filter||'?'};
   }catch{}
   return random(FALLBACK_QUOTES);
 }
@@ -379,7 +382,7 @@ export async function handleAnimeCommand({runtime,event,name,args=[]}){
     await say(u?titleOf(m)+' · Trailer\n'+u:'Aucun trailer référencé pour '+titleOf(m)+'.');return true;
   }
   if(name==='animequote'||name==='characterquote'){
-    const q=await animeQuote(raw);await say('“'+q.quote+'”\n— '+q.character+' · '+q.anime);return true;
+    const q=await animeQuote(raw,name==='characterquote'?'character':raw?'anime':'random');await say('“'+q.quote+'”\n— '+q.character+' · '+q.anime);return true;
   }
   if(['animeimage','wallpaperanime','banneranime'].includes(name)){
     need();const m=await mediaSearch(raw,'ANIME');
