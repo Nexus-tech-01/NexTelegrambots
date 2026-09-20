@@ -415,6 +415,18 @@ function standardizedCaption(c){
     '@'+DESTINATION
   ].filter(Boolean).join('\n'),1024);
 }
+function hasPreviousEpisodeNav(message){
+  const text=String(message?.message||'');
+  if(/\b(?:episode|épisode)\s+(?:précédent|precedent|previous)\b/i.test(text))return true;
+  for(const row of message?.replyMarkup?.rows||[]){
+    for(const button of row?.buttons||[]){
+      const label=String(button?.text||'');
+      if(/\b(?:episode|épisode)\s+(?:précédent|precedent|previous)\b/i.test(label))return true;
+    }
+  }
+  return false;
+}
+
 function classifyMessage(message,source={}){
   const raw=signalText(message);
   const text=String(message?.message||'');
@@ -430,6 +442,7 @@ function classifyMessage(message,source={}){
     const season=ep.season??1;
     return {
       kind:'episode',title,season,episode:ep.episode,language:lang,quality,
+      sourcePreviousNav:hasPreviousEpisodeNav(message),
       mediaKind:mk,originalFilename:filename(message),
       cleanedFilename:safeFilename(title,season,ep.episode,lang,quality,filename(message)),
       cleanedCaption,confidence:0.92
@@ -440,6 +453,7 @@ function classifyMessage(message,source={}){
     if(presentTitle.length>=2){
       return {
         kind:'presentation',title:presentTitle,season:ep?.season??null,episode:ep?.episode??null,language:lang,quality,
+        sourcePreviousNav:hasPreviousEpisodeNav(message),
         mediaKind:'photo',originalFilename:'',cleanedFilename:'',
         cleanedCaption:cleanCaption(text,source),confidence:0.82
       };
@@ -573,7 +587,7 @@ async function enqueueCandidate(runtime,entity,message,c,{mode='live'}={}){
   const payload={
     dedupeKey,status:'queued',kind:c.kind,seriesKey,title:c.title,anilistId:c.anilistId??null,ingestedAt:now,
     season:c.season??null,episode:c.episode??null,language:c.language||'',
-    quality:c.quality||'',mediaKind:c.mediaKind||'text',
+    quality:c.quality||'',sourcePreviousNav:c.sourcePreviousNav===true,mediaKind:c.mediaKind||'text',
     cleanedCaption:c.cleanedCaption||'',cleanedFilename:c.cleanedFilename||'',
     originalFilename:c.originalFilename||'',confidence:c.confidence||0,
     destination:'@'+DESTINATION,mode
@@ -938,6 +952,7 @@ async function previousEpisodeButton(item){
   return [[Button.url('Épisode précédent',targetMessageUrl(previous.telegramMessageId),Button.style.primary())]];
 }
 async function publicationButtons(item){
+  if(item?.sourcePreviousNav!==true)return undefined;
   return previousEpisodeButton(item);
 }
 
