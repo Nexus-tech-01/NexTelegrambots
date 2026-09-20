@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { cfg, assertCoreConfig } from './config.mjs';
 import { beginPairing, cancelPairing, cleanupPairings, pairingStatus, submitPairingCode, submitPairingPassword } from './pairing.mjs';
-import { attachConnectedClient, loadSavedRuntimes, runtimeStatus, stopRuntimes } from './runtime.mjs';
+import { attachConnectedClient, loadSavedRuntimes, runtimeMenuTest, runtimeStatus, stopRuntimes } from './runtime.mjs';
 import { listAccounts, patchSettings, closeStore } from './store.mjs';
 import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
 import { loadBotToken } from './secrets.mjs';
@@ -67,6 +67,12 @@ async function route(req,res){
       const q=await body(req);
       const state=await cancelPairing(q.id||'');
       return json(res,200,{ok:true,...state});
+    }
+    if(req.method==='POST'&&url.pathname==='/diagnostics/menu'){
+      const q=await body(req);
+      if(!q.telegramUserId)return json(res,400,{ok:false,error:'telegramUserId required'});
+      await runtimeMenuTest(q.telegramUserId,q.peer||'me');
+      return json(res,200,{ok:true});
     }
     if(req.method==='POST'&&url.pathname==='/settings'){
       const q=await body(req);
