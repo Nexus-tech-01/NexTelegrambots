@@ -57,5 +57,71 @@
     "yt-dlp",
     "gallery-dl"
   ],
-  "allowDependencyInstall": true
+  "allowDependencyInstall": true,
+  "resourceWatchdog": {
+    "intervalMs": 15000,
+    "diskPath": ".",
+    "stateFile": ".nexcontrol/runtime/resource-watchdog.json",
+    "restartHook": ".nexcontrol/control/restart.json",
+    "thresholds": {
+      "memoryWarn": 75,
+      "memoryRelief": 85,
+      "memoryCritical": 92,
+      "memoryEmergency": 96,
+      "diskWarn": 75,
+      "diskCleanup": 80,
+      "diskCritical": 90,
+      "diskEmergency": 95
+    },
+    "actionCooldownMs": 600000,
+    "criticalCooldownMs": 180000,
+    "minimumRestartRssMb": 200,
+    "requireSupervisedParent": true,
+    "parentPatterns": [
+      "scripts/orchestrator.mjs",
+      "orchestrator.mjs"
+    ],
+    "includeCmdline": [
+      "/bots/",
+      "bots/"
+    ],
+    "excludeCmdline": [
+      "nexcontrol/agent",
+      "resource-watchdog",
+      "fleet-launcher",
+      "orchestrator.mjs"
+    ],
+    "cleanupTargets": [
+      {
+        "path": ".nexcontrol/backups",
+        "minAgeMinutes": 1440,
+        "keepNewest": 20,
+        "maxBytes": 536870912
+      },
+      {
+        "path": ".nexcontrol/tmp",
+        "minAgeMinutes": 120,
+        "keepNewest": 0,
+        "maxBytes": 268435456
+      },
+      {
+        "path": "tmp",
+        "minAgeMinutes": 120,
+        "keepNewest": 0,
+        "maxBytes": 536870912
+      },
+      {
+        "path": "bots/nexdownloader/tmp",
+        "minAgeMinutes": 120,
+        "keepNewest": 0,
+        "maxBytes": 536870912
+      },
+      {
+        "path": "bots/nexdownloader/downloads",
+        "minAgeMinutes": 720,
+        "keepNewest": 2,
+        "maxBytes": 1073741824
+      }
+    ]
+  }
 }
