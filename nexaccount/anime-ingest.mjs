@@ -13,6 +13,7 @@ const LISTENERS=new Set(
 const DESTINATION=String(process.env.NEXANIME_DESTINATION||'theotaku_nexus').trim().replace(/^@/,'');
 const DISCOVERY_MS=Math.max(15*60*1000,Number(process.env.NEXANIME_DISCOVERY_MS||6*60*60*1000));
 const PUBLISH_MS=Math.max(5000,Number(process.env.NEXANIME_PUBLISH_MS||15000));
+const INTER_SERIES_MS=Math.max(60_000,Number(process.env.NEXANIME_INTER_SERIES_MS||15*60*1000));
 const POLL_MS=Math.max(30000,Number(process.env.NEXANIME_POLL_MS||60000));
 const SOURCE_SAMPLE_LIMIT=Math.min(80,Math.max(12,Number(process.env.NEXANIME_SOURCE_SAMPLE_LIMIT||40)));
 const DIALOG_LIMIT=Math.min(250,Math.max(20,Number(process.env.NEXANIME_DIALOG_LIMIT||120)));
@@ -693,24 +694,23 @@ async function setDiscoveryState(runtime,discovering){
 }
 async function anyDiscoveryInProgress(){
   const d=await db();
+  const rebuild=await d.collection('nexanime_config').findOne({_id:'rebuild'});
+  if(rebuild?.mode!=='rebuild')return false;
+
   const active=await d.collection('nexanime_listener_state').findOne({
     discovering:true,
     updatedAt:{$gt:new Date(Date.now()-2*60*60*1000)}
   },{projection:{_id:1}});
   if(active)return true;
 
-  const rebuild=await d.collection('nexanime_config').findOne({_id:'rebuild'});
-  if(rebuild?.mode==='rebuild'){
-    const fresh=await d.collection('nexanime_queue').findOne(
-      {
-        status:'queued',
-        ingestedAt:{$gt:new Date(Date.now()-90_000)}
-      },
-      {projection:{_id:1}}
-    );
-    if(fresh)return true;
-  }
-  return false;
+  const fresh=await d.collection('nexanime_queue').findOne(
+    {
+      status:'queued',
+      ingestedAt:{$gt:new Date(Date.now()-90_000)}
+    },
+    {projection:{_id:1}}
+  );
+  return !!fresh;
 }
 
 async function discoverSources(runtime){
@@ -934,33 +934,46 @@ async function destinationThumb(runtime,destination){
 function targetMessageUrl(messageId){
   return 'https://t.me/'+DESTINATION+'/'+Number(messageId);
 }
-async function previousEpisodeButton(item){
-  if(item?.episode==null)return undefined;
+async function previousEpisodePublication(item){
+  if(item?.episode==null)return null;
   const d=await db();
-  const previous=await d.collection('nexanime_publications').findOne(
+  return d.collection('nexanime_publications').findOne(
     {
       seriesKey:item.seriesKey,
       kind:'episode',
-      season:item.season??1,
-      episode:{$lt:Number(item.episode)},
+      $or:[
+        {season:{$lt:Number(item.season??1)}},
+        {season:Number(item.season??1),episode:{$lt:Number(item.episode)}}
+      ],
       telegramMessageId:{$gt:0},
       purgedAt:{$exists:false}
     },
-    {sort:{episode:-1,publishedAt:-1}}
+    {sort:{season:-1,episode:-1,publishedAt:-1}}
   );
-  if(!previous?.telegramMessageId)return undefined;
-  return [[Button.url('Épisode précédent',targetMessageUrl(previous.telegramMessageId),Button.style.primary())]];
 }
-async function publicationButtons(item){
-  if(item?.sourcePreviousNav!==true)return undefined;
-  return previousEpisodeButton(item);
+function shouldShowPreviousLink(item){
+  return item?.episode!=null && (
+    item.mode==='live' ||
+    item.sourcePreviousNav===true ||
+    item.syntheticEpisodeCard===true
+  );
+}
+async function publicationCaption(item){
+  let body=standardizedCaption(item);
+  if(shouldShowPreviousLink(item)){
+    const previous=await previousEpisodePublication(item);
+    if(previous?.telegramMessageId){
+      body += '\n\n<a href="'+htmlEscape(targetMessageUrl(previous.telegramMessageId))+'">Épisode précédent</a>';
+      return '<blockquote>'+htmlEscape(standardizedCaption(item))+'\n\n<a href="'+htmlEscape(targetMessageUrl(previous.telegramMessageId))+'">Épisode précédent</a></blockquote>';
+    }
+  }
+  return '<blockquote>'+htmlEscape(body)+'</blockquote>';
 }
 
 async function publishSyntheticPresentation(runtime,item,destination){
-  const caption=quotedCaption(item);
-  const buttons=await publicationButtons(item);
+  const caption=await publicationCaption(item);
   if(!item.imageUrl){
-    return runtime.client.sendMessage(destination,{message:caption,parseMode:'html',buttons});
+    return runtime.client.sendMessage(destination,{message:caption,parseMode:'html'});
   }
   await fs.mkdir(TMP_ROOT,{recursive:true});
   const tmp=path.join(TMP_ROOT,'anime-presentation-'+crypto.randomUUID()+'.jpg');
@@ -970,7 +983,7 @@ async function publishSyntheticPresentation(runtime,item,destination){
     const data=Buffer.from(await response.arrayBuffer());
     if(data.length>10*1024*1024)throw new Error('presentation_image_too_large');
     await fs.writeFile(tmp,data);
-    return runtime.client.sendFile(destination,{file:tmp,caption,parseMode:'html',buttons,workers:1});
+    return runtime.client.sendFile(destination,{file:tmp,caption,parseMode:'html',workers:1});
   }finally{
     await fs.rm(tmp,{force:true}).catch(()=>{});
   }
@@ -978,18 +991,17 @@ async function publishSyntheticPresentation(runtime,item,destination){
 
 async function publishPresentation(runtime,item,resolved,destination){
   const message=resolved.message;
-  const caption=quotedCaption(item);
-  const buttons=await publicationButtons(item);
+  const caption=await publicationCaption(item);
   if(message?.photo){
     const tmp=path.join(TMP_ROOT,'presentation-'+crypto.randomUUID()+'.jpg');
     await fs.mkdir(TMP_ROOT,{recursive:true});
     try{
       const out=await runtime.client.downloadMedia(message.media,{outputFile:tmp,workers:1});
       const file=typeof out==='string'?out:tmp;
-      return await runtime.client.sendFile(destination,{file,caption,parseMode:'html',buttons,workers:1});
+      return await runtime.client.sendFile(destination,{file,caption,parseMode:'html',workers:1});
     }finally{await fs.rm(tmp,{force:true}).catch(()=>{})}
   }
-  return runtime.client.sendMessage(destination,{message:caption,parseMode:'html',buttons});
+  return runtime.client.sendMessage(destination,{message:caption,parseMode:'html'});
 }
 async function publishEpisode(runtime,item,resolved,destination){
   if(!(await mediaReuploadAllowed())){
@@ -999,16 +1011,15 @@ async function publishEpisode(runtime,item,resolved,destination){
   }
   const message=resolved.message;
   if(!message?.media)throw new Error('source_media_missing');
-  const buttons=await publicationButtons(item);
+  const caption=await publicationCaption(item);
 
   // Fast path: reuse Telegram's existing media reference. This avoids downloading
   // full anime episodes to the server and prevents disk-quota crashes.
   try{
     return await runtime.client.sendFile(destination,{
       file:message.media,
-      caption:quotedCaption(item),
+      caption,
       parseMode:'html',
-      buttons,
       forceDocument:item.mediaKind==='document',
       supportsStreaming:item.mediaKind==='video'
     });
@@ -1033,9 +1044,8 @@ async function publishEpisode(runtime,item,resolved,destination){
     const file=typeof out==='string'?out:tmp;
     const opts={
       file,
-      caption:quotedCaption(item),
+      caption,
       parseMode:'html',
-      buttons,
       fileName:finalName,
       workers:1,
       supportsStreaming:item.mediaKind==='video'
@@ -1053,7 +1063,7 @@ async function markPublication(item,sent,runtime){
     {dedupeKey:item.dedupeKey},
     {$setOnInsert:{
       dedupeKey:item.dedupeKey,seriesKey:item.seriesKey,kind:item.kind,title:item.title,season:item.season,episode:item.episode,
-      language:item.language||'',quality:item.quality||'',destination:'@'+DESTINATION,createdAt:now
+      language:item.language||'',quality:item.quality||'',mode:item.mode||'',destination:'@'+DESTINATION,createdAt:now
     },$set:{
       publishedAt:now,publisherAccountId:String(runtime.account.telegramUserId),
       publisherUsername:String(runtime.account.username||''),
@@ -1115,23 +1125,8 @@ async function releaseGlobalPublishLock(runtime){
     {$set:{expiresAt:new Date(0),updatedAt:new Date()}}
   ).catch(()=>{});
 }
-async function chooseActiveSeries(d){
-  const scheduler=d.collection('nexanime_config');
-  const current=await scheduler.findOne({_id:'scheduler'});
-  if(current?.activeSeriesKey){
-    const remaining=await d.collection('nexanime_queue').countDocuments({
-      seriesKey:current.activeSeriesKey,
-      status:{$in:['queued','publishing']}
-    });
-    if(remaining>0)return current.activeSeriesKey;
-    await scheduler.updateOne(
-      {_id:'scheduler'},
-      {$unset:{activeSeriesKey:'',activeSeriesStartedAt:''},$set:{updatedAt:new Date()}},
-      {upsert:true}
-    );
-  }
-
-  const rows=await d.collection('nexanime_queue').aggregate([
+async function queuedSeriesCandidates(d){
+  return d.collection('nexanime_queue').aggregate([
     {$match:{status:'queued',seriesKey:{$type:'string'}}},
     {$group:{
       _id:'$seriesKey',
@@ -1141,19 +1136,99 @@ async function chooseActiveSeries(d){
     }},
     {$match:{episodeCount:{$gt:0}}},
     {$sort:{hasPresentation:-1,firstCreated:1,_id:1}},
-    {$limit:1}
+    {$limit:5}
   ]).toArray();
-  const next=rows?.[0]?._id||'';
+}
+async function preparePlannedSeries(d,seriesKey){
+  if(!seriesKey)return;
+  await ensureGeneralPresentation(d,seriesKey).catch(()=>{});
+  const summary=await d.collection('nexanime_queue').aggregate([
+    {$match:{seriesKey,status:'queued'}},
+    {$group:{
+      _id:null,
+      episodes:{$sum:{$cond:[{$eq:['$kind','episode']},1,0]}},
+      presentations:{$sum:{$cond:[{$eq:['$kind','presentation']},1,0]}},
+      firstSeason:{$min:'$season'},
+      firstEpisode:{$min:'$episode'},
+      lastSeason:{$max:'$season'},
+      lastEpisode:{$max:'$episode'}
+    }}
+  ]).toArray();
+  await d.collection('nexanime_config').updateOne(
+    {_id:'scheduler'},
+    {$set:{plannedSeriesKey:seriesKey,plannedSummary:summary?.[0]||null,plannedAt:new Date(),updatedAt:new Date()}},
+    {upsert:true}
+  );
+}
+async function chooseActiveSeries(d){
+  const scheduler=d.collection('nexanime_config');
+  const now=new Date();
+  const current=await scheduler.findOne({_id:'scheduler'});
+
+  if(current?.activeSeriesKey){
+    const remaining=await d.collection('nexanime_queue').countDocuments({
+      seriesKey:current.activeSeriesKey,
+      status:{$in:['queued','publishing']}
+    });
+    if(remaining>0)return current.activeSeriesKey;
+
+    const candidates=await queuedSeriesCandidates(d);
+    const next=candidates?.[0]?._id||'';
+    if(next){
+      const cooldownUntil=new Date(Date.now()+INTER_SERIES_MS);
+      await scheduler.updateOne(
+        {_id:'scheduler'},
+        {$set:{
+          lastCompletedSeriesKey:current.activeSeriesKey,
+          lastSeriesCompletedAt:now,
+          plannedSeriesKey:next,
+          cooldownUntil,
+          updatedAt:now
+        },$unset:{activeSeriesKey:'',activeSeriesStartedAt:''}},
+        {upsert:true}
+      );
+      await preparePlannedSeries(d,next);
+      return '';
+    }
+
+    await scheduler.updateOne(
+      {_id:'scheduler'},
+      {$set:{lastCompletedSeriesKey:current.activeSeriesKey,lastSeriesCompletedAt:now,updatedAt:now},
+       $unset:{activeSeriesKey:'',activeSeriesStartedAt:'',plannedSeriesKey:'',plannedAt:'',plannedSummary:'',cooldownUntil:''}},
+      {upsert:true}
+    );
+  }
+
+  const state=await scheduler.findOne({_id:'scheduler'});
+  const cooldownUntil=state?.cooldownUntil?new Date(state.cooldownUntil):null;
+  if(cooldownUntil&&cooldownUntil>now){
+    if(state?.plannedSeriesKey)await preparePlannedSeries(d,state.plannedSeriesKey);
+    return '';
+  }
+
+  let next=state?.plannedSeriesKey||'';
+  if(next){
+    const exists=await d.collection('nexanime_queue').countDocuments({seriesKey:next,status:'queued',kind:'episode'});
+    if(!exists)next='';
+  }
+  if(!next){
+    const candidates=await queuedSeriesCandidates(d);
+    next=candidates?.[0]?._id||'';
+  }
+
   if(!next){
     await scheduler.updateOne(
       {_id:'rebuild',mode:'rebuild'},
-      {$set:{mode:'live',completedAt:new Date(),updatedAt:new Date()}}
+      {$set:{mode:'live',completedAt:now,updatedAt:now}}
     ).catch(()=>{});
     return '';
   }
+
+  await preparePlannedSeries(d,next);
   await scheduler.updateOne(
     {_id:'scheduler'},
-    {$set:{activeSeriesKey:next,activeSeriesStartedAt:new Date(),updatedAt:new Date()}},
+    {$set:{activeSeriesKey:next,activeSeriesStartedAt:now,updatedAt:now},
+     $unset:{plannedSeriesKey:'',plannedAt:'',plannedSummary:'',cooldownUntil:''}},
     {upsert:true}
   );
   return next;
@@ -1217,6 +1292,53 @@ async function ensureGeneralPresentation(d,seriesKey){
   );
 }
 
+async function ensureLiveEpisodePresentation(d,seriesKey,episodeItem){
+  if(!episodeItem||episodeItem.mode!=='live'||episodeItem.episode==null)return;
+
+  const season=Number(episodeItem.season??1);
+  const episode=Number(episodeItem.episode);
+  const existing=await d.collection('nexanime_queue').findOne({
+    seriesKey,kind:'presentation',season,episode,
+    status:{$in:['queued','publishing','published']}
+  },{projection:{_id:1}});
+  if(existing)return;
+
+  const already=await d.collection('nexanime_publications').findOne({
+    seriesKey,kind:'presentation',season,episode,purgedAt:{$exists:false}
+  },{projection:{_id:1}});
+  if(already)return;
+
+  const meta=await animePresentationMetadata(episodeItem.title);
+  if(!meta?.ok)return;
+  const now=new Date();
+  const c={
+    kind:'presentation',
+    title:meta.canonicalTitle||episodeItem.title,
+    anilistId:meta.anilistId||episodeItem.anilistId||null,
+    season,episode,
+    language:episodeItem.language||'',
+    quality:'',
+    cleanedCaption:[
+      'Season '+season+' · Episode '+episode,
+      presentationText(meta)
+    ].filter(Boolean).join('\n\n')
+  };
+  const dedupeKey=presentationKey(c);
+  await d.collection('nexanime_queue').updateOne(
+    {dedupeKey},
+    {$setOnInsert:{
+      dedupeKey,status:'queued',kind:'presentation',seriesKey,
+      title:c.title,anilistId:c.anilistId,season,episode,
+      language:c.language,quality:'',mediaKind:'photo',
+      cleanedCaption:c.cleanedCaption,cleanedFilename:'',originalFilename:'',
+      confidence:1,destination:'@'+DESTINATION,mode:'live',
+      synthetic:true,syntheticEpisodeCard:true,sourcePreviousNav:true,
+      imageUrl:meta.coverImage||'',createdAt:now,attempts:0,ingestedAt:now
+    },$set:{updatedAt:now}},
+    {upsert:true}
+  );
+}
+
 async function claimNext(runtime){
   await ensureIndexes();
   const d=await db();
@@ -1250,6 +1372,10 @@ async function claimNext(runtime){
   if(!nextEpisode)return null;
   const season=nextEpisode.season??1;
   const episode=nextEpisode.episode;
+
+  if(nextEpisode.kind==='episode'&&nextEpisode.mode==='live'){
+    await ensureLiveEpisodePresentation(d,seriesKey,nextEpisode);
+  }
 
   // 3) Episode-specific image/synopsis precedes that episode.
   const episodePresentation=await d.collection('nexanime_queue').findOne(
@@ -1354,7 +1480,8 @@ export function animeIngestStatus(runtime){
     lastQueuedAt:a.lastQueuedAt||null,lastPublishedAt:a.lastPublishedAt||null,
     lastDiscoveryAt:a.lastDiscoveryAt||null,lastBackfillAt:a.lastBackfillAt||null,
     lastBackfillCount:a.lastBackfillCount||0,lastPollAt:a.lastPollAt||null,
-    lastPollCount:a.lastPollCount||0,discovering:a.discovering===true,polling:a.polling===true
+    lastPollCount:a.lastPollCount||0,discovering:a.discovering===true,polling:a.polling===true,
+    interSeriesMs:INTER_SERIES_MS
   };
 }
 
@@ -1474,10 +1601,16 @@ export async function animeSystemStatus(){
       }
     })
     .sort({updatedAt:-1}).limit(20).toArray();
+  const [schedulerState,rebuildState]=await Promise.all([
+    d.collection('nexanime_config').findOne({_id:'scheduler'}),
+    d.collection('nexanime_config').findOne({_id:'rebuild'})
+  ]);
   return {
     ok:true,enabled:ENABLED,destination:'@'+DESTINATION,
     listeners:[...LISTENERS].map(x=>'@'+x),
     mediaPolicy:await currentMediaPolicy(),
+    interSeriesMinutes:INTER_SERIES_MS/60000,
+    scheduler:schedulerState||null,rebuild:rebuildState||null,
     sources,sourceList,queue,published,recent
   };
 }
