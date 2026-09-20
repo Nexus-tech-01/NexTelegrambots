@@ -2,6 +2,19 @@ const DEFAULT_SERVER =
   'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexmeta-public';
 
 let pollInFlight = false;
+let wakeInFlight = false;
+
+const HEARTBEAT_ALARM = 'nexmeta-heartbeat';
+const FACEBOOK_PATTERNS = [
+  'https://facebook.com/*',
+  'https://www.facebook.com/*',
+  'https://web.facebook.com/*',
+  'https://m.facebook.com/*',
+  'https://*.facebook.com/*',
+  'https://messenger.com/*',
+  'https://www.messenger.com/*',
+  'https://*.messenger.com/*'
+];
 
 async function loadState() {
   const data = await chrome.storage.local.get([
@@ -102,6 +115,99 @@ async function api(path, {
   return payload?.result ?? payload;
 }
 
+async function facebookTabs() {
+  try {
+    return await chrome.tabs.query({ url: FACEBOOK_PATTERNS });
+  } catch {
+    return [];
+  }
+}
+
+async function wakeFacebookTabs() {
+  if (wakeInFlight) return { tabs: 0, awakened: 0, injected: 0 };
+  wakeInFlight = true;
+
+  try {
+    const tabs = await facebookTabs();
+    let awakened = 0;
+    let injected = 0;
+
+    for (const tab of tabs) {
+      if (!Number.isInteger(tab?.id)) continue;
+
+      try {
+        const response = await chrome.tabs.sendMessage(tab.id, {
+          type: 'NEXMETA_WAKE'
+        });
+        if (response?.ok !== false) awakened += 1;
+        continue;
+      } catch {}
+
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content.js']
+        });
+        injected += 1;
+
+        await chrome.tabs.sendMessage(tab.id, {
+          type: 'NEXMETA_WAKE'
+        }).catch(() => {});
+        awakened += 1;
+      } catch {}
+    }
+
+    return {
+      tabs: tabs.length,
+      awakened,
+      injected
+    };
+  } finally {
+    wakeInFlight = false;
+  }
+}
+
+async function heartbeatAndWake() {
+  const state = await loadState();
+  if (!state.token) return { paired: false, tabs: 0 };
+
+  try {
+    const device = await api('/companion/v1/status');
+    const wake = await wakeFacebookTabs();
+
+    return {
+      paired: true,
+      device,
+      ...wake
+    };
+  } catch (error) {
+    if (error?.status === 401) {
+      await clearPairing();
+      return {
+        paired: false,
+        revoked: true,
+        tabs: 0
+      };
+    }
+
+    return {
+      paired: true,
+      offline: true,
+      error: String(error?.message || error),
+      tabs: 0
+    };
+  }
+}
+
+function scheduleHeartbeat() {
+  try {
+    chrome.alarms.create(HEARTBEAT_ALARM, {
+      delayInMinutes: 0.1,
+      periodInMinutes: 1
+    });
+  } catch {}
+}
+
 async function pairDevice(message) {
   const server = String(message.server || DEFAULT_SERVER).replace(/\/+$/, '');
   const deviceName = String(message.deviceName || 'Facebook browser').slice(0, 120);
@@ -132,6 +238,9 @@ async function pairDevice(message) {
     deviceName,
     pairedAt: result.pairedAt || new Date().toISOString()
   });
+
+  scheduleHeartbeat();
+  await wakeFacebookTabs().catch(() => {});
 
   return {
     paired: true,
@@ -196,10 +305,17 @@ async function connectionStatus() {
 
   try {
     const device = await api('/companion/v1/status');
+    const wake = await wakeFacebookTabs().catch(() => ({
+      tabs: 0,
+      awakened: 0,
+      injected: 0
+    }));
+
     return {
       paired: true,
       server: state.server,
-      device
+      device,
+      wake
     };
   } catch (error) {
     if (error?.status === 401) {
@@ -264,3 +380,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   return true;
 });
+
+
+chrome.runtime.onInstalled.addListener(() => {
+  scheduleHeartbeat();
+  heartbeatAndWake().catch(() => {});
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  scheduleHeartbeat();
+  heartbeatAndWake().catch(() => {});
+});
+
+chrome.alarms.onAlarm.addListener(alarm => {
+  if (alarm?.name !== HEARTBEAT_ALARM) return;
+  heartbeatAndWake().catch(() => {});
+});
+
+scheduleHeartbeat();
+heartbeatAndWake().catch(() => {});
