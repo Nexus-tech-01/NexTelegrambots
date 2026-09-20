@@ -1100,7 +1100,7 @@ export const __test={
   parseEpisode,detectLanguage,detectQuality,stripNoiseTitle,cleanCaption,safeFilename,
   classifyMessage,sourceStats,titleSimilarity,releaseKey,presentationKey,
   cleanSeriesTitle,sourceTitleCandidate,deriveRawAnchors,commonPrefixTitle,verifyAnimeTitle,
-  standardizedCaption,quotedCaption
+  standardizedCaption,quotedCaption,titleFromMessage,bestAnchor
 };
 
 
