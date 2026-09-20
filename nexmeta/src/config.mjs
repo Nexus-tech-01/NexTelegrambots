@@ -1,4 +1,62 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 const clean = value => String(value ?? '').trim();
+
+function loadNexMetaEnvFile() {
+  const candidates = [
+    process.env.NEXUS_ROOT
+      ? path.join(process.env.NEXUS_ROOT, '.env')
+      : '',
+    path.resolve(process.cwd(), '.env'),
+    '/home/container/.env'
+  ].filter(Boolean);
+
+  const file = candidates.find(candidate => {
+    try {
+      return fs.statSync(candidate).isFile();
+    } catch {
+      return false;
+    }
+  });
+
+  if (!file) return;
+
+  let raw = '';
+  try {
+    raw = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
+  } catch {
+    return;
+  }
+
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    const index = line.indexOf('=');
+    if (index < 1) continue;
+
+    const key = line.slice(0, index).trim();
+    if (
+      !key.startsWith('NEXMETA_') &&
+      key !== 'NEXUS_PUBLIC_BASE_URL'
+    ) {
+      continue;
+    }
+
+    let value = line.slice(index + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    process.env[key] = value;
+  }
+}
+
+loadNexMetaEnvFile();
 const csv = value => clean(value)
   .split(',')
   .map(item => item.trim().toLowerCase())
