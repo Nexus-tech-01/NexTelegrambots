@@ -40,6 +40,8 @@ jobs:
         run: node nexaccount/scripts/test-group-commands.mjs
       - name: NexAnime regression
         run: node nexaccount/scripts/test-anime-ingest.mjs
+      - name: Media send regression
+        run: node nexaccount/scripts/test-media-send.mjs
       - name: Syntax
         run: |
           for f in nexaccount/*.mjs nexaccount/scripts/*.mjs nexcontrol/api/index.mjs; do node --check "$f"; done
@@ -51,6 +53,7 @@ jobs:
           import {commandMap} from './nexaccount/commands.mjs';
           const c=await loadStyleCatalog();
           if(c.maxStyle<20)throw new Error('Dipper styles missing');
+          if(typeof c.themes?.[1]?.exactHeader!=='function'||typeof c.themes?.[1]?.exactCatCmd!=='function')throw new Error('Exact Dipper style functions missing');
           const account={telegramUserId:'123',username:'test',firstName:'Test',premium:true};
           const settings={style:1,prefix:'.'};
           const menu=await menuModel({account,settings,commands:commandMap()});
