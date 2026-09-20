@@ -377,6 +377,15 @@ function releaseKey(c){
   return [title,'s'+(c.season??1),'e'+c.episode,(c.language||'UNK').toUpperCase()].join('|');
 }
 function presentationKey(c){return [norm(c.title),'presentation'].join('|')}
+function htmlEscape(value=''){
+  return String(value).replace(/[&<>"']/g,ch=>({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[ch]);
+}
+function quotedCaption(c){
+  return '<blockquote>'+htmlEscape(standardizedCaption(c))+'</blockquote>';
+}
+
 function standardizedCaption(c){
   if(c.kind==='presentation'){
     return clip([c.title,c.cleanedCaption].filter(Boolean).join('\n\n'),1024);
@@ -775,17 +784,17 @@ async function destinationThumb(runtime,destination){
 }
 async function publishPresentation(runtime,item,resolved,destination){
   const message=resolved.message;
-  const caption=standardizedCaption(item);
+  const caption=quotedCaption(item);
   if(message?.photo){
     const tmp=path.join(TMP_ROOT,'presentation-'+crypto.randomUUID()+'.jpg');
     await fs.mkdir(TMP_ROOT,{recursive:true});
     try{
       const out=await runtime.client.downloadMedia(message.media,{outputFile:tmp,workers:1});
       const file=typeof out==='string'?out:tmp;
-      return await runtime.client.sendFile(destination,{file,caption,workers:1});
+      return await runtime.client.sendFile(destination,{file,caption,parseMode:'html',workers:1});
     }finally{await fs.rm(tmp,{force:true}).catch(()=>{})}
   }
-  return runtime.client.sendMessage(destination,{message:caption});
+  return runtime.client.sendMessage(destination,{message:caption,parseMode:'html'});
 }
 async function publishEpisode(runtime,item,resolved,destination){
   if(!MEDIA_REUPLOAD){
@@ -803,7 +812,7 @@ async function publishEpisode(runtime,item,resolved,destination){
   try{
     const out=await runtime.client.downloadMedia(message.media,{outputFile:tmp,workers:1});
     const file=typeof out==='string'?out:tmp;
-    const opts={file,caption:standardizedCaption(item),fileName:finalName,workers:1};
+    const opts={file,caption:quotedCaption(item),parseMode:'html',fileName:finalName,workers:1};
     if(thumb)opts.thumb=thumb;
     if(item.mediaKind==='document')opts.forceDocument=true;
     return await runtime.client.sendFile(destination,opts);
@@ -938,7 +947,8 @@ export function animeIngestStatus(runtime){
 export const __test={
   parseEpisode,detectLanguage,detectQuality,stripNoiseTitle,cleanCaption,safeFilename,
   classifyMessage,sourceStats,titleSimilarity,releaseKey,presentationKey,
-  cleanSeriesTitle,sourceTitleCandidate,deriveRawAnchors,commonPrefixTitle,verifyAnimeTitle
+  cleanSeriesTitle,sourceTitleCandidate,deriveRawAnchors,commonPrefixTitle,verifyAnimeTitle,
+  standardizedCaption,quotedCaption
 };
 
 
