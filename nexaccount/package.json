@@ -8,13 +8,12 @@
   },
   "scripts": {
     "start": "node daemon.mjs",
-    "check": "node --check daemon.mjs && node --check cli.mjs && node --check bootstrap.mjs"
+    "check": "node --check daemon.mjs && node --check cli.mjs && node --check bootstrap.mjs && node --check dipper-fallback.mjs && node scripts/validate-registry.mjs"
   },
   "dependencies": {
     "grammy": "1.46.0",
     "libphonenumber-js": "^1.11.20",
     "mongodb": "6.9.0",
-    "teleproto": "1.229.0",
-    "yt-search": "^2.13.1"
+    "teleproto": "1.229.0"
   }
 }
