@@ -42,6 +42,20 @@ for(const [token,cmd] of commands){
   unresolved.push(token+' -> '+route);
 }
 
+
+const REQUIRED_ALIAS_TARGETS={
+  dipper:'menu',grimoire:'menu',play:'song',dlmusic:'song',yta:'song',
+  mp3:'tomp3',toaudio:'tomp3',paroles:'lyrics',lyric:'lyrics',lirik:'lyrics',
+  identify:'shazam',identifie:'shazam',reconnaitre:'shazam',
+  ytv:'video',ytmp4:'video',dlyoutube:'video',ig:'instagram',fb:'facebook',fbdl:'facebook',tt:'tiktok',apksearch:'apk'
+};
+for(const [alias,target] of Object.entries(REQUIRED_ALIAS_TARGETS)){
+  const cmd=commands.get(alias);
+  if(!cmd||cmd.aliasFor!==target||cmd.hidden!==true){
+    policyErrors.push(alias+': expected hidden alias for '+target);
+  }
+}
+
 if(stats.visible<70)throw new Error('NexAi useful command surface unexpectedly low: '+stats.visible);
 if(stats.visible>180)throw new Error('NexAi visible command surface grew too large: '+stats.visible);
 if(stats.dipperSourceCanonical<150)throw new Error('Dipper source manifest unexpectedly low: '+stats.dipperSourceCanonical);

@@ -199,6 +199,8 @@ export const LEGACY_ALIASES={
   reflexe_systeme:'autoreact',reponseauto:'autoreply',dark:'aimode',
   apparence_systeme:'botname',illustration_grimoire:'menuimage',
   traduction:'translate',meteo:'weather',algebre:'calc',
+  cobalt:'facebook',apksearch:'apk',igs:'instagram','sᴄᴇᴀᴜ_ɪɢ_ᴄᴀʀʀᴇ':'instagram',
+  'ᴄᴀɴᴛɪǫᴜᴇ':'lyrics','sᴍᴀʟʟᴄᴀᴘs':'smallcaps',
   accueil:'welcome',inscription:'setwelcome',motsadieu:'setgoodbye',
   sentence:'warn',silence:'mutechat',parole:'unmutechat',
   purification:'clean',debannissement:'unban',bannir:'ban',
@@ -268,14 +270,39 @@ export function commandMap(extra=[]){
 
   for(const cmd of CORE_COMMANDS)put(cmd);
 
-  // Add only explicitly approved aliases. Dipper's historical 686 aliases are
-  // no longer imported wholesale.
-  for(const [alias,target] of Object.entries(LEGACY_ALIASES)){
-    const a=normalize(alias),t=normalize(target);
-    if(!a||!t||REMOVED_COMMANDS.has(a)||map.has(a))continue;
+  // Compatibility aliases are alternate names only: they never create another
+  // visible command or another handler.
+  const resolveCanonical=target=>{
+    let key=normalize(target);
+    const seen=new Set();
+    while(key&&map.has(key)&&map.get(key)?.aliasFor&&!seen.has(key)){
+      seen.add(key);
+      key=normalize(map.get(key).aliasFor);
+    }
+    return key&&map.has(key)?key:'';
+  };
+  const addAlias=(alias,target)=>{
+    const a=normalize(alias),t=resolveCanonical(target);
+    if(!a||!t||REMOVED_COMMANDS.has(a)||map.has(a))return;
     const canonical=map.get(t);
-    if(!canonical)continue;
+    if(!canonical)return;
     map.set(a,{...canonical,name:a,aliasFor:t,hidden:true});
+  };
+
+  // Hand-picked renames made during the NexAi cleanup.
+  for(const [alias,target] of Object.entries(LEGACY_ALIASES))addAlias(alias,target);
+
+  // Preserve every historical Dipper alias for commands that are still kept.
+  // All aliases resolve directly to the final canonical command, even if the
+  // historical Dipper command itself was renamed (cobalt -> facebook, etc.).
+  for(const spec of DIPPER_COMMANDS){
+    const oldCanonical=normalize(spec?.name);
+    if(!oldCanonical)continue;
+    const target=resolveCanonical(oldCanonical)
+      ||resolveCanonical(LEGACY_ALIASES[oldCanonical]||'');
+    if(!target)continue;
+    addAlias(oldCanonical,target);
+    for(const alias of spec.aliases||[])addAlias(alias,target);
   }
 
   for(const cmd of extra)put(cmd);
