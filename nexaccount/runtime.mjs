@@ -10,6 +10,7 @@ import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { recordEvent } from './analytics.mjs';
 import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
 import { handleCompatCommand } from './compat.mjs';
+import { menuModel } from './menu.mjs';
 
 const commands=commandMap();
 const runtimes=new Map();
@@ -170,6 +171,25 @@ async function sendInline(client,peer,query){
   return client.invoke(new Api.messages.SendInlineBotResult({
     peer:inputPeer,randomId:randomLong(),queryId:results.queryId,id:result.id
   }));
+}
+
+async function sendMenu(runtime,peer){
+  const {client,account}=runtime;
+  try{
+    console.log('[NexAccount menu]',String(account.telegramUserId),'inline:start');
+    const sent=await sendInline(client,peer,'menu');
+    console.log('[NexAccount menu]',String(account.telegramUserId),'inline:sent');
+    return sent;
+  }catch(error){
+    const reason=String(error?.errorMessage||error?.message||error||'unknown_error').slice(0,500);
+    console.error('[NexAccount menu]',String(account.telegramUserId),'inline:failed',reason);
+    const settings=await settingsFor(account.telegramUserId);
+    const model=await menuModel({account,settings,commands,view:'home'});
+    const note=String(settings.language||'fr').toLowerCase().startsWith('en')
+      ? '\n\nInline menu is temporarily unavailable. Text fallback is active.'
+      : '\n\nLe menu inline est temporairement indisponible. Le mode texte de secours est actif.';
+    return sendText(client,peer,String(model.text||'NexAI')+note);
+  }
 }
 
 function inviteHash(value){
@@ -358,7 +378,7 @@ async function handleCommand(runtime,event,parsed){
   const peer=event.message.peerId;
   if(/^style\d+$/i.test(parsed.name))return handleStyle(runtime,peer,[],parsed.name);
   if(parsed.name==='style')return handleStyle(runtime,peer,parsed.args);
-  if(parsed.name==='menu')return sendInline(client,peer,'menu');
+  if(parsed.name==='menu')return sendMenu(runtime,peer);
 
   const cmd=commands.get(parsed.name);
   if(!cmd){
@@ -579,10 +599,16 @@ export async function attachConnectedClient(client,account){
   client.addEventHandler(async event=>{
     try{
       const settings=await settingsFor(id);
-      const parsed=parseCommand(textOf(event.message),settings.prefix||'.');
-      if(parsed)await handleCommand(runtime,event,parsed);
-      else if(!(await handleProxyFlowInput(runtime,event)))await maybeNlpMode(runtime,event);
-    }catch(e){console.error('[NexAccount outgoing]',id,e)}
+      const raw=textOf(event.message);
+      const parsed=parseCommand(raw,settings.prefix||'.');
+      if(parsed){
+        console.log('[NexAccount command]',id,parsed.name,'messageId='+String(event.message?.id||''));
+        await handleCommand(runtime,event,parsed);
+      }else if(!(await handleProxyFlowInput(runtime,event)))await maybeNlpMode(runtime,event);
+    }catch(e){
+      console.error('[NexAccount outgoing]',id,String(e?.errorMessage||e?.message||e));
+      try{await sendText(client,event.message?.peerId,'NexAccount error: '+String(e?.errorMessage||e?.message||e).slice(0,300))}catch{}
+    }
   },new NewMessage({outgoing:true}));
 
   client.addEventHandler(async event=>{

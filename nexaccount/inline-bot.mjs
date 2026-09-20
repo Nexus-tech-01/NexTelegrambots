@@ -64,9 +64,9 @@ function stampMarkup(markup,accountId){
   return copy;
 }
 
-function inlineResult(model,accountId,id='menu'){
+function inlineResult(model,accountId,id='menu',forceArticle=false){
   const reply_markup=stampMarkup(model.reply_markup,accountId);
-  if(model.photoUrl){
+  if(model.photoUrl&&!forceArticle){
     return {
       type:'photo',id,
       photo_url:model.photoUrl,
@@ -286,9 +286,18 @@ export async function startInlineBot(){
       return;
     }
     const model=await modelFor(account,ctx.inlineQuery.query);
-    await ctx.answerInlineQuery([inlineResult(model,account.telegramUserId,'nex-'+Date.now())],{
-      cache_time:0,is_personal:true
-    });
+    const resultId='nex-'+Date.now();
+    try{
+      await ctx.answerInlineQuery([inlineResult(model,account.telegramUserId,resultId)],{
+        cache_time:0,is_personal:true
+      });
+    }catch(error){
+      if(!model.photoUrl)throw error;
+      console.error('[NexAI inline photo]',String(error?.message||error));
+      await ctx.answerInlineQuery([inlineResult(model,account.telegramUserId,resultId,true)],{
+        cache_time:0,is_personal:true
+      });
+    }
   });
 
   bot.on('callback_query:data',async ctx=>{
