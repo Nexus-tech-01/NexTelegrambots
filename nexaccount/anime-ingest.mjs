@@ -449,7 +449,7 @@ function classifyMessage(message,source={}){
       cleanedCaption,confidence:0.92
     };
   }
-  if(message?.photo && text.trim() && PRESENTATION_RE.test(text) && !looksPromotional(text)){
+  if(message?.photo && text.trim() && (PRESENTATION_RE.test(text)||(ep&&text.trim().length>=80)) && !looksPromotional(text)){
     const presentTitle=stripNoiseTitle(text.split(/\r?\n/)[0]||'',ep?.token||'');
     if(presentTitle.length>=2){
       return {
@@ -1515,16 +1515,19 @@ export async function animeBeginRebuild(runtime,{deadline=null}={}){
 
   await d.collection('nexanime_config').updateOne(
     {_id:'rebuild'},
-    {$set:{
-      mode:'rebuild',
-      rebuildId,
-      startedAt:now,
-      scanBarrier:true,
-      deadline:deadline?new Date(deadline):null,
-      publisherAccountId:String(runtime.account.telegramUserId),
-      publisherUsername:String(runtime.account.username||''),
-      updatedAt:now
-    }},
+    {
+      $set:{
+        mode:'rebuild',
+        rebuildId,
+        startedAt:now,
+        scanBarrier:true,
+        deadline:deadline?new Date(deadline):null,
+        publisherAccountId:String(runtime.account.telegramUserId),
+        publisherUsername:String(runtime.account.username||''),
+        updatedAt:now
+      },
+      $unset:{completedAt:''}
+    },
     {upsert:true}
   );
 
