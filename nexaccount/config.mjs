@@ -35,7 +35,18 @@ export const cfg={
   creatorDisplayName:pick('NEXAI_CREATOR_DISPLAY_NAME')||'⏤͟͟͞͞𝄞ᬼ⃟𝐌ꝛ⥔𝕿𝖗𝖊𝖘𝖔𝖗✧ ⃞.',
   creatorImagePath:pick('NEXAI_CREATOR_IMAGE_PATH')||path.join(HERE,'assets','creator.jpg'),
   connectUrl:pick('NEXAI_CONNECT_URL')||'https://eddie-neural-jimmy-enemies.trycloudflare.com/nexai/connect',
-  defaultMenuImage:pick('NEXAI_DEFAULT_MENU_IMAGE_URL')
+  defaultMenuImage:pick('NEXAI_DEFAULT_MENU_IMAGE_URL'),
+  workerCount:Math.max(1,Math.min(65536,Number(pick('NEXACCOUNT_WORKER_COUNT')||1))),
+  workerIndex:Math.max(0,Number(pick('NEXACCOUNT_WORKER_INDEX')||0)),
+  workerId:pick('NEXACCOUNT_WORKER_ID')||((process.env.HOSTNAME||'nexaccount')+':'+process.pid),
+  runtimeBuckets:65536,
+  runtimeLeaseMs:Math.max(30000,Number(pick('NEXACCOUNT_RUNTIME_LEASE_MS')||120000)),
+  maxRuntimesPerWorker:Math.max(1,Number(pick('NEXACCOUNT_MAX_RUNTIMES_PER_WORKER')||1000)),
+  restoreConcurrency:Math.max(1,Math.min(50,Number(pick('NEXACCOUNT_RESTORE_CONCURRENCY')||10))),
+  reconcileMs:Math.max(10000,Number(pick('NEXACCOUNT_RECONCILE_MS')||30000)),
+  commandPollMs:Math.max(3000,Number(pick('NEXACCOUNT_COMMAND_POLL_MS')||10000)),
+  updateSyncMs:Math.max(5000,Number(pick('NEXACCOUNT_UPDATE_SYNC_MS')||20000)),
+  controlKey:pick('NEXACCOUNT_CONTROL_KEY','NEXCONTROL_FLEET_KEY')||pick('NEXACCOUNT_SESSION_KEY','NEXCONTROL_SESSION_SECRET','SESSION_SECRET')
 };
 cfg.creatorUrl='https://t.me/'+cfg.creatorUsername.replace(/^@/,'');
 
@@ -45,6 +56,7 @@ export function isOwnerId(id){
 
 export function assertCoreConfig(){
   const missing=[];
+  if(!Number.isInteger(cfg.workerIndex)||cfg.workerIndex<0||cfg.workerIndex>=cfg.workerCount)missing.push('NEXACCOUNT_WORKER_INDEX must be < NEXACCOUNT_WORKER_COUNT');
   if(!Number.isInteger(cfg.apiId)||cfg.apiId<=0)missing.push('NEXACCOUNT_TELEGRAM_API_ID');
   if(!cfg.apiHash)missing.push('NEXACCOUNT_TELEGRAM_API_HASH');
   if(!cfg.mongoUri)missing.push('NEXUS_MONGODB_URI');
