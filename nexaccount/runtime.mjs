@@ -11,6 +11,7 @@ import { recordEvent } from './analytics.mjs';
 import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
 import { handleCompatCommand } from './compat.mjs';
 import { menuModel } from './menu.mjs';
+import { canUseDipperFallback, executeDipperFallback } from './dipper-fallback.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -537,8 +538,26 @@ async function handleCommand(runtime,event,parsed){
   }
   if(cmd.proxy){
     const proxyName=cmd.sourceCommand||name;
-    try{await proxyCommand(client,peer,{...cmd,name:proxyName},parsed.args,event)}
-    catch(e){await sendText(client,peer,'Erreur '+name+' : '+String(e.message||e))}
+    try{
+      await proxyCommand(client,peer,{...cmd,name:proxyName},parsed.args,event);
+    }catch(primaryError){
+      const canonical=cmd.aliasFor||cmd.name||name;
+      if(cmd.fallback==='dipper'&&canUseDipperFallback(canonical)){
+        try{
+          await executeDipperFallback({client,peer,name:canonical,args:parsed.args,event});
+          return true;
+        }catch(fallbackError){
+          await sendText(
+            client,
+            peer,
+            'Erreur '+canonical+' · NexDownloader: '+String(primaryError.message||primaryError)+
+            '\nDipper fallback: '+String(fallbackError.message||fallbackError)
+          );
+          return true;
+        }
+      }
+      await sendText(client,peer,'Erreur '+name+' : '+String(primaryError.message||primaryError));
+    }
     return true;
   }
 

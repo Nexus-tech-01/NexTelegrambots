@@ -44,16 +44,16 @@ export const CORE_COMMANDS=[
   C('deepseek','AI',{description:'Raisonnement approfondi',proxy:'@Stacytg_bot',proxyMode:'chat'}),
 
   // DOWNLOAD — useful WhatsApp-bot style media commands.
-  C('song','DOWNLOAD',{description:'Télécharger/rechercher une musique',proxy:'@TheNexDownloader_bot'}),
-  C('video','DOWNLOAD',{description:'Télécharger une vidéo',proxy:'@TheNexDownloader_bot'}),
-  C('tiktok','DOWNLOAD',{description:'Télécharger TikTok',proxy:'@TheNexDownloader_bot'}),
-  C('instagram','DOWNLOAD',{description:'Télécharger Instagram',proxy:'@TheNexDownloader_bot'}),
-  C('facebook','DOWNLOAD',{description:'Télécharger Facebook',proxy:'@TheNexDownloader_bot'}),
-  C('pinterest','DOWNLOAD',{description:'Télécharger Pinterest',proxy:'@TheNexDownloader_bot'}),
+  C('song','DOWNLOAD',{description:'Télécharger/rechercher une musique',proxy:'@TheNexDownloader_bot',fallback:'dipper'}),
+  C('video','DOWNLOAD',{description:'Télécharger une vidéo',proxy:'@TheNexDownloader_bot',fallback:'dipper'}),
+  C('tiktok','DOWNLOAD',{description:'Télécharger TikTok',proxy:'@TheNexDownloader_bot',fallback:'dipper'}),
+  C('instagram','DOWNLOAD',{description:'Télécharger Instagram',proxy:'@TheNexDownloader_bot',fallback:'dipper'}),
+  C('facebook','DOWNLOAD',{description:'Télécharger Facebook',proxy:'@TheNexDownloader_bot',fallback:'dipper'}),
+  C('pinterest','DOWNLOAD',{description:'Télécharger Pinterest',proxy:'@TheNexDownloader_bot',fallback:'dipper'}),
   C('tomp3','DOWNLOAD',{description:'Convertir une vidéo en MP3',proxy:'@TheNexDownloader_bot'}),
-  C('lyrics','DOWNLOAD',{description:'Paroles de chanson',proxy:'@TheNexDownloader_bot'}),
-  C('shazam','DOWNLOAD',{description:'Identifier une musique',proxy:'@TheNexDownloader_bot'}),
-  C('apk','DOWNLOAD',{description:'Rechercher un APK',proxy:'@TheNexDownloader_bot'}),
+  C('lyrics','DOWNLOAD',{description:'Paroles de chanson',proxy:'@TheNexDownloader_bot',fallback:'dipper'}),
+  C('shazam','DOWNLOAD',{description:'Identifier une musique',proxy:'@TheNexDownloader_bot',fallback:'dipper'}),
+  C('apk','DOWNLOAD',{description:'Rechercher un APK',proxy:'@TheNexDownloader_bot',fallback:'dipper'}),
   C('downloadinfo','DOWNLOAD',{description:'Inspecter une URL de téléchargement'}),
 
   // GROUP — information and non-destructive group utilities.

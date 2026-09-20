@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CORE_COMMANDS, REMOVED_COMMANDS, commandMap, commandStats } from '../commands.mjs';
+import { canUseDipperFallback } from '../dipper-fallback.mjs';
 
 const HERE=path.dirname(fileURLToPath(import.meta.url));
 const ROOT=path.dirname(HERE);
@@ -24,12 +25,14 @@ function textMentionsRoute(name){
 const invalid=[];
 const unresolved=[];
 const policyErrors=[];
+const fallbackErrors=[];
 
 for(const [token,cmd] of commands){
   if(!token||token.length>64||/[\s/@]/u.test(token))invalid.push(token);
   if(cmd.privateOnly&&cmd.groupOnly)policyErrors.push(token+': privateOnly+groupOnly');
   if(cmd.adminOnly&&!cmd.groupOnly)policyErrors.push(token+': adminOnly without groupOnly');
   if(REMOVED_COMMANDS.has(token))policyErrors.push(token+': removed command leaked into registry');
+  if(cmd.fallback==='dipper'&&!canUseDipperFallback(cmd.aliasFor||cmd.name))fallbackErrors.push(token+': unknown Dipper fallback');
 
   if(cmd.hidden&&cmd.aliasFor){
     if(!commands.has(String(cmd.aliasFor).toLowerCase()))policyErrors.push(token+': alias target missing');
@@ -61,6 +64,7 @@ if(stats.visible>180)throw new Error('NexAi visible command surface grew too lar
 if(stats.dipperSourceCanonical<150)throw new Error('Dipper source manifest unexpectedly low: '+stats.dipperSourceCanonical);
 if(invalid.length)throw new Error('Invalid command tokens: '+invalid.slice(0,30).join(', '));
 if(policyErrors.length)throw new Error('Invalid command policies: '+policyErrors.slice(0,40).join(', '));
+if(fallbackErrors.length)throw new Error('Invalid Dipper fallbacks: '+fallbackErrors.slice(0,40).join(', '));
 if(unresolved.length)throw new Error('Unrouted commands: '+unresolved.slice(0,60).join(', '));
 
 console.log(JSON.stringify({
