@@ -11,6 +11,9 @@ import { recordEvent } from './analytics.mjs';
 import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
 import { handleCompatCommand } from './compat.mjs';
 import { menuModel } from './menu.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const commands=commandMap();
 const runtimes=new Map();
@@ -28,7 +31,7 @@ const PROXY_SERVICE_SPECS={
   nexgroup:{
     usernameEnv:['NEXAI_NEXGROUP_BOT_USERNAME','NEXGROUP__BOT_USERNAME'],
     tokenEnv:['NEXGROUP__BOT_TOKEN','NEXGROUP_BOT_TOKEN'],
-    fallback:''
+    fallback:'DarkNexus01_bot'
   },
   nexgame:{
     usernameEnv:['NEXAI_NEXGAME_BOT_USERNAME','NEXGAME__BOT_USERNAME'],
@@ -45,13 +48,47 @@ const PROXY_SERVICE_SPECS={
     tokenEnv:['NEXWHISPER__BOT_TOKEN','NEXWHISPER_BOT_TOKEN'],
     fallback:'Nexwhisper_bot'
   },
+  nexcanal:{
+    usernameEnv:['NEXAI_NEXCANAL_BOT_USERNAME','NEXCANAL__BOT_USERNAME'],
+    tokenEnv:['NEXCANAL__BOT_TOKEN','NEXCANAL_BOT_TOKEN'],
+    fallback:'the_big_dipper_bot'
+  },
+  stacy:{
+    usernameEnv:['NEXAI_STACY_BOT_USERNAME','STACY_BOT_USERNAME'],
+    tokenEnv:['STACY_BOT_TOKEN','STACY__BOT_TOKEN'],
+    fallback:'Stacytg_bot'
+  },
   dipper:{
     usernameEnv:['NEXAI_DIPPER_BOT_USERNAME','DIPPER_TELEGRAM_BOT_USERNAME'],
     tokenEnv:['DIPPER_TELEGRAM_BOT_TOKEN'],
     fallback:'the_big_dipper_bot'
+  },
+  nexai:{
+    usernameEnv:['NEXAI_BOT_USERNAME'],
+    tokenEnv:['NEXAI_BOT_TOKEN'],
+    fallback:'NexAi01_bot'
+  },
+  nexmeta:{
+    usernameEnv:['NEXAI_NEXMETA_BOT_USERNAME','NEXMETA_BOT_USERNAME'],
+    tokenEnv:['NEXMETA_BOT_TOKEN','NEXMETA__BOT_TOKEN'],
+    fallback:''
   }
 };
 const proxyIdentityCache=new Map();
+const HERE=path.dirname(fileURLToPath(import.meta.url));
+const ENGINE_REGISTRY_PATH=path.join(HERE,'engine-registry.json');
+
+function loadEngineRegistry(){
+  try{
+    const raw=JSON.parse(fs.readFileSync(ENGINE_REGISTRY_PATH,'utf8'));
+    return raw&&typeof raw==='object'?raw:{};
+  }catch{return {}}
+}
+
+function registryUsername(service){
+  const row=loadEngineRegistry()[String(service||'').toLowerCase()];
+  return String(row?.username||'').trim().replace(/^@/,'');
+}
 
 function firstEnv(names=[]){
   for(const name of names){
@@ -76,7 +113,7 @@ async function resolveProxyUsername(cmd){
   if(proxyIdentityCache.has(service))return proxyIdentityCache.get(service);
   const spec=PROXY_SERVICE_SPECS[service];
   if(!spec)throw new Error('Moteur source inconnu : '+service);
-  let username=firstEnv(spec.usernameEnv).replace(/^@/,'');
+  let username=registryUsername(service)||firstEnv(spec.usernameEnv).replace(/^@/,'');
   if(!username){
     for(const envName of spec.tokenEnv){
       const token=String(process.env[envName]||'').trim();
@@ -939,6 +976,41 @@ export async function runtimeCommandTest(telegramUserId,text='.menu',peer='me'){
   if(!parsed)throw new Error('command_not_parsed');
   await handleCommand(runtime,{message:{peerId:peer||'me',id:0},isGroup:false},parsed);
   return {ok:true,telegramUserId:id,peer:String(peer||'me'),command:parsed.name};
+}
+
+export async function engineStatus(){
+  const registry=loadEngineRegistry();
+  const runtime=[...runtimes.values()][0]||null;
+  const rows=[];
+  for(const [service,row] of Object.entries(registry)){
+    const username=String(row?.username||'').trim().replace(/^@/,'');
+    const item={
+      service,
+      username:username||null,
+      enabled:row?.enabled!==false,
+      configured:!!username,
+      reachable:null,
+      error:null
+    };
+    if(!username){rows.push(item);continue}
+    if(!runtime?.client?.connected){
+      item.reachable=false;
+      item.error='runtime_not_connected';
+      rows.push(item);
+      continue;
+    }
+    try{
+      const entity=await runtime.client.getEntity('@'+username);
+      item.reachable=!!entity;
+      item.telegramId=entity?.id?String(entity.id):null;
+      item.bot=entity?.bot===true;
+    }catch(error){
+      item.reachable=false;
+      item.error=String(error?.errorMessage||error?.message||error).slice(0,300);
+    }
+    rows.push(item);
+  }
+  return {ok:true,runtimeConnected:runtime?.client?.connected===true,engines:rows};
 }
 
 export function runtimeStatus(){

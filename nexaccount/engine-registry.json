@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "updatedAt": "2026-09-20",
+  "nexdownloader": {
+    "username": "TheNexDownloader_bot",
+    "enabled": true
+  },
+  "nexgroup": {
+    "username": "DarkNexus01_bot",
+    "enabled": true
+  },
+  "nexgame": {
+    "username": "TheNexGame_bot",
+    "enabled": true
+  },
+  "nexstick": {
+    "username": "The_Nexus_techbot",
+    "enabled": true
+  },
+  "nexwhisper": {
+    "username": "Nexwhisper_bot",
+    "enabled": true
+  },
+  "nexcanal": {
+    "username": "the_big_dipper_bot",
+    "enabled": true,
+    "note": "live nxc_bots registry identity"
+  },
+  "stacy": {
+    "username": "Stacytg_bot",
+    "enabled": true
+  },
+  "dipper": {
+    "username": "the_big_dipper_bot",
+    "enabled": true
+  },
+  "nexai": {
+    "username": "NexAi01_bot",
+    "enabled": true
+  },
+  "nexmeta": {
+    "username": "",
+    "enabled": false
+  }
+}
