@@ -293,6 +293,14 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(name==='support'){await sendText(client,peer,'Support : https://t.me/tresor20001');return true}
   if(name==='repo'){await sendText(client,peer,'Nextech : https://github.com/Nexus-tech-01');return true}
 
+  if(name==='vv'){
+    try{
+      await resendAsTelegramViewOnce(client,peer,event.message);
+      try{await client.deleteMessages(peer,[event.message.id],{revoke:true})}catch{}
+    }catch(e){await sendText(client,peer,'VV · '+String(e?.message||e))}
+    return true;
+  }
+
   if(name==='fliptext'){await sendText(client,peer,(argText||'NexAi').split('').reverse().join(''));return true}
   if(name==='genpass'){await sendText(client,peer,password(args[0]));return true}
   if(name==='smallcaps'||name==='fancy'){await sendText(client,peer,toSmallCaps(argText||'NexAi'));return true}
