@@ -217,6 +217,37 @@ async function sendOwner(ctx,kind,args=[]){
   return ctx.reply(text,{entities:ownerEntities(text)});
 }
 
+function telegramCommandMenu(){
+  const rows=[
+    {command:'start',description:'Démarrer NexAI'},
+    {command:'menu',description:'Ouvrir le menu principal'},
+    {command:'help',description:'Afficher l’aide'},
+    {command:'pair',description:'Connecter un compte Telegram'},
+    {command:'language',description:'Changer la langue'},
+    {command:'creator',description:'Afficher le créateur'}
+  ];
+  const seen=new Set(rows.map(x=>x.command));
+  for(const cmd of commands.values()){
+    const name=String(cmd?.name||'').trim().toLowerCase();
+    if(!/^[a-z0-9_]{1,32}$/.test(name)||seen.has(name))continue;
+    const description=String(cmd?.description||cmd?.category||'Commande NexAI')
+      .replace(/[\r\n]+/g,' ')
+      .trim()
+      .slice(0,256)||'Commande NexAI';
+    rows.push({command:name,description});
+    seen.add(name);
+    if(rows.length>=100)break;
+  }
+  return rows;
+}
+
+async function syncTelegramCommandMenu(bot){
+  const rows=telegramCommandMenu();
+  await bot.api.setMyCommands(rows);
+  await bot.api.setChatMenuButton({menu_button:{type:'commands'}}).catch(()=>{});
+  console.log('[NexAI] Telegram command menu synced · '+rows.length+' commands');
+}
+
 export async function startInlineBot(){
   const token=await loadBotToken();
   if(!token){
