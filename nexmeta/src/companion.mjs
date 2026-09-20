@@ -177,21 +177,34 @@ export async function pairCompanion({
   }
 
   const db = await database();
-  const pairing = await db.collection('companion_pairings').findOne({
-    codeHash: sha256(code),
-    usedAt: null,
-    expiresAt: { $gt: now() }
-  });
+  const deviceId = crypto.randomUUID();
+  const deviceToken = randomToken();
+  const pairedAt = now();
+
+  const claimed = await db.collection('companion_pairings').findOneAndUpdate(
+    {
+      codeHash: sha256(code),
+      usedAt: null,
+      expiresAt: { $gt: pairedAt }
+    },
+    {
+      $set: {
+        usedAt: pairedAt,
+        deviceId
+      }
+    },
+    {
+      returnDocument: 'before'
+    }
+  );
+
+  const pairing = claimed?.value ?? claimed;
 
   if (!pairing) {
     const error = new Error('pair_code_invalid_or_expired');
     error.status = 403;
     throw error;
   }
-
-  const deviceId = crypto.randomUUID();
-  const deviceToken = randomToken();
-  const pairedAt = now();
   const caps = Array.isArray(capabilities)
     ? capabilities
         .map(item => clean(item, 80))
@@ -199,32 +212,34 @@ export async function pairCompanion({
         .slice(0, 50)
     : [];
 
-  await db.collection('companion_devices').insertOne({
-    deviceId,
-    tokenHash: sha256(deviceToken),
-    name: clean(deviceName, 120) || 'Facebook browser',
-    platform: clean(platform, 80) || 'browser',
-    clientVersion: clean(clientVersion, 80) || 'unknown',
-    capabilities: caps,
-    active: true,
-    pairedAt,
-    lastSeenAt: pairedAt,
-    revokedAt: null,
-    context: null
-  });
-
-  await db.collection('companion_pairings').updateOne(
-    {
-      _id: pairing._id,
-      usedAt: null
-    },
-    {
-      $set: {
-        usedAt: pairedAt,
-        deviceId
+  try {
+    await db.collection('companion_devices').insertOne({
+      deviceId,
+      tokenHash: sha256(deviceToken),
+      name: clean(deviceName, 120) || 'Facebook browser',
+      platform: clean(platform, 80) || 'browser',
+      clientVersion: clean(clientVersion, 80) || 'unknown',
+      capabilities: caps,
+      active: true,
+      pairedAt,
+      lastSeenAt: pairedAt,
+      revokedAt: null,
+      context: null
+    });
+  } catch (error) {
+    await db.collection('companion_pairings').updateOne(
+      {
+        _id: pairing._id,
+        deviceId,
+        usedAt: pairedAt
+      },
+      {
+        $set: { usedAt: null },
+        $unset: { deviceId: '' }
       }
-    }
-  );
+    ).catch(() => {});
+    throw error;
+  }
 
   return {
     deviceId,
@@ -585,6 +600,16 @@ export async function ingestCompanionEvents(
 }
 
 export async function companionDeviceStatus(authHeader) {
-  const { device } = await resolveDeviceFromAuth(authHeader);
-  return publicDevice(device);
+  const { db, device } = await resolveDeviceFromAuth(authHeader);
+  const timestamp = now();
+
+  await db.collection('companion_devices').updateOne(
+    { deviceId: device.deviceId, active: true },
+    { $set: { lastSeenAt: timestamp } }
+  );
+
+  return publicDevice({
+    ...device,
+    lastSeenAt: timestamp
+  });
 }
