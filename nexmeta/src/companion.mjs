@@ -265,8 +265,10 @@ export async function revokeCompanionDevice(deviceId) {
     {
       $set: {
         active: false,
-        revokedAt,
-        tokenHash: null
+        revokedAt
+      },
+      $unset: {
+        tokenHash: ''
       }
     }
   );
