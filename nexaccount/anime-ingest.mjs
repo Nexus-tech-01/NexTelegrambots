@@ -587,9 +587,9 @@ async function activeSeriesAnchors(runtime,entity){
   if(cached)SOURCE_CACHE.set(cacheKey,{...cached,seriesAnchors:anchors,verifiedAnimeSeries:anchors.length});
   return anchors;
 }
-async function backfillSource(runtime,entity){
+async function backfillSource(runtime,entity,knownAnchors=null){
   const accountId=String(runtime.account.telegramUserId);
-  const anchors=await activeSeriesAnchors(runtime,entity);
+  const anchors=Array.isArray(knownAnchors)?knownAnchors:await activeSeriesAnchors(runtime,entity);
   if(!anchors.length){
     console.log('[NexAnime] no verified anime series',accountId,String(entity?.username||entity?.id||''));
     return 0;
@@ -668,7 +668,24 @@ async function discoverSources(runtime){
     }
 
     candidates.sort((a,b)=>b.rank-a.rank||Number(b.row.animeSignals||0)-Number(a.row.animeSignals||0));
-    const selected=candidates.slice(0,MAX_SELECTED_SOURCES);
+
+    // "Looks like episodes" is not enough. Before selecting a source, prove that
+    // at least one of its recent series resolves to a real non-adult anime.
+    const verified=[];
+    const shortlist=candidates.slice(0,Math.min(candidates.length,MAX_SELECTED_SOURCES*3));
+    for(const candidate of shortlist){
+      try{
+        const anchors=await activeSeriesAnchors(runtime,candidate.entity);
+        if(!anchors.length)continue;
+        verified.push({...candidate,anchors,rank:candidate.rank+Math.min(20,anchors.length*2)});
+        if(verified.length>=MAX_SELECTED_SOURCES)break;
+      }catch(e){
+        console.warn('[NexAnime source-verify]',String(runtime.account.telegramUserId),String(candidate.entity?.username||candidate.entity?.id||''),String(e?.message||e).slice(0,220));
+      }
+    }
+    verified.sort((a,b)=>b.rank-a.rank||Number(b.row.animeSignals||0)-Number(a.row.animeSignals||0));
+    const selected=verified.slice(0,MAX_SELECTED_SOURCES);
+
     const d=await db();
     const accountId=String(runtime.account.telegramUserId);
     await d.collection('nexanime_sources').updateMany(
@@ -676,23 +693,30 @@ async function discoverSources(runtime){
       {$set:{selected:false,selectionUpdatedAt:new Date()}}
     );
     for(let i=0;i<selected.length;i++){
-      const {row,entity,rank}=selected[i];
+      const {row,entity,rank,anchors}=selected[i];
       await d.collection('nexanime_sources').updateOne(
         {accountId,channelId:String(row.channelId)},
-        {$set:{selected:true,sourceRank:Number(rank.toFixed(3)),selectionPosition:i+1,selectionUpdatedAt:new Date()}}
+        {$set:{
+          selected:true,
+          sourceRank:Number(rank.toFixed(3)),
+          selectionPosition:i+1,
+          selectionUpdatedAt:new Date(),
+          verifiedAnimeSeries:anchors.length,
+          seriesAnchors:anchors
+        }}
       );
       const cacheKey=accountId+':'+String(row.channelId);
       const cached=SOURCE_CACHE.get(cacheKey);
-      if(cached)SOURCE_CACHE.set(cacheKey,{...cached,selected:true,sourceRank:rank,selectionPosition:i+1});
+      if(cached)SOURCE_CACHE.set(cacheKey,{...cached,selected:true,sourceRank:rank,selectionPosition:i+1,seriesAnchors:anchors,verifiedAnimeSeries:anchors.length});
       try{
-        await backfillSource(runtime,entity);
+        await backfillSource(runtime,entity,anchors);
       }catch(e){
         console.warn('[NexAnime backfill]',accountId,String(entity?.username||entity?.id||''),String(e?.message||e).slice(0,220));
       }
     }
     runtime.animeIngest.sources=selected.length;
     runtime.animeIngest.lastDiscoveryAt=new Date();
-    return selected.map(x=>({...x.row,selected:true,sourceRank:x.rank}));
+    return selected.map(x=>({...x.row,selected:true,sourceRank:x.rank,verifiedAnimeSeries:x.anchors.length}));
   }finally{
     runtime.animeIngest.discovering=false;
     await setDiscoveryState(runtime,false);
