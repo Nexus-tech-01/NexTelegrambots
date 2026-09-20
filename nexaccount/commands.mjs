@@ -272,8 +272,17 @@ export function commandMap(extra=[]){
 
   // Compatibility aliases are alternate names only: they never create another
   // visible command or another handler.
+  const resolveCanonical=target=>{
+    let key=normalize(target);
+    const seen=new Set();
+    while(key&&map.has(key)&&map.get(key)?.aliasFor&&!seen.has(key)){
+      seen.add(key);
+      key=normalize(map.get(key).aliasFor);
+    }
+    return key&&map.has(key)?key:'';
+  };
   const addAlias=(alias,target)=>{
-    const a=normalize(alias),t=normalize(target);
+    const a=normalize(alias),t=resolveCanonical(target);
     if(!a||!t||REMOVED_COMMANDS.has(a)||map.has(a))return;
     const canonical=map.get(t);
     if(!canonical)return;
@@ -284,16 +293,14 @@ export function commandMap(extra=[]){
   for(const [alias,target] of Object.entries(LEGACY_ALIASES))addAlias(alias,target);
 
   // Preserve every historical Dipper alias for commands that are still kept.
-  // If the old Dipper canonical name itself became an alias (aveu -> truth,
-  // accueil -> welcome, etc.), all of its historical aliases follow the new
-  // canonical command instead of becoming separate commands.
+  // All aliases resolve directly to the final canonical command, even if the
+  // historical Dipper command itself was renamed (cobalt -> facebook, etc.).
   for(const spec of DIPPER_COMMANDS){
     const oldCanonical=normalize(spec?.name);
     if(!oldCanonical)continue;
-    const target=map.has(oldCanonical)
-      ? oldCanonical
-      : normalize(LEGACY_ALIASES[oldCanonical]||'');
-    if(!target||!map.has(target))continue;
+    const target=resolveCanonical(oldCanonical)
+      ||resolveCanonical(LEGACY_ALIASES[oldCanonical]||'');
+    if(!target)continue;
     addAlias(oldCanonical,target);
     for(const alias of spec.aliases||[])addAlias(alias,target);
   }
