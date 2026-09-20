@@ -78,6 +78,7 @@
     "minimumRestartRssMb": 200,
     "requireSupervisedParent": true,
     "parentPatterns": [
+      "index.js",
       "scripts/orchestrator.mjs",
       "orchestrator.mjs"
     ],
@@ -94,9 +95,9 @@
     "cleanupTargets": [
       {
         "path": ".nexcontrol/backups",
-        "minAgeMinutes": 1440,
-        "keepNewest": 20,
-        "maxBytes": 536870912
+        "minAgeMinutes": 10080,
+        "keepNewest": 50,
+        "maxBytes": 1073741824
       },
       {
         "path": ".nexcontrol/tmp",
