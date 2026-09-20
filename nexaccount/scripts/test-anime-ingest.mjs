@@ -52,3 +52,26 @@ const fileMessage=(name,caption='')=>({
 }
 
 console.log('NexAnime ingest regression tests: OK');
+
+
+// underscore-only filename metadata must still parse
+{
+  const c=__test.classifyMessage(
+    fileMessage('SOLO_LEVELING_S02E15_VOSTFR_1080p.mkv',''),
+    {username:'anime_source',title:'Anime Source'}
+  );
+  assert.equal(c.kind,'episode');
+  assert.equal(c.season,2);
+  assert.equal(c.episode,15);
+  assert.equal(c.language,'VOSTFR');
+  assert.equal(c.quality,'1080p');
+}
+
+// adult-focused source channels are rejected even when episode-like files are present
+{
+  const stats=__test.sourceStats([
+    fileMessage('Some_Anime_S01E01_VF.mkv'),
+    fileMessage('Some_Anime_S01E02_VF.mkv')
+  ],{title:'HENTAIL HUB',username:'adult_hentai_zone'});
+  assert.equal(stats.classification,'blocked');
+}
