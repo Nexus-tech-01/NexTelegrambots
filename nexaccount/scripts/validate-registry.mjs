@@ -14,6 +14,8 @@ const runtime=fs.readFileSync(path.join(ROOT,'runtime.mjs'),'utf8');
 const compat=fs.readFileSync(path.join(ROOT,'compat.mjs'),'utf8');
 const commandSource=fs.readFileSync(path.join(ROOT,'commands.mjs'),'utf8');
 const registrySource=fs.readFileSync(path.join(ROOT,'engine-registry.json'),'utf8');
+const configSource=fs.readFileSync(path.join(ROOT,'config.mjs'),'utf8');
+const aiSource=fs.readFileSync(path.join(ROOT,'ai-engine.mjs'),'utf8');
 const commands=commandMap();
 const stats=commandStats(commands);
 
@@ -80,6 +82,11 @@ const forbiddenRuntimePatterns=[
 for(const pattern of forbiddenRuntimePatterns){
   if(runtime.includes(pattern)||compat.includes(pattern)||commandSource.includes(pattern)||registrySource.includes(pattern)){
     independenceErrors.push('forbidden dependency marker: '+pattern);
+  }
+}
+for(const prefix of ['NEXGROUP__','NEXDOWNLOADER__','NEXWHISPER__','NEXGAME__','NEXCANAL__','NEXSTICK__','STACY_']){
+  if(configSource.includes(prefix)||aiSource.includes(prefix)){
+    independenceErrors.push('forbidden sibling env fallback: '+prefix);
   }
 }
 
