@@ -28,8 +28,19 @@ jobs:
           python3 - <<'PY'
           import json, hashlib, pathlib, urllib.request
 
-          transfer = pathlib.Path(".nexcontrol-transfer/current.json")
-          m = json.loads(transfer.read_text())
+          seed = json.loads(pathlib.Path(".nexcontrol-transfer/current.json").read_text())
+          if "manifestUrl" in seed:
+              req = urllib.request.Request(seed["manifestUrl"], headers={"User-Agent":"NexTelegrambots-backup-import"})
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  m = json.loads(r.read())
+          else:
+              m = seed
+
+          if m.get("backupId") != seed.get("backupId"):
+              raise SystemExit("backup id mismatch")
+          if not m.get("encrypted"):
+              raise SystemExit("refusing unencrypted backup")
+
           backup_id = m["backupId"]
           parts = sorted(m["parts"], key=lambda x: int(x["index"]))
           outdir = pathlib.Path("secure-backups") / backup_id / "parts"
@@ -39,7 +50,7 @@ jobs:
           total = 0
           for p in parts:
               idx = int(p["index"])
-              req = urllib.request.Request(p["signedUrl"], headers={"User-Agent": "NexTelegrambots-backup-import"})
+              req = urllib.request.Request(p["signedUrl"], headers={"User-Agent":"NexTelegrambots-backup-import"})
               with urllib.request.urlopen(req, timeout=180) as r:
                   data = r.read()
               target = outdir / f"{idx:06d}.part"
@@ -67,6 +78,8 @@ jobs:
               "archiveSha256": digest,
               "archiveBytes": total,
               "chunkCount": len(parts),
+              "completedAt": m.get("completedAt"),
+              "sourceVersion": m.get("sourceVersion"),
               "source": "NexControl backup vault",
               "restore": "Concatenate parts in numeric order, then restore through .nexcontrol/backup/worker.mjs / NexControl. The decryption key is intentionally kept out of Git history."
           }
@@ -74,9 +87,9 @@ jobs:
           (root / "manifest.json").write_text(json.dumps(safe_manifest, indent=2) + "\n")
           (root / "README.md").write_text(
               "# Encrypted full-server Telegram bots backup\n\n"
-              "This directory contains a verified AES-256-GCM NexControl backup of the Telegram-bot server. "
-              "It includes the server files captured by NexControl, including hidden files and runtime configuration. "
-              "Secrets and Telegram sessions are present only inside the encrypted archive parts, never in plaintext Git history.\n"
+              "Verified AES-256-GCM NexControl backup of the Telegram-bot server. "
+              "It contains the server files captured by NexControl, including hidden files and runtime configuration. "
+              "Secrets and Telegram sessions exist only inside the encrypted archive parts and are never committed in plaintext.\n"
           )
           PY
 
