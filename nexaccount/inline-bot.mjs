@@ -2,7 +2,7 @@ import { Bot, InputFile } from 'grammy';
 import { cfg, isOwnerId } from './config.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { commandMap } from './commands.mjs';
-import { listAccounts, settingsFor, patchSettings } from './store.mjs';
+import { accountRecord, settingsFor, patchSettings } from './store.mjs';
 import { menuModel, stylesModel } from './menu.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { observeUser, recordEvent } from './analytics.mjs';
@@ -48,10 +48,6 @@ async function sendPairLink(ctx,lang){
     reply_markup:connectMarkup(lang),
     link_preview_options:{is_disabled:true}
   });
-}
-
-function accountForId(accounts,id){
-  return accounts.find(a=>String(a.telegramUserId)===String(id))||null;
 }
 
 function stampMarkup(markup,accountId){
@@ -163,8 +159,7 @@ function ownerEntities(text){
 
 async function sendStart(ctx){
   const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
-  const accounts=await listAccounts();
-  const paired=!!accountForId(accounts,ctx.from.id);
+  const paired=!!(await accountRecord(ctx.from.id));
   const text=lang==='en'
     ? [
       '♰ ɴᴇxᴀɪ','',
@@ -322,8 +317,7 @@ export async function startInlineBot(){
 
   bot.on('inline_query',async ctx=>{
     await recordEvent(ctx.inlineQuery.from,'inline_query',{source:'nexai',chatType:'inline'}).catch(()=>{});
-    const accounts=await listAccounts();
-    const account=accountForId(accounts,ctx.inlineQuery.from.id);
+    const account=await accountRecord(ctx.inlineQuery.from.id);
     if(!account){
       await ctx.answerInlineQuery([], {cache_time:0,is_personal:true});
       return;
@@ -353,8 +347,7 @@ export async function startInlineBot(){
       await ctx.answerCallbackQuery({text:'Ce menu appartient au compte connecté.',show_alert:false});
       return;
     }
-    const accounts=await listAccounts();
-    const account=accountForId(accounts,accountId);
+    const account=await accountRecord(accountId);
     if(!account){await ctx.answerCallbackQuery({text:'Compte déconnecté.'});return}
     let model;
     if(action==='menu:home')model=await modelFor(account,'menu');
