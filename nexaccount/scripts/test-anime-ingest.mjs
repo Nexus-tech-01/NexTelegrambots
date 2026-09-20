@@ -147,3 +147,15 @@ console.log('NexAnime ingest regression tests: OK');
   assert.equal(x.season,4);
   assert.equal(x.episode,12);
 }
+
+
+// episode synopsis card without explicit "synopsis" label
+{
+  const c=__test.classifyMessage({
+    message:'Classroom of the Elite S04 EP16 VOSTFR\nCette semaine, la classe fait face à une nouvelle épreuve qui bouleverse complètement les alliances et les stratégies des élèves.',
+    photo:{id:1}
+  },{username:'anime_source',title:'Anime Source'});
+  assert.equal(c.kind,'presentation');
+  assert.equal(c.season,4);
+  assert.equal(c.episode,16);
+}
