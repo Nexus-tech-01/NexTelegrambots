@@ -374,6 +374,7 @@ export async function startInlineBot(){
   });
 
   bot.catch(e=>console.error('[NexAI Bot]',e.error||e));
+  await syncTelegramCommandMenu(bot).catch(e=>console.error('[NexAI commands]',String(e?.description||e?.message||e)));
   bot.start({drop_pending_updates:false}).catch(e=>console.error('[NexAI start]',e));
   const me=await bot.api.getMe();
   cfg.botUsername=cfg.botUsername||me.username;
