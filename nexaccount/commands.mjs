@@ -268,14 +268,32 @@ export function commandMap(extra=[]){
 
   for(const cmd of CORE_COMMANDS)put(cmd);
 
-  // Add only explicitly approved aliases. Dipper's historical 686 aliases are
-  // no longer imported wholesale.
-  for(const [alias,target] of Object.entries(LEGACY_ALIASES)){
+  // Compatibility aliases are alternate names only: they never create another
+  // visible command or another handler.
+  const addAlias=(alias,target)=>{
     const a=normalize(alias),t=normalize(target);
-    if(!a||!t||REMOVED_COMMANDS.has(a)||map.has(a))continue;
+    if(!a||!t||REMOVED_COMMANDS.has(a)||map.has(a))return;
     const canonical=map.get(t);
-    if(!canonical)continue;
+    if(!canonical)return;
     map.set(a,{...canonical,name:a,aliasFor:t,hidden:true});
+  };
+
+  // Hand-picked renames made during the NexAi cleanup.
+  for(const [alias,target] of Object.entries(LEGACY_ALIASES))addAlias(alias,target);
+
+  // Preserve every historical Dipper alias for commands that are still kept.
+  // If the old Dipper canonical name itself became an alias (aveu -> truth,
+  // accueil -> welcome, etc.), all of its historical aliases follow the new
+  // canonical command instead of becoming separate commands.
+  for(const spec of DIPPER_COMMANDS){
+    const oldCanonical=normalize(spec?.name);
+    if(!oldCanonical)continue;
+    const target=map.has(oldCanonical)
+      ? oldCanonical
+      : normalize(LEGACY_ALIASES[oldCanonical]||'');
+    if(!target||!map.has(target))continue;
+    addAlias(oldCanonical,target);
+    for(const alias of spec.aliases||[])addAlias(alias,target);
   }
 
   for(const cmd of extra)put(cmd);
