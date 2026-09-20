@@ -104,6 +104,12 @@ async function handleNexAccount(req,res,u){
   let result;
   if(req.method==='GET'&&u.pathname==='/api/nexaccount/health')result=await runAgentCli(req,['health'],20000);
   else if(req.method==='GET'&&u.pathname==='/api/nexaccount/accounts')result=await runAgentCli(req,['accounts'],20000);
+  else if(req.method==='GET'&&u.pathname==='/api/nexaccount/anime/status')result=await runAgentCli(req,['anime-status'],30000);
+  else if(req.method==='POST'&&u.pathname==='/api/nexaccount/anime/discover'){
+    const target=String(q.username||q.telegramUserId||'').replace(/[^A-Za-z0-9_@-]/g,'').slice(0,80);
+    result=await runAgentCli(req,['anime-discover',target],90000);
+  }
+  else if(req.method==='POST'&&u.pathname==='/api/nexaccount/anime/retry')result=await runAgentCli(req,['anime-retry'],30000);
   else if(req.method==='GET'&&u.pathname==='/api/nexaccount/key')result=await runAgentCli(req,['public-key'],20000);
   else if(req.method==='POST'&&u.pathname==='/api/nexaccount/secure'){
     const envelope=String(q.envelope||'');
