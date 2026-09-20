@@ -12,124 +12,18 @@ import { ownerPanelText, countriesText, languagesText, userText, botStatsText, a
 import { handleCompatCommand } from './compat.mjs';
 import { menuModel } from './menu.mjs';
 import { canHandleAnimeCommand, handleAnimeCommand } from './anime-engine.mjs';
-import { canUseDipperFallback, executeDipperFallback } from './dipper-fallback.mjs';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { canHandleDownloadCommand, handleDownloadCommand } from './dipper-fallback.mjs';
+import { aiProviderStatus, canHandleAiCommand, generateAiReply, handleAiCommand } from './ai-engine.mjs';
+import { canHandleStickerCommand, handleStickerCommand } from './sticker-engine.mjs';
+import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
 
 const commands=commandMap();
 const runtimes=new Map();
 const spamWindows=new Map();
-const proxyFlows=new WeakMap();
 const handledCommands=new Map();
+const aiAutoWindows=new Map();
 let reconcilingRuntimes=false;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-
-const PROXY_SERVICE_SPECS={
-  nexdownloader:{
-    usernameEnv:['NEXAI_NEXDOWNLOADER_BOT_USERNAME','NEXDOWNLOADER__BOT_USERNAME'],
-    tokenEnv:['NEXDOWNLOADER__BOT_TOKEN','NEXDOWNLOADER_BOT_TOKEN'],
-    fallback:'TheNexDownloader_bot'
-  },
-  nexgroup:{
-    usernameEnv:['NEXAI_NEXGROUP_BOT_USERNAME','NEXGROUP__BOT_USERNAME'],
-    tokenEnv:['NEXGROUP__BOT_TOKEN','NEXGROUP_BOT_TOKEN'],
-    fallback:'DarkNexus01_bot'
-  },
-  nexgame:{
-    usernameEnv:['NEXAI_NEXGAME_BOT_USERNAME','NEXGAME__BOT_USERNAME'],
-    tokenEnv:['NEXGAME__BOT_TOKEN','NEXGAME_BOT_TOKEN'],
-    fallback:'TheNexGame_bot'
-  },
-  nexstick:{
-    usernameEnv:['NEXAI_NEXSTICK_BOT_USERNAME','NEXSTICK__BOT_USERNAME'],
-    tokenEnv:['NEXSTICK__BOT_TOKEN','NEXSTICK_BOT_TOKEN'],
-    fallback:'The_Nexus_techbot'
-  },
-  nexwhisper:{
-    usernameEnv:['NEXAI_NEXWHISPER_BOT_USERNAME','NEXWHISPER__BOT_USERNAME'],
-    tokenEnv:['NEXWHISPER__BOT_TOKEN','NEXWHISPER_BOT_TOKEN'],
-    fallback:'Nexwhisper_bot'
-  },
-  nexcanal:{
-    usernameEnv:['NEXAI_NEXCANAL_BOT_USERNAME','NEXCANAL__BOT_USERNAME'],
-    tokenEnv:['NEXCANAL__BOT_TOKEN','NEXCANAL_BOT_TOKEN'],
-    fallback:'the_big_dipper_bot'
-  },
-  stacy:{
-    usernameEnv:['NEXAI_STACY_BOT_USERNAME','STACY_BOT_USERNAME'],
-    tokenEnv:['STACY_BOT_TOKEN','STACY__BOT_TOKEN'],
-    fallback:'Stacytg_bot'
-  },
-  dipper:{
-    usernameEnv:['NEXAI_DIPPER_BOT_USERNAME','DIPPER_TELEGRAM_BOT_USERNAME'],
-    tokenEnv:['DIPPER_TELEGRAM_BOT_TOKEN'],
-    fallback:'the_big_dipper_bot'
-  },
-  nexai:{
-    usernameEnv:['NEXAI_BOT_USERNAME'],
-    tokenEnv:['NEXAI_BOT_TOKEN'],
-    fallback:'NexAi01_bot'
-  },
-  nexmeta:{
-    usernameEnv:['NEXAI_NEXMETA_BOT_USERNAME','NEXMETA_BOT_USERNAME'],
-    tokenEnv:['NEXMETA_BOT_TOKEN','NEXMETA__BOT_TOKEN'],
-    fallback:''
-  }
-};
-const proxyIdentityCache=new Map();
-const HERE=path.dirname(fileURLToPath(import.meta.url));
-const ENGINE_REGISTRY_PATH=path.join(HERE,'engine-registry.json');
-
-function loadEngineRegistry(){
-  try{
-    const raw=JSON.parse(fs.readFileSync(ENGINE_REGISTRY_PATH,'utf8'));
-    return raw&&typeof raw==='object'?raw:{};
-  }catch{return {}}
-}
-
-function registryUsername(service){
-  const row=loadEngineRegistry()[String(service||'').toLowerCase()];
-  return String(row?.username||'').trim().replace(/^@/,'');
-}
-
-function firstEnv(names=[]){
-  for(const name of names){
-    const value=String(process.env[name]||'').trim();
-    if(value)return value;
-  }
-  return '';
-}
-
-async function botUsernameFromToken(token){
-  if(!token)return '';
-  const response=await fetch('https://api.telegram.org/bot'+token+'/getMe',{signal:AbortSignal.timeout(7000)});
-  const data=await response.json().catch(()=>null);
-  if(!response.ok||!data?.ok||!data.result?.username)return '';
-  return String(data.result.username).replace(/^@/,'');
-}
-
-async function resolveProxyUsername(cmd){
-  if(cmd?.proxy)return String(cmd.proxy).replace(/^@/,'');
-  const service=String(cmd?.proxyService||cmd?.sourceBot||'').toLowerCase();
-  if(!service)throw new Error('Aucun moteur source configuré pour '+String(cmd?.name||'cette commande'));
-  if(proxyIdentityCache.has(service))return proxyIdentityCache.get(service);
-  const spec=PROXY_SERVICE_SPECS[service];
-  if(!spec)throw new Error('Moteur source inconnu : '+service);
-  let username=registryUsername(service)||firstEnv(spec.usernameEnv).replace(/^@/,'');
-  if(!username){
-    for(const envName of spec.tokenEnv){
-      const token=String(process.env[envName]||'').trim();
-      if(!token)continue;
-      username=await botUsernameFromToken(token).catch(()=>'');
-      if(username)break;
-    }
-  }
-  username=username||spec.fallback;
-  if(!username)throw new Error('Le moteur '+service+' n’est pas configuré sur le serveur');
-  proxyIdentityCache.set(service,username);
-  return username;
-}
 
 function randomLong(){
   return BigInt.asIntN(64,BigInt('0x'+crypto.randomBytes(8).toString('hex')));
@@ -279,136 +173,6 @@ async function joinTarget(client,target){
   return client.invoke(new Api.channels.JoinChannel({channel:entity}));
 }
 
-function peerKey(peer){
-  return String(peer?.userId||peer?.channelId||peer?.chatId||peer?.className||peer||'');
-}
-function flowMap(client){
-  let map=proxyFlows.get(client);
-  if(!map){map=new Map();proxyFlows.set(client,map)}
-  return map;
-}
-function extractReplyButtons(message){
-  const rows=message?.replyMarkup?.rows||[];
-  const out=[];
-  for(const row of rows)for(const b of row?.buttons||[]){
-    const text=String(b?.text||'').trim();
-    if(!text)continue;
-    out.push({text,data:b?.data||null,url:b?.url||null});
-  }
-  return out;
-}
-async function relaySourceMessage(client,peer,botEntity,message){
-  if(message.media)await client.forwardMessages(peer,{messages:[message.id],fromPeer:botEntity});
-  else if(message.message)await client.sendMessage(peer,{message:message.message});
-  const buttons=extractReplyButtons(message);
-  if(buttons.length){
-    const menu=['Actions du module :',...buttons.map((b,i)=>(i+1)+'. '+b.text+(b.url?' · '+b.url:''))].join('\n');
-    await client.sendMessage(peer,{message:menu});
-  }
-  return buttons;
-}
-async function waitProxyResponses(client,peer,botEntity,afterId,{timeoutMs=25000}={}){
-  const deadline=Date.now()+timeoutMs;
-  let highest=Number(afterId||0),firstAt=0,last=null,lastButtons=[];
-  while(Date.now()<deadline){
-    await sleep(650);
-    const msgs=await client.getMessages(botEntity,{limit:12});
-    const fresh=msgs.filter(m=>!m.out&&Number(m.id)>highest).sort((a,b)=>Number(a.id)-Number(b.id));
-    for(const response of fresh){
-      highest=Math.max(highest,Number(response.id));
-      last=response;
-      lastButtons=await relaySourceMessage(client,peer,botEntity,response);
-      if(!firstAt)firstAt=Date.now();
-    }
-    if(firstAt&&Date.now()-firstAt>1600)break;
-  }
-  return {last,lastButtons,highest};
-}
-async function proxyCommand(client,peer,cmd,args,event){
-  const username=await resolveProxyUsername(cmd);
-  const botEntity=await client.getInputEntity('@'+username);
-  const contextual=cmd.proxyMode==='contextual'&&event?.isGroup===true;
-  if(contextual){
-    const fullBot=await client.getEntity('@'+username).catch(()=>null);
-    const sourceId=String(fullBot?.id||'');
-    const body='/'+cmd.name+'@'+username+(args.length?' '+args.join(' '):'');
-    const sent=await client.sendMessage(peer,{message:body});
-    const deadline=Date.now()+30000;
-    while(Date.now()<deadline){
-      await sleep(700);
-      const rows=await client.getMessages(peer,{limit:20});
-      const response=rows.find(m=>{
-        if(m.out||Number(m.id)<=Number(sent.id))return false;
-        const sender=String(m.senderId||m.fromId?.userId||'');
-        return !sourceId||sender===sourceId;
-      });
-      if(!response)continue;
-      try{await client.deleteMessages(peer,[sent.id],{revoke:true})}catch{}
-      return true;
-    }
-    throw new Error('Le moteur '+username+' n’a pas répondu dans ce groupe');
-  }
-
-  const body=cmd.proxyMode==='chat'
-    ? String(args.join(' ')||cmd.name)
-    : '/'+cmd.name+(args.length?' '+args.join(' '):'');
-  const sent=await client.sendMessage(botEntity,{message:body});
-  const result=await waitProxyResponses(client,peer,botEntity,sent.id);
-  if(!result.last)throw new Error('Le bot source '+username+' n’a pas répondu à temps');
-  flowMap(client).set(peerKey(peer),{
-    botEntity,source:'@'+username,peer,lastBotMessageId:Number(result.last.id),
-    buttons:result.lastButtons,expiresAt:Date.now()+10*60*1000
-  });
-  return true;
-}
-
-async function handleProxyFlowInput(runtime,event){
-  const {client}=runtime;
-  const key=peerKey(event.message?.peerId);
-  const map=flowMap(client),flow=map.get(key);
-  if(!flow)return false;
-  if(Date.now()>flow.expiresAt){map.delete(key);return false}
-  const raw=textOf(event.message);
-  if(raw==='.cancelproxy'||raw==='/cancelproxy'){map.delete(key);await sendText(client,event.message.peerId,'Flux du module fermé.');return true}
-
-  let sentId=flow.lastBotMessageId;
-  const n=/^\d{1,2}$/.test(raw)?Number(raw):0;
-  const button=n>0?flow.buttons?.[n-1]:null;
-  if(button){
-    if(button.url){await sendText(client,event.message.peerId,button.url);return true}
-    if(button.data){
-      await client.invoke(new Api.messages.GetBotCallbackAnswer({
-        peer:flow.botEntity,msgId:flow.lastBotMessageId,data:button.data
-      }));
-      await sleep(800);
-      const editedRows=await client.getMessages(flow.botEntity,{ids:[flow.lastBotMessageId]});
-      const edited=Array.isArray(editedRows)?editedRows[0]:editedRows;
-      if(edited){
-        flow.buttons=await relaySourceMessage(client,event.message.peerId,flow.botEntity,edited);
-        flow.lastBotMessageId=Number(edited.id);
-      }
-    }else{
-      const sent=await client.sendMessage(flow.botEntity,{message:button.text});
-      sentId=Number(sent.id);
-    }
-  }else if(event.message?.media){
-    const forwarded=await client.forwardMessages(flow.botEntity,{messages:[event.message.id],fromPeer:event.message.peerId});
-    const arr=Array.isArray(forwarded)?forwarded:[forwarded];sentId=Math.max(sentId,...arr.map(x=>Number(x?.id||0)));
-  }else if(raw){
-    const sent=await client.sendMessage(flow.botEntity,{message:raw});
-    sentId=Number(sent.id);
-  }else return false;
-
-  const result=await waitProxyResponses(client,event.message.peerId,flow.botEntity,sentId,{timeoutMs:25000});
-  if(result.last){
-    flow.lastBotMessageId=Number(result.last.id);
-    flow.buttons=result.lastButtons;
-    flow.expiresAt=Date.now()+10*60*1000;
-    map.set(key,flow);
-  }
-  return true;
-}
-
 async function premiumDenied(client,peer,name){
   await sendText(client,peer,'Cette commande ('+name+') est disponible uniquement pour les utilisateurs Premium.');
 }
@@ -551,49 +315,42 @@ async function handleCommand(runtime,event,parsed){
     }
     return true;
   }
-  if(cmd.proxy){
-    const proxyName=cmd.sourceCommand||name;
-    try{
-      await proxyCommand(client,peer,{...cmd,name:proxyName},parsed.args,event);
-    }catch(primaryError){
-      const canonical=cmd.aliasFor||cmd.name||name;
-      if(cmd.fallback==='dipper'&&canUseDipperFallback(canonical)){
-        try{
-          await executeDipperFallback({client,peer,name:canonical,args:parsed.args,event});
-          return true;
-        }catch(fallbackError){
-          await sendText(
-            client,
-            peer,
-            'Erreur '+canonical+' · NexDownloader: '+String(primaryError.message||primaryError)+
-            '\nDipper fallback: '+String(fallbackError.message||fallbackError)
-          );
-          return true;
-        }
-      }
-      await sendText(client,peer,'Erreur '+name+' : '+String(primaryError.message||primaryError));
-    }
+  if(cmd.engine==='ai'){
+    const canonical=cmd.aliasFor||cmd.name||name;
+    if(!canHandleAiCommand(canonical)){await sendText(client,peer,'Erreur interne : route IA inconnue pour .'+canonical);return true}
+    try{await handleAiCommand({runtime,event,name:canonical,args:parsed.args})}
+    catch(error){await sendText(client,peer,'IA · '+canonical+' : '+String(error?.message||error).slice(0,500))}
+    return true;
+  }
+  if(cmd.engine==='download'){
+    const canonical=cmd.aliasFor||cmd.name||name;
+    if(!canHandleDownloadCommand(canonical)){await sendText(client,peer,'Erreur interne : route Download inconnue pour .'+canonical);return true}
+    try{await handleDownloadCommand({client,peer,name:canonical,args:parsed.args,event})}
+    catch(error){await sendText(client,peer,'Download · '+canonical+' : '+String(error?.message||error).slice(0,500))}
+    return true;
+  }
+  if(cmd.engine==='sticker'){
+    const canonical=cmd.aliasFor||cmd.name||name;
+    if(!canHandleStickerCommand(canonical)){await sendText(client,peer,'Erreur interne : route Sticker inconnue pour .'+canonical);return true}
+    try{await handleStickerCommand({runtime,event,name:canonical,args:parsed.args})}
+    catch(error){await sendText(client,peer,'Sticker · '+canonical+' : '+String(error?.message||error).slice(0,500))}
+    return true;
+  }
+  if(cmd.engine==='game'){
+    const canonical=cmd.aliasFor||cmd.name||name;
+    if(!canHandleGameCommand(canonical)){await sendText(client,peer,'Erreur interne : route Game inconnue pour .'+canonical);return true}
+    try{await handleGameCommand({runtime,event,name:canonical,args:parsed.args})}
+    catch(error){await sendText(client,peer,'Game · '+canonical+' : '+String(error?.message||error).slice(0,500))}
     return true;
   }
 
   const compatHandled=await handleCompatCommand({
-    runtime,event,name,args:parsed.args,cmd,sendText,proxyCommand,sendInline
+    runtime,event,name,args:parsed.args,cmd,sendText,sendInline
   });
   if(compatHandled)return true;
 
   if(cmd.localOnly){
     await sendText(client,peer,'Erreur interne : la route locale de .'+cmd.name+' est indisponible.');
-    return true;
-  }
-
-  if(cmd.sourceBot){
-    const proxyName=cmd.sourceCommand||name;
-    const mode=cmd.sourceBot==='nexgroup'?'contextual':cmd.proxyMode;
-    try{
-      await proxyCommand(client,peer,{...cmd,name:proxyName,proxyService:cmd.sourceBot,proxyMode:mode},parsed.args,event);
-    }catch(e){
-      await sendText(client,peer,'Erreur '+name+' : '+String(e.message||e));
-    }
     return true;
   }
 
@@ -652,20 +409,57 @@ function messageMentionsAccount(message,account){
   return false;
 }
 
+async function repliedToConnectedAccount(client,event,account){
+  const id=Number(event?.message?.replyTo?.replyToMsgId||event?.message?.replyToMsgId||0);
+  if(!id)return false;
+  try{
+    const rows=await client.getMessages(event.message.peerId,{ids:[id]});
+    const source=Array.isArray(rows)?rows[0]:rows;
+    return isSelfAuthoredMessage(source,account);
+  }catch{return false}
+}
+
 async function maybeNlpMode(runtime,event){
   const {client,account}=runtime;
   const settings=await settingsFor(account.telegramUserId);
   if(settings.nlpMode?.enabled!==true||autoFeaturesMuted(settings,event))return false;
-  const raw=textOf(event.message);
-  if(!raw||event.message?.media)return false;
-  try{
-    await proxyCommand(client,event.message.peerId,{
-      name:'ai',proxy:'@Stacytg_bot',proxyMode:'chat'
-    },[raw],event);
-  }catch(e){
-    console.error('[NexAccount nlp]',account.telegramUserId,String(e.message||e));
+  const message=event?.message;
+  const raw=textOf(message);
+  if(!raw||message?.media||isSelfAuthoredMessage(message,account))return false;
+  const prefix=String(settings.prefix||'.');
+  if((prefix&&raw.startsWith(prefix))||raw.startsWith('/'))return false;
+  if(event?.sender?.bot===true)return false;
+
+  const group=eventIsGroup(event);
+  if(group){
+    const mentioned=messageMentionsAccount(message,account);
+    const replied=mentioned?false:await repliedToConnectedAccount(client,event,account);
+    if(!mentioned&&!replied)return false;
   }
-  return true;
+
+  const chat=eventChatKey(event),windowKey=String(account.telegramUserId)+':'+chat;
+  const now=Date.now(),last=Number(aiAutoWindows.get(windowKey)||0);
+  if(now-last<2500)return false;
+  aiAutoWindows.set(windowKey,now);
+
+  const username=String(account.username||'').replace(/^@/,'');
+  const prompt=username?raw.replace(new RegExp('@'+username+'\\b','ig'),'').trim()||raw:raw;
+  try{
+    const inputPeer=await client.getInputEntity(message.peerId);
+    await client.invoke(new Api.messages.SetTyping({peer:inputPeer,action:new Api.SendMessageTypingAction({})})).catch(()=>{});
+    const result=await generateAiReply({
+      accountId:account.telegramUserId,
+      peer:chat,
+      prompt,
+      mode:'ai',
+      language:settings.language||account.preferredLanguage||'fr'
+    });
+    await sendText(client,message.peerId,result.text);
+    return true;
+  }catch(e){
+    console.error('[NexAccount nlp]',account.telegramUserId,String(e?.message||e));
+    return false;
+  }
 }
 
 async function maybeAutoReply(runtime,event){
@@ -983,7 +777,6 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
     markRuntimeUpdate(runtime);
     try{
       if(await maybeHandleSelfCommand(runtime,event,'outgoing'))return;
-      if(!(await handleProxyFlowInput(runtime,event)))await maybeNlpMode(runtime,event);
     }catch(e){
       console.error('[NexAccount outgoing]',id,String(e?.errorMessage||e?.message||e));
       try{await sendText(client,event.message?.peerId,'NexAi error: '+String(e?.errorMessage||e?.message||e).slice(0,300))}catch{}
@@ -999,7 +792,8 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
       await maybeAutoModerate(runtime,event);
       await maybeServiceGreeting(runtime,event);
       await maybeAutoReact(runtime,event);
-      await maybeAutoReply(runtime,event);
+      const autoReplied=await maybeAutoReply(runtime,event);
+      if(!autoReplied)await maybeNlpMode(runtime,event);
     }catch(e){console.error('[NexAccount incoming]',id,e)}
   },new NewMessage({incoming:true}));
 
@@ -1159,39 +953,22 @@ export async function runtimeCommandTest(telegramUserId,text='.menu',peer='me'){
 }
 
 export async function engineStatus(){
-  const registry=loadEngineRegistry();
   const runtime=[...runtimes.values()][0]||null;
-  const rows=[];
-  for(const [service,row] of Object.entries(registry)){
-    if(!row||typeof row!=='object'||Array.isArray(row))continue;
-    const username=String(row?.username||'').trim().replace(/^@/,'');
-    const item={
-      service,
-      username:username||null,
-      enabled:row?.enabled!==false,
-      configured:!!username,
-      reachable:null,
-      error:null
-    };
-    if(!username){rows.push(item);continue}
-    if(!runtime?.client?.connected){
-      item.reachable=false;
-      item.error='runtime_not_connected';
-      rows.push(item);
-      continue;
-    }
-    try{
-      const entity=await runtime.client.getEntity('@'+username);
-      item.reachable=!!entity;
-      item.telegramId=entity?.id?String(entity.id):null;
-      item.bot=entity?.bot===true;
-    }catch(error){
-      item.reachable=false;
-      item.error=String(error?.errorMessage||error?.message||error).slice(0,300);
-    }
-    rows.push(item);
-  }
-  return {ok:true,runtimeConnected:runtime?.client?.connected===true,engines:rows};
+  const providers=aiProviderStatus();
+  return {
+    ok:true,
+    standalone:true,
+    runtimeConnected:runtime?.client?.connected===true,
+    engines:[
+      {service:'ai',type:'local',configured:providers.length>0,reachable:providers.length>0,providers},
+      {service:'download',type:'local',configured:true,reachable:true},
+      {service:'group',type:'local',configured:true,reachable:true},
+      {service:'sticker',type:'local',configured:Boolean(cfg.botToken),reachable:Boolean(cfg.botToken)},
+      {service:'game',type:'local',configured:true,reachable:true},
+      {service:'anime',type:'local',configured:true,reachable:true},
+      {service:'audio',type:'local',configured:true,reachable:true}
+    ]
+  };
 }
 
 export function runtimeStatus(){
