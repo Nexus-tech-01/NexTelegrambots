@@ -678,6 +678,13 @@ export async function loadSavedRuntimes(){
   return loaded;
 }
 
+export async function runtimeMenuTest(telegramUserId,peer='me'){
+  const runtime=runtimes.get(String(telegramUserId||''));
+  if(!runtime)throw new Error('runtime_not_active');
+  await sendMenu(runtime,peer||'me');
+  return {ok:true,telegramUserId:String(telegramUserId),peer:String(peer||'me')};
+}
+
 export function runtimeStatus(){
   return [...runtimes.values()].map(r=>({
     telegramUserId:r.account.telegramUserId,
