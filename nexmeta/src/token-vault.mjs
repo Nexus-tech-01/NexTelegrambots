@@ -4,6 +4,7 @@ import { config } from './config.mjs';
 
 let clientPromise;
 let indexesPromise;
+let accountIndexesPromise;
 
 function decodeMasterKey() {
   const value = String(config.tokenEncryptionKey || '').trim();
@@ -76,6 +77,146 @@ async function collection() {
 
   await indexesPromise;
   return pages;
+}
+
+async function accountCollection() {
+  if (!config.mongoUri) throw new Error('NEXUS_MONGODB_URI missing');
+
+  clientPromise ??= new MongoClient(config.mongoUri).connect();
+  const db = (await clientPromise).db(config.dbName);
+  const accounts = db.collection('connected_meta_accounts');
+
+  accountIndexesPromise ??= Promise.all([
+    accounts.createIndex({ ownerSlot: 1 }, { unique: true }),
+    accounts.createIndex({ userId: 1 }),
+    accounts.createIndex({ updatedAt: -1 })
+  ]);
+
+  await accountIndexesPromise;
+  return accounts;
+}
+
+function publicAccount(item) {
+  if (!item) return null;
+
+  return {
+    userId: item.userId,
+    name: item.name || null,
+    email: item.email || null,
+    pictureUrl: item.pictureUrl || null,
+    permissions: Array.isArray(item.permissions) ? item.permissions : [],
+    tokenExpiresAt: item.tokenExpiresAt || null,
+    connectedAt: item.connectedAt || item.createdAt || null,
+    createdAt: item.createdAt || null,
+    updatedAt: item.updatedAt || null
+  };
+}
+
+export async function storeConnectedAccount({
+  profile,
+  permissions = [],
+  accessToken,
+  expiresIn
+} = {}) {
+  const userId = String(profile?.id || '').trim();
+  const token = String(accessToken || '').trim();
+
+  if (!userId) throw new Error('Meta user profile id missing');
+  if (!token) throw new Error('Meta user access token missing');
+
+  const accounts = await accountCollection();
+  const now = new Date();
+  const expiresSeconds = Number(expiresIn);
+  const tokenExpiresAt =
+    Number.isFinite(expiresSeconds) && expiresSeconds > 0
+      ? new Date(now.getTime() + expiresSeconds * 1000)
+      : null;
+
+  const normalizedPermissions = Array.isArray(permissions)
+    ? permissions
+        .map(item => ({
+          permission: String(item?.permission || '').trim(),
+          status: String(item?.status || '').trim()
+        }))
+        .filter(item => item.permission)
+    : [];
+
+  await accounts.updateOne(
+    { ownerSlot: 'primary' },
+    {
+      $set: {
+        ownerSlot: 'primary',
+        userId,
+        name: String(profile?.name || userId),
+        email: profile?.email ? String(profile.email) : null,
+        pictureUrl: profile?.picture?.data?.url
+          ? String(profile.picture.data.url)
+          : null,
+        permissions: normalizedPermissions,
+        token: encryptSecret(token),
+        tokenExpiresAt,
+        connectedAt: now,
+        updatedAt: now
+      },
+      $setOnInsert: {
+        createdAt: now
+      }
+    },
+    { upsert: true }
+  );
+
+  return getConnectedAccount();
+}
+
+export async function getConnectedAccount() {
+  const accounts = await accountCollection();
+  const item = await accounts.findOne(
+    { ownerSlot: 'primary' },
+    { projection: { token: 0 } }
+  );
+
+  return publicAccount(item);
+}
+
+export async function getConnectedUserCredential() {
+  const accounts = await accountCollection();
+  const item = await accounts.findOne({ ownerSlot: 'primary' });
+
+  if (!item?.token) {
+    const error = new Error('connected_facebook_account_not_found');
+    error.status = 404;
+    throw error;
+  }
+
+  return {
+    userId: item.userId,
+    userAccessToken: decryptSecret(item.token),
+    tokenExpiresAt: item.tokenExpiresAt || null,
+    source: 'vault'
+  };
+}
+
+export async function removeConnectedAccount() {
+  const accounts = await accountCollection();
+  const result = await accounts.deleteOne({ ownerSlot: 'primary' });
+  return result.deletedCount > 0;
+}
+
+export async function connectedAccountState() {
+  const account = await getConnectedAccount();
+  const expiresAt = account?.tokenExpiresAt
+    ? new Date(account.tokenExpiresAt)
+    : null;
+
+  return {
+    connected: Boolean(account),
+    account,
+    tokenExpired: Boolean(
+      expiresAt &&
+      Number.isFinite(expiresAt.getTime()) &&
+      expiresAt.getTime() <= Date.now()
+    )
+  };
 }
 
 export function hasMessagingTask(tasks = []) {
