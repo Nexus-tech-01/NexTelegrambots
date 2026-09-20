@@ -259,6 +259,7 @@ async function anilistRequest(payload){
       body:JSON.stringify(payload),
       signal:AbortSignal.timeout(12000)
     });
+    if(response.status===404)return {data:{Media:null}};
     if(!response.ok)throw new Error('AniList HTTP '+response.status);
     return response.json();
   });
