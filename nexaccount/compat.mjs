@@ -19,7 +19,7 @@ const GROUP_ALIAS={
   algebre:'calc'
 };
 const SAFE_UNSUPPORTED=new Set([
-  'execute','runeval','darkfile','save','crash','mise_a_jour','renaissance','reload',
+  'execute','runeval','darkfile','save','crash','mise_a_jour','renaissance','reload','visa',
   'tostatus','tovv','antiwalink','antistatusmention','rejet_appels','autorecording'
 ]);
 
