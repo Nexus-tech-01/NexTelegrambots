@@ -260,6 +260,9 @@ function connectPageHtml({
   error = '',
   disabled = false
 } = {}) {
+  const connectAction = `${config.publicBaseUrl.replace(/\/+$/, '')}/connect/meta`
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;');
   const message = disabled
     ? 'La connexion Facebook n’est pas encore prête. Vérifie l’URL HTTPS publique, l’App Meta, le verify token, la clé de chiffrement et NEXMETA_CONNECT_KEY avec pterodactyl/check.mjs.'
     : 'Entre la clé de connexion propriétaire configurée sur le serveur. Elle est envoyée uniquement en POST HTTPS et n’est jamais placée dans l’URL.';
@@ -290,7 +293,7 @@ button{margin-top:12px;width:100%;border:0;border-radius:14px;padding:14px 16px;
 <p>${message}</p>
 ${error ? `<p class="err">${String(error).replace(/[&<>]/g, '')}</p>` : ''}
 ${disabled ? '' : `
-<form method="post" action="/connect/meta" autocomplete="off">
+<form method="post" action="${connectAction}" autocomplete="off">
 <label for="key">Clé propriétaire</label>
 <input id="key" name="key" type="password" required autocomplete="off" spellcheck="false">
 <button type="submit">Continuer avec Facebook</button>
