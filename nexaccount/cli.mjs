@@ -36,6 +36,7 @@ try{
   switch(command){
     case 'health':out=await call('GET','/health');break;
     case 'accounts':out=await call('GET','/accounts');break;
+    case 'engines':out=await call('GET','/engines');break;
     case 'public-key':out={ok:true,publicKey:await pairingPublicKey()};break;
     case 'secure':
       if(!args[0])throw new Error('encrypted payload required');
@@ -58,7 +59,7 @@ try{
       out=await call('GET','/pair/status?id='+encodeURIComponent(args[0]));
       break;
     default:
-      throw new Error('usage: cli.mjs health|accounts|public-key|secure ENVELOPE|pair-status ID');
+      throw new Error('usage: cli.mjs health|accounts|engines|public-key|secure ENVELOPE|pair-status ID');
   }
   process.stdout.write(JSON.stringify(out));
 }catch(e){
