@@ -542,7 +542,7 @@ async function enqueueCandidate(runtime,entity,message,c,{mode='live'}={}){
   const priority=mode==='live'?1000:100;
   const seriesKey=norm(c.title);
   const payload={
-    dedupeKey,status:'queued',kind:c.kind,seriesKey,title:c.title,anilistId:c.anilistId??null,
+    dedupeKey,status:'queued',kind:c.kind,seriesKey,title:c.title,anilistId:c.anilistId??null,ingestedAt:now,
     season:c.season??null,episode:c.episode??null,language:c.language||'',
     quality:c.quality||'',mediaKind:c.mediaKind||'text',
     cleanedCaption:c.cleanedCaption||'',cleanedFilename:c.cleanedFilename||'',
@@ -650,10 +650,24 @@ async function setDiscoveryState(runtime,discovering){
 }
 async function anyDiscoveryInProgress(){
   const d=await db();
-  return !!(await d.collection('nexanime_listener_state').findOne({
+  const active=await d.collection('nexanime_listener_state').findOne({
     discovering:true,
     updatedAt:{$gt:new Date(Date.now()-2*60*60*1000)}
-  },{projection:{_id:1}}));
+  },{projection:{_id:1}});
+  if(active)return true;
+
+  const rebuild=await d.collection('nexanime_config').findOne({_id:'rebuild'});
+  if(rebuild?.mode==='rebuild'){
+    const fresh=await d.collection('nexanime_queue').findOne(
+      {
+        status:'queued',
+        ingestedAt:{$gt:new Date(Date.now()-90_000)}
+      },
+      {projection:{_id:1}}
+    );
+    if(fresh)return true;
+  }
+  return false;
 }
 
 async function discoverSources(runtime){
@@ -1066,7 +1080,13 @@ async function chooseActiveSeries(d){
     {$limit:1}
   ]).toArray();
   const next=rows?.[0]?._id||'';
-  if(!next)return '';
+  if(!next){
+    await scheduler.updateOne(
+      {_id:'rebuild',mode:'rebuild'},
+      {$set:{mode:'live',completedAt:new Date(),updatedAt:new Date()}}
+    ).catch(()=>{});
+    return '';
+  }
   await scheduler.updateOne(
     {_id:'scheduler'},
     {$set:{activeSeriesKey:next,activeSeriesStartedAt:new Date(),updatedAt:new Date()}},
