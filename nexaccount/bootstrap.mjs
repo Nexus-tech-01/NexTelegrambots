@@ -5,6 +5,53 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
+
+function parseEnvText(text){
+  const out={};
+  for(const raw of String(text||'').split(/\r?\n/)){
+    const line=raw.trim();
+    if(!line||line.startsWith('#'))continue;
+    const at=line.indexOf('=');
+    if(at<1)continue;
+    const key=line.slice(0,at).trim();
+    if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))continue;
+    let value=line.slice(at+1).trim();
+    if((value.startsWith('"')&&value.endsWith('"'))||(value.startsWith("'")&&value.endsWith("'")))value=value.slice(1,-1);
+    out[key]=value;
+  }
+  return out;
+}
+
+async function loadHostEnvironment(){
+  const candidates=[
+    path.join(here,'.env'),
+    path.resolve(here,'../..','.env')
+  ];
+  for(const file of candidates){
+    let parsed;
+    try{parsed=parseEnvText(await fsp.readFile(file,'utf8'))}
+    catch(error){if(error?.code==='ENOENT')continue;throw error}
+    for(const [key,value] of Object.entries(parsed)){
+      if(process.env[key]===undefined&&value!=='')process.env[key]=value;
+    }
+  }
+
+  // Backward-compatible one-way bootstrap for shared Telegram application
+  // credentials. These are MTProto application credentials, not a dependency
+  // on any sibling bot or its runtime.
+  if(!process.env.NEXACCOUNT_TELEGRAM_API_ID||!process.env.NEXACCOUNT_TELEGRAM_API_HASH){
+    const idKey=Object.keys(process.env).find(k=>k.endsWith('__TELEGRAM_API_ID')&&process.env[k]);
+    if(idKey){
+      const hashKey=idKey.replace(/API_ID$/,'API_HASH');
+      if(process.env[hashKey]){
+        process.env.NEXACCOUNT_TELEGRAM_API_ID ||= process.env[idKey];
+        process.env.NEXACCOUNT_TELEGRAM_API_HASH ||= process.env[hashKey];
+      }
+    }
+  }
+}
+
+await loadHostEnvironment();
 const stateDir=path.resolve(here,'.runtime');
 const workerIndex=Math.max(0,Number(process.env.NEXACCOUNT_WORKER_INDEX||0));
 const workerSuffix=workerIndex===0?'':'-worker-'+workerIndex;
