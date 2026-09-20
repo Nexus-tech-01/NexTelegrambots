@@ -2,12 +2,13 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { cfg, assertCoreConfig } from './config.mjs';
 import { beginPairing, cancelPairing, cleanupPairings, pairingStatus, setPairingConnectedHandler, submitPairingCode, submitPairingPassword } from './pairing.mjs';
-import { attachConnectedClient, engineStatus, loadSavedRuntimes, reconcileRuntimes, runtimeCommandTest, runtimeStatus, stopRuntimes } from './runtime.mjs';
+import { animeRuntimeDiscover, attachConnectedClient, engineStatus, loadSavedRuntimes, reconcileRuntimes, runtimeCommandTest, runtimeStatus, stopRuntimes } from './runtime.mjs';
 import { listAccounts, patchSettings, closeStore } from './store.mjs';
 import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { ensureNexAiBot } from './bot-factory.mjs';
 import { ensureAnalyticsIndex } from './analytics-indexer.mjs';
+import { animeRetryQueue, animeSystemStatus } from './anime-ingest.mjs';
 
 assertCoreConfig();
 
@@ -67,6 +68,20 @@ async function route(req,res){
     }
     if(req.method==='GET'&&url.pathname==='/engines'){
       return json(res,200,await engineStatus());
+    }
+    if(req.method==='GET'&&url.pathname==='/anime/status'){
+      return json(res,200,await animeSystemStatus());
+    }
+    if(req.method==='POST'&&url.pathname==='/anime/discover'){
+      const q=await body(req);
+      return json(res,200,await animeRuntimeDiscover(q.telegramUserId||q.username||''));
+    }
+    if(req.method==='POST'&&url.pathname==='/anime/retry'){
+      const q=await body(req);
+      return json(res,200,await animeRetryQueue({
+        includeQuarantine:q.includeQuarantine!==false,
+        includeFailures:q.includeFailures!==false
+      }));
     }
     if(url.pathname.startsWith('/pair/')&&!cfg.coordinator){
       return json(res,409,{ok:false,error:'pairing_coordinator_only',coordinatorWorker:0});
