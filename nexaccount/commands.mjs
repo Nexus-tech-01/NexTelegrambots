@@ -30,13 +30,13 @@ export const CORE_COMMANDS=[
   C('prefix','ACCOUNT',{...P,description:'Changer le préfixe'}),
   C('language','ACCOUNT',{...P,description:'Changer la langue'}),
   C('device','ACCOUNT',{...P,description:'Informations de la session'}),
-  C('autoreact','ACCOUNT',{...P,description:'Activer/désactiver les réactions automatiques',aliasFor:'reflexe_systeme'}),
-  C('autoreply','ACCOUNT',{...P,description:'Configurer la réponse automatique',aliasFor:'reponseauto'}),
-  C('aimode','ACCOUNT',{...P,description:'Mode conversation IA naturel',aliasFor:'dark'}),
+  C('autoreact','ACCOUNT',{...P,description:'Activer/désactiver les réactions automatiques',handler:'reflexe_systeme'}),
+  C('autoreply','ACCOUNT',{...P,description:'Configurer la réponse automatique',handler:'reponseauto'}),
+  C('aimode','ACCOUNT',{...P,description:'Mode conversation IA naturel',handler:'dark'}),
   C('presence','ACCOUNT',{...P,description:'Présence du compte'}),
   C('autotyping','ACCOUNT',{...P,description:'Indicateur de saisie automatique'}),
-  C('botname','ACCOUNT',{...P,description:'Nom affiché dans le menu',aliasFor:'apparence_systeme'}),
-  C('menuimage','ACCOUNT',{...P,description:'Illustration du menu',aliasFor:'illustration_grimoire'}),
+  C('botname','ACCOUNT',{...P,description:'Nom affiché dans le menu',handler:'apparence_systeme'}),
+  C('menuimage','ACCOUNT',{...P,description:'Illustration du menu',handler:'illustration_grimoire'}),
 
   // AI.
   C('ai','AI',{description:'Assistant IA',proxy:'@Stacytg_bot',proxyMode:'chat'}),
@@ -158,10 +158,10 @@ export const CORE_COMMANDS=[
   C('exportwhatsapp','STICKERS',{description:'Exporter pour WhatsApp',proxy:'@The_Nexus_techbot'}),
 
   // FUN/GAMES — only commands that make sense conversationally.
-  C('truth','FUN',{...G,description:'Question vérité',aliasFor:'aveu'}),
-  C('dare','FUN',{...G,description:'Défi',aliasFor:'epreuve'}),
-  C('joke','FUN',{description:'Blague',aliasFor:'bouffon'}),
-  C('compliment','FUN',{description:'Compliment',aliasFor:'charme'}),
+  C('truth','FUN',{...G,description:'Question vérité',handler:'aveu'}),
+  C('dare','FUN',{...G,description:'Défi',handler:'epreuve'}),
+  C('joke','FUN',{description:'Blague',handler:'bouffon'}),
+  C('compliment','FUN',{description:'Compliment',handler:'charme'}),
   C('riddle','FUN',{...G,description:'Devinette',proxy:'@TheNexGame_bot'}),
   C('quiz','FUN',{...G,description:'Quiz',proxy:'@TheNexGame_bot'}),
   C('tictactoe','FUN',{...G,description:'Morpion',proxy:'@TheNexGame_bot'}),
