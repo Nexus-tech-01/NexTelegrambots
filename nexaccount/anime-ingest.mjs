@@ -23,6 +23,8 @@ const MEDIA_REUPLOAD=MEDIA_POLICY==='authorized' || MEDIA_POLICY==='allow' || ME
 const TMP_ROOT=process.env.NEXANIME_TMP_DIR||path.join(os.tmpdir(),'nexanime');
 const SOURCE_CACHE=new Map();
 const SERIES_CACHE=new Map();
+let ANI_CHAIN=Promise.resolve();
+let ANI_LAST_AT=0;
 let indexesReady=false;
 
 const BLOCK_RE=[
@@ -246,6 +248,24 @@ function deriveRawAnchors(messages=[],source={}){
   }
   return anchors;
 }
+async function anilistRequest(payload){
+  const run=ANI_CHAIN.then(async()=>{
+    const wait=Math.max(0,850-(Date.now()-ANI_LAST_AT));
+    if(wait)await sleep(wait);
+    ANI_LAST_AT=Date.now();
+    const response=await fetch('https://graphql.anilist.co',{
+      method:'POST',
+      headers:{'content-type':'application/json','accept':'application/json','user-agent':'NexAnime/1.0'},
+      body:JSON.stringify(payload),
+      signal:AbortSignal.timeout(12000)
+    });
+    if(!response.ok)throw new Error('AniList HTTP '+response.status);
+    return response.json();
+  });
+  ANI_CHAIN=run.catch(()=>{});
+  return run;
+}
+
 function animeAliasScore(query,aliases=[]){
   const q=norm(query);
   let best=0;
@@ -276,14 +296,7 @@ async function verifyAnimeTitle(query){
   const gql='query($search:String){Media(search:$search,type:ANIME,isAdult:false){id isAdult format seasonYear title{romaji english native} synonyms}}';
   let result;
   try{
-    const response=await fetch('https://graphql.anilist.co',{
-      method:'POST',
-      headers:{'content-type':'application/json','accept':'application/json','user-agent':'NexAnime/1.0'},
-      body:JSON.stringify({query:gql,variables:{search:cleaned}}),
-      signal:AbortSignal.timeout(12000)
-    });
-    if(!response.ok)throw new Error('AniList HTTP '+response.status);
-    const body=await response.json();
+    const body=await anilistRequest({query:gql,variables:{search:cleaned}});
     const media=body?.data?.Media;
     if(!media){
       result={key,query:cleaned,ok:false,temporary:false,checkedAt:new Date()};
