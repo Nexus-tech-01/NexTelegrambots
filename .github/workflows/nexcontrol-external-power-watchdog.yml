@@ -1,0 +1,150 @@
+name: NexControl External Power Watchdog
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+  push:
+    paths:
+      - ".nexcontrol/recovery/restart.request"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nexcontrol-pterodactyl-power
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PANEL_URL: https://panel.teoheberg.fr
+      FLEET_HEALTH_URL: https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol-fleet-health
+      SERVER_UUID_HINT: c8879fdc
+      PTERODACTYL_CLIENT_API_KEY: ${{ secrets.PTERODACTYL_CLIENT_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether recovery is needed
+        id: decide
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${PTERODACTYL_CLIENT_API_KEY:-}" ]]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "restart=false" >> "$GITHUB_OUTPUT"
+            echo "PTERODACTYL_CLIENT_API_KEY is not configured; watchdog stays armed but cannot issue power actions."
+            exit 0
+          fi
+
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+          force=false
+          if [[ "$GITHUB_EVENT_NAME" != "schedule" ]]; then
+            force=true
+          fi
+
+          if [[ "$force" != "true" ]]; then
+            health="$(curl --fail --silent --show-error --max-time 20 "$FLEET_HEALTH_URL")"
+            all_stale="$(python3 -c 'import json,sys; print("true" if json.load(sys.stdin).get("allStale") is True else "false")' <<<"$health")"
+            if [[ "$all_stale" != "true" ]]; then
+              echo "restart=false" >> "$GITHUB_OUTPUT"
+              echo "At least one NexControl worker is alive; no restart."
+              exit 0
+            fi
+
+            now="$(date +%s)"
+            last=0
+            if [[ -f .nexcontrol/recovery/last-restart.txt ]]; then
+              last="$(tr -dc '0-9' < .nexcontrol/recovery/last-restart.txt || true)"
+              last="${last:-0}"
+            fi
+
+            if (( now - last < 900 )); then
+              echo "restart=false" >> "$GITHUB_OUTPUT"
+              echo "All workers are stale, but the 15-minute restart cooldown is active."
+              exit 0
+            fi
+          fi
+
+          echo "restart=true" >> "$GITHUB_OUTPUT"
+
+      - name: Reserve restart cooldown
+        if: steps.decide.outputs.restart == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .nexcontrol/recovery
+          date +%s > .nexcontrol/recovery/last-restart.txt
+          git config user.name "nexcontrol-watchdog[bot]"
+          git config user.email "nexcontrol-watchdog@users.noreply.github.com"
+          git add .nexcontrol/recovery/last-restart.txt
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "chore(nexcontrol): reserve external restart cooldown"
+          git push
+
+      - name: Resolve Pterodactyl server
+        if: steps.decide.outputs.restart == 'true'
+        id: server
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --fail --silent --show-error --max-time 20 \
+            -H "Authorization: Bearer $PTERODACTYL_CLIENT_API_KEY" \
+            -H "Accept: Application/vnd.pterodactyl.v1+json" \
+            "$PANEL_URL/api/client")"
+
+          identifier="$(python3 - "$SERVER_UUID_HINT" <<'PY' <<<"$response"
+          import json,sys
+          hint=sys.argv[1]
+          doc=json.load(sys.stdin)
+          servers=[x.get("attributes",{}) for x in doc.get("data",[]) if x.get("attributes",{}).get("identifier")]
+          match=next((x for x in servers if str(x.get("identifier"))==hint),None)
+          if not match:
+              match=next((x for x in servers if str(x.get("uuid","")).startswith(hint)),None)
+          if not match and len(servers)==1:
+              match=servers[0]
+          if not match:
+              raise SystemExit("Unable to resolve a unique Pterodactyl server")
+          print(match["identifier"])
+          PY
+          )"
+
+          if [[ -z "$identifier" ]]; then
+            echo "No Pterodactyl server identifier resolved." >&2
+            exit 1
+          fi
+
+          echo "identifier=$identifier" >> "$GITHUB_OUTPUT"
+
+      - name: Restart Pterodactyl server
+        if: steps.decide.outputs.restart == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          identifier="${{ steps.server.outputs.identifier }}"
+          status="$(curl --silent --show-error --max-time 25 \
+            -o /tmp/pterodactyl-power-body.txt \
+            -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $PTERODACTYL_CLIENT_API_KEY" \
+            -H "Accept: Application/vnd.pterodactyl.v1+json" \
+            -H "Content-Type: application/json" \
+            --data '{"signal":"restart"}' \
+            "$PANEL_URL/api/client/servers/$identifier/power")"
+
+          if [[ "$status" != "204" && "$status" != "200" ]]; then
+            echo "Pterodactyl restart failed with HTTP $status" >&2
+            sed -n '1,20p' /tmp/pterodactyl-power-body.txt >&2 || true
+            exit 1
+          fi
+
+          echo "Pterodactyl restart accepted (HTTP $status)."
