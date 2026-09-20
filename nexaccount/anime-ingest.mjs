@@ -18,8 +18,8 @@ const DIALOG_LIMIT=Math.min(250,Math.max(20,Number(process.env.NEXANIME_DIALOG_L
 const BACKFILL_LIMIT=Math.min(3000,Math.max(50,Number(process.env.NEXANIME_BACKFILL_LIMIT||900)));
 const ACTIVE_SAMPLE_LIMIT=Math.min(120,Math.max(20,Number(process.env.NEXANIME_ACTIVE_SAMPLE_LIMIT||80)));
 const MAX_ACTIVE_SERIES=Math.min(20,Math.max(1,Number(process.env.NEXANIME_MAX_ACTIVE_SERIES||8)));
-const MEDIA_POLICY=String(process.env.NEXANIME_MEDIA_POLICY||'authorized_only').toLowerCase();
-const MEDIA_REUPLOAD=MEDIA_POLICY==='authorized' || MEDIA_POLICY==='allow' || MEDIA_POLICY==='allowed';
+const MEDIA_POLICY_DEFAULT=String(process.env.NEXANIME_MEDIA_POLICY||'authorized_only').toLowerCase();
+let MEDIA_POLICY_CACHE={value:MEDIA_POLICY_DEFAULT,expires:0};
 const TMP_ROOT=process.env.NEXANIME_TMP_DIR||path.join(os.tmpdir(),'nexanime');
 const SOURCE_CACHE=new Map();
 const SERIES_CACHE=new Map();
@@ -442,6 +442,23 @@ async function cleanupTmpFiles(){
   }
 }
 
+async function currentMediaPolicy(){
+  if(MEDIA_POLICY_CACHE.expires>Date.now())return MEDIA_POLICY_CACHE.value;
+  try{
+    const d=await db();
+    const row=await d.collection('nexanime_config').findOne({_id:'global'});
+    const value=String(row?.mediaPolicy||MEDIA_POLICY_DEFAULT).toLowerCase();
+    MEDIA_POLICY_CACHE={value,expires:Date.now()+30_000};
+    return value;
+  }catch{
+    return MEDIA_POLICY_DEFAULT;
+  }
+}
+async function mediaReuploadAllowed(){
+  const p=await currentMediaPolicy();
+  return p==='authorized'||p==='allow'||p==='allowed';
+}
+
 async function ensureIndexes(){
   if(indexesReady)return;
   const d=await db();
@@ -797,7 +814,7 @@ async function publishPresentation(runtime,item,resolved,destination){
   return runtime.client.sendMessage(destination,{message:caption,parseMode:'html'});
 }
 async function publishEpisode(runtime,item,resolved,destination){
-  if(!MEDIA_REUPLOAD){
+  if(!(await mediaReuploadAllowed())){
     const err=new Error('media_reupload_requires_authorized_policy');
     err.code='MEDIA_POLICY';
     throw err;
@@ -909,7 +926,7 @@ export async function startAnimeIngest(runtime){
   if(!isListenerRuntime(runtime))return false;
   runtime.animeIngest={
     ...(runtime.animeIngest||{}),
-    enabled:true,destination:'@'+DESTINATION,listener:true,mediaPolicy:MEDIA_POLICY
+    enabled:true,destination:'@'+DESTINATION,listener:true,mediaPolicy:await currentMediaPolicy()
   };
   await ensureIndexes();
   queueMicrotask(()=>cleanupTmpFiles().catch(()=>{}));
@@ -936,7 +953,7 @@ export function animeIngestStatus(runtime){
   const a=runtime?.animeIngest||{};
   return {
     enabled:a.enabled===true,listener:a.listener===true,destination:a.destination||'@'+DESTINATION,
-    mediaPolicy:a.mediaPolicy||MEDIA_POLICY,sources:a.sources||0,queued:a.queued||0,published:a.published||0,
+    mediaPolicy:a.mediaPolicy||MEDIA_POLICY_DEFAULT,sources:a.sources||0,queued:a.queued||0,published:a.published||0,
     lastQueuedAt:a.lastQueuedAt||null,lastPublishedAt:a.lastPublishedAt||null,
     lastDiscoveryAt:a.lastDiscoveryAt||null,lastBackfillAt:a.lastBackfillAt||null,
     lastBackfillCount:a.lastBackfillCount||0,lastPollAt:a.lastPollAt||null,
@@ -980,7 +997,7 @@ export async function animeSystemStatus(){
   return {
     ok:true,enabled:ENABLED,destination:'@'+DESTINATION,
     listeners:[...LISTENERS].map(x=>'@'+x),
-    mediaPolicy:MEDIA_POLICY,
+    mediaPolicy:await currentMediaPolicy(),
     sources,sourceList,queue,published,recent
   };
 }
@@ -1007,4 +1024,24 @@ export async function animeDiscoverNow(runtime){
   runtime.animeIngest.discoveryRequestedAt=new Date();
   queueMicrotask(()=>discoverSources(runtime).catch(e=>console.error('[NexAnime discovery]',String(e?.message||e))));
   return {started:true,alreadyRunning:false};
+}
+
+
+export async function setAnimeMediaPolicy(policy='authorized_only'){
+  const value=String(policy||'authorized_only').toLowerCase();
+  if(!['authorized_only','authorized','allow','allowed'].includes(value)){
+    throw new Error('invalid_anime_media_policy');
+  }
+  await ensureIndexes();
+  const d=await db();
+  await d.collection('nexanime_config').updateOne(
+    {_id:'global'},
+    {$set:{mediaPolicy:value,updatedAt:new Date()}},
+    {upsert:true}
+  );
+  MEDIA_POLICY_CACHE={value,expires:Date.now()+30_000};
+  for(const r of globalThis?.__nexanimeRuntimes||[]){
+    if(r?.animeIngest)r.animeIngest.mediaPolicy=value;
+  }
+  return {ok:true,mediaPolicy:value};
 }
