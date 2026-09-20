@@ -142,21 +142,21 @@ export const CORE_COMMANDS=[
   C('getname','TOOLS',{description:'Informations d’un utilisateur'}),
   C('getabout','TOOLS',{description:'Bio d’un utilisateur'}),
   C('getpp','TOOLS',{description:'Photo de profil'}),
-  C('block','TOOLS',{description:'Bloquer un utilisateur'}),
-  C('unblock','TOOLS',{description:'Débloquer un utilisateur'}),
+  C('block','TOOLS',{selfOnly:true,description:'Bloquer un utilisateur'}),
+  C('unblock','TOOLS',{selfOnly:true,description:'Débloquer un utilisateur'}),
 
   // MEDIA.
   C('tourl','MEDIA',{description:'Média vers URL'}),
   C('crop','MEDIA',{description:'Recadrer une image'}),
   C('resize','MEDIA',{description:'Redimensionner une image'}),
   C('analyzesound','MEDIA',{description:'Analyser un audio/une vidéo'}),
-  C('vv','MEDIA',{description:'Récupérer un de mes médias éphémères/vue unique Telegram'}),
+  C('vv','MEDIA',{selfOnly:true,description:'Récupérer un de mes médias éphémères/vue unique Telegram'}),
 
   // STICKERS — kept as a compact WhatsApp-style surface.
-  C('sticker','STICKERS',{engine:'sticker',description:'Créer un sticker',}),
+  C('sticker','STICKERS',{selfOnly:true,engine:'sticker',description:'Créer un sticker',}),
   C('stickerinfo','STICKERS',{engine:'sticker',description:'Informations d’un sticker',}),
-  C('clonepack','STICKERS',{engine:'sticker',description:'Cloner un pack',}),
-  C('createpack','STICKERS',{engine:'sticker',description:'Créer un pack',}),
+  C('clonepack','STICKERS',{selfOnly:true,engine:'sticker',description:'Cloner un pack',}),
+  C('createpack','STICKERS',{selfOnly:true,engine:'sticker',description:'Créer un pack',}),
   C('mypacks','STICKERS',{...P,engine:'sticker',description:'Mes packs',}),
   C('exportwhatsapp','STICKERS',{engine:'sticker',description:'Exporter pour WhatsApp',}),
 
@@ -255,9 +255,9 @@ export const CORE_COMMANDS=[
   C('anitts','ANIME',{engine:'anime',description:'Texte vers voix anime synthétique'}),
 
   // PREMIUM Telegram features.
-  C('customreact','PREMIUM',{premium:true,description:'Réactions personnalisées'}),
-  C('emoji_status','PREMIUM',{premium:true,description:'Statut emoji Premium'}),
-  C('effect','PREMIUM',{premium:true,description:'Effet de message préféré'}),
+  C('customreact','PREMIUM',{selfOnly:true,premium:true,description:'Réactions personnalisées'}),
+  C('emoji_status','PREMIUM',{selfOnly:true,premium:true,description:'Statut emoji Premium'}),
+  C('effect','PREMIUM',{selfOnly:true,premium:true,description:'Effet de message préféré'}),
 
   // Platform owner controls stay private and are never shown to normal users.
   C('owner','OWNER',{...P,ownerOnly:true}),
