@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { cfg, assertCoreConfig } from './config.mjs';
-import { beginPairing, cleanupPairings, pairingStatus, submitPairingCode, submitPairingPassword } from './pairing.mjs';
+import { beginPairing, cancelPairing, cleanupPairings, pairingStatus, submitPairingCode, submitPairingPassword } from './pairing.mjs';
 import { attachConnectedClient, loadSavedRuntimes, runtimeStatus, stopRuntimes } from './runtime.mjs';
 import { listAccounts, patchSettings, closeStore } from './store.mjs';
 import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
@@ -61,6 +61,11 @@ async function route(req,res){
     if(req.method==='POST'&&url.pathname==='/pair/password'){
       const q=await body(req);
       const state=await submitPairingPassword(q.id,q.password);
+      return json(res,200,{ok:true,...state});
+    }
+    if(req.method==='POST'&&url.pathname==='/pair/cancel'){
+      const q=await body(req);
+      const state=await cancelPairing(q.id||'');
       return json(res,200,{ok:true,...state});
     }
     if(req.method==='POST'&&url.pathname==='/settings'){
