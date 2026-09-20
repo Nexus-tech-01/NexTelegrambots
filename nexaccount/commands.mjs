@@ -199,6 +199,8 @@ export const LEGACY_ALIASES={
   reflexe_systeme:'autoreact',reponseauto:'autoreply',dark:'aimode',
   apparence_systeme:'botname',illustration_grimoire:'menuimage',
   traduction:'translate',meteo:'weather',algebre:'calc',
+  cobalt:'facebook',apksearch:'apk',igs:'instagram','sᴄᴇᴀᴜ_ɪɢ_ᴄᴀʀʀᴇ':'instagram',
+  'ᴄᴀɴᴛɪǫᴜᴇ':'lyrics','sᴍᴀʟʟᴄᴀᴘs':'smallcaps',
   accueil:'welcome',inscription:'setwelcome',motsadieu:'setgoodbye',
   sentence:'warn',silence:'mutechat',parole:'unmutechat',
   purification:'clean',debannissement:'unban',bannir:'ban',
