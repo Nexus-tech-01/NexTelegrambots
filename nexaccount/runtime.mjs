@@ -978,6 +978,41 @@ export async function runtimeCommandTest(telegramUserId,text='.menu',peer='me'){
   return {ok:true,telegramUserId:id,peer:String(peer||'me'),command:parsed.name};
 }
 
+export async function engineStatus(){
+  const registry=loadEngineRegistry();
+  const runtime=[...runtimes.values()][0]||null;
+  const rows=[];
+  for(const [service,row] of Object.entries(registry)){
+    const username=String(row?.username||'').trim().replace(/^@/,'');
+    const item={
+      service,
+      username:username||null,
+      enabled:row?.enabled!==false,
+      configured:!!username,
+      reachable:null,
+      error:null
+    };
+    if(!username){rows.push(item);continue}
+    if(!runtime?.client?.connected){
+      item.reachable=false;
+      item.error='runtime_not_connected';
+      rows.push(item);
+      continue;
+    }
+    try{
+      const entity=await runtime.client.getEntity('@'+username);
+      item.reachable=!!entity;
+      item.telegramId=entity?.id?String(entity.id):null;
+      item.bot=entity?.bot===true;
+    }catch(error){
+      item.reachable=false;
+      item.error=String(error?.errorMessage||error?.message||error).slice(0,300);
+    }
+    rows.push(item);
+  }
+  return {ok:true,runtimeConnected:runtime?.client?.connected===true,engines:rows};
+}
+
 export function runtimeStatus(){
   return [...runtimes.values()].map(r=>({
     telegramUserId:r.account.telegramUserId,
