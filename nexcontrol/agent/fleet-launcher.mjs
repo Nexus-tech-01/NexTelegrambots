@@ -16,7 +16,8 @@ const RESTART_MAX_MS=15000;
 const workers=[
   {slug:'nexus-failover-a',name:'Nexus Failover A',entry:ENTRY},
   {slug:'nexus-failover-b',name:'Nexus Failover B',entry:ENTRY},
-  {slug:'nexus-watchdog',name:'Nexus Watchdog',entry:WATCHDOG_ENTRY}
+  {slug:'nexus-watchdog',name:'Nexus Watchdog',entry:ENTRY},
+  {slug:'nexus-resource-watchdog',name:'Nexus Resource Watchdog',entry:WATCHDOG_ENTRY}
 ];
 
 await fs.mkdir(STATE_DIR,{recursive:true});
