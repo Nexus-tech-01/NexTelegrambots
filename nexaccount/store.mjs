@@ -120,6 +120,7 @@ export async function saveAccount({me,session,phone}){
       language:preferredLanguage,
       style:cfg.defaultStyle,
       prefix:'.',
+      accessMode:'private',
       autoReact:{enabled:cfg.autoReact,mode:'smart',targets:[...cfg.autoReactTargets],reactions:['🔥','❤️','👍']},
       autoJoin:{enabled:cfg.autoJoin,targets:[...cfg.autoJoinTargets]},
       welcome:{enabled:true,text:preferredLanguage==='fr'?'Bienvenue {name} dans {group}.':'Welcome {name} to {group}.'},
@@ -215,8 +216,10 @@ export async function accountWithSession(telegramUserId){
 
 export async function settingsFor(telegramUserId){
   const d=await db();
-  return d.collection('nexaccount_settings').findOne({telegramUserId:String(telegramUserId)})||{
-    telegramUserId:String(telegramUserId),language:'fr',style:cfg.defaultStyle,prefix:'.',
+  const row=await d.collection('nexaccount_settings').findOne({telegramUserId:String(telegramUserId)});
+  if(row)return {...row,accessMode:row.accessMode==='public'?'public':'private'};
+  return {
+    telegramUserId:String(telegramUserId),language:'fr',style:cfg.defaultStyle,prefix:'.',accessMode:'private',
     autoReact:{enabled:cfg.autoReact,mode:'smart',targets:[...cfg.autoReactTargets],reactions:['🔥','❤️','👍']},
     autoJoin:{enabled:cfg.autoJoin,targets:[...cfg.autoJoinTargets]},
     welcome:{enabled:true,text:'Bienvenue {name} dans {group}.'},
@@ -229,6 +232,7 @@ export async function patchSettings(telegramUserId,patch){
   const d=await db(),now=new Date();
   const safe={...patch};
   if(safe.language!==undefined)safe.language=String(safe.language).toLowerCase().startsWith('en')?'en':'fr';
+  if(safe.accessMode!==undefined)safe.accessMode=String(safe.accessMode).toLowerCase()==='public'?'public':'private';
   await d.collection('nexaccount_settings').updateOne(
     {telegramUserId:String(telegramUserId)},
     {$set:{...safe,updatedAt:now},$setOnInsert:{telegramUserId:String(telegramUserId),createdAt:now}},
