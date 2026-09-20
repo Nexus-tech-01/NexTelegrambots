@@ -4,7 +4,7 @@ import { StringSession } from 'teleproto/sessions/index.js';
 import { NewMessage } from 'teleproto/events/index.js';
 import { cfg, isOwnerId } from './config.mjs';
 import { commandMap } from './commands.mjs';
-import { accountWithSession, disableAccount, enableAccount, listAccounts, patchSettings, settingsFor } from './store.mjs';
+import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, disableAccount, enableAccount, listAccountsForWorker, patchSettings, releaseRuntimeLease, renewRuntimeLease, settingsFor } from './store.mjs';
 import { listStyles } from './styles.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { recordEvent } from './analytics.mjs';
@@ -22,6 +22,7 @@ const runtimes=new Map();
 const spamWindows=new Map();
 const proxyFlows=new WeakMap();
 const handledCommands=new Map();
+let reconcilingRuntimes=false;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 const PROXY_SERVICE_SPECS={
@@ -934,9 +935,28 @@ function rawCommandEvent(update,account){
   return null;
 }
 
-export async function attachConnectedClient(client,account){
+export async function attachConnectedClient(client,account,{leaseOwned=false}={}){
   const id=String(account.telegramUserId);
-  if(runtimes.has(id)){try{await runtimes.get(id).client.disconnect()}catch{}}
+  if(cfg.workerCount>1&&!accountAssignedToWorker(id)){
+    try{await client.disconnect()}catch{}
+    return null;
+  }
+  if(!leaseOwned){
+    const leased=await acquireRuntimeLease(id);
+    if(!leased){
+      try{await client.disconnect()}catch{}
+      return null;
+    }
+  }
+  if(runtimes.has(id)){
+    const old=runtimes.get(id);
+    if(old.autoJoinTimer)clearInterval(old.autoJoinTimer);
+    if(old.updateSyncTimer)clearInterval(old.updateSyncTimer);
+    if(old.commandPollTimer)clearInterval(old.commandPollTimer);
+    if(old.leaseTimer)clearInterval(old.leaseTimer);
+    try{await old.client.disconnect()}catch{}
+    runtimes.delete(id);
+  }
   const runtime={
     client,
     account,
@@ -1008,68 +1028,114 @@ export async function attachConnectedClient(client,account){
   // has silently stopped advancing. catchUp() asks Telegram for the missing
   // difference and dispatches those updates through the normal event handlers.
   await syncRuntimeUpdates(runtime);
-  runtime.updateSyncTimer=setInterval(()=>syncRuntimeUpdates(runtime),8000);
+  runtime.updateSyncTimer=setInterval(()=>syncRuntimeUpdates(runtime),cfg.updateSyncMs);
   runtime.updateSyncTimer.unref?.();
 
   await pollRecentCommands(runtime);
-  runtime.commandPollTimer=setInterval(()=>pollRecentCommands(runtime),3000);
+  runtime.commandPollTimer=setInterval(()=>pollRecentCommands(runtime),cfg.commandPollMs);
   runtime.commandPollTimer.unref?.();
 
-  console.log('[NexAccount] account '+id+' attached'+(account.premium?' · Premium':''));
+  runtime.leaseTimer=setInterval(async()=>{
+    try{
+      const ok=await renewRuntimeLease(id);
+      if(!ok){
+        console.error('[NexAccount lease] lost '+id+' on '+cfg.workerId);
+        await detachRuntime(id,{releaseLease:false});
+      }
+    }catch(e){
+      console.error('[NexAccount lease] renew failed '+id,String(e?.message||e));
+    }
+  },Math.max(10000,Math.floor(cfg.runtimeLeaseMs/3)));
+  runtime.leaseTimer.unref?.();
+
+  console.log('[NexAccount] account '+id+' attached on '+cfg.workerId+(account.premium?' · Premium':''));
   return runtime;
 }
 
-export async function detachRuntime(telegramUserId){
+export async function detachRuntime(telegramUserId,{releaseLease=true}={}){
   const id=String(telegramUserId);
   const runtime=runtimes.get(id);
   if(runtime){
     if(runtime.autoJoinTimer)clearInterval(runtime.autoJoinTimer);
     if(runtime.updateSyncTimer)clearInterval(runtime.updateSyncTimer);
     if(runtime.commandPollTimer)clearInterval(runtime.commandPollTimer);
+    if(runtime.leaseTimer)clearInterval(runtime.leaseTimer);
     try{await runtime.client.disconnect()}catch{}
     runtimes.delete(id);
   }
+  if(releaseLease)await releaseRuntimeLease(id).catch(()=>{});
   return true;
 }
 
-export async function reconnectRuntime(telegramUserId){
-  const id=String(telegramUserId);
-  await enableAccount(id);
+async function connectSavedAccount(publicAccount){
+  const id=String(publicAccount.telegramUserId);
+  if(runtimes.has(id))return id;
+  if(runtimes.size>=cfg.maxRuntimesPerWorker)return null;
+  if(cfg.workerCount>1&&!accountAssignedToWorker(id))return null;
+  const leased=await acquireRuntimeLease(id);
+  if(!leased)return null;
   try{
     const account=await accountWithSession(id);
     if(!account)throw new Error('No saved NexAccount session');
     const client=new TelegramClient(new StringSession(account.session),cfg.apiId,cfg.apiHash,{connectionRetries:5,autoReconnect:true});
     await client.connect();
-    if(!(await client.isUserAuthorized()))throw new Error('Saved Telegram session is no longer authorized');
+    if(!(await client.isUserAuthorized())){
+      const error=new Error('Saved Telegram session is no longer authorized');
+      error.code='SESSION_UNAUTHORIZED';
+      throw error;
+    }
     const me=await client.getMe();
     account.premium=me.premium===true;
     account.username=me.username||account.username;
     account.firstName=me.firstName||account.firstName;
-    return attachConnectedClient(client,account);
+    const runtime=await attachConnectedClient(client,account,{leaseOwned:true});
+    return runtime?id:null;
   }catch(error){
-    await disableAccount(id).catch(()=>{});
+    await releaseRuntimeLease(id).catch(()=>{});
+    if(error?.code==='SESSION_UNAUTHORIZED')await disableAccount(id).catch(()=>{});
     throw error;
   }
 }
 
-export async function loadSavedRuntimes(){
-  const accounts=await listAccounts();
-  const loaded=[];
-  for(const publicAccount of accounts){
-    try{
-      const account=await accountWithSession(publicAccount.telegramUserId);
-      const client=new TelegramClient(new StringSession(account.session),cfg.apiId,cfg.apiHash,{connectionRetries:5,autoReconnect:true});
-      await client.connect();
-      const me=await client.getMe();
-      account.premium=me.premium===true;
-      account.username=me.username||account.username;
-      await attachConnectedClient(client,account);
-      loaded.push(account.telegramUserId);
-    }catch(e){
-      console.error('[NexAccount restore]',publicAccount.telegramUserId,String(e.message||e));
-    }
+export async function reconnectRuntime(telegramUserId){
+  const id=String(telegramUserId);
+  await enableAccount(id);
+  if(cfg.workerCount>1&&!accountAssignedToWorker(id))throw new Error('account_assigned_to_other_worker');
+  return connectSavedAccount({telegramUserId:id});
+}
+
+export async function reconcileRuntimes(){
+  if(reconcilingRuntimes)return [];
+  reconcilingRuntimes=true;
+  try{
+    const capacity=Math.max(0,cfg.maxRuntimesPerWorker-runtimes.size);
+    if(capacity<=0)return [];
+    const accounts=await listAccountsForWorker({limit:cfg.maxRuntimesPerWorker});
+    const pending=accounts.filter(a=>!runtimes.has(String(a.telegramUserId))).slice(0,capacity);
+    const loaded=[];
+    let cursor=0;
+    const workers=Array.from({length:Math.min(cfg.restoreConcurrency,pending.length)},async()=>{
+      while(true){
+        const index=cursor++;
+        if(index>=pending.length)return;
+        const publicAccount=pending[index];
+        try{
+          const id=await connectSavedAccount(publicAccount);
+          if(id)loaded.push(id);
+        }catch(e){
+          console.error('[NexAccount restore]',publicAccount.telegramUserId,String(e?.message||e));
+        }
+      }
+    });
+    await Promise.all(workers);
+    return loaded;
+  }finally{
+    reconcilingRuntimes=false;
   }
-  return loaded;
+}
+
+export async function loadSavedRuntimes(){
+  return reconcileRuntimes();
 }
 
 export async function runtimeCommandTest(telegramUserId,text='.menu',peer='me'){
@@ -1132,16 +1198,19 @@ export function runtimeStatus(){
     updateCount:r.updateCount||0,
     catchUpFailures:r.catchUpFailures||0,
     lastCommandPollAt:r.lastCommandPollAt,
-    commandPollFailures:r.commandPollFailures||0
+    commandPollFailures:r.commandPollFailures||0,
+    workerId:cfg.workerId
   }));
 }
 
 export async function stopRuntimes(){
-  for(const r of runtimes.values()){
+  for(const [id,r] of runtimes.entries()){
     if(r.autoJoinTimer)clearInterval(r.autoJoinTimer);
     if(r.updateSyncTimer)clearInterval(r.updateSyncTimer);
     if(r.commandPollTimer)clearInterval(r.commandPollTimer);
+    if(r.leaseTimer)clearInterval(r.leaseTimer);
     try{await r.client.disconnect()}catch{}
+    await releaseRuntimeLease(id).catch(()=>{});
   }
   runtimes.clear();
 }
