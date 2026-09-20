@@ -47,16 +47,22 @@ const state=new Map(workers.map(w=>[w.slug,{
 const children=new Map();
 let stopping=false;
 
-async function persist(){
-  const payload={
-    launcherPid:process.pid,
-    updatedAt:new Date().toISOString(),
-    stopping,
-    workers:[...state.values()]
-  };
-  const tmp=STATE_FILE+'.tmp';
-  await fs.writeFile(tmp,JSON.stringify(payload,null,2),{mode:0o600});
-  await fs.rename(tmp,STATE_FILE);
+let persistChain=Promise.resolve();
+function persist(){
+  persistChain=persistChain.then(async()=>{
+    const payload={
+      launcherPid:process.pid,
+      updatedAt:new Date().toISOString(),
+      stopping,
+      workers:[...state.values()]
+    };
+    const tmp=STATE_FILE+'.'+process.pid+'.'+Date.now()+'.tmp';
+    await fs.writeFile(tmp,JSON.stringify(payload,null,2),{mode:0o600});
+    await fs.rename(tmp,STATE_FILE);
+  }).catch(error=>{
+    console.error('[NexControlFleet] persist error '+String(error?.message||error));
+  });
+  return persistChain;
 }
 
 function pipe(child,slug,stream,label){
