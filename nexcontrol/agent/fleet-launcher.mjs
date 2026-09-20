@@ -67,8 +67,9 @@ function persist(){
 
 function pipe(child,slug,stream,label){
   stream?.on('data',chunk=>{
-    const text=String(chunk);
-    process[label]('[NexControlFleet]['+slug+'] '+text.replace(/\s+$/,''));
+    const text=String(chunk).replace(/\s+$/,'');
+    const writer=label==='error'?console.error:console.log;
+    writer('[NexControlFleet]['+slug+'] '+text);
   });
 }
 
