@@ -45,11 +45,11 @@ const settings={
   stateFile:path.resolve(ROOT,String(user.stateFile||path.relative(ROOT,DEFAULT_STATE))),
   restartHook:path.resolve(ROOT,String(user.restartHook||cfg.restartHook?.path||'.nexcontrol/control/restart.json')),
   requireSupervisedParent:user.requireSupervisedParent!==false,
-  parentPatterns:Array.isArray(user.parentPatterns)&&user.parentPatterns.length?user.parentPatterns.map(String):['scripts/orchestrator.mjs','orchestrator.mjs'],
+  parentPatterns:Array.isArray(user.parentPatterns)&&user.parentPatterns.length?user.parentPatterns.map(String):['index.js','scripts/orchestrator.mjs','orchestrator.mjs'],
   includeCmdline:Array.isArray(user.includeCmdline)&&user.includeCmdline.length?user.includeCmdline.map(String):['/bots/','bots/'],
   excludeCmdline:Array.isArray(user.excludeCmdline)&&user.excludeCmdline.length?user.excludeCmdline.map(String):['nexcontrol/agent','resource-watchdog','fleet-launcher','orchestrator.mjs'],
   cleanupTargets:Array.isArray(user.cleanupTargets)&&user.cleanupTargets.length?user.cleanupTargets:[
-    {path:'.nexcontrol/backups',minAgeMinutes:1440,keepNewest:20,maxBytes:536870912},
+    {path:'.nexcontrol/backups',minAgeMinutes:10080,keepNewest:50,maxBytes:1073741824},
     {path:'.nexcontrol/tmp',minAgeMinutes:120,keepNewest:0,maxBytes:268435456},
     {path:'tmp',minAgeMinutes:120,keepNewest:0,maxBytes:536870912},
     {path:'bots/nexdownloader/tmp',minAgeMinutes:120,keepNewest:0,maxBytes:536870912},
@@ -83,17 +83,18 @@ async function disk(){
 const pct=(used,total)=>total>0?(used/total)*100:0;
 const mb=v=>Math.round(v/1024/1024);
 
-async function entrySize(target){
-  let total=0;
+async function entryInfo(target){
+  let total=0,latestMtime=0;
   async function walk(p){
     let st;try{st=await fs.lstat(p)}catch{return}
     if(st.isSymbolicLink())return;
+    latestMtime=Math.max(latestMtime,Number(st.mtimeMs||0));
     if(st.isFile()){total+=st.size;return}
     if(!st.isDirectory())return;
     let entries=[];try{entries=await fs.readdir(p,{withFileTypes:true})}catch{return}
     for(const e of entries)await walk(path.join(p,e.name));
   }
-  await walk(target);return total;
+  await walk(target);return{size:total,mtime:latestMtime};
 }
 async function cleanupTarget(spec,aggressive=false){
   const rel=String(spec.path||'').trim();
@@ -112,7 +113,7 @@ async function cleanupTarget(spec,aggressive=false){
     const full=path.join(target,e.name);
     let st;try{st=await fs.lstat(full)}catch{continue}
     if(st.isSymbolicLink())continue;
-    rows.push({name:e.name,full,mtime:st.mtimeMs,size:await entrySize(full)});
+    const info=await entryInfo(full);rows.push({name:e.name,full,mtime:info.mtime||st.mtimeMs,size:info.size});
   }
   rows.sort((a,b)=>b.mtime-a.mtime);
   let total=rows.reduce((s,x)=>s+x.size,0),freed=0,removed=0;
