@@ -912,7 +912,8 @@ export function animeIngestStatus(runtime){
 
 export const __test={
   parseEpisode,detectLanguage,detectQuality,stripNoiseTitle,cleanCaption,safeFilename,
-  classifyMessage,sourceStats,titleSimilarity,releaseKey,presentationKey
+  classifyMessage,sourceStats,titleSimilarity,releaseKey,presentationKey,
+  cleanSeriesTitle,sourceTitleCandidate,deriveRawAnchors,commonPrefixTitle
 };
 
 
