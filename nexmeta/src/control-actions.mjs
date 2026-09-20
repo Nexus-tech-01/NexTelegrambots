@@ -62,9 +62,23 @@ import {
   removeConnectedPage,
   getActivePageCredential
 } from './token-vault.mjs';
+import {
+  createCompanionPairing,
+  companionStatus,
+  listCompanionDevices,
+  revokeCompanionDevice,
+  enqueueCompanionCommand,
+  getCompanionCommand
+} from './companion.mjs';
 
 export const CONTROL_CAPABILITIES = Object.freeze([
   'status',
+  'companion_create_pairing',
+  'companion_status',
+  'companion_list_devices',
+  'companion_revoke_device',
+  'companion_enqueue',
+  'companion_command',
   'oauth_start',
   'get_connected_account',
   'list_connected_pages',
@@ -118,6 +132,7 @@ export const CONTROL_CAPABILITIES = Object.freeze([
 ]);
 
 const META_WRITE_ACTIONS = new Set([
+  'companion_enqueue',
   'send_text',
   'send_media',
   'send_quick_replies',
@@ -203,6 +218,41 @@ export async function executeControlAction(body) {
   await assertMetaWritesEnabled(action);
 
   switch (action) {
+    case 'companion_create_pairing':
+      return createCompanionPairing({
+        label: optionalString(body.label, 120),
+        ttlSeconds: body.ttlSeconds
+      });
+
+    case 'companion_status':
+      return companionStatus();
+
+    case 'companion_list_devices':
+      return listCompanionDevices();
+
+    case 'companion_revoke_device':
+      return revokeCompanionDevice(
+        requireString(body.deviceId, 'deviceId', 100)
+      );
+
+    case 'companion_enqueue':
+      return enqueueCompanionCommand({
+        deviceId: optionalString(body.deviceId, 100),
+        type: requireString(body.commandType || body.type, 'commandType', 80),
+        payload:
+          body.payload &&
+          typeof body.payload === 'object' &&
+          !Array.isArray(body.payload)
+            ? body.payload
+            : {},
+        ttlSeconds: body.ttlSeconds
+      });
+
+    case 'companion_command':
+      return getCompanionCommand(
+        requireString(body.commandId, 'commandId', 100)
+      );
+
     case 'oauth_start':
       return createMetaOAuthStart({
         actor: 'nexcontrol',
