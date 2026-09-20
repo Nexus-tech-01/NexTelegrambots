@@ -95,6 +95,74 @@ function nexaccountPage(){
   'let pairId="",publicKey=null;const out=document.getElementById("pairOut"),codeBox=document.getElementById("codeBox"),passBox=document.getElementById("passBox");async function api(path,opt){const r=await fetch(path,opt);const j=await r.json().catch(()=>({error:"Réponse invalide"}));if(r.status===401){location.href="/";throw new Error("Connexion NexControl requise")}if(!r.ok)throw new Error(j.error||"Erreur");return j}function b64(bytes){let s="";for(const b of new Uint8Array(bytes))s+=String.fromCharCode(b);return btoa(s)}async function key(){if(publicKey)return publicKey;const j=await api("/api/nexaccount/key");const pem=j.publicKey.replace(/-----[^-]+-----/g,"").replace(/\\s/g,"");const raw=Uint8Array.from(atob(pem),c=>c.charCodeAt(0));publicKey=await crypto.subtle.importKey("spki",raw,{name:"RSA-OAEP",hash:"SHA-256"},false,["encrypt"]);return publicKey}async function seal(data){const encoded=new TextEncoder().encode(JSON.stringify(data));const encrypted=await crypto.subtle.encrypt({name:"RSA-OAEP"},await key(),encoded);return b64(encrypted)}async function secure(data){return api("/api/nexaccount/secure",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({envelope:await seal(data)})})}function stage(j){pairId=j.id||pairId;out.textContent=JSON.stringify(j,null,2);codeBox.classList.toggle("hide",j.stage!=="code");passBox.classList.toggle("hide",j.stage!=="password");if(j.stage==="connected"){code.value="";password.value="";load()}}start.onclick=async()=>{try{out.textContent="Demande du code…";stage(await secure({action:"pair-start",phone:phone.value}))}catch(e){out.textContent=e.message}};sendCode.onclick=async()=>{try{out.textContent="Vérification…";stage(await secure({action:"pair-code",id:pairId,code:code.value}))}catch(e){out.textContent=e.message}};sendPass.onclick=async()=>{try{out.textContent="Vérification 2FA…";stage(await secure({action:"pair-password",id:pairId,password:password.value}))}catch(e){out.textContent=e.message}};async function load(){try{const [h,a]=await Promise.all([api("/api/nexaccount/health"),api("/api/nexaccount/accounts")]);health.textContent="Service: "+(h.ok?"online":"offline")+"\\nNexAI inline: "+(h.botConfigured?"configuré":"token manquant")+"\\nSessions actives: "+(h.runtimes?.length||0);accounts.innerHTML=(a.accounts||[]).map(x=>"<div class=account><b>"+(x.username?"@"+x.username:(x.firstName||x.telegramUserId))+"</b><br><span class="+(x.premium?"premium":"")+">"+(x.premium?"Telegram Premium":"Standard")+"</span> · "+(x.phoneMasked||"")+"</div>").join("")||"<div class=account>Aucun compte.</div>"}catch(e){health.textContent=e.message}}refresh.onclick=load;load();</script></body></html>';
 }
 
+
+function pterodactylRecoveryPage(token='',message='',ok=false){
+  const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  return '<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>NexControl · Pterodactyl Recovery</title><style>'+
+  '*{box-sizing:border-box}body{margin:0;background:#0b0b0d;color:#f7f3ec;font-family:Inter,system-ui,-apple-system,sans-serif;min-height:100vh;display:grid;place-items:center;padding:22px}.card{width:min(520px,100%);background:#131317;border:1px solid #2c2c33;border-radius:18px;padding:24px;box-shadow:0 18px 60px #0008}h1{font-size:21px;margin:0 0 8px}.lead{color:#b9b5ad;line-height:1.5;margin:0}.field{margin-top:20px}.label{display:block;font-size:13px;margin-bottom:8px;color:#d8d3ca}.wrap{position:relative}.wrap input{width:100%;border:1px solid #383843;border-radius:12px;background:#0f0f12;color:#fff;padding:14px 48px 14px 14px;font-size:15px;outline:none}.wrap input:focus{border-color:#f2a23a;box-shadow:0 0 0 3px #f2a23a1d}.eye{position:absolute;right:8px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#aaa;cursor:pointer;padding:8px;font-size:18px}.btn{width:100%;margin-top:16px;border:0;border-radius:12px;background:#f3a53b;color:#171109;padding:14px;font-weight:800;cursor:pointer}.msg{margin-top:16px;padding:12px;border-radius:11px;font-size:14px;line-height:1.4}.ok{background:#15351f;color:#baf5ca}.err{background:#3a1717;color:#ffc2c2}.small{font-size:12px;color:#8f8b85;margin-top:14px}</style></head><body><main class="card"><h1>NexControl · Recovery</h1><p class="lead">Colle ta clé API Client Pterodactyl. Elle sera enregistrée dans Supabase Vault puis NexControl demandera le redémarrage du serveur.</p>'+
+  (message?'<div class="msg '+(ok?'ok':'err')+'">'+esc(message)+'</div>':'')+
+  (ok?'':'<form method="post" action="/pterodactyl-recovery"><input type="hidden" name="token" value="'+esc(token)+'"><div class="field"><label class="label" for="key">Clé API Pterodactyl</label><div class="wrap"><input id="key" name="apiKey" type="password" autocomplete="off" required minlength="20"><button class="eye" type="button" aria-label="Afficher ou masquer">◉</button></div></div><button class="btn" type="submit">Enregistrer et redémarrer le serveur</button></form>')+
+  '<div class="small">Lien à usage unique · expiration automatique.</div></main><script>const b=document.querySelector(".eye"),i=document.querySelector("#key");if(b&&i)b.onclick=()=>{i.type=i.type==="password"?"text":"password"};</script></body></html>';
+}
+
+async function handlePterodactylRecovery(req,res,u){
+  if(u.pathname!=='/pterodactyl-recovery')return false;
+  const endpoint='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-pterodactyl-recovery';
+  if(req.method==='GET'){
+    const token=String(u.searchParams.get('token')||'');
+    const check=await fetch(endpoint+'?token='+encodeURIComponent(token),{redirect:'manual',signal:AbortSignal.timeout(15000)});
+    const loc=check.headers.get('location')||'';
+    let message='',ok=false;
+    if(check.status>=300&&check.status<400&&loc){
+      try{
+        const ru=new URL(loc);
+        const status=ru.searchParams.get('status')||'';
+        message=ru.searchParams.get('message')||'';
+        ok=status==='ok';
+      }catch{}
+    }else if(check.status>=400){
+      message='Lien invalide ou expiré.';
+    }
+    res.statusCode=200;
+    res.setHeader('content-type','text/html; charset=utf-8');
+    res.setHeader('cache-control','no-store, max-age=0');
+    res.setHeader('x-content-type-options','nosniff');
+    res.end(pterodactylRecoveryPage(token,message,ok));
+    return true;
+  }
+  if(req.method==='POST'){
+    const body=req.body&&typeof req.body==='object'?req.body:Object.fromEntries(new URLSearchParams(typeof req.body==='string'?req.body:''));
+    const token=String(body.token||'');
+    const apiKey=String(body.apiKey||'').trim();
+    const upstream=await fetch(endpoint,{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({token,apiKey}),
+      redirect:'manual',
+      signal:AbortSignal.timeout(20000)
+    });
+    const loc=upstream.headers.get('location')||'';
+    let message=upstream.ok?'Clé enregistrée.':'Réponse inattendue du service de récupération.',ok=false;
+    if(loc){
+      try{
+        const ru=new URL(loc);
+        const status=ru.searchParams.get('status')||'';
+        message=ru.searchParams.get('message')||message;
+        ok=status==='ok';
+      }catch{}
+    }
+    res.statusCode=200;
+    res.setHeader('content-type','text/html; charset=utf-8');
+    res.setHeader('cache-control','no-store, max-age=0');
+    res.setHeader('x-content-type-options','nosniff');
+    res.end(pterodactylRecoveryPage(token,message,ok));
+    return true;
+  }
+  res.statusCode=405;
+  res.end('method_not_allowed');
+  return true;
+}
+
 async function handleNexAccount(req,res,u){
   if(req.method==='GET'&&u.pathname==='/nexaccount'){
     res.statusCode=200;res.setHeader('content-type','text/html; charset=utf-8');res.end(nexaccountPage());return true;
@@ -124,6 +192,7 @@ export default async function handler(req,res){
   try{
     const u=new URL(req.url,'https://nexcontrol.local');
     if(await handleNexAiPublic(req,res,u))return;
+    if(await handlePterodactylRecovery(req,res,u))return;
   if(await handleNexAccount(req,res,u))return;
     const headers=outboundHeaders(req,u.pathname);
     const body=outboundBody(req,headers);
