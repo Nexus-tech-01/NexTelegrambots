@@ -15,6 +15,7 @@ import { canHandleAnimeCommand, handleAnimeCommand } from './anime-engine.mjs';
 import { canHandleDownloadCommand, handleDownloadCommand } from './dipper-fallback.mjs';
 import { aiProviderStatus, canHandleAiCommand, generateAiReply, handleAiCommand } from './ai-engine.mjs';
 import { canHandleStickerCommand, handleStickerCommand } from './sticker-engine.mjs';
+import { loadBotToken } from './secrets.mjs';
 import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
 
 const commands=commandMap();
@@ -963,7 +964,7 @@ export async function engineStatus(){
       {service:'ai',type:'local',configured:providers.length>0,reachable:providers.length>0,providers},
       {service:'download',type:'local',configured:true,reachable:true},
       {service:'group',type:'local',configured:true,reachable:true},
-      {service:'sticker',type:'local',configured:Boolean(cfg.botToken),reachable:Boolean(cfg.botToken)},
+      {service:'sticker',type:'local',configured:Boolean(await loadBotToken()),reachable:Boolean(await loadBotToken())},
       {service:'game',type:'local',configured:true,reachable:true},
       {service:'anime',type:'local',configured:true,reachable:true},
       {service:'audio',type:'local',configured:true,reachable:true}
