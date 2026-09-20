@@ -9,6 +9,7 @@ import { loadBotToken } from './secrets.mjs';
 import { ensureNexAiBot } from './bot-factory.mjs';
 import { ensureAnalyticsIndex } from './analytics-indexer.mjs';
 import { animeRetryQueue, animeSystemStatus } from './anime-ingest.mjs';
+import { secondaryAnimeStatus, startSecondaryAnimeReader, stopSecondaryAnimeReader } from './anime-secondary-reader.mjs';
 
 assertCoreConfig();
 
@@ -59,7 +60,8 @@ async function route(req,res){
         botConfigured:!!(await loadBotToken()),
         botUsername:cfg.botUsername||null,
         worker:{id:cfg.workerId,index:cfg.workerIndex,count:cfg.workerCount,capacity:cfg.maxRuntimesPerWorker},
-        runtimeCount:runtimes.length
+        runtimeCount:runtimes.length,
+        secondaryAnime:secondaryAnimeStatus()
       });
     }
     if(!authorized(req))return json(res,401,{ok:false,error:'unauthorized'});
@@ -70,7 +72,7 @@ async function route(req,res){
       return json(res,200,await engineStatus());
     }
     if(req.method==='GET'&&url.pathname==='/anime/status'){
-      return json(res,200,await animeSystemStatus());
+      return json(res,200,{...(await animeSystemStatus()),secondaryReader:secondaryAnimeStatus()});
     }
     if(req.method==='POST'&&url.pathname==='/anime/discover'){
       const q=await body(req);
@@ -137,6 +139,7 @@ server.listen(cfg.port,cfg.host,async()=>{
   console.log('[NexAccount] local control http://'+cfg.host+':'+cfg.port);
   if(cfg.coordinator)await startInlineBot().catch(e=>console.error('[NexAI bot]',e));
   const loaded=await loadSavedRuntimes().catch(e=>{console.error('[NexAccount restore]',e);return[]});
+  if(cfg.coordinator)await startSecondaryAnimeReader().catch(e=>console.error('[NexAnime secondary]',e));
   console.log('[NexAccount] worker '+cfg.workerIndex+'/'+cfg.workerCount+(cfg.coordinator?' · coordinator':'')+' restored '+loaded.length+' account(s), capacity '+cfg.maxRuntimesPerWorker);
 });
 
@@ -158,6 +161,7 @@ async function shutdown(){
   if(analyticsRefresh)clearInterval(analyticsRefresh);
   try{server.close()}catch{}
   if(cfg.coordinator)await stopInlineBot();
+  if(cfg.coordinator)await stopSecondaryAnimeReader().catch(()=>{});
   await stopRuntimes();
   await closeStore();
   process.exit(0);
