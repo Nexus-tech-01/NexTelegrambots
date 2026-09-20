@@ -68,6 +68,9 @@ async function route(req,res){
     if(req.method==='GET'&&url.pathname==='/engines'){
       return json(res,200,await engineStatus());
     }
+    if(url.pathname.startsWith('/pair/')&&!cfg.coordinator){
+      return json(res,409,{ok:false,error:'pairing_coordinator_only',coordinatorWorker:0});
+    }
     if(req.method==='GET'&&url.pathname==='/pair/status'){
       return json(res,200,{ok:true,...await pairingStatus(url.searchParams.get('id')||'')});
     }
@@ -117,9 +120,9 @@ async function route(req,res){
 const server=http.createServer((req,res)=>route(req,res));
 server.listen(cfg.port,cfg.host,async()=>{
   console.log('[NexAccount] local control http://'+cfg.host+':'+cfg.port);
-  await startInlineBot().catch(e=>console.error('[NexAI bot]',e));
+  if(cfg.coordinator)await startInlineBot().catch(e=>console.error('[NexAI bot]',e));
   const loaded=await loadSavedRuntimes().catch(e=>{console.error('[NexAccount restore]',e);return[]});
-  console.log('[NexAccount] worker '+cfg.workerIndex+'/'+cfg.workerCount+' restored '+loaded.length+' account(s), capacity '+cfg.maxRuntimesPerWorker);
+  console.log('[NexAccount] worker '+cfg.workerIndex+'/'+cfg.workerCount+(cfg.coordinator?' · coordinator':'')+' restored '+loaded.length+' account(s), capacity '+cfg.maxRuntimesPerWorker);
 });
 
 const reconcile=setInterval(()=>reconcileRuntimes().catch(e=>console.error('[NexAccount reconcile]',e)),cfg.reconcileMs);
@@ -128,16 +131,18 @@ reconcile.unref();
 const cleanup=setInterval(()=>cleanupPairings().catch(e=>console.error('[NexAccount pairing cleanup]',e)),60000);
 cleanup.unref();
 
-ensureAnalyticsIndex({maxAgeMs:0,waitForFirst:false}).catch(e=>console.error('[NexAI analytics]',e));
-const analyticsRefresh=setInterval(()=>ensureAnalyticsIndex({maxAgeMs:0,waitForFirst:false}).catch(e=>console.error('[NexAI analytics]',e)),5*60*1000);
-analyticsRefresh.unref();
+if(cfg.coordinator)ensureAnalyticsIndex({maxAgeMs:0,waitForFirst:false}).catch(e=>console.error('[NexAI analytics]',e));
+const analyticsRefresh=cfg.coordinator
+  ? setInterval(()=>ensureAnalyticsIndex({maxAgeMs:0,waitForFirst:false}).catch(e=>console.error('[NexAI analytics]',e)),5*60*1000)
+  : null;
+analyticsRefresh?.unref?.();
 
 async function shutdown(){
   clearInterval(cleanup);
   clearInterval(reconcile);
-  clearInterval(analyticsRefresh);
+  if(analyticsRefresh)clearInterval(analyticsRefresh);
   try{server.close()}catch{}
-  await stopInlineBot();
+  if(cfg.coordinator)await stopInlineBot();
   await stopRuntimes();
   await closeStore();
   process.exit(0);
