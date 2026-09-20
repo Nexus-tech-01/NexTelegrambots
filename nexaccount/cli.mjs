@@ -1,6 +1,7 @@
 import { decryptPairingEnvelope, pairingPublicKey } from './secure-rpc.mjs';
 
-const port=Number(process.env.NEXACCOUNT_PORT||3491);
+const workerIndex=Math.max(0,Number(process.env.NEXACCOUNT_WORKER_INDEX||0));
+const port=Number(process.env.NEXACCOUNT_PORT||(3491+workerIndex));
 const base='http://127.0.0.1:'+port;
 const controlKey=String(process.env.NEXACCOUNT_CONTROL_KEY||process.env.NEXCONTROL_FLEET_KEY||process.env.NEXACCOUNT_SESSION_KEY||process.env.NEXCONTROL_SESSION_SECRET||process.env.SESSION_SECRET||'').trim();
 
