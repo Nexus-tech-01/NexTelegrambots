@@ -73,3 +73,25 @@ Le source complet utilisé par Render est conservé dans les fichiers :
 `render-src.b64.part-00` → `render-src.b64.part-08`
 
 Le build les concatène, décode l'archive XZ puis extrait le monorepo avant compilation. Aucun token Telegram, mot de passe MongoDB, URL Redis privée ou API hash réel n'est inclus dans ces fichiers.
+
+
+## NexAnime ingestion
+
+NexAnime is integrated into the existing NexAccount runtimes and is designed for the paired accounts **@tresor20001** and **@tresor20009**.
+
+Pipeline:
+
+1. discover broadcast channels visible to each listener account;
+2. sample recent posts and classify the source as anime, mixed, candidate or non-anime;
+3. ignore adult promotions, betting/casino/pronostic posts, crypto/investment spam and generic channel promotion;
+4. detect episode releases from caption + filename, including season, episode, language and quality;
+5. detect anime presentation posts when an image is paired with structured metadata such as synopsis/genres/studio;
+6. scan historical posts for currently active series so a source already at episode 15 can reconstruct earlier episodes;
+7. normalize captions and filenames, removing source usernames, t.me links and promotional lines;
+8. deduplicate releases globally across both listener accounts;
+9. queue live releases ahead of backfill releases and publish them in season/episode order to **@theotaku_nexus**;
+10. quarantine ambiguous failures instead of blindly posting them.
+
+The runtime intentionally avoids expensive deep video-content verification. It uses lightweight metadata checks only. Episode reupload is gated by NEXANIME_MEDIA_POLICY; keep the default authorized_only unless the media is licensed/authorized for redistribution.
+
+For file uploads, the destination channel profile image is used as the replacement thumbnail when Telegram accepts a custom thumbnail. Temporary episode files are removed after each upload.
