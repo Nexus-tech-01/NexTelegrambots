@@ -22,6 +22,7 @@ const MEDIA_POLICY=String(process.env.NEXANIME_MEDIA_POLICY||'authorized_only').
 const MEDIA_REUPLOAD=MEDIA_POLICY==='authorized' || MEDIA_POLICY==='allow' || MEDIA_POLICY==='allowed';
 const TMP_ROOT=process.env.NEXANIME_TMP_DIR||path.join(os.tmpdir(),'nexanime');
 const SOURCE_CACHE=new Map();
+const SERIES_CACHE=new Map();
 let indexesReady=false;
 
 const BLOCK_RE=[
@@ -40,7 +41,11 @@ const VIDEO_EXT_RE=/\.(?:mp4|mkv|avi|mov|webm|m4v|ts)$/i;
 const SOURCE_BLOCK_RE=/\b(?:hentai\w*|porn\w*|adult\w*|nsfw\w*|xxx\w*|prono\w*|bet(?:ting)?\w*|casino\w*|1xbet\w*|melbet\w*|stake\w*)\b/i;
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-const norm=s=>String(s||'')
+const safeDecode=value=>{
+  const s=String(value||'');
+  try{return decodeURIComponent(s)}catch{return s.replace(/%20/gi,' ')}
+};
+const norm=s=>safeDecode(s)
   .normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
   .toLowerCase().replace(/['’]/g,' ')
   .replace(/[^a-z0-9]+/g,' ').trim();
@@ -96,7 +101,7 @@ function detectQuality(raw=''){
   return String(raw).replace(/[_-]+/g,' ').match(/\b(2160p|1440p|1080p|720p|576p|540p|480p|360p)\b/i)?.[1]?.toLowerCase()||'';
 }
 function stripNoiseTitle(raw='',episodeToken=''){
-  let s=String(raw||'').split(/\r?\n/).find(x=>x.trim())||String(raw||'');
+  let s=safeDecode(String(raw||'').split(/\r?\n/).find(x=>x.trim())||String(raw||''));
   s=s.replace(/\.(?:mp4|mkv|avi|mov|webm|m4v|ts)$/i,'');
   s=s.replace(/_/g,' ');
   s=s.replace(/https?:\/\/\S+/gi,' ');
@@ -105,6 +110,7 @@ function stripNoiseTitle(raw='',episodeToken=''){
   s=s.replace(/\[[^\]]{0,80}\]/g,' ');
   if(episodeToken)s=s.replace(episodeToken,' ');
   s=s.replace(/\b(?:season|saison)\s*\d{1,2}\b/ig,' ');
+  s=s.replace(/\bS\d{1,2}E\d{1,4}(?:\.\d)?\b/ig,' ');
   s=s.replace(/\bS\d{1,2}\b/ig,' ');
   s=s.replace(/\b(?:episode|épisode|ep|e)\s*[-_.:# ]*\d{1,4}(?:\.\d)?\b/ig,' ');
   s=s.replace(/\b(?:VF|VOSTFR|VO|MULTI|RAW|FRENCH(?: DUB)?|ENGLISH(?: DUB| SUB)?)\b/ig,' ');
@@ -161,6 +167,186 @@ function titleSimilarity(a,b){
   let hit=0; for(const x of aa)if(bb.has(x))hit++;
   return hit/Math.max(aa.size,bb.size);
 }
+
+const GENERIC_SOURCE_WORDS=new Set([
+  'anime','animes','manga','mangas','hebdo','hebdos','zone','officiel','official',
+  'team','channel','canal','club','films','film','movies','movie','vf','vostfr','vo',
+  'french','fr','hd','full','stream','streaming','otaku','new','nouveau','nouveaux'
+]);
+
+function cleanSeriesTitle(raw=''){
+  let s=stripNoiseTitle(safeDecode(raw),'');
+  s=s.replace(/\b(?:S\d{1,2}E\d{1,4}|S\d{1,2}|season\s*\d+|saison\s*\d+)\b/ig,' ');
+  s=s.replace(/\b(?:cr|aac2?|web[- ]?dl|webrip|bluray|bdrip|x26[45]|hevc|av1|multi|raw)\b/ig,' ');
+  s=s.replace(/\b[a-f0-9]{8,}\b/ig,' ');
+  s=s.replace(/\b(?:part|cour)\s*\d+\b/ig,' ');
+  return s.replace(/\s+/g,' ').replace(/^[\W_]+|[\W_]+$/g,'').trim().slice(0,150);
+}
+function sourceTitleCandidate(source={}){
+  const s=cleanSeriesTitle(source.title||source.username||'');
+  if(!s)return '';
+  const meaningful=norm(s).split(' ').filter(x=>x.length>1&&!GENERIC_SOURCE_WORDS.has(x));
+  if(meaningful.length<1)return '';
+  if(meaningful.length===1 && meaningful[0].length<5)return '';
+  return s;
+}
+function prefixTokens(a,b){
+  const aa=String(a||'').split(/\s+/).filter(Boolean);
+  const bb=String(b||'').split(/\s+/).filter(Boolean);
+  const out=[];
+  for(let i=0;i<Math.min(aa.length,bb.length);i++){
+    if(norm(aa[i])!==norm(bb[i]))break;
+    out.push(aa[i]);
+  }
+  return out;
+}
+function commonPrefixTitle(items=[]){
+  if(!items.length)return '';
+  let tokens=String(items[0]||'').split(/\s+/).filter(Boolean);
+  for(const item of items.slice(1)){
+    const other=String(item||'').split(/\s+/).filter(Boolean);
+    let i=0;
+    while(i<Math.min(tokens.length,other.length)&&norm(tokens[i])===norm(other[i]))i++;
+    tokens=tokens.slice(0,i);
+    if(tokens.length<2)break;
+  }
+  return cleanSeriesTitle(tokens.join(' '));
+}
+function deriveRawAnchors(messages=[],source={}){
+  const sourceCandidate=sourceTitleCandidate(source);
+  const candidates=[];
+  for(const message of messages){
+    const c=classifyMessage(message,source);
+    if(c.kind!=='episode')continue;
+    const title=cleanSeriesTitle(c.title);
+    if(title)candidates.push(title);
+  }
+  const clusters=[];
+  for(const title of candidates){
+    let base=title;
+    if(sourceCandidate){
+      const sim=titleSimilarity(sourceCandidate,title);
+      const a=norm(sourceCandidate),b=norm(title);
+      if(sim>=0.32||b.includes(a)||a.includes(b))base=sourceCandidate;
+    }
+    let cluster=clusters.find(g=>{
+      const sim=titleSimilarity(g.seed,base);
+      return sim>=0.46||prefixTokens(g.seed,base).length>=2;
+    });
+    if(!cluster){cluster={seed:base,titles:[]};clusters.push(cluster)}
+    cluster.titles.push(base);
+  }
+  const anchors=[];
+  for(const cluster of clusters){
+    const pref=commonPrefixTitle(cluster.titles);
+    const raw=cleanSeriesTitle(pref.split(/\s+/).length>=2?pref:cluster.seed);
+    if(!raw)continue;
+    if(!anchors.some(x=>titleSimilarity(x,raw)>=0.82))anchors.push(raw);
+    if(anchors.length>=MAX_ACTIVE_SERIES)break;
+  }
+  return anchors;
+}
+function animeAliasScore(query,aliases=[]){
+  const q=norm(query);
+  let best=0;
+  for(const alias of aliases){
+    const a=norm(alias);
+    if(!a)continue;
+    if(q===a)return 1;
+    if(q.length>=5&&a.length>=5&&(q.includes(a)||a.includes(q)))best=Math.max(best,0.9);
+    best=Math.max(best,titleSimilarity(q,a));
+  }
+  return best;
+}
+async function verifyAnimeTitle(query){
+  const cleaned=cleanSeriesTitle(query);
+  const key=norm(cleaned);
+  if(!key)return {ok:false,temporary:false,query:cleaned};
+  const mem=SERIES_CACHE.get(key);
+  if(mem&&mem.expires>Date.now())return mem.value;
+  await ensureIndexes();
+  const d=await db();
+  const stored=await d.collection('nexanime_series_cache').findOne({key});
+  const ttl=stored?.ok?30*86400_000:7*86400_000;
+  if(stored?.checkedAt&&Date.now()-new Date(stored.checkedAt).getTime()<ttl){
+    const value={...stored,_id:undefined};
+    SERIES_CACHE.set(key,{value,expires:Date.now()+6*3600_000});
+    return value;
+  }
+  const gql='query($search:String){Media(search:$search,type:ANIME,isAdult:false){id isAdult format seasonYear title{romaji english native} synonyms}}';
+  let result;
+  try{
+    const response=await fetch('https://graphql.anilist.co',{
+      method:'POST',
+      headers:{'content-type':'application/json','accept':'application/json','user-agent':'NexAnime/1.0'},
+      body:JSON.stringify({query:gql,variables:{search:cleaned}}),
+      signal:AbortSignal.timeout(12000)
+    });
+    if(!response.ok)throw new Error('AniList HTTP '+response.status);
+    const body=await response.json();
+    const media=body?.data?.Media;
+    if(!media){
+      result={key,query:cleaned,ok:false,temporary:false,checkedAt:new Date()};
+    }else{
+      const aliases=[
+        media.title?.english,media.title?.romaji,media.title?.native,...(media.synonyms||[])
+      ].filter(Boolean);
+      const score=animeAliasScore(cleaned,aliases);
+      const ok=media.isAdult!==true&&score>=0.43;
+      result={
+        key,query:cleaned,ok,temporary:false,score:Number(score.toFixed(3)),
+        canonicalTitle:ok?(media.title?.english||media.title?.romaji||cleaned):'',
+        anilistId:ok?Number(media.id):null,aliases:ok?aliases.slice(0,12):[],
+        checkedAt:new Date()
+      };
+    }
+    await d.collection('nexanime_series_cache').updateOne({key},{$set:result},{upsert:true});
+  }catch(error){
+    result={key,query:cleaned,ok:false,temporary:true,error:String(error?.message||error).slice(0,200),checkedAt:new Date()};
+  }
+  SERIES_CACHE.set(key,{value:result,expires:Date.now()+(result.temporary?10*60_000:6*3600_000)});
+  return result;
+}
+function bestAnchor(title,anchors=[]){
+  const q=cleanSeriesTitle(title);
+  let best=null,bestScore=0;
+  for(const a of anchors){
+    const raw=a.raw||a.canonicalTitle||'';
+    const score=Math.max(titleSimilarity(q,raw),titleSimilarity(q,a.canonicalTitle||''));
+    const qn=norm(q),rn=norm(raw);
+    const adjusted=(qn.length>=5&&rn.length>=5&&(qn.includes(rn)||rn.includes(qn)))?Math.max(score,0.9):score;
+    if(adjusted>bestScore){bestScore=adjusted;best=a}
+  }
+  return bestScore>=0.38?best:null;
+}
+async function verifiedSeriesAnchors(messages,source={}){
+  const raw=deriveRawAnchors(messages,source);
+  const out=[];
+  for(const title of raw){
+    const v=await verifyAnimeTitle(title);
+    if(v.ok)out.push({raw:title,canonicalTitle:v.canonicalTitle,anilistId:v.anilistId,score:v.score});
+    await sleep(180);
+  }
+  return out;
+}
+async function canonicalizeCandidate(c,source={}){
+  if(!c||!['episode','presentation'].includes(c.kind))return c;
+  const anchors=Array.isArray(source.seriesAnchors)?source.seriesAnchors:[];
+  let anchor=bestAnchor(c.title,anchors);
+  if(!anchor){
+    const sourceCandidate=sourceTitleCandidate(source);
+    let q=cleanSeriesTitle(c.title);
+    if(sourceCandidate){
+      const sim=titleSimilarity(q,sourceCandidate),qn=norm(q),sn=norm(sourceCandidate);
+      if(sim>=0.32||qn.includes(sn)||sn.includes(qn))q=sourceCandidate;
+    }
+    const v=await verifyAnimeTitle(q);
+    if(!v.ok)return {...c,verifiedAnime:false,verificationTemporary:v.temporary===true};
+    anchor={raw:q,canonicalTitle:v.canonicalTitle,anilistId:v.anilistId,score:v.score};
+  }
+  return {...c,title:anchor.canonicalTitle,anilistId:anchor.anilistId,verifiedAnime:true};
+}
+
 function releaseKey(c){
   const title=norm(c.title);
   return [title,'s'+(c.season??1),'e'+c.episode,(c.language||'UNK').toUpperCase()].join('|');
@@ -230,7 +416,8 @@ async function ensureIndexes(){
     d.collection('nexanime_queue').createIndex({dedupeKey:1},{unique:true}),
     d.collection('nexanime_queue').createIndex({status:1,priority:-1,seriesKey:1,season:1,episode:1,createdAt:1}),
     d.collection('nexanime_publications').createIndex({dedupeKey:1},{unique:true}),
-    d.collection('nexanime_quarantine').createIndex({createdAt:-1})
+    d.collection('nexanime_quarantine').createIndex({createdAt:-1}),
+    d.collection('nexanime_series_cache').createIndex({key:1},{unique:true})
   ]);
   indexesReady=true;
 }
@@ -341,28 +528,35 @@ async function classifySource(runtime,entity){
   stats.latestMessageId=Math.max(0,...(sample||[]).map(m=>Number(m?.id||0)));
   return saveSource(accountId,entity,stats);
 }
-async function activeTitles(runtime,entity){
+async function activeSeriesAnchors(runtime,entity){
   const recent=await runtime.client.getMessages(entity,{limit:ACTIVE_SAMPLE_LIMIT});
   const source={username:entity?.username||'',title:entity?.title||''};
-  const titles=[];
-  for(const m of recent){
-    const c=classifyMessage(m,source);
-    if(c.kind==='episode' && !titles.some(t=>titleSimilarity(t,c.title)>=0.7))titles.push(c.title);
-    if(titles.length>=MAX_ACTIVE_SERIES)break;
-  }
-  return titles;
+  const anchors=await verifiedSeriesAnchors(recent,source);
+  await (await db()).collection('nexanime_sources').updateOne(
+    {accountId:String(runtime.account.telegramUserId),channelId:String(entity?.id||'')},
+    {$set:{seriesAnchors:anchors,verifiedAnimeSeries:anchors.length,seriesVerifiedAt:new Date()}}
+  );
+  const cacheKey=String(runtime.account.telegramUserId)+':'+String(entity?.id||'');
+  const cached=SOURCE_CACHE.get(cacheKey);
+  if(cached)SOURCE_CACHE.set(cacheKey,{...cached,seriesAnchors:anchors,verifiedAnimeSeries:anchors.length});
+  return anchors;
 }
 async function backfillSource(runtime,entity){
   const accountId=String(runtime.account.telegramUserId);
-  const titles=await activeTitles(runtime,entity);
-  if(!titles.length)return 0;
-  const source={username:entity?.username||'',title:entity?.title||''};
+  const anchors=await activeSeriesAnchors(runtime,entity);
+  if(!anchors.length){
+    console.log('[NexAnime] no verified anime series',accountId,String(entity?.username||entity?.id||''));
+    return 0;
+  }
+  const source={username:entity?.username||'',title:entity?.title||'',seriesAnchors:anchors};
   const history=await runtime.client.getMessages(entity,{limit:BACKFILL_LIMIT});
   const found=[];
   for(const m of history){
-    const c=classifyMessage(m,source);
+    let c=classifyMessage(m,source);
     if(c.kind!=='episode'&&c.kind!=='presentation')continue;
-    if(!titles.some(t=>titleSimilarity(t,c.title)>=0.58))continue;
+    const anchor=bestAnchor(c.title,anchors);
+    if(!anchor)continue;
+    c={...c,title:anchor.canonicalTitle,anilistId:anchor.anilistId,verifiedAnime:true};
     found.push({m,c});
   }
   found.sort((a,b)=>{
@@ -444,10 +638,15 @@ async function pollAnimeSources(runtime){
       let newest=last;
       for(const message of list){
         newest=Math.max(newest,Number(message?.id||0));
-        const c=classifyMessage(message,{username:entity?.username||'',title:entity?.title||''});
+        let c=classifyMessage(message,{username:entity?.username||'',title:entity?.title||''});
         if(c.kind==='blocked'||c.kind==='ignore')continue;
         if(c.confidence<0.70){
           await quarantine(runtime,entity,message,c,'low_confidence_poll');
+          continue;
+        }
+        c=await canonicalizeCandidate(c,row);
+        if(!c?.verifiedAnime){
+          await quarantine(runtime,entity,message,c,'anime_not_verified_poll');
           continue;
         }
         await enqueueCandidate(runtime,entity,message,c,{mode:'live'});
@@ -502,11 +701,16 @@ export async function handleAnimeIngestEvent(runtime,event){
     source=await classifySource(runtime,entity);
   }
   if(!acceptedSource(source))return false;
-  const c=classifyMessage(message,{username:entity.username||'',title:entity.title||''});
+  let c=classifyMessage(message,{username:entity.username||'',title:entity.title||''});
   if(c.kind==='blocked')return true;
   if(c.kind==='ignore')return false;
   if(c.confidence<0.70){
     await quarantine(runtime,entity,message,c,'low_confidence');
+    return true;
+  }
+  c=await canonicalizeCandidate(c,source);
+  if(!c?.verifiedAnime){
+    await quarantine(runtime,entity,message,c,'anime_not_verified');
     return true;
   }
   await enqueueCandidate(runtime,entity,message,c,{mode:'live'});
