@@ -441,6 +441,61 @@ async function handleOwner(runtime,peer,name,args){
   return true;
 }
 
+function eventIsGroup(event){
+  if(event?.isGroup===true)return true;
+  const peer=event?.message?.peerId;
+  return Boolean(peer?.chatId)||Boolean(peer?.channelId&&event?.isPrivate!==true);
+}
+
+async function accountIsGroupAdmin(client,peer,account){
+  try{
+    if(typeof client.getPermissions==='function'){
+      const p=await client.getPermissions(peer,account.telegramUserId);
+      if(p?.isCreator||p?.isAdmin||p?.adminRights)return true;
+    }
+  }catch{}
+  try{
+    const channel=await client.getInputEntity(peer);
+    const participant=await client.getInputEntity('me');
+    const r=await client.invoke(new Api.channels.GetParticipant({channel,participant}));
+    const p=r?.participant;
+    const kind=String(p?.className||p?.constructor?.name||'');
+    if(/Creator|Admin/i.test(kind)||p?.adminRights)return true;
+  }catch{}
+  try{
+    const ps=await client.getParticipants(peer,{limit:200});
+    const me=ps.find(p=>String(p?.id||'')===String(account.telegramUserId));
+    const kind=String(me?.participant?.className||me?.participant?.constructor?.name||'');
+    if(/Creator|Admin/i.test(kind)||me?.participant?.adminRights||me?.adminRights)return true;
+  }catch{}
+  return false;
+}
+
+async function enforceCommandContext(runtime,event,cmd,displayName){
+  const {client,account}=runtime;
+  const peer=event.message.peerId;
+  const group=eventIsGroup(event);
+  if(cmd.privateOnly&&group){
+    await sendText(client,peer,'La commande .'+displayName+' est réservée au privé.');
+    return false;
+  }
+  if(cmd.groupOnly&&!group){
+    await sendText(client,peer,'La commande .'+displayName+' est réservée aux groupes.');
+    return false;
+  }
+  if(cmd.adminOnly){
+    if(!group){
+      await sendText(client,peer,'La commande .'+displayName+' nécessite un groupe.');
+      return false;
+    }
+    if(!(await accountIsGroupAdmin(client,peer,account))){
+      await sendText(client,peer,'La commande .'+displayName+' nécessite les droits administrateur du compte connecté.');
+      return false;
+    }
+  }
+  return true;
+}
+
 async function handleCommand(runtime,event,parsed){
   const {client,account}=runtime;
   const peer=event.message.peerId;
@@ -456,10 +511,14 @@ async function handleCommand(runtime,event,parsed){
     if(custom){await sendText(client,peer,String(custom));return true}
     return false;
   }
-  if(cmd.ownerOnly&&!isOwnerId(account.telegramUserId))return true;
+  if(cmd.ownerOnly&&!isOwnerId(account.telegramUserId)){
+    await sendText(client,peer,'Commande réservée au propriétaire de NexAi.');
+    return true;
+  }
+  if(!(await enforceCommandContext(runtime,event,cmd,parsed.name)))return true;
 
-  const name=cmd.aliasFor||cmd.name;
-  await recordEvent(account,'command',{source:'nexaccount',command:name,chatType:'account'}).catch(()=>{});
+  const name=cmd.handler||cmd.aliasFor||cmd.name;
+  await recordEvent(account,'command',{source:'nexaccount',command:cmd.name,chatType:eventIsGroup(event)?'group':'private'}).catch(()=>{});
 
   if(name==='creator')return sendCreator(runtime,peer);
   if(cmd.ownerOnly)return handleOwner(runtime,peer,name,parsed.args);
@@ -480,6 +539,11 @@ async function handleCommand(runtime,event,parsed){
   });
   if(compatHandled)return true;
 
+  if(cmd.localOnly){
+    await sendText(client,peer,'Erreur interne : la route locale de .'+cmd.name+' est indisponible.');
+    return true;
+  }
+
   if(cmd.sourceBot){
     const proxyName=cmd.sourceCommand||name;
     const mode=cmd.sourceBot==='nexgroup'?'contextual':cmd.proxyMode;
@@ -498,7 +562,7 @@ async function handleCommand(runtime,event,parsed){
       return true;
     }
     case 'alive':
-      await sendText(client,peer,'NexAccount est actif sur ce compte.');
+      await sendText(client,peer,'NexAi · Dipper est actif sur ce compte.');
       return true;
     case 'account':
       await sendText(client,peer,'Compte : '+(account.username?'@'+account.username:account.firstName)+'\nPremium : '+(account.premium?'Oui':'Non')+'\nNexAccount : connecté');
@@ -855,7 +919,7 @@ export async function attachConnectedClient(client,account){
       if(!(await handleProxyFlowInput(runtime,event)))await maybeNlpMode(runtime,event);
     }catch(e){
       console.error('[NexAccount outgoing]',id,String(e?.errorMessage||e?.message||e));
-      try{await sendText(client,event.message?.peerId,'NexAccount error: '+String(e?.errorMessage||e?.message||e).slice(0,300))}catch{}
+      try{await sendText(client,event.message?.peerId,'NexAi error: '+String(e?.errorMessage||e?.message||e).slice(0,300))}catch{}
     }
   },new NewMessage({outgoing:true}));
 
