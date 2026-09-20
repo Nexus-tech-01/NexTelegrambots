@@ -7,6 +7,7 @@ import { Api } from 'teleproto';
 import { cfg } from './config.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { patchSettings, settingsFor } from './store.mjs';
+import { sendTelegramMedia } from './media-send.mjs';
 
 const FFMPEG=String(process.env.FFMPEG_PATH||'ffmpeg');
 const MAX_SOURCE_BYTES=Math.max(1024*1024,Number(process.env.NEXAI_STICKER_MAX_SOURCE_BYTES||25*1024*1024));
@@ -312,7 +313,7 @@ export async function handleStickerCommand({runtime,event,name,args=[]}){
       files.push({name:'sticker-'+String(i+1).padStart(3,'0')+'.'+(prepared.format==='video'?'webm':prepared.format==='animated'?'tgs':'webp'),data:prepared.buffer});
     }
     const zip=makeZip(files);
-    await client.sendFile(peer,{file:zip,fileName:'nexai-whatsapp-stickers.zip',caption:'NexAi · export stickers · '+files.length+' fichier(s)'});
+    await sendTelegramMedia(client,peer,zip,{fileName:'nexai-whatsapp-stickers.zip',mimeType:'application/zip',kind:'document',caption:'NexAi · export stickers · '+files.length+' fichier(s)'});
     return true;
   }
 
