@@ -57,6 +57,7 @@ import {
 } from './meta-webhooks.mjs';
 import {
   listConnectedPages,
+  getConnectedAccount,
   activateConnectedPage,
   removeConnectedPage,
   getActivePageCredential
@@ -65,6 +66,7 @@ import {
 export const CONTROL_CAPABILITIES = Object.freeze([
   'status',
   'oauth_start',
+  'get_connected_account',
   'list_connected_pages',
   'activate_connected_page',
   'remove_connected_page',
@@ -206,6 +208,9 @@ export async function executeControlAction(body) {
         actor: 'nexcontrol',
         ttlSeconds: body.ttlSeconds
       });
+
+    case 'get_connected_account':
+      return getConnectedAccount();
 
     case 'list_connected_pages':
       return listConnectedPages();
