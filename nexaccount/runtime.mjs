@@ -424,6 +424,10 @@ async function handleStyle(runtime,peer,args,inlineName=''){
   await sendText(client,peer,'Style changé : '+s.name+' ('+n+').');
 }
 
+const LOCAL_OWNER_COMMANDS=new Set([
+  'owner','users','botstats','activity','growth','commandstats','countries','languages','user'
+]);
+
 async function handleOwner(runtime,peer,name,args){
   const {client,account}=runtime;
   const settings=await settingsFor(account.telegramUserId);
@@ -462,7 +466,11 @@ async function handleCommand(runtime,event,parsed){
   await recordEvent(account,'command',{source:'nexaccount',command:name,chatType:'account'}).catch(()=>{});
 
   if(name==='creator')return sendCreator(runtime,peer);
-  if(cmd.ownerOnly)return handleOwner(runtime,peer,name,parsed.args);
+  // ownerOnly is an access-control flag, not an execution engine.
+  // Only the native NexAI owner dashboard commands belong to handleOwner().
+  // Other owner-only commands (mostly THE BIG DIPPER commands) must continue
+  // through compat/proxy routing after the owner identity check above.
+  if(cmd.ownerOnly&&LOCAL_OWNER_COMMANDS.has(name))return handleOwner(runtime,peer,name,parsed.args);
 
   if(cmd.premium&&!account.premium){
     await premiumDenied(client,peer,name);
