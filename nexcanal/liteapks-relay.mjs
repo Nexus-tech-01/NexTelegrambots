@@ -497,7 +497,13 @@ async function run(session){
     }
   }catch{}
 
-  await discover(c,st,sources);
+  kickWorkers(c,destination,st,sources);
+  try{
+    await withTimeout(discover(c,st,sources),opTimeoutMs,'initial source discovery');
+  }catch(e){
+    await c.disconnect().catch(()=>{});
+    throw e;
+  }
   log('watching', [...sources.keys()].join(', '),'-> @'+dst,'poll',poll+'ms');
 
   while(true){
