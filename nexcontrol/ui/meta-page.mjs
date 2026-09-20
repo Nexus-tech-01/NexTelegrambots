@@ -64,6 +64,7 @@ export function renderMetaPage({
   pages = [],
   readiness = {},
   connection = {},
+  account = null,
   loadErrors = []
 } = {}) {
   const runtime = status.runtime || {};
@@ -75,6 +76,17 @@ export function renderMetaPage({
   const connectionChecks = Array.isArray(connection.checks)
     ? connection.checks
     : [];
+  const accountPermissions = Array.isArray(account?.permissions)
+    ? account.permissions
+    : [];
+  const grantedPermissions = accountPermissions
+    .filter(item => item?.status === 'granted')
+    .map(item => String(item.permission || ''))
+    .filter(Boolean);
+  const declinedPermissions = accountPermissions
+    .filter(item => item?.status && item.status !== 'granted')
+    .map(item => String(item.permission || ''))
+    .filter(Boolean);
 
   const errors = Array.isArray(loadErrors)
     ? loadErrors.filter(
@@ -110,7 +122,7 @@ ${css}
       <div class="eyebrow">Facebook / Messenger adapter</div>
       <h1 class="page-title">Meta</h1>
     </div>
-    <p class="page-sub">OAuth, Pages, webhooks, Messenger, permissions, reprise d’événements et coupe-circuit — sans exposer les tokens Meta au navigateur.</p>
+    <p class="page-sub">OAuth du compte propriétaire, Pages, webhooks, Messenger, permissions, reprise d’événements et coupe-circuit — sans exposer les tokens Meta au navigateur.</p>
   </div>
 
   ${errors.length ? `
@@ -132,8 +144,8 @@ ${css}
 
   <section class="stats">
     <div class="stat">
-      <span class="stat-label">Meta configured</span>
-      <strong class="stat-num" style="font-size:42px">${status.metaConfigured ? 'YES' : 'NO'}</strong>
+      <span class="stat-label">Facebook account</span>
+      <strong class="stat-num" style="font-size:42px">${account ? 'CONNECTED' : 'NONE'}</strong>
     </div>
     <div class="stat">
       <span class="stat-label">Pages</span>
@@ -153,7 +165,8 @@ ${css}
     <div class="meta-grid">
       <article class="panel meta-span-8">
         <div class="eyebrow">Connection</div>
-        <h2 style="font-size:44px;letter-spacing:-.06em;margin:10px 0 12px">Facebook Pages</h2>
+        <h2 style="font-size:44px;letter-spacing:-.06em;margin:10px 0 12px">Compte Facebook</h2>
+        <p class="muted">Compte : <strong>${account ? X(account.name || account.userId) : 'Non connecté'}</strong></p>
         <p class="muted">Page active : <strong>${active ? X(active.name || active.pageId) : 'Aucune'}</strong></p>
         <div class="meta-actions">
           <button class="action ${connection.ready ? 'primary' : ''}" id="connectFacebook" ${connection.ready ? '' : 'disabled'}>Connecter Facebook</button>
@@ -189,6 +202,28 @@ ${css}
             </div>
           `).join('')}
         </div>
+      </article>
+
+      <article class="panel meta-span-12">
+        <div class="eyebrow">Connected owner account</div>
+        ${account ? `
+          <div style="display:flex;justify-content:space-between;gap:18px;align-items:flex-start;flex-wrap:wrap;margin-top:14px">
+            <div>
+              <h2 style="font-size:36px;letter-spacing:-.05em;margin:0 0 8px">${X(account.name || 'Facebook user')}</h2>
+              <div class="muted">User ID: ${X(account.userId || '—')}</div>
+              ${account.email ? `<div class="muted" style="margin-top:4px">${X(account.email)}</div>` : ''}
+              <div class="muted" style="margin-top:4px">Token expiry: ${X(account.tokenExpiresAt || 'Non communiqué par Meta')}</div>
+            </div>
+            <span class="pill ok">ACCOUNT CONNECTED</span>
+          </div>
+          <div style="margin-top:20px">
+            <div class="eyebrow">Granted permissions</div>
+            <p class="muted" style="line-height:1.6">${grantedPermissions.length ? X(grantedPermissions.join(' · ')) : 'Aucune permission remontée.'}</p>
+            ${declinedPermissions.length ? `<p style="color:var(--red);font-size:12px">Refusées / non accordées : ${X(declinedPermissions.join(' · '))}</p>` : ''}
+          </div>
+        ` : `
+          <div class="empty" style="margin-top:18px">Aucun compte Facebook propriétaire n’est encore connecté.</div>
+        `}
       </article>
 
       <article class="panel meta-span-12">
