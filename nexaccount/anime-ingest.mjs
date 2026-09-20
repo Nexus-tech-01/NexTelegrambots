@@ -69,7 +69,7 @@ function looksPromotional(text=''){return PROMO_RE.some(re=>re.test(String(text)
 function signalText(message){return [String(message?.message||''),filename(message)].filter(Boolean).join('\n')}
 
 function parseEpisode(raw=''){
-  const text=String(raw);
+  const text=String(raw).replace(/_/g,' ');
   let m=text.match(/\bS(?:eason|aison)?\s*0*(\d{1,2})\s*[-_. ]*E(?:P(?:ISODE)?)?\s*0*(\d{1,4})(?:\.(\d))?\b/i);
   if(m)return {season:Number(m[1]),episode:Number(m[2])+(m[3]?Number('0.'+m[3]):0),token:m[0]};
   m=text.match(/\b(?:Season|Saison)\s*0*(\d{1,2})\s*(?:Episode|Épisode|Ep)\s*0*(\d{1,4})(?:\.(\d))?\b/i);
@@ -81,7 +81,7 @@ function parseEpisode(raw=''){
   return null;
 }
 function detectLanguage(raw=''){
-  const t=String(raw).toUpperCase();
+  const t=String(raw).replace(/[_-]+/g,' ').toUpperCase();
   if(/\bMULTI(?:[- ]?AUDIO)?\b/.test(t))return 'MULTI';
   if(/\bVOSTFR\b|\bSUB(?:BED)?\s*FR\b/.test(t))return 'VOSTFR';
   if(/\bVF\b|\bFRENCH(?:\s*DUB)?\b|\bDUB\s*FR\b/.test(t))return 'VF';
@@ -91,11 +91,12 @@ function detectLanguage(raw=''){
   return '';
 }
 function detectQuality(raw=''){
-  return String(raw).match(/\b(2160p|1440p|1080p|720p|576p|540p|480p|360p)\b/i)?.[1]?.toLowerCase()||'';
+  return String(raw).replace(/[_-]+/g,' ').match(/\b(2160p|1440p|1080p|720p|576p|540p|480p|360p)\b/i)?.[1]?.toLowerCase()||'';
 }
 function stripNoiseTitle(raw='',episodeToken=''){
   let s=String(raw||'').split(/\r?\n/).find(x=>x.trim())||String(raw||'');
   s=s.replace(/\.(?:mp4|mkv|avi|mov|webm|m4v|ts)$/i,'');
+  s=s.replace(/_/g,' ');
   s=s.replace(/https?:\/\/\S+/gi,' ');
   s=s.replace(/(?:https?:\/\/)?t\.me\/\S+/gi,' ');
   s=s.replace(/@[A-Za-z0-9_]+/g,' ');
