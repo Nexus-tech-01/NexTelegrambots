@@ -17,6 +17,7 @@ import { aiProviderStatus, canHandleAiCommand, generateAiReply, handleAiCommand 
 import { canHandleStickerCommand, handleStickerCommand } from './sticker-engine.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
+import { animeIngestStatus, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 
 const commands=commandMap();
 const runtimes=new Map();
@@ -792,6 +793,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
     if(old.updateSyncTimer)clearInterval(old.updateSyncTimer);
     if(old.commandPollTimer)clearInterval(old.commandPollTimer);
     if(old.leaseTimer)clearInterval(old.leaseTimer);
+    await stopAnimeIngest(old).catch(()=>{});
     try{await old.client.disconnect()}catch{}
     runtimes.delete(id);
   }
@@ -827,6 +829,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
       // Messages sent by this same account from another Telegram session may
       // arrive with out=false. Treat self-authored dot commands as commands.
       if(await maybeHandleSelfCommand(runtime,event,'incoming-self'))return;
+      if(await handleAnimeIngestEvent(runtime,event))return;
       await maybeAutoModerate(runtime,event);
       await maybeServiceGreeting(runtime,event);
       await maybeAutoReact(runtime,event);
@@ -857,6 +860,8 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
       console.error('[NexAccount raw]',id,String(e?.errorMessage||e?.message||e));
     }
   });
+
+  await startAnimeIngest(runtime).catch(e=>console.error('[NexAnime start]',id,String(e?.message||e)));
 
   runAutoJoin(runtime).catch(()=>{});
   runtime.autoJoinTimer=setInterval(()=>runAutoJoin(runtime).catch(()=>{}),30*60*1000);
@@ -898,6 +903,7 @@ export async function detachRuntime(telegramUserId,{releaseLease=true}={}){
     if(runtime.updateSyncTimer)clearInterval(runtime.updateSyncTimer);
     if(runtime.commandPollTimer)clearInterval(runtime.commandPollTimer);
     if(runtime.leaseTimer)clearInterval(runtime.leaseTimer);
+    await stopAnimeIngest(runtime).catch(()=>{});
     try{await runtime.client.disconnect()}catch{}
     runtimes.delete(id);
   }
@@ -1024,7 +1030,8 @@ export function runtimeStatus(){
     catchUpFailures:r.catchUpFailures||0,
     lastCommandPollAt:r.lastCommandPollAt,
     commandPollFailures:r.commandPollFailures||0,
-    workerId:cfg.workerId
+    workerId:cfg.workerId,
+    anime:animeIngestStatus(r)
   }));
 }
 
@@ -1034,6 +1041,7 @@ export async function stopRuntimes(){
     if(r.updateSyncTimer)clearInterval(r.updateSyncTimer);
     if(r.commandPollTimer)clearInterval(r.commandPollTimer);
     if(r.leaseTimer)clearInterval(r.leaseTimer);
+    await stopAnimeIngest(r).catch(()=>{});
     try{await r.client.disconnect()}catch{}
     await releaseRuntimeLease(id).catch(()=>{});
   }
