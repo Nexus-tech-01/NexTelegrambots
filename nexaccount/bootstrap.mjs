@@ -6,9 +6,11 @@ import { fileURLToPath } from 'node:url';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const stateDir=path.resolve(here,'.runtime');
-const pidFile=path.join(stateDir,'nexaccount.pid');
-const logFile=path.join(stateDir,'nexaccount.log');
-const port=Number(process.env.NEXACCOUNT_PORT||3491);
+const workerIndex=Math.max(0,Number(process.env.NEXACCOUNT_WORKER_INDEX||0));
+const workerSuffix=workerIndex===0?'':'-worker-'+workerIndex;
+const pidFile=path.join(stateDir,'nexaccount'+workerSuffix+'.pid');
+const logFile=path.join(stateDir,'nexaccount'+workerSuffix+'.log');
+const port=Number(process.env.NEXACCOUNT_PORT||(3491+workerIndex));
 const restart=process.argv.includes('--restart');
 
 async function healthy(){
