@@ -6,7 +6,10 @@ import {
   publicHttpsConfigured,
   graphVersionValid
 } from './config.mjs';
-import { connectedPageState } from './token-vault.mjs';
+import {
+  connectedPageState,
+  connectedAccountState
+} from './token-vault.mjs';
 import { probeNexusGateway } from './router.mjs';
 
 function check(name, ok, detail) {
@@ -111,11 +114,25 @@ export async function deploymentReadiness() {
     )
   };
   let pageStateError = null;
+  let account = {
+    connected: false,
+    account: null,
+    tokenExpired: false
+  };
+  let accountStateError = null;
 
   try {
     pages = await connectedPageState();
   } catch (error) {
     pageStateError = String(
+      error?.message || error
+    ).slice(0, 300);
+  }
+
+  try {
+    account = await connectedAccountState();
+  } catch (error) {
+    accountStateError = String(
       error?.message || error
     ).slice(0, 300);
   }
@@ -198,6 +215,17 @@ export async function deploymentReadiness() {
         : 'NEXMETA_CONTROL_KEY missing'
     ),
     check(
+      'account_connected',
+      account.connected === true && account.tokenExpired !== true,
+      account.connected
+        ? account.tokenExpired
+          ? 'Facebook owner account token is expired'
+          : `Connected account: ${account.account?.name || account.account?.userId || 'Facebook user'}`
+        : accountStateError
+          ? `Account state unavailable: ${accountStateError}`
+          : 'No Facebook owner account connected'
+    ),
+    check(
       'active_page',
       Boolean(pages.activePage || pages.staticFallbackConfigured),
       pages.activePage
@@ -264,6 +292,7 @@ export async function deploymentReadiness() {
     'oauth_redirect',
     'token_encryption',
     'nexcontrol_machine_key',
+    'account_connected',
     'active_page',
     'page_webhook_subscription'
   ]);
@@ -291,7 +320,9 @@ export async function deploymentReadiness() {
     adapterReady,
     bridgeReady,
     pages,
+    account,
     pageStateError,
+    accountStateError,
     gatewayProbe: {
       ok: gatewayProbe.ok === true,
       latencyMs: gatewayProbe.latencyMs ?? null,
