@@ -1,7 +1,10 @@
 import crypto from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { config, assertOAuthConfig } from './config.mjs';
-import { storeConnectedPages } from './token-vault.mjs';
+import {
+  storeConnectedPages,
+  storeConnectedAccount
+} from './token-vault.mjs';
 import {
   configureAppWebhook,
   subscribePageToApp
@@ -14,6 +17,8 @@ let clientPromise;
 let indexesPromise;
 
 export const META_OAUTH_SCOPES = Object.freeze([
+  'public_profile',
+  'email',
   'pages_show_list',
   'pages_read_engagement',
   'pages_manage_metadata',
@@ -172,6 +177,37 @@ async function exchangeLongLivedUserToken(shortLivedToken) {
   );
 }
 
+async function getConnectedUserProfile(userAccessToken) {
+  const url = new URL(graphUrl('me'));
+  url.searchParams.set('fields', 'id,name,email,picture');
+  url.searchParams.set('access_token', userAccessToken);
+  url.searchParams.set('appsecret_proof', appSecretProof(userAccessToken));
+
+  return readJson(
+    await fetch(url, {
+      method: 'GET',
+      signal: AbortSignal.timeout(15000)
+    }),
+    'Meta connected-user profile request'
+  );
+}
+
+async function getConnectedUserPermissions(userAccessToken) {
+  const url = new URL(graphUrl('me/permissions'));
+  url.searchParams.set('access_token', userAccessToken);
+  url.searchParams.set('appsecret_proof', appSecretProof(userAccessToken));
+
+  const data = await readJson(
+    await fetch(url, {
+      method: 'GET',
+      signal: AbortSignal.timeout(15000)
+    }),
+    'Meta connected-user permissions request'
+  );
+
+  return Array.isArray(data?.data) ? data.data : [];
+}
+
 async function getManagedPages(userAccessToken) {
   const pages = [];
   const seenIds = new Set();
@@ -299,12 +335,41 @@ export async function completeMetaOAuth({
     throw new Error('Meta did not return a long-lived user token');
   }
 
-  const pages = await getManagedPages(longLived.access_token);
+  const profile = await getConnectedUserProfile(
+    longLived.access_token
+  );
 
-  if (!pages.length) {
-    const error = new Error('no_managed_facebook_pages');
-    error.status = 422;
-    throw error;
+  let permissions = [];
+  let permissionDiscoveryError = null;
+
+  try {
+    permissions = await getConnectedUserPermissions(
+      longLived.access_token
+    );
+  } catch (error) {
+    permissionDiscoveryError = {
+      message: String(error?.message || error).slice(0, 500),
+      metaCode: error?.metaCode ?? null
+    };
+  }
+
+  const account = await storeConnectedAccount({
+    profile,
+    permissions,
+    accessToken: longLived.access_token,
+    expiresIn: longLived.expires_in
+  });
+
+  let pages = [];
+  let pageDiscoveryError = null;
+
+  try {
+    pages = await getManagedPages(longLived.access_token);
+  } catch (error) {
+    pageDiscoveryError = {
+      message: String(error?.message || error).slice(0, 500),
+      metaCode: error?.metaCode ?? null
+    };
   }
 
   const stored = await storeConnectedPages(pages);
@@ -332,6 +397,10 @@ export async function completeMetaOAuth({
 
   return {
     actor: claimedState.actor,
+    accountConnected: true,
+    account,
+    permissionDiscoveryError,
+    pageDiscoveryError,
     pagesDiscovered: pages.length,
     pagesStored: stored.length,
     messengerCapablePages: stored.filter(
