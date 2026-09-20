@@ -33,6 +33,13 @@ import {
   controlAuditMetadata,
   executeControlAction
 } from './control-actions.mjs';
+import {
+  pairCompanion,
+  pollCompanionCommands,
+  acknowledgeCompanionCommand,
+  ingestCompanionEvents,
+  companionDeviceStatus
+} from './companion.mjs';
 
 function writeJson(res, status, value) {
   res.statusCode = status;
@@ -660,6 +667,137 @@ async function ownerConnect(req, res) {
   return res.end();
 }
 
+function companionHeaders(res) {
+  res.setHeader('cache-control', 'no-store');
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('access-control-allow-origin', '*');
+  res.setHeader(
+    'access-control-allow-headers',
+    'authorization, content-type'
+  );
+  res.setHeader(
+    'access-control-allow-methods',
+    'GET, POST, OPTIONS'
+  );
+}
+
+async function companionApi(req, res, path) {
+  companionHeaders(res);
+
+  if (req.method === 'OPTIONS') {
+    res.statusCode = 204;
+    return res.end();
+  }
+
+  async function jsonBody(maxBytes = 256 * 1024) {
+    const raw = await readRaw(req, maxBytes);
+    if (!raw.length) return {};
+    try {
+      return JSON.parse(raw.toString('utf8'));
+    } catch {
+      const error = new Error('invalid_json');
+      error.status = 400;
+      throw error;
+    }
+  }
+
+  try {
+    if (req.method === 'POST' && path === '/companion/v1/pair') {
+      const body = await jsonBody(32 * 1024);
+      const result = await pairCompanion({
+        pairCode: body?.pairCode,
+        deviceName: body?.deviceName,
+        platform: body?.platform,
+        clientVersion: body?.clientVersion,
+        capabilities: body?.capabilities
+      });
+
+      await audit('nexmeta.companion.paired', 'companion', {
+        deviceId: result.deviceId,
+        platform: String(body?.platform || '').slice(0, 80)
+      }).catch(() => {});
+
+      return writeJson(res, 200, {
+        ok: true,
+        result
+      });
+    }
+
+    if (
+      (req.method === 'GET' || req.method === 'POST') &&
+      path === '/companion/v1/poll'
+    ) {
+      const body = req.method === 'POST'
+        ? await jsonBody(64 * 1024)
+        : {};
+
+      const result = await pollCompanionCommands(
+        req.headers.authorization,
+        {
+          limit: body?.limit,
+          context: body?.context
+        }
+      );
+
+      return writeJson(res, 200, {
+        ok: true,
+        result
+      });
+    }
+
+    if (req.method === 'POST' && path === '/companion/v1/ack') {
+      const body = await jsonBody(256 * 1024);
+      const result = await acknowledgeCompanionCommand(
+        req.headers.authorization,
+        body
+      );
+
+      return writeJson(res, 200, {
+        ok: true,
+        result
+      });
+    }
+
+    if (req.method === 'POST' && path === '/companion/v1/events') {
+      const body = await jsonBody(512 * 1024);
+      const result = await ingestCompanionEvents(
+        req.headers.authorization,
+        body
+      );
+
+      return writeJson(res, 200, {
+        ok: true,
+        result
+      });
+    }
+
+    if (req.method === 'GET' && path === '/companion/v1/status') {
+      const result = await companionDeviceStatus(
+        req.headers.authorization
+      );
+
+      return writeJson(res, 200, {
+        ok: true,
+        result
+      });
+    }
+
+    return writeJson(res, 404, {
+      error: 'not_found'
+    });
+  } catch (error) {
+    const status = Number(error?.status);
+    return writeJson(
+      res,
+      status >= 400 && status <= 599 ? status : 500,
+      {
+        ok: false,
+        error: String(error?.message || 'companion_error').slice(0, 300)
+      }
+    );
+  }
+}
+
 function publicActionError(error) {
   return {
     error: error?.message === 'unsupported_action'
@@ -751,6 +889,10 @@ export async function handleRequest(req, res) {
   try {
     const url = new URL(req.url || '/', 'http://nexmeta.local');
     const path = routePath(url);
+
+    if (path.startsWith('/companion/v1/')) {
+      return companionApi(req, res, path);
+    }
 
     if (req.method === 'GET' && path === '/health') {
       await healthStore();
