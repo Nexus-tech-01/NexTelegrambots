@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { Api } from 'teleproto';
 import { commandMap, commandsByCategory } from '../commands.mjs';
 import { handleCompatCommand } from '../compat.mjs';
 
@@ -26,6 +27,7 @@ for(const name of ['block','unblock','vv','sticker','clonepack','createpack','cu
 const people=Array.from({length:130},(_,i)=>({
   id:BigInt(i+1),
   firstName:'User'+(i+1),
+  accessHash:BigInt(100000+i),
   participant:i<3?{className:'ChannelParticipantAdmin',adminRights:{}}:{className:'ChannelParticipant'}
 }));
 
@@ -34,6 +36,10 @@ async function run(name,args=[]){
   const client={
     getParticipants:async()=>people,
     getEntity:async()=>people[0],
+    getInputEntity:async user=>{
+      const u=typeof user==='object'&&user?.id?user:people.find(p=>String(p.id)===String(user))||people[0];
+      return new Api.InputPeerUser({userId:u.id,accessHash:u.accessHash});
+    },
     sendMessage:async(_peer,payload)=>{
       sent.push({text:String(payload.message||''),entities:payload.formattingEntities||[]});
       return payload;
@@ -51,11 +57,14 @@ async function run(name,args=[]){
 
 const tagall=await run('tagall',['Hello']);
 assert.equal(tagall.length,3,'tagall must chunk 130 members into three messages');
+assert.ok(tagall[0].text.startsWith('Hello'),'tagall must start with the requested introduction');
+assert.ok(tagall.flatMap(x=>x.entities).every(e=>e instanceof Api.InputMessageEntityMentionName),'tagall must use outgoing InputMessageEntityMentionName entities');
 assert.equal(tagall.reduce((n,x)=>n+x.entities.length,0),130,'tagall must mention every member');
 assert.ok(tagall.every(x=>x.text.length<4096),'tagall chunk exceeds Telegram text limit');
 
 const hidden=await run('hidetag',['Secret']);
-assert.equal(hidden.length,2,'hidetag must chunk 130 members into two messages');
+assert.equal(hidden.length,3,'hidetag must chunk 130 members into three messages');
+assert.ok(hidden.flatMap(x=>x.entities).every(e=>e instanceof Api.InputMessageEntityMentionName),'hidetag must use outgoing InputMessageEntityMentionName entities');
 assert.equal(hidden.reduce((n,x)=>n+x.entities.length,0),130,'hidetag must mention every member');
 assert.ok(hidden.every(x=>!x.text.includes('User')),'hidetag must not expose member names');
 
@@ -71,6 +80,7 @@ console.log(JSON.stringify({
   groupCommands:(grouped.GROUP||[]).length,
   tagallMessages:tagall.length,
   hidetagMessages:hidden.length,
+  outgoingEntity:'InputMessageEntityMentionName',
   tagallMentions:130,
   hidetagMentions:130,
   adminMentions:3
