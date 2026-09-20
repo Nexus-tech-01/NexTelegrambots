@@ -5,6 +5,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { Api } from 'teleproto';
 import { cfg } from './config.mjs';
+import { loadBotToken } from './secrets.mjs';
 import { patchSettings, settingsFor } from './store.mjs';
 
 const FFMPEG=String(process.env.FFMPEG_PATH||'ffmpeg');
@@ -115,8 +116,9 @@ async function prepareSticker(source){
 }
 
 async function botApi(method,fields={},file=null){
-  if(!cfg.botToken)throw new Error('NEXAI_BOT_TOKEN est requis pour gérer les packs NexAi.');
-  const url='https://api.telegram.org/bot'+cfg.botToken+'/'+method;
+  const token=await loadBotToken();
+  if(!token)throw new Error('Le token NexAi est indisponible dans le coffre local.');
+  const url='https://api.telegram.org/bot'+token+'/'+method;
   let body,headers={};
   if(file){
     const form=new FormData();
