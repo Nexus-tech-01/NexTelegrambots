@@ -678,6 +678,17 @@ export async function loadSavedRuntimes(){
   return loaded;
 }
 
+export async function runtimeCommandTest(telegramUserId,text='.menu',peer='me'){
+  const id=String(telegramUserId||'');
+  const runtime=runtimes.get(id);
+  if(!runtime)throw new Error('runtime_not_active');
+  const settings=await settingsFor(id);
+  const parsed=parseCommand(String(text||''),settings.prefix||'.');
+  if(!parsed)throw new Error('command_not_parsed');
+  await handleCommand(runtime,{message:{peerId:peer||'me',id:0},isGroup:false},parsed);
+  return {ok:true,telegramUserId:id,peer:String(peer||'me'),command:parsed.name};
+}
+
 export function runtimeStatus(){
   return [...runtimes.values()].map(r=>({
     telegramUserId:r.account.telegramUserId,
