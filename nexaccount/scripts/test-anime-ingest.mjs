@@ -75,3 +75,20 @@ console.log('NexAnime ingest regression tests: OK');
   ],{title:'HENTAIL HUB',username:'adult_hentai_zone'});
   assert.equal(stats.classification,'blocked');
 }
+
+
+// episode subtitles/hashes must collapse to one common series prefix
+{
+  const source={username:'generic_anime',title:'Anime Hebdo VF'};
+  const messages=[
+    fileMessage('That_Time_I_Got_Reincarnated_as_a_Slime_S04E13_New_Companions_VF.mkv'),
+    fileMessage('That_Time_I_Got_Reincarnated_as_a_Slime_S04E14_The_Black_Numbers_VF.mkv'),
+    fileMessage('That_Time_I_Got_Reincarnated_as_a_Slime_S04E15_An_Unsettling_Feeling_VF.mkv')
+  ];
+  const anchors=__test.deriveRawAnchors(messages,source);
+  assert.ok(anchors.some(x=>/That Time I Got Reincarnated as a Slime/i.test(x)),JSON.stringify(anchors));
+}
+
+{
+  assert.equal(__test.cleanSeriesTitle('%5BErai-raws%5D%20Blue%20Lock%20S01E12%20%5B1080p%5D.mkv'),'Blue Lock');
+}
