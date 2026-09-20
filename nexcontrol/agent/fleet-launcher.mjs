@@ -72,6 +72,47 @@ function pipe(child,slug,stream,label){
   });
 }
 
+async function findExistingWorker(slug){
+  if(process.platform!=='linux')return null;
+  let entries=[];
+  try{entries=await fs.readdir('/proc')}catch{return null}
+  for(const name of entries){
+    if(!/^\d+$/.test(name))continue;
+    const pid=Number(name);
+    if(pid===process.pid)continue;
+    try{
+      const [cmdBuf,envBuf]=await Promise.all([
+        fs.readFile('/proc/'+pid+'/cmdline'),
+        fs.readFile('/proc/'+pid+'/environ')
+      ]);
+      const cmd=cmdBuf.toString('utf8').replace(/\0/g,' ');
+      const env='\0'+envBuf.toString('utf8')+'\0';
+      if(cmd.includes(ENTRY)&&env.includes('\0NEXCONTROL_AGENT_SLUG='+slug+'\0'))return pid;
+    }catch{}
+  }
+  return null;
+}
+
+function monitorExisting(def,pid){
+  const row=state.get(def.slug);
+  row.pid=pid;
+  row.status='running-existing';
+  row.lastStartAt=row.lastStartAt||new Date().toISOString();
+  persist().catch(()=>{});
+  console.log('[NexControlFleet] '+def.slug+' already running pid='+pid);
+  const timer=setInterval(async()=>{
+    if(stopping){clearInterval(timer);return}
+    if(await pidAlive(pid))return;
+    clearInterval(timer);
+    row.pid=null;
+    row.status='restarting';
+    row.lastExitAt=new Date().toISOString();
+    persist().catch(()=>{});
+    startWorker(def,RESTART_MIN_MS);
+  },10000);
+  timer.unref();
+}
+
 function startWorker(def,delayMs=0){
   setTimeout(()=>{
     if(stopping)return;
@@ -120,7 +161,12 @@ function startWorker(def,delayMs=0){
   },delayMs);
 }
 
-for(let i=0;i<workers.length;i++)startWorker(workers[i],i*1200);
+for(let i=0;i<workers.length;i++){
+  const def=workers[i];
+  const existingPid=await findExistingWorker(def.slug);
+  if(existingPid)monitorExisting(def,existingPid);
+  else startWorker(def,i*1200);
+}
 await persist();
 
 async function shutdown(signal){
