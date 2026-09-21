@@ -1,6 +1,6 @@
 {
   "name": "@nextech/nexmeta",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -9,9 +9,11 @@
   "scripts": {
     "start": "node src/server.mjs",
     "test": "node --test",
-    "start:pterodactyl": "node ../pterodactyl/start.mjs"
+    "start:pterodactyl": "node ../pterodactyl/start.mjs",
+    "session-agent": "node src/session-agent.mjs"
   },
   "dependencies": {
-    "mongodb": "^6.9.0"
+    "mongodb": "^6.9.0",
+    "puppeteer": "^24.16.0"
   }
 }
