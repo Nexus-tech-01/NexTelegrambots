@@ -108,8 +108,17 @@ jobs:
               time.sleep(12)
               try:
                   logs=job('logs.tail',{'log':'launcher','bytes':160000})
-                  print(logs.get('content','')[-12000:],flush=True)
-              except Exception as e: print('log tail warning',e,flush=True)
+                  log_text=logs.get('content','')
+                  print(log_text[-12000:],flush=True)
+                  required_runtime_signals=(
+                      'scanner connected as @tresor20009',
+                      'public publisher connected as @'
+                  )
+                  missing=[x for x in required_runtime_signals if x not in log_text]
+                  if missing:
+                      raise RuntimeError('NexCanal watcher runtime verification failed; missing: '+', '.join(missing))
+              except Exception as e:
+                  raise RuntimeError('post-restart NexCanal verification failed: '+str(e))
               print('DEPLOYMENT_OK parallel NexCanal routing + scanners',flush=True)
           except Exception:
               traceback.print_exc()
