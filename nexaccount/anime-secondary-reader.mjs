@@ -38,7 +38,9 @@ export async function startSecondaryAnimeReader(){
         premium:me.premium===true
       },
       startedAt:new Date(),
-      secondaryAnimeReader:true
+      secondaryAnimeReader:true,
+      animePublisher:true,
+      animeScanDisabled:true
     };
     const started=await startAnimeIngest(local);
     if(!started){
