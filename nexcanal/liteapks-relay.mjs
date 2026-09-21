@@ -6,6 +6,7 @@ import { CustomFile } from 'telegram/client/uploads.js';
 
 const dst=(process.env.NEXCANAL__WATCHER_DESTINATION||'thenexusorigin').replace(/^@/,'').trim();
 const token=(process.env.NEXCANAL__BOT_TOKEN||'').trim();
+const expectedScanner=String(process.env.NEXCANAL__WATCHER_EXPECTED_USERNAME||'tresor20009').trim().replace(/^@/,'').toLowerCase();
 const apiId=Number(process.env.NEXCANAL__WATCHER_API_ID||process.env.NEXGROUP__TELEGRAM_API_ID||0);
 const apiHash=(process.env.NEXCANAL__WATCHER_API_HASH||process.env.NEXGROUP__TELEGRAM_API_HASH||'').trim();
 const sessionFile=process.env.NEXCANAL__WATCHER_SESSION_FILE||'/home/container/.nexcontrol/nexcanal-reader-session.txt';
@@ -259,7 +260,7 @@ async function postDescriptor(c,m,sourceKind){
   }
   if(text||kb)return bot('sendMessage',{chat_id:`@${dst}`,text:text||'Download',reply_markup:kb,disable_web_page_preview:true});
 }
-async function postApk(c,dstEntity,m,sourceKind,linked){
+async function postApk(c,publisher,dstEntity,m,sourceKind,linked){
   const name=filename(m)||`package-${m.id}.apk`;
   const u=chooseUrl(m);
   const text=clean(m,sourceKind,u);
@@ -268,13 +269,13 @@ async function postApk(c,dstEntity,m,sourceKind,linked){
   if(doc?.id&&doc?.accessHash){
     try{
       const input=new Api.InputDocument({id:doc.id,accessHash:doc.accessHash,fileReference:doc.fileReference||Buffer.alloc(0)});
-      const peer=await c.getInputEntity(dstEntity);
+      const peer=await publisher.getInputEntity(dstEntity);
       const randomId=BigInt.asIntN(64,(BigInt(Date.now())<<16n)|BigInt(Math.floor(Math.random()*65536)));
       let replyMarkup;
       if(!linked&&u){
         replyMarkup=new Api.ReplyInlineMarkup({rows:[new Api.KeyboardButtonRow({buttons:[new Api.KeyboardButtonUrl({text:'Download Fast ⬇️',url:u})]})]});
       }
-      return await c.invoke(new Api.messages.SendMedia({
+      return await publisher.invoke(new Api.messages.SendMedia({
         peer,
         media:new Api.InputMediaDocument({id:input}),
         message:linked?'':text.slice(0,1024),
@@ -295,7 +296,7 @@ async function postApk(c,dstEntity,m,sourceKind,linked){
   if(!linked&&u&&(text||kb))await bot('sendMessage',{chat_id:`@${dst}`,text:text||name,reply_markup:kb,disable_web_page_preview:true});
   const tmp=await withTimeout(mediaToFile(c,m,name),180000,'large APK download');
   try{
-    return await withTimeout(c.sendFile(dstEntity,{file:new CustomFile(name,tmp.size,tmp.file),caption:linked||u?'':text.slice(0,1024),forceDocument:true,workers:1}),180000,'large APK upload');
+    return await withTimeout(publisher.sendFile(dstEntity,{file:new CustomFile(name,tmp.size,tmp.file),caption:linked||u?'':text.slice(0,1024),forceDocument:true,workers:1}),180000,'large APK upload');
   }finally{await tmp.cleanup();}
 }
 
@@ -439,7 +440,7 @@ function pruneDescriptors(ss){
   ss.descriptors=(ss.descriptors||[]).filter(d=>Number(d.at||0)>=cutoff).slice(-40);
 }
 
-async function processItem(c,destination,st,sources,item){
+async function processItem(c,publisher,destination,st,sources,item){
   const source=sources.get(item.source);
   if(!source)throw new Error('source unavailable: '+item.source);
   const ss=ensureSourceState(st,item.source);
@@ -449,7 +450,7 @@ async function processItem(c,destination,st,sources,item){
   if(m?.noforwards||source.entity?.noforwards)return {done:true,reason:'protected'};
   if(isApk(m)){
     const linked=bestDescriptor(ss,m);
-    await postApk(c,destination,m,source.kind,!!linked);
+    await postApk(c,publisher,destination,m,source.kind,!!linked);
     if(linked)linked.used=true;
     pruneDescriptors(ss);
     return {done:true,reason:linked?'apk-linked':'apk-standalone'};
@@ -474,9 +475,9 @@ const processing=new Set();
 const processingSources=new Set();
 const workerLimit=Math.max(1,Math.min(4,Number(process.env.NEXCANAL__WATCHER_WORKERS||3)));
 
-async function handleQueueItem(c,destination,st,sources,item){
+async function handleQueueItem(c,publisher,destination,st,sources,item){
   try{
-    const result=await processItem(c,destination,st,sources,item);
+    const result=await processItem(c,publisher,destination,st,sources,item);
     st.queue=st.queue.filter(x=>x.key!==item.key);
     await save(st);
     log('processed',item.key,result.reason,'queue',st.queue.length,'active',processing.size);
@@ -493,7 +494,7 @@ async function handleQueueItem(c,destination,st,sources,item){
   }
 }
 
-function kickWorkers(c,destination,st,sources){
+function kickWorkers(c,publisher,destination,st,sources){
   if(processing.size>=workerLimit)return;
   const ready=[...st.queue]
     .filter(item=>!processing.has(item.key)&&!processingSources.has(item.source)&&Number(item.nextRetryAt||0)<=Date.now())
@@ -503,7 +504,7 @@ function kickWorkers(c,destination,st,sources){
     if(processingSources.has(item.source))continue;
     processing.add(item.key);
     processingSources.add(item.source);
-    void handleQueueItem(c,destination,st,sources,item);
+    void handleQueueItem(c,publisher,destination,st,sources,item);
   }
 }
 
@@ -514,12 +515,26 @@ async function run(session){
   await c.connect();
   if(!(await c.isUserAuthorized()))throw new Error('watcher session is not authorized');
   const me=await c.getMe();
+  const scannerUsername=String(me?.username||'').replace(/^@/,'').toLowerCase();
+  if(expectedScanner&&scannerUsername!==expectedScanner){
+    await c.disconnect().catch(()=>{});
+    throw new Error('unexpected APK scanner account @'+(scannerUsername||'unknown')+'; expected @'+expectedScanner);
+  }
+  const publisher=new TelegramClient(new StringSession(''),apiId,apiHash,{connectionRetries:10,autoReconnect:true,floodSleepThreshold:60});
+  await publisher.start({botAuthToken:token});
+  const publisherMe=await publisher.getMe();
+  if(publisherMe?.bot!==true){
+    await publisher.disconnect().catch(()=>{});
+    await c.disconnect().catch(()=>{});
+    throw new Error('NexCanal publisher session is not a bot');
+  }
   await fs.mkdir(path.dirname(watcherIdentityFile),{recursive:true}).catch(()=>{});
   await fs.writeFile(watcherIdentityFile,String(me?.id||''),{mode:0o600}).catch(e=>warn('watcher identity file',e?.message||e));
-  log('connected as',me?.username?'@'+me.username:String(me?.id||'unknown'));
+  log('scanner connected as',me?.username?'@'+me.username:String(me?.id||'unknown'));
+  log('public publisher connected as',publisherMe?.username?'@'+publisherMe.username:String(publisherMe?.id||'NexCanal'));
   const sources=await resolveSources(c);
   for(const spec of sourceSpecs)if(!sources.has(spec.key))throw new Error('required source unavailable: '+spec.key);
-  const destination=await c.getEntity(dst);
+  const destination=await publisher.getEntity(dst);
   const st=await load();
   const es=engagementState(st);
   es.owner='nexcanal-watcher';
@@ -547,10 +562,11 @@ async function run(session){
     }
   }catch{}
 
-  kickWorkers(c,destination,st,sources);
+  kickWorkers(c,publisher,destination,st,sources);
   try{
     await withTimeout(discover(c,st,sources),opTimeoutMs,'initial source discovery');
   }catch(e){
+    await publisher.disconnect().catch(()=>{});
     await c.disconnect().catch(()=>{});
     throw e;
   }
@@ -561,7 +577,7 @@ async function run(session){
     if(!live)throw new Error('reader session disconnected');
     try{
       await withTimeout(discover(c,st,sources),opTimeoutMs,'source discovery');
-      kickWorkers(c,destination,st,sources);
+      kickWorkers(c,publisher,destination,st,sources);
       if(Date.now()>=nextEngagementAt){
         nextEngagementAt=Date.now()+engagementPollMs;
         void runEngagement(false);
