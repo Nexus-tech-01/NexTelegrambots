@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 
 const root = path.resolve(process.env.NEXUS_ROOT || process.cwd());
 const publicBaseUrl = String(
@@ -152,19 +153,21 @@ async function launchBrowser() {
   launchPromise = (async () => {
     await mkdir(profileDir, { recursive: true });
 
+    const executablePath = await chromium.executablePath();
+
     browser = await puppeteer.launch({
+      executablePath,
       headless: true,
       userDataDir: profileDir,
       args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
+        ...chromium.args,
         '--disable-dev-shm-usage',
         '--disable-background-timer-throttling',
         '--disable-renderer-backgrounding',
         '--disable-features=CalculateNativeWinOcclusion',
         '--window-size=1280,900'
       ],
-      defaultViewport: {
+      defaultViewport: chromium.defaultViewport || {
         width: 1280,
         height: 900,
         deviceScaleFactor: 1
