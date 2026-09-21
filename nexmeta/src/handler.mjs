@@ -40,6 +40,10 @@ import {
   ingestCompanionEvents,
   companionDeviceStatus
 } from './companion.mjs';
+import {
+  handlePersistentSessionRequest,
+  persistentSessionStatus
+} from './session-agent.mjs';
 
 function writeJson(res, status, value) {
   res.statusCode = status;
@@ -826,7 +830,7 @@ async function control(req, res, url, path) {
     return writeJson(res, 200, {
       ok: true,
       service: 'nexmeta',
-      version: '0.7.0',
+      version: '0.8.0',
       metaConfigured: metaConfigured(),
       oauthConfigured: oauthConfigured(),
       ownerConnectConfigured:
@@ -894,6 +898,10 @@ export async function handleRequest(req, res) {
       return companionApi(req, res, path);
     }
 
+    if (path.startsWith('/nexmeta/session/')) {
+      return handlePersistentSessionRequest(req, res, path);
+    }
+
     if (req.method === 'GET' && path === '/health') {
       await healthStore();
 
@@ -903,10 +911,16 @@ export async function handleRequest(req, res) {
         connectedAccountState()
       ]);
 
+      const persistentSession = await persistentSessionStatus().catch(error => ({
+        ok: false,
+        error: String(error?.message || error).slice(0, 200)
+      }));
+
       return writeJson(res, 200, {
         ok: true,
         service: 'nexmeta',
-        version: '0.7.0',
+        version: '0.8.0',
+        persistentSession,
         metaConfigured: metaConfigured(),
         oauthConfigured: oauthConfigured(),
         ownerConnectConfigured:
