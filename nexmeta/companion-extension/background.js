@@ -388,13 +388,13 @@ async function dispatchCommandToBrowser(command) {
         source: 'background_service_worker'
       });
 
-      if (response?.ok !== false) {
-        return {
-          delivered: true,
-          tabId: tab.id,
-          deferred: response?.deferred === true
-        };
-      }
+      return {
+        delivered: true,
+        tabId: tab.id,
+        commandOk: response?.ok !== false,
+        deferred: response?.deferred === true,
+        error: response?.error || null
+      };
     } catch {}
   }
 
