@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "mongodb": "^6.9.0",
-    "puppeteer": "^24.16.0"
+    "puppeteer-core": "^25.0.4",
+    "@sparticuz/chromium": "^153.0.0"
   }
 }
