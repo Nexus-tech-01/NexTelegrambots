@@ -6,6 +6,7 @@ import { cfg } from './config.mjs';
 import { animeIngestStatus, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 
 const SESSION_FILE=process.env.NEXANIME_SECONDARY_SESSION_FILE||'/home/container/.nexcontrol/nexcanal-reader-session.txt';
+const EXPECTED_USERNAME=String(process.env.NEXANIME_SECONDARY_EXPECTED_USERNAME||'tresor20009').trim().replace(/^@/,'').toLowerCase();
 let runtime=null;
 let starting=null;
 
@@ -29,6 +30,11 @@ export async function startSecondaryAnimeReader(){
       return {enabled:false,connected:false,reason:'session_unauthorized'};
     }
     const me=await client.getMe();
+    const actualUsername=String(me?.username||'').replace(/^@/,'').toLowerCase();
+    if(EXPECTED_USERNAME&&actualUsername!==EXPECTED_USERNAME){
+      await client.disconnect().catch(()=>{});
+      return {enabled:false,connected:false,username:actualUsername?('@'+actualUsername):'',reason:'unexpected_scanner_account',expected:'@'+EXPECTED_USERNAME};
+    }
     const local={
       client,
       account:{
@@ -39,8 +45,8 @@ export async function startSecondaryAnimeReader(){
       },
       startedAt:new Date(),
       secondaryAnimeReader:true,
-      animePublisher:true,
-      animeScanDisabled:true
+      nexCanalHandoffWorker:true,
+      animeScanDisabled:false
     };
     const started=await startAnimeIngest(local);
     if(!started){
