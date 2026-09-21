@@ -892,7 +892,7 @@ export function isListenerRuntime(runtime){
 }
 export function isPublisherRuntime(runtime){
   if(!ENABLED)return false;
-  return runtime?.animePublisher===true || runtime?.secondaryAnimeReader===true;
+  return runtime?.nexCanalHandoffWorker===true || runtime?.animePublisher===true;
 }
 
 export async function handleAnimeIngestEvent(runtime,event){
@@ -1646,7 +1646,7 @@ export function animeIngestStatus(runtime){
   const a=runtime?.animeIngest||{};
   return {
     enabled:a.enabled===true,listener:a.listener===true,publisher:a.publisher===true,
-    publicPublisher:'@'+NEXCANAL_STAGE_BOT,destination:a.destination||'@'+DESTINATION,
+    handoffWorker:a.publisher===true,publicPublisher:'@'+NEXCANAL_STAGE_BOT,destination:a.destination||'@'+DESTINATION,
     mediaPolicy:a.mediaPolicy||MEDIA_POLICY_DEFAULT,sources:a.sources||0,queued:a.queued||0,published:a.published||0,
     lastQueuedAt:a.lastQueuedAt||null,lastPublishedAt:a.lastPublishedAt||null,
     lastDiscoveryAt:a.lastDiscoveryAt||null,lastBackfillAt:a.lastBackfillAt||null,
