@@ -27,6 +27,10 @@ export function classifyPublicPath(pathname) {
     return 'meta-health';
   }
 
+  if (path.startsWith('/nexmeta/session/')) {
+    return 'nexmeta-session';
+  }
+
   if (path.startsWith('/internal/v1/')) {
     return 'nexmeta';
   }
