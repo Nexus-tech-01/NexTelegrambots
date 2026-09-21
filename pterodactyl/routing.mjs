@@ -28,7 +28,7 @@ export function classifyPublicPath(pathname) {
   }
 
   if (path.startsWith('/nexmeta/session/')) {
-    return 'nexmeta-session';
+    return 'nexmeta';
   }
 
   if (path.startsWith('/internal/v1/')) {
