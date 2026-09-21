@@ -220,8 +220,14 @@ export async function startPersistentSession(force = false) {
 }
 
 export async function persistentSessionStatus() {
+  let launchError = null;
+
   if (!browser?.connected || !page || page.isClosed()) {
-    await startPersistentSession().catch(() => {});
+    try {
+      await startPersistentSession();
+    } catch (error) {
+      launchError = String(error?.message || error).slice(0, 300);
+    }
   }
 
   const context = await refreshContext().catch(() => lastContext);
@@ -232,6 +238,7 @@ export async function persistentSessionStatus() {
     pageReady: Boolean(page && !page.isClosed()),
     loggedIn: Boolean(context?.loggedIn),
     setupRequired: !context?.loggedIn,
+    error: launchError,
     setupExpiresAt:
       setupToken && Date.now() < setupExpiresAt
         ? new Date(setupExpiresAt).toISOString()
