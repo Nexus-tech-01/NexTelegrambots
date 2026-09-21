@@ -885,9 +885,13 @@ export function isListenerRuntime(runtime){
   const username=String(runtime?.account?.username||'').replace(/^@/,'').toLowerCase();
   return LISTENERS.has(username);
 }
+export function isPublisherRuntime(runtime){
+  if(!ENABLED)return false;
+  return runtime?.animePublisher===true || runtime?.secondaryAnimeReader===true;
+}
 
 export async function handleAnimeIngestEvent(runtime,event){
-  if(!isListenerRuntime(runtime))return false;
+  if(!isListenerRuntime(runtime)||runtime?.animeScanDisabled===true)return false;
   const message=event?.message;
   if(!message?.peerId?.channelId)return false;
   const entity=await entityForMessage(runtime.client,message);
@@ -916,16 +920,28 @@ export async function handleAnimeIngestEvent(runtime,event){
 
 async function resolveSource(runtime,item){
   const sources=Array.isArray(item.sources)?item.sources:[];
-  const own=sources.find(s=>String(s.accountId)===String(runtime.account.telegramUserId));
-  if(!own)return null;
-  let entity=null;
-  try{entity=await runtime.client.getEntity(own.channelUsername||BigInt(own.channelId))}catch{
-    try{entity=await runtime.client.getEntity(BigInt(own.channelId))}catch{}
+  const accountId=String(runtime.account.telegramUserId);
+  const ordered=[
+    ...sources.filter(s=>String(s.accountId)===accountId),
+    ...sources.filter(s=>String(s.accountId)!==accountId)
+  ];
+  for(const source of ordered){
+    let entity=null;
+    const username=String(source?.channelUsername||'').replace(/^@/,'');
+    if(username){
+      try{entity=await runtime.client.getEntity(username)}catch{}
+    }
+    if(!entity&&source?.channelId){
+      try{entity=await runtime.client.getEntity(BigInt(source.channelId))}catch{}
+    }
+    if(!entity)continue;
+    try{
+      const messages=await runtime.client.getMessages(entity,{ids:[Number(source.messageId)]});
+      const message=Array.isArray(messages)?messages[0]:messages;
+      if(message)return {source,entity,message};
+    }catch{}
   }
-  if(!entity)return null;
-  const messages=await runtime.client.getMessages(entity,{ids:[Number(own.messageId)]});
-  const message=Array.isArray(messages)?messages[0]:messages;
-  return message?{source:own,entity,message}:null;
+  return null;
 }
 async function destinationEntity(runtime){
   return runtime.client.getEntity(DESTINATION);
@@ -1079,7 +1095,8 @@ async function markPublication(item,sent,runtime){
       dedupeKey:item.dedupeKey,seriesKey:item.seriesKey,kind:item.kind,title:item.title,season:item.season,episode:item.episode,
       language:item.language||'',quality:item.quality||'',mode:item.mode||'',destination:'@'+DESTINATION,createdAt:now
     },$set:{
-      publishedAt:now,publisherAccountId:String(runtime.account.telegramUserId),
+      publishedAt:now,publisherRole:isPublisherRuntime(runtime)?'nexcanal':'account',
+      publisherAccountId:String(runtime.account.telegramUserId),
       publisherUsername:String(runtime.account.username||''),
       telegramMessageId:Number(sent?.id||sent?.messageId||0)
     },$unset:{purgedAt:'',purgedBy:'',purgeError:''}},
@@ -1247,13 +1264,18 @@ async function chooseActiveSeries(d){
   );
   return next;
 }
-async function claimExactItem(d,item,accountId){
+async function claimExactItem(d,item,accountId,{allowAny=false}={}){
   if(!item)return null;
-  const owns=item.synthetic===true || (item.sources||[]).some(x=>String(x.accountId)===String(accountId));
+  const owns=allowAny || item.synthetic===true || (item.sources||[]).some(x=>String(x.accountId)===String(accountId));
   if(!owns)return null;
   return d.collection('nexanime_queue').findOneAndUpdate(
     {_id:item._id,status:'queued'},
-    {$set:{status:'publishing',claimAt:new Date(),claimBy:String(accountId),updatedAt:new Date()}},
+    {$set:{
+      status:'publishing',
+      claimAt:new Date(),
+      claimBy:allowAny?('nexcanal:'+String(accountId)):String(accountId),
+      updatedAt:new Date()
+    }},
     {returnDocument:'after'}
   );
 }
@@ -1357,6 +1379,7 @@ async function claimNext(runtime){
   await ensureIndexes();
   const d=await db();
   const accountId=String(runtime.account.telegramUserId);
+  const allowAny=isPublisherRuntime(runtime);
   const seriesKey=await chooseActiveSeries(d);
   if(!seriesKey)return null;
   await ensureGeneralPresentation(d,seriesKey);
@@ -1370,7 +1393,7 @@ async function claimNext(runtime){
     {sort:{createdAt:1}}
   );
   if(generalPresentation){
-    return claimExactItem(d,generalPresentation,accountId);
+    return claimExactItem(d,generalPresentation,accountId,{allowAny});
   }
 
   // 2) Find the earliest episode that still has either its synopsis or media.
@@ -1396,7 +1419,7 @@ async function claimNext(runtime){
     {sort:{createdAt:1}}
   );
   if(episodePresentation){
-    return claimExactItem(d,episodePresentation,accountId);
+    return claimExactItem(d,episodePresentation,accountId,{allowAny});
   }
 
   // 4) Publish every language/quality found for this episode before moving on.
@@ -1405,7 +1428,7 @@ async function claimNext(runtime){
     {sort:{language:1,quality:-1,createdAt:1}}
   );
   if(media){
-    return claimExactItem(d,media,accountId);
+    return claimExactItem(d,media,accountId,{allowAny});
   }
   return null;
 }
@@ -1415,7 +1438,7 @@ async function alreadyPublished(dedupeKey){
   return !!(await d.collection('nexanime_publications').findOne({dedupeKey,purgedAt:{$exists:false}},{projection:{_id:1}}));
 }
 async function publishOne(runtime){
-  if(!isListenerRuntime(runtime)||runtime.animeIngest?.publishing)return false;
+  if(!isPublisherRuntime(runtime)||runtime.animeIngest?.publishing)return false;
   runtime.animeIngest ??={};
   if(await anyDiscoveryInProgress())return false;
   const locked=await acquireGlobalPublishLock(runtime);
@@ -1457,23 +1480,29 @@ async function publishOne(runtime){
 }
 
 export async function startAnimeIngest(runtime){
-  if(!isListenerRuntime(runtime))return false;
+  const listener=isListenerRuntime(runtime)&&runtime?.animeScanDisabled!==true;
+  const publisher=isPublisherRuntime(runtime);
+  if(!listener&&!publisher)return false;
   runtime.animeIngest={
     ...(runtime.animeIngest||{}),
-    enabled:true,destination:'@'+DESTINATION,listener:true,mediaPolicy:await currentMediaPolicy()
+    enabled:true,destination:'@'+DESTINATION,listener,publisher,mediaPolicy:await currentMediaPolicy()
   };
   await ensureIndexes();
   queueMicrotask(()=>cleanupTmpFiles().catch(()=>{}));
-  queueMicrotask(()=>discoverSources(runtime).catch(e=>console.error('[NexAnime discovery]',String(e?.message||e))));
-  runtime.animeIngest.discoveryTimer=setInterval(
-    ()=>discoverSources(runtime).catch(e=>console.error('[NexAnime discovery]',String(e?.message||e))),
-    DISCOVERY_MS
-  );
-  runtime.animeIngest.discoveryTimer.unref?.();
-  runtime.animeIngest.publishTimer=setInterval(()=>publishOne(runtime).catch(()=>{}),PUBLISH_MS);
-  runtime.animeIngest.publishTimer.unref?.();
-  runtime.animeIngest.pollTimer=setInterval(()=>pollAnimeSources(runtime).catch(()=>{}),POLL_MS);
-  runtime.animeIngest.pollTimer.unref?.();
+  if(listener){
+    queueMicrotask(()=>discoverSources(runtime).catch(e=>console.error('[NexAnime discovery]',String(e?.message||e))));
+    runtime.animeIngest.discoveryTimer=setInterval(
+      ()=>discoverSources(runtime).catch(e=>console.error('[NexAnime discovery]',String(e?.message||e))),
+      DISCOVERY_MS
+    );
+    runtime.animeIngest.discoveryTimer.unref?.();
+    runtime.animeIngest.pollTimer=setInterval(()=>pollAnimeSources(runtime).catch(()=>{}),POLL_MS);
+    runtime.animeIngest.pollTimer.unref?.();
+  }
+  if(publisher){
+    runtime.animeIngest.publishTimer=setInterval(()=>publishOne(runtime).catch(()=>{}),PUBLISH_MS);
+    runtime.animeIngest.publishTimer.unref?.();
+  }
   return true;
 }
 export async function stopAnimeIngest(runtime){
@@ -1486,7 +1515,7 @@ export async function stopAnimeIngest(runtime){
 export function animeIngestStatus(runtime){
   const a=runtime?.animeIngest||{};
   return {
-    enabled:a.enabled===true,listener:a.listener===true,destination:a.destination||'@'+DESTINATION,
+    enabled:a.enabled===true,listener:a.listener===true,publisher:a.publisher===true,destination:a.destination||'@'+DESTINATION,
     mediaPolicy:a.mediaPolicy||MEDIA_POLICY_DEFAULT,sources:a.sources||0,queued:a.queued||0,published:a.published||0,
     lastQueuedAt:a.lastQueuedAt||null,lastPublishedAt:a.lastPublishedAt||null,
     lastDiscoveryAt:a.lastDiscoveryAt||null,lastBackfillAt:a.lastBackfillAt||null,
