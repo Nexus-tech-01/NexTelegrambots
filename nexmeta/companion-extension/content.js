@@ -3,9 +3,12 @@
   window.__NEXMETA_COMPANION_CONTENT__ = true;
 
   const POLL_MS = 2500;
+  const KEEPALIVE_MS = 20000;
   const MAX_READ_ITEMS = 120;
   let polling = false;
   let lastEventFingerprint = '';
+  let keepAlivePort = null;
+  let keepAliveTimer = null;
 
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -396,8 +399,12 @@
   async function processCommand(command) {
     try {
       const result = await executeCommand(command);
-      if (result?.deferred) return;
+      if (result?.deferred) {
+        return { deferred: true };
+      }
+
       await ack(command.commandId, true, result, null);
+      return { deferred: false, ok: true };
     } catch (error) {
       await ack(
         command.commandId,
@@ -405,6 +412,12 @@
         null,
         String(error?.message || error)
       ).catch(() => {});
+
+      return {
+        deferred: false,
+        ok: false,
+        error: String(error?.message || error)
+      };
     }
   }
 
@@ -487,8 +500,64 @@
     }
   }
 
+  function connectKeepAlive() {
+    try {
+      keepAlivePort?.disconnect();
+    } catch {}
+
+    try {
+      keepAlivePort = chrome.runtime.connect({ name: 'nexmeta-keepalive' });
+
+      keepAlivePort.onDisconnect.addListener(() => {
+        keepAlivePort = null;
+        setTimeout(connectKeepAlive, 2000);
+      });
+
+      if (keepAliveTimer) clearInterval(keepAliveTimer);
+      keepAliveTimer = setInterval(() => {
+        try {
+          keepAlivePort?.postMessage({
+            type: 'ping',
+            observedAt: Date.now(),
+            visibility: document.visibilityState
+          });
+        } catch {}
+      }, KEEPALIVE_MS);
+    } catch {}
+  }
+
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (String(message?.type || '') !== 'NEXMETA_WAKE') return false;
+    const type = String(message?.type || '');
+
+    if (type === 'NEXMETA_EXECUTE_COMMAND') {
+      const command = message?.command;
+
+      if (!command?.commandId) {
+        sendResponse({
+          ok: false,
+          error: 'command_missing'
+        });
+        return false;
+      }
+
+      Promise.resolve()
+        .then(() => processCommand(command))
+        .then(result => sendResponse({
+          ok: result?.ok !== false,
+          deferred: result?.deferred === true,
+          error: result?.error || null
+        }))
+        .catch(error => {
+          sendResponse({
+            ok: false,
+            error: String(error?.message || error)
+          });
+        });
+
+      return true;
+    }
+
+    if (type !== 'NEXMETA_WAKE') return false;
 
     Promise.resolve()
       .then(() => resumePendingCommand())
@@ -511,14 +580,22 @@
     tick().catch(() => {});
   });
 
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      tick().catch(() => {});
-    }
+  window.addEventListener('focus', () => {
+    tick().catch(() => {});
   });
 
+  window.addEventListener('blur', () => {
+    tick().catch(() => {});
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    tick().catch(() => {});
+  });
+
+  connectKeepAlive();
   resumePendingCommand().catch(() => {});
   tick().catch(() => {});
+
   setInterval(() => {
     tick().catch(() => {});
   }, POLL_MS);
