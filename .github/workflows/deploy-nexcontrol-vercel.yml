@@ -6,6 +6,11 @@ on:
     paths:
       - 'nexcontrol/**'
       - '.github/workflows/deploy-nexcontrol-vercel.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'nexcontrol/**'
+      - '.github/workflows/deploy-nexcontrol-vercel.yml'
   workflow_dispatch:
 
 permissions:
