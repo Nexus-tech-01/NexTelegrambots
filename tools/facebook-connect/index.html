@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#080808">
+<title>NexMeta · Connexion Facebook</title>
+<style>
+*{box-sizing:border-box}
+:root{--bg:#080808;--panel:#111;--ink:#f5f3ef;--muted:#9b9892;--line:#2a2927;--accent:#d9d0ff;--ok:#aaf7c4;--bad:#ffb4b4}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,-apple-system,sans-serif;min-height:100vh}
+.wrap{width:min(960px,100%);margin:auto;padding:26px 18px 90px}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:72px}.brand{font-weight:900;letter-spacing:.08em}.step{font-size:11px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase}
+.hero{font-size:clamp(54px,12vw,116px);line-height:.82;letter-spacing:-.075em;text-transform:uppercase;margin:10px 0 24px}.soft{color:var(--accent)}
+.lead{max-width:720px;color:var(--muted);font-size:17px;line-height:1.55}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px;margin-top:38px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:24px;padding:24px}
+.card h2{font-size:28px;letter-spacing:-.04em;margin:8px 0 10px}.badge{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:8px 11px;font-size:10px;letter-spacing:.1em;text-transform:uppercase}.ok{color:var(--ok);border-color:#315842}.bad{color:var(--bad);border-color:#5b3434}
+label{display:block;margin:18px 0 7px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.1em}
+input{width:100%;background:#090909;color:white;border:1px solid #343434;border-radius:14px;padding:15px;font-size:16px;outline:none}
+input:focus{border-color:#776f91;box-shadow:0 0 0 3px #d9d0ff12}
+button{width:100%;border:0;border-radius:14px;padding:15px 16px;margin-top:14px;font-weight:800;background:var(--accent);color:#111;cursor:pointer}
+button.secondary{background:#1a1a1a;color:#eee;border:1px solid #333}button:disabled{opacity:.45;cursor:not-allowed}
+.out{margin-top:15px;padding:13px 14px;border-radius:13px;background:#090909;color:#bbb;min-height:48px;white-space:pre-wrap;line-height:1.45;font-size:13px}
+.note{font-size:12px;color:#777;line-height:1.5;margin-top:12px}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<main class="wrap">
+<div class="top"><div class="brand">NEXMETA / FACEBOOK</div><div class="step">Secure setup</div></div>
+<div class="step">Nextech · Facebook / Messenger</div>
+<h1 class="hero">Connect<br><span class="soft">Facebook.</span></h1>
+<p class="lead">Configure l’application Meta puis ouvre la connexion Facebook officielle. Ton mot de passe Facebook reste uniquement chez Facebook.</p>
+<section class="grid">
+<article class="card">
+<div class="step">01 — État</div>
+<h2>Connexion serveur</h2>
+<div id="badge" class="badge bad">Vérification…</div>
+<div id="status" class="out">Lecture de la configuration…</div>
+</article>
+<article class="card" id="setupCard">
+<div class="step">02 — App Meta</div>
+<h2>Configurer l’application</h2>
+<p class="lead" style="font-size:14px">Dans Meta for Developers → Settings → Basic, copie l’App ID et l’App Secret.</p>
+<label for="appId">App ID</label><input id="appId" inputmode="numeric" autocomplete="off">
+<label for="appSecret">App Secret</label><input id="appSecret" type="password" autocomplete="off" spellcheck="false">
+<button id="save">Enregistrer sur le serveur</button>
+<div id="saveOut" class="out">Le secret est envoyé directement au serveur via HTTPS. Il n’est pas stocké dans cette page.</div>
+</article>
+<article class="card hidden" id="connectCard">
+<div class="step">03 — Facebook OAuth</div>
+<h2>Autoriser Facebook</h2>
+<p class="lead" style="font-size:14px">Une fois l’application configurée, ouvre Facebook et choisis le compte/Page à relier au bot.</p>
+<button id="connect">Continuer avec Facebook</button>
+<div id="connectOut" class="out">Prêt.</div>
+</article>
+</section>
+<p class="note">Lien temporaire à usage unique. Il expire automatiquement.</p>
+</main>
+<script>
+const API='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexmeta-admin-config';
+const token=new URLSearchParams(location.search).get('setup')||'';
+const badge=document.getElementById('badge'),statusEl=document.getElementById('status'),setupCard=document.getElementById('setupCard'),connectCard=document.getElementById('connectCard'),saveOut=document.getElementById('saveOut'),connectOut=document.getElementById('connectOut');
+async function api(action,payload={}){
+ const r=await fetch(API,{method:'POST',headers:{'content-type':'application/json','x-setup-token':token},body:JSON.stringify({action,...payload})});
+ const j=await r.json().catch(()=>({error:'Réponse invalide'}));
+ if(!r.ok)throw new Error(j.detail||j.error||('HTTP '+r.status));
+ return j;
+}
+async function refresh(){
+ if(!token){badge.textContent='LIEN INVALIDE';statusEl.textContent='Le paramètre de sécurité est absent.';return}
+ try{
+  const s=await api('status');
+  const ready=s.hasAppId&&s.hasAppSecret&&s.hasConnectKey;
+  badge.textContent=ready?'CONFIGURÉ':'CONFIGURATION REQUISE';badge.className='badge '+(ready?'ok':'bad');
+  statusEl.textContent='App ID: '+(s.hasAppId?'OK':'manquant')+'\nApp Secret: '+(s.hasAppSecret?'OK':'manquant')+'\nClé propriétaire: '+(s.hasConnectKey?'OK':'manquante');
+  setupCard.classList.toggle('hidden',ready);
+  connectCard.classList.toggle('hidden',!ready);
+ }catch(e){badge.textContent='LIEN EXPIRÉ / ERREUR';badge.className='badge bad';statusEl.textContent=e.message}
+}
+document.getElementById('save').onclick=async()=>{
+ try{
+  saveOut.textContent='Enregistrement sécurisé…';
+  await api('configure_app',{appId:document.getElementById('appId').value,appSecret:document.getElementById('appSecret').value});
+  document.getElementById('appSecret').value='';
+  saveOut.textContent='Enregistré. Le serveur redémarre. Attends quelques secondes…';
+  let attempts=0;const timer=setInterval(async()=>{attempts++;await refresh();if(!connectCard.classList.contains('hidden')||attempts>12)clearInterval(timer)},2500);
+ }catch(e){saveOut.textContent=e.message}
+};
+document.getElementById('connect').onclick=async()=>{
+ try{
+  connectOut.textContent='Ouverture de Facebook…';
+  const j=await api('start_oauth');
+  if(j.authorizationUrl){location.href=j.authorizationUrl;return}
+  connectOut.textContent='URL Facebook absente.';
+ }catch(e){connectOut.textContent=e.message}
+};
+refresh();
+</script>
+</body></html>
