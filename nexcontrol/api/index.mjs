@@ -2,6 +2,8 @@ import { handleNexAiPublic } from '../nexai-public.mjs';
 // NexControl proxy build 61.12.1-recovery + NexAccount control surface
 const TARGET='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol';
 const AGENT='nexus-main';
+const NEXMETA_PUBLIC='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexmeta-public';
+const NEXMETA_ADMIN='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexmeta-admin-config';
 
 function outboundHeaders(req,path){
   const h=new Headers();
@@ -95,6 +97,90 @@ function nexaccountPage(){
   'let pairId="",publicKey=null;const out=document.getElementById("pairOut"),codeBox=document.getElementById("codeBox"),passBox=document.getElementById("passBox");async function api(path,opt){const r=await fetch(path,opt);const j=await r.json().catch(()=>({error:"Réponse invalide"}));if(r.status===401){location.href="/";throw new Error("Connexion NexControl requise")}if(!r.ok)throw new Error(j.error||"Erreur");return j}function b64(bytes){let s="";for(const b of new Uint8Array(bytes))s+=String.fromCharCode(b);return btoa(s)}async function key(){if(publicKey)return publicKey;const j=await api("/api/nexaccount/key");const pem=j.publicKey.replace(/-----[^-]+-----/g,"").replace(/\\s/g,"");const raw=Uint8Array.from(atob(pem),c=>c.charCodeAt(0));publicKey=await crypto.subtle.importKey("spki",raw,{name:"RSA-OAEP",hash:"SHA-256"},false,["encrypt"]);return publicKey}async function seal(data){const encoded=new TextEncoder().encode(JSON.stringify(data));const encrypted=await crypto.subtle.encrypt({name:"RSA-OAEP"},await key(),encoded);return b64(encrypted)}async function secure(data){return api("/api/nexaccount/secure",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({envelope:await seal(data)})})}function stage(j){pairId=j.id||pairId;out.textContent=JSON.stringify(j,null,2);codeBox.classList.toggle("hide",j.stage!=="code");passBox.classList.toggle("hide",j.stage!=="password");if(j.stage==="connected"){code.value="";password.value="";load()}}start.onclick=async()=>{try{out.textContent="Demande du code…";stage(await secure({action:"pair-start",phone:phone.value}))}catch(e){out.textContent=e.message}};sendCode.onclick=async()=>{try{out.textContent="Vérification…";stage(await secure({action:"pair-code",id:pairId,code:code.value}))}catch(e){out.textContent=e.message}};sendPass.onclick=async()=>{try{out.textContent="Vérification 2FA…";stage(await secure({action:"pair-password",id:pairId,password:password.value}))}catch(e){out.textContent=e.message}};async function load(){try{const [h,a]=await Promise.all([api("/api/nexaccount/health"),api("/api/nexaccount/accounts")]);health.textContent="Service: "+(h.ok?"online":"offline")+"\\nNexAI inline: "+(h.botConfigured?"configuré":"token manquant")+"\\nSessions actives: "+(h.runtimes?.length||0);accounts.innerHTML=(a.accounts||[]).map(x=>"<div class=account><b>"+(x.username?"@"+x.username:(x.firstName||x.telegramUserId))+"</b><br><span class="+(x.premium?"premium":"")+">"+(x.premium?"Telegram Premium":"Standard")+"</span> · "+(x.phoneMasked||"")+"</div>").join("")||"<div class=account>Aucun compte.</div>"}catch(e){health.textContent=e.message}}refresh.onclick=load;load();</script></body></html>';
 }
 
+
+
+async function adminSessionOk(req){
+  const probe=await upstreamJson(req,'/api/admin/bots');
+  return probe.status>=200&&probe.status<300;
+}
+
+async function metaHealth(){
+  const r=await fetch(NEXMETA_PUBLIC+'/health/meta',{
+    headers:{accept:'application/json'},
+    signal:AbortSignal.timeout(12000)
+  });
+  const text=await r.text();
+  let data={};
+  try{data=JSON.parse(text)}catch{data={ok:false,error:'invalid_health_response'}}
+  return {status:r.status,data};
+}
+
+function metaSetupPage(health={},notice=''){
+  const connected=Boolean(health?.account?.connected);
+  const pages=Number(health?.pages?.connectedPages||0);
+  const oauthReady=Boolean(health?.oauthConfigured);
+  const metaReady=Boolean(health?.metaConfigured);
+  const state=connected?'CONNECTED':oauthReady?'READY':'SETUP REQUIRED';
+  const noticeHtml=notice?'<div class="notice">'+String(notice).replace(/[&<>]/g,'')+'</div>':'';
+  return '<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#080808"><title>Facebook · NexControl</title><style>'+
+  '*{box-sizing:border-box}body{margin:0;background:#080808;color:#f3f1ed;font-family:Inter,system-ui,-apple-system,sans-serif;min-height:100vh}.wrap{max-width:900px;margin:auto;padding:28px 18px 80px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:70px}.brand{font-weight:900;letter-spacing:.08em;text-decoration:none;color:inherit}.back{color:#aaa;text-decoration:none}.eyebrow{text-transform:uppercase;letter-spacing:.14em;color:#8f8d88;font-size:11px}.title{font-size:clamp(54px,11vw,110px);line-height:.82;letter-spacing:-.075em;margin:12px 0 22px;text-transform:uppercase}.lead{color:#aaa;line-height:1.55;font-size:17px;max-width:720px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-top:36px}.panel{border:1px solid #292929;border-radius:24px;padding:22px;background:#111}.metric{font-size:38px;font-weight:800;letter-spacing:-.05em;margin-top:10px}.pill{display:inline-block;border:1px solid #343434;border-radius:999px;padding:8px 11px;font-size:10px;letter-spacing:.1em}.ok{color:#aaf7c4;border-color:#315842}.bad{color:#ffb4b4;border-color:#5b3434}label{display:block;margin:18px 0 7px;color:#aaa;font-size:11px;text-transform:uppercase;letter-spacing:.1em}input{width:100%;border:1px solid #343434;border-radius:13px;background:#0a0a0a;color:#fff;padding:14px;font-size:16px;outline:none}button{width:100%;border:0;border-radius:14px;padding:14px;margin-top:14px;font-weight:800;background:#d9d0ff;color:#111;cursor:pointer}.secondary{background:#1d1d1d;color:#eee;border:1px solid #333}.out,.notice{margin-top:16px;padding:13px;border-radius:13px;background:#0b0b0b;color:#aaa;white-space:pre-wrap;line-height:1.45}.notice{border:1px solid #3a343f;color:#ddd}.hint{font-size:12px;color:#777;line-height:1.5;margin-top:12px}</style></head><body><main class="wrap"><div class="top"><a class="brand" href="/">NEXCONTROL / META</a><a class="back" href="/">Retour</a></div><div class="eyebrow">Facebook / Messenger</div><h1 class="title">Connect<br>Facebook.</h1><p class="lead">Cette page configure l’App Meta sur ton serveur puis lance l’autorisation Facebook officielle. Ton mot de passe Facebook n’est jamais envoyé à NexControl.</p>'+noticeHtml+
+  '<section class="grid"><article class="panel"><div class="eyebrow">Runtime</div><div class="metric">'+state+'</div><p class="lead" style="font-size:14px">Meta: '+(metaReady?'configuré':'incomplet')+' · OAuth: '+(oauthReady?'prêt':'incomplet')+' · Pages: '+pages+'</p><span class="pill '+(connected?'ok':'bad')+'">'+(connected?'Compte Facebook connecté':'Aucun compte connecté')+'</span></article>'+
+  (oauthReady
+    ? '<article class="panel"><div class="eyebrow">Connexion</div><h2>Autoriser Facebook</h2><p class="lead" style="font-size:14px">NexControl utilise la clé propriétaire déjà stockée sur le serveur sans l’afficher dans ton navigateur.</p><button id="connect">Continuer avec Facebook</button><div class="out" id="out">Prêt.</div></article>'
+    : '<article class="panel"><div class="eyebrow">Meta App</div><h2>Configurer l’application</h2><p class="lead" style="font-size:14px">Dans Meta for Developers → Settings → Basic, copie l’App ID et l’App Secret.</p><label>App ID</label><input id="appId" inputmode="numeric" autocomplete="off"><label>App Secret</label><input id="appSecret" type="password" autocomplete="off" spellcheck="false"><button id="save">Enregistrer sur le serveur</button><div class="out" id="out">Aucun secret n’est conservé dans le navigateur.</div><div class="hint">Après l’enregistrement, le serveur redémarre et cette page devient prête pour l’autorisation Facebook.</div></article>'
+  )+
+  '</section></main><script>const out=document.getElementById("out");async function post(path,body){const r=await fetch(path,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body||{})});const j=await r.json().catch(()=>({error:"invalid_response"}));if(!r.ok)throw new Error(j.detail||j.error||"request_failed");return j}const save=document.getElementById("save");if(save)save.onclick=async()=>{try{out.textContent="Enregistrement…";await post("/api/admin/meta/configure-app",{appId:appId.value,appSecret:appSecret.value});appSecret.value="";out.textContent="Identifiants enregistrés. Le serveur redémarre…";setTimeout(()=>location.reload(),6500)}catch(e){out.textContent=e.message}};const connect=document.getElementById("connect");if(connect)connect.onclick=async()=>{try{out.textContent="Ouverture de Facebook…";const j=await post("/api/admin/meta/start-oauth",{});if(j.authorizationUrl)location.href=j.authorizationUrl;else out.textContent="URL OAuth absente"}catch(e){out.textContent=e.message}};</script></body></html>';
+}
+
+async function handleMetaSurface(req,res,u){
+  const isPage=req.method==='GET'&&u.pathname==='/meta';
+  const isConfigure=req.method==='POST'&&u.pathname==='/api/admin/meta/configure-app';
+  const isStart=req.method==='POST'&&u.pathname==='/api/admin/meta/start-oauth';
+  if(!isPage&&!isConfigure&&!isStart)return false;
+
+  if(!await adminSessionOk(req)){
+    if(isPage){
+      res.statusCode=303;
+      res.setHeader('location','/');
+      res.end();
+    }else{
+      sendJson(res,401,{error:'unauthorized'});
+    }
+    return true;
+  }
+
+  if(isPage){
+    const h=await metaHealth().catch(()=>({status:502,data:{ok:false,error:'nexmeta_unreachable'}}));
+    res.statusCode=200;
+    res.setHeader('content-type','text/html; charset=utf-8');
+    res.setHeader('cache-control','no-store');
+    res.setHeader('x-content-type-options','nosniff');
+    res.setHeader('content-security-policy',"default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+    res.end(metaSetupPage(h.data));
+    return true;
+  }
+
+  const body=await localBody(req);
+  const action=isConfigure?'configure_app':'start_oauth';
+  const payload=isConfigure
+    ? {action,appId:String(body.appId||''),appSecret:String(body.appSecret||'')}
+    : {action};
+
+  const r=await fetch(NEXMETA_ADMIN,{
+    method:'POST',
+    headers:{
+      'content-type':'application/json',
+      'cookie':String(req.headers.cookie||'')
+    },
+    body:JSON.stringify(payload),
+    signal:AbortSignal.timeout(30000)
+  });
+  const text=await r.text();
+  let data={};
+  try{data=JSON.parse(text)}catch{data={error:'invalid_admin_response'}}
+  sendJson(res,r.status,data);
+  return true;
+}
 
 function pterodactylRecoveryPage(token='',message='',ok=false){
   const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -193,7 +279,8 @@ export default async function handler(req,res){
     const u=new URL(req.url,'https://nexcontrol.local');
     if(await handleNexAiPublic(req,res,u))return;
     if(await handlePterodactylRecovery(req,res,u))return;
-  if(await handleNexAccount(req,res,u))return;
+    if(await handleMetaSurface(req,res,u))return;
+    if(await handleNexAccount(req,res,u))return;
     const headers=outboundHeaders(req,u.pathname);
     const body=outboundBody(req,headers);
     const upstream=await fetch(TARGET+u.search,{
@@ -205,9 +292,13 @@ export default async function handler(req,res){
     });
 
     res.statusCode=upstream.status;
+    const isUi=(req.method==='GET'||req.method==='HEAD')&&!u.pathname.startsWith('/api/');
     const skip=new Set(['content-length','transfer-encoding','connection','content-encoding']);
     for(const [k,v] of upstream.headers){
-      if(!skip.has(k.toLowerCase()))res.setHeader(k,v);
+      const key=k.toLowerCase();
+      if(skip.has(key))continue;
+      if(isUi&&(key==='content-type'||key==='content-security-policy'||key==='x-content-type-options'))continue;
+      res.setHeader(k,v);
     }
     if(typeof upstream.headers.getSetCookie==='function'){
       const cookies=upstream.headers.getSetCookie();
@@ -219,9 +310,11 @@ export default async function handler(req,res){
 
     // Supabase Edge may label rendered pages as text/plain. Force browser-renderable
     // HTML for UI routes while preserving API content types exactly as returned.
-    if((req.method==='GET'||req.method==='HEAD')&&!u.pathname.startsWith('/api/')){
+    if(isUi){
       res.setHeader('content-type','text/html; charset=utf-8');
+      res.setHeader('cache-control','no-store');
       res.setHeader('x-content-type-options','nosniff');
+      res.setHeader('content-security-policy',"default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' https: data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
     }
 
     const buf=Buffer.from(await upstream.arrayBuffer());
