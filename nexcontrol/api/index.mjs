@@ -72,9 +72,26 @@ async function readBodyObject(req){
   try{return JSON.parse(text)}catch{return{}}
 }
 
-function injectMetaNavigation(upstream,buffer){
+function looksLikeHtml(upstream,buffer){
   const type=String(upstream.headers.get('content-type')||'').toLowerCase();
-  if(!type.includes('text/html'))return buffer;
+  if(type.includes('text/html')||type.includes('application/xhtml+xml'))return true;
+
+  const head=buffer
+    .subarray(0,1024)
+    .toString('utf8')
+    .trimStart()
+    .toLowerCase();
+
+  return (
+    head.startsWith('<!doctype html')||
+    head.startsWith('<html')||
+    head.includes('<head')||
+    head.includes('<body')
+  );
+}
+
+function injectMetaNavigation(upstream,buffer){
+  if(!looksLikeHtml(upstream,buffer))return buffer;
 
   let html=buffer.toString('utf8');
   if(html.includes('href="/meta"'))return buffer;
@@ -123,6 +140,10 @@ function copyUpstreamResponse(upstream,res,buffer,{location,setCookieExtra}={}){
       if(location&&k.toLowerCase()==='location')continue;
       res.setHeader(k,v);
     }
+  }
+
+  if(looksLikeHtml(upstream,buffer)){
+    res.setHeader('content-type','text/html; charset=utf-8');
   }
 
   if(location)res.setHeader('location',location);
