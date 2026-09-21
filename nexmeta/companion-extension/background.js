@@ -3,8 +3,12 @@ const DEFAULT_SERVER =
 
 let pollInFlight = false;
 let wakeInFlight = false;
+let backgroundDispatchInFlight = false;
 
 const HEARTBEAT_ALARM = 'nexmeta-heartbeat';
+const BACKGROUND_POLL_ALARM = 'nexmeta-background-poll';
+const BACKGROUND_POLL_PERIOD_MINUTES = 0.5;
+
 const FACEBOOK_PATTERNS = [
   'https://facebook.com/*',
   'https://www.facebook.com/*',
@@ -123,37 +127,69 @@ async function facebookTabs() {
   }
 }
 
+function tabRank(tab) {
+  let score = 0;
+  if (tab?.active) score += 100;
+  if (!tab?.discarded) score += 50;
+  const url = String(tab?.url || '').toLowerCase();
+  if (url.includes('/messages/')) score += 30;
+  if (url.includes('web.facebook.com')) score += 20;
+  if (url.includes('www.facebook.com')) score += 15;
+  if (url.includes('messenger.com')) score += 15;
+  return score;
+}
+
+function sortedFacebookTabs(tabs) {
+  return [...tabs].sort((a, b) => tabRank(b) - tabRank(a));
+}
+
+async function injectCompanion(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ['content.js']
+  });
+}
+
+async function sendToTab(tabId, message, { injectOnFailure = true } = {}) {
+  try {
+    return await chrome.tabs.sendMessage(tabId, message);
+  } catch (firstError) {
+    if (!injectOnFailure) throw firstError;
+    await injectCompanion(tabId);
+    return chrome.tabs.sendMessage(tabId, message);
+  }
+}
+
 async function wakeFacebookTabs() {
   if (wakeInFlight) return { tabs: 0, awakened: 0, injected: 0 };
   wakeInFlight = true;
 
   try {
-    const tabs = await facebookTabs();
+    const tabs = sortedFacebookTabs(await facebookTabs());
     let awakened = 0;
     let injected = 0;
 
     for (const tab of tabs) {
-      if (!Number.isInteger(tab?.id)) continue;
+      if (!Number.isInteger(tab?.id) || tab?.discarded) continue;
 
       try {
         const response = await chrome.tabs.sendMessage(tab.id, {
-          type: 'NEXMETA_WAKE'
+          type: 'NEXMETA_WAKE',
+          source: 'background'
         });
         if (response?.ok !== false) awakened += 1;
         continue;
       } catch {}
 
       try {
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ['content.js']
-        });
+        await injectCompanion(tab.id);
         injected += 1;
 
-        await chrome.tabs.sendMessage(tab.id, {
-          type: 'NEXMETA_WAKE'
-        }).catch(() => {});
-        awakened += 1;
+        const response = await chrome.tabs.sendMessage(tab.id, {
+          type: 'NEXMETA_WAKE',
+          source: 'background'
+        });
+        if (response?.ok !== false) awakened += 1;
       } catch {}
     }
 
@@ -199,13 +235,27 @@ async function heartbeatAndWake() {
   }
 }
 
-function scheduleHeartbeat() {
+function scheduleAlarms() {
   try {
     chrome.alarms.create(HEARTBEAT_ALARM, {
       delayInMinutes: 0.1,
       periodInMinutes: 1
     });
   } catch {}
+
+  try {
+    chrome.alarms.create(BACKGROUND_POLL_ALARM, {
+      delayInMinutes: 0.05,
+      periodInMinutes: BACKGROUND_POLL_PERIOD_MINUTES
+    });
+  } catch {
+    try {
+      chrome.alarms.create(BACKGROUND_POLL_ALARM, {
+        delayInMinutes: 0.1,
+        periodInMinutes: 1
+      });
+    } catch {}
+  }
 }
 
 async function pairDevice(message) {
@@ -226,7 +276,8 @@ async function pairDevice(message) {
         'open_url',
         'list_conversations',
         'read_conversation',
-        'send_message'
+        'send_message',
+        'background_dispatch'
       ]
     }
   });
@@ -239,8 +290,9 @@ async function pairDevice(message) {
     pairedAt: result.pairedAt || new Date().toISOString()
   });
 
-  scheduleHeartbeat();
+  scheduleAlarms();
   await wakeFacebookTabs().catch(() => {});
+  backgroundPollAndDispatch('paired').catch(() => {});
 
   return {
     paired: true,
@@ -293,6 +345,119 @@ async function pushEvents(message) {
   });
 }
 
+function sameConversationTarget(tabUrl, command) {
+  const target = String(
+    command?.payload?.threadUrl ||
+    command?.payload?.url ||
+    ''
+  );
+
+  if (!target) return false;
+
+  try {
+    const a = new URL(tabUrl);
+    const b = new URL(target);
+    return (
+      a.hostname === b.hostname &&
+      a.pathname.replace(/\/+$/, '') === b.pathname.replace(/\/+$/, '')
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function dispatchCommandToBrowser(command) {
+  const tabs = sortedFacebookTabs(await facebookTabs());
+  if (!tabs.length) {
+    return {
+      delivered: false,
+      reason: 'no_facebook_tab'
+    };
+  }
+
+  const exact = tabs.filter(tab => sameConversationTarget(String(tab?.url || ''), command));
+  const candidates = [...exact, ...tabs.filter(tab => !exact.includes(tab))];
+
+  for (const tab of candidates) {
+    if (!Number.isInteger(tab?.id) || tab?.discarded) continue;
+
+    try {
+      const response = await sendToTab(tab.id, {
+        type: 'NEXMETA_EXECUTE_COMMAND',
+        command,
+        source: 'background_service_worker'
+      });
+
+      if (response?.ok !== false) {
+        return {
+          delivered: true,
+          tabId: tab.id,
+          deferred: response?.deferred === true
+        };
+      }
+    } catch {}
+  }
+
+  return {
+    delivered: false,
+    reason: 'no_live_facebook_tab'
+  };
+}
+
+async function backgroundPollAndDispatch(reason = 'alarm') {
+  if (backgroundDispatchInFlight) {
+    return { skipped: true, reason: 'dispatch_in_flight' };
+  }
+
+  backgroundDispatchInFlight = true;
+
+  try {
+    const state = await loadState();
+    if (!state.token) return { paired: false };
+
+    const tabs = await facebookTabs();
+    const activeTab = sortedFacebookTabs(tabs)[0] || null;
+
+    const result = await poll({
+      source: 'extension_background',
+      reason,
+      observedAt: new Date().toISOString(),
+      openFacebookTabs: tabs.length,
+      activeFacebookUrl: String(activeTab?.url || ''),
+      activeFacebookTabDiscarded: Boolean(activeTab?.discarded)
+    });
+
+    const commands = Array.isArray(result?.commands) ? result.commands : [];
+    const dispatch = [];
+
+    for (const command of commands) {
+      dispatch.push({
+        commandId: command?.commandId || null,
+        type: command?.type || null,
+        ...(await dispatchCommandToBrowser(command))
+      });
+    }
+
+    return {
+      paired: true,
+      commands: commands.length,
+      dispatch
+    };
+  } catch (error) {
+    if (error?.status === 401) {
+      await clearPairing();
+      return { paired: false, revoked: true };
+    }
+
+    return {
+      paired: true,
+      error: String(error?.message || error)
+    };
+  } finally {
+    backgroundDispatchInFlight = false;
+  }
+}
+
 async function connectionStatus() {
   const state = await loadState();
 
@@ -311,11 +476,15 @@ async function connectionStatus() {
       injected: 0
     }));
 
+    backgroundPollAndDispatch('status_check').catch(() => {});
+
     return {
       paired: true,
       server: state.server,
       device,
-      wake
+      wake,
+      backgroundPolling: true,
+      backgroundPollMinutes: BACKGROUND_POLL_PERIOD_MINUTES
     };
   } catch (error) {
     if (error?.status === 401) {
@@ -359,6 +528,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return poll(message.context || {});
     }
 
+    if (type === 'NEXMETA_BACKGROUND_POLL') {
+      return backgroundPollAndDispatch('manual');
+    }
+
     if (type === 'NEXMETA_ACK') {
       return ack(message);
     }
@@ -381,21 +554,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+chrome.runtime.onConnect.addListener(port => {
+  if (port?.name !== 'nexmeta-keepalive') return;
+  port.onMessage.addListener(() => {});
+});
 
 chrome.runtime.onInstalled.addListener(() => {
-  scheduleHeartbeat();
+  scheduleAlarms();
   heartbeatAndWake().catch(() => {});
+  backgroundPollAndDispatch('installed').catch(() => {});
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  scheduleHeartbeat();
+  scheduleAlarms();
   heartbeatAndWake().catch(() => {});
+  backgroundPollAndDispatch('startup').catch(() => {});
+});
+
+chrome.tabs.onActivated.addListener(() => {
+  backgroundPollAndDispatch('tab_activated').catch(() => {});
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo?.status !== 'complete') return;
+  const url = String(tab?.url || '').toLowerCase();
+  if (!url.includes('facebook.com') && !url.includes('messenger.com')) return;
+  backgroundPollAndDispatch('facebook_tab_updated').catch(() => {});
 });
 
 chrome.alarms.onAlarm.addListener(alarm => {
-  if (alarm?.name !== HEARTBEAT_ALARM) return;
-  heartbeatAndWake().catch(() => {});
+  if (alarm?.name === HEARTBEAT_ALARM) {
+    heartbeatAndWake().catch(() => {});
+    return;
+  }
+
+  if (alarm?.name === BACKGROUND_POLL_ALARM) {
+    backgroundPollAndDispatch('alarm').catch(() => {});
+  }
 });
 
-scheduleHeartbeat();
+scheduleAlarms();
 heartbeatAndWake().catch(() => {});
+backgroundPollAndDispatch('service_worker_boot').catch(() => {});
