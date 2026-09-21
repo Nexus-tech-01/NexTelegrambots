@@ -12,6 +12,9 @@ const LISTENERS=new Set(
     .split(',').map(x=>x.trim().replace(/^@/,'').toLowerCase()).filter(Boolean)
 );
 const DESTINATION=String(process.env.NEXANIME_DESTINATION||'theotaku_nexus').trim().replace(/^@/,'');
+const NEXCANAL_STAGE_BOT=String(process.env.NEXANIME_NEXCANAL_BOT||'the_big_dipper_bot').trim().replace(/^@/,'');
+const NEXCANAL_HANDOFF_COLLECTION='nexanime_nexcanal_handoffs';
+const NEXCANAL_HANDOFF_TIMEOUT_MS=Math.max(15_000,Number(process.env.NEXANIME_NEXCANAL_HANDOFF_TIMEOUT_MS||120_000));
 const DISCOVERY_MS=Math.max(15*60*1000,Number(process.env.NEXANIME_DISCOVERY_MS||6*60*60*1000));
 const PUBLISH_MS=Math.max(5000,Number(process.env.NEXANIME_PUBLISH_MS||15000));
 const INTER_SERIES_MS=Math.max(60_000,Number(process.env.NEXANIME_INTER_SERIES_MS||15*60*1000));
@@ -502,7 +505,9 @@ async function ensureIndexes(){
     d.collection('nexanime_queue').createIndex({status:1,priority:-1,seriesKey:1,season:1,episode:1,createdAt:1}),
     d.collection('nexanime_publications').createIndex({dedupeKey:1},{unique:true}),
     d.collection('nexanime_quarantine').createIndex({createdAt:-1}),
-    d.collection('nexanime_series_cache').createIndex({key:1},{unique:true})
+    d.collection('nexanime_series_cache').createIndex({key:1},{unique:true}),
+    d.collection(NEXCANAL_HANDOFF_COLLECTION).createIndex({dedupeKey:1},{unique:true}),
+    d.collection(NEXCANAL_HANDOFF_COLLECTION).createIndex({status:1,nextAttemptAt:1,createdAt:1})
   ]);
   indexesReady=true;
 }
@@ -1095,9 +1100,10 @@ async function markPublication(item,sent,runtime){
       dedupeKey:item.dedupeKey,seriesKey:item.seriesKey,kind:item.kind,title:item.title,season:item.season,episode:item.episode,
       language:item.language||'',quality:item.quality||'',mode:item.mode||'',destination:'@'+DESTINATION,createdAt:now
     },$set:{
-      publishedAt:now,publisherRole:isPublisherRuntime(runtime)?'nexcanal':'account',
-      publisherAccountId:String(runtime.account.telegramUserId),
-      publisherUsername:String(runtime.account.username||''),
+      publishedAt:now,publisherRole:'nexcanal-bot',
+      publisherBotUsername:NEXCANAL_STAGE_BOT,
+      stagingAccountId:String(runtime.account.telegramUserId),
+      stagingAccountUsername:String(runtime.account.username||''),
       telegramMessageId:Number(sent?.id||sent?.messageId||0)
     },$unset:{purgedAt:'',purgedBy:'',purgeError:''}},
     {upsert:true}
@@ -1437,6 +1443,134 @@ async function alreadyPublished(dedupeKey){
   const d=await db();
   return !!(await d.collection('nexanime_publications').findOne({dedupeKey,purgedAt:{$exists:false}},{projection:{_id:1}}));
 }
+
+async function nexCanalStageEntity(runtime){
+  runtime.animeIngest ??={};
+  if(runtime.animeIngest.nexCanalStageEntity)return runtime.animeIngest.nexCanalStageEntity;
+  const entity=await runtime.client.getEntity(NEXCANAL_STAGE_BOT);
+  runtime.animeIngest.nexCanalStageEntity=entity;
+  return entity;
+}
+function nexCanalStageMarker(item){
+  const key=crypto.createHash('sha256').update(String(item?.dedupeKey||item?._id||crypto.randomUUID())).digest('hex').slice(0,24);
+  return '#NEXANIME_STAGE:'+key;
+}
+async function waitNexCanalHandoff(item){
+  const d=await db(),c=d.collection(NEXCANAL_HANDOFF_COLLECTION);
+  const until=Date.now()+NEXCANAL_HANDOFF_TIMEOUT_MS;
+  while(Date.now()<until){
+    const row=await c.findOne({dedupeKey:item.dedupeKey});
+    if(row?.status==='done'&&Number(row?.resultMessageId)>0){
+      return {id:Number(row.resultMessageId),messageId:Number(row.resultMessageId),via:'nexcanal'};
+    }
+    if(row?.status==='failed')throw new Error('nexcanal_handoff_failed: '+String(row?.lastError||'unknown'));
+    await sleep(500);
+  }
+  throw new Error('nexcanal_handoff_timeout');
+}
+async function enqueueNexCanalHandoff(runtime,item,{type,sourceMessageId=0,caption=''}) {
+  await ensureIndexes();
+  const d=await db(),c=d.collection(NEXCANAL_HANDOFF_COLLECTION),now=new Date();
+  const existing=await c.findOne({dedupeKey:item.dedupeKey});
+  if(existing?.status==='done'&&Number(existing?.resultMessageId)>0){
+    return {id:Number(existing.resultMessageId),messageId:Number(existing.resultMessageId),via:'nexcanal'};
+  }
+  if(!existing||existing.status==='failed'){
+    await c.updateOne(
+      {dedupeKey:item.dedupeKey},
+      {
+        $set:{
+          status:'pending',type:String(type),fromChatId:String(runtime.account.telegramUserId),
+          sourceMessageId:Number(sourceMessageId||0),destination:'@'+DESTINATION,
+          caption:String(caption||''),parseMode:'HTML',itemId:String(item._id),
+          seriesKey:item.seriesKey||'',updatedAt:now,nextAttemptAt:now,lastError:null
+        },
+        $setOnInsert:{createdAt:now,attempts:0}
+      },
+      {upsert:true}
+    );
+  }
+  return waitNexCanalHandoff(item);
+}
+async function publishViaNexCanal(runtime,item,resolved){
+  const caption=await publicationCaption(item);
+  const stage=await nexCanalStageEntity(runtime);
+  const marker=nexCanalStageMarker(item);
+  let staged=null;
+  try{
+    if(item.synthetic===true){
+      if(!item.imageUrl){
+        return enqueueNexCanalHandoff(runtime,item,{type:'text',caption});
+      }
+      const response=await fetch(String(item.imageUrl),{signal:AbortSignal.timeout(15000)});
+      if(!response.ok)throw new Error('presentation_image_http_'+response.status);
+      const data=Buffer.from(await response.arrayBuffer());
+      if(data.length>10*1024*1024)throw new Error('presentation_image_too_large');
+      staged=await sendTelegramMedia(runtime.client,stage,data,{
+        fileName:'anime-presentation',mimeType:response.headers.get('content-type')||'',
+        kind:'image',caption:marker,workers:1
+      });
+    }else if(item.kind==='presentation'){
+      const message=resolved?.message;
+      if(!message?.photo){
+        return enqueueNexCanalHandoff(runtime,item,{type:'text',caption});
+      }
+      try{
+        staged=await runtime.client.sendFile(stage,{file:message.media,caption:marker,workers:1});
+      }catch{
+        const tmp=path.join(TMP_ROOT,'presentation-stage-'+crypto.randomUUID()+'.jpg');
+        await fs.mkdir(TMP_ROOT,{recursive:true});
+        try{
+          const out=await runtime.client.downloadMedia(message.media,{outputFile:tmp,workers:1});
+          const file=typeof out==='string'?out:tmp;
+          staged=await runtime.client.sendFile(stage,{file,caption:marker,workers:1});
+        }finally{await fs.rm(tmp,{force:true}).catch(()=>{})}
+      }
+    }else{
+      if(!(await mediaReuploadAllowed())){
+        const err=new Error('media_reupload_requires_authorized_policy');err.code='MEDIA_POLICY';throw err;
+      }
+      const message=resolved?.message;
+      if(!message?.media)throw new Error('source_media_missing');
+      try{
+        staged=await runtime.client.sendFile(stage,{
+          file:message.media,caption:marker,
+          forceDocument:item.mediaKind==='document',
+          supportsStreaming:item.mediaKind==='video'
+        });
+      }catch(directError){
+        const size=Number(message?.document?.size||0);
+        if(size>25*1024*1024){
+          const err=new Error('telegram_stage_copy_failed: '+String(directError?.message||directError));
+          err.code='DIRECT_COPY';throw err;
+        }
+        await fs.mkdir(TMP_ROOT,{recursive:true});
+        const finalName=item.cleanedFilename||safeFilename(item.title,item.season,item.episode,item.language,item.quality,filename(message));
+        const ext=path.extname(finalName)||'.bin';
+        const tmp=path.join(TMP_ROOT,'episode-stage-'+crypto.randomUUID()+ext);
+        try{
+          const out=await runtime.client.downloadMedia(message.media,{outputFile:tmp,workers:1});
+          const file=typeof out==='string'?out:tmp;
+          const data=await fs.readFile(file);
+          staged=await sendTelegramMedia(runtime.client,stage,data,{
+            fileName:finalName,mimeType:String(message?.document?.mimeType||''),
+            kind:item.mediaKind==='document'?'document':'auto',
+            caption:marker,workers:1
+          });
+        }finally{await fs.rm(tmp,{force:true}).catch(()=>{})}
+      }
+    }
+    const sourceMessageId=Number(staged?.id||staged?.messageId||0);
+    if(!sourceMessageId)throw new Error('nexcanal_stage_message_missing');
+    return await enqueueNexCanalHandoff(runtime,item,{type:'copy',sourceMessageId,caption});
+  }finally{
+    const sourceMessageId=Number(staged?.id||staged?.messageId||0);
+    if(sourceMessageId){
+      try{await runtime.client.deleteMessages(stage,[sourceMessageId],{revoke:true})}catch{}
+    }
+  }
+}
+
 async function publishOne(runtime){
   if(!isPublisherRuntime(runtime)||runtime.animeIngest?.publishing)return false;
   runtime.animeIngest ??={};
@@ -1452,16 +1586,12 @@ async function publishOne(runtime){
       await (await db()).collection('nexanime_queue').updateOne({_id:item._id},{$set:{status:'published',updatedAt:new Date(),deduplicated:true}});
       return true;
     }
-    const destination=await destinationEntity(runtime);
-    let sent;
-    if(item.synthetic===true){
-      sent=await publishSyntheticPresentation(runtime,item,destination);
-    }else{
-      const resolved=await resolveSource(runtime,item);
+    let resolved=null;
+    if(item.synthetic!==true){
+      resolved=await resolveSource(runtime,item);
       if(!resolved)throw new Error('source_message_unavailable_for_runtime');
-      if(item.kind==='presentation')sent=await publishPresentation(runtime,item,resolved,destination);
-      else sent=await publishEpisode(runtime,item,resolved,destination);
     }
+    const sent=await publishViaNexCanal(runtime,item,resolved);
     await markPublication(item,sent,runtime);
     runtime.animeIngest.lastPublishedAt=new Date();
     runtime.animeIngest.published=(runtime.animeIngest.published||0)+1;
@@ -1515,7 +1645,8 @@ export async function stopAnimeIngest(runtime){
 export function animeIngestStatus(runtime){
   const a=runtime?.animeIngest||{};
   return {
-    enabled:a.enabled===true,listener:a.listener===true,publisher:a.publisher===true,destination:a.destination||'@'+DESTINATION,
+    enabled:a.enabled===true,listener:a.listener===true,publisher:a.publisher===true,
+    publicPublisher:'@'+NEXCANAL_STAGE_BOT,destination:a.destination||'@'+DESTINATION,
     mediaPolicy:a.mediaPolicy||MEDIA_POLICY_DEFAULT,sources:a.sources||0,queued:a.queued||0,published:a.published||0,
     lastQueuedAt:a.lastQueuedAt||null,lastPublishedAt:a.lastPublishedAt||null,
     lastDiscoveryAt:a.lastDiscoveryAt||null,lastBackfillAt:a.lastBackfillAt||null,
