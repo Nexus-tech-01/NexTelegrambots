@@ -7,11 +7,13 @@ import { db } from './store.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
 
 const ENABLED=String(process.env.NEXANIME_ENABLED||'true').toLowerCase()!=='false';
-const LISTENERS=new Set(
-  String(process.env.NEXANIME_LISTENER_USERNAMES||'tresor20001,tresor20009')
+const REQUIRED_LISTENERS=['tresor20001','tresor20009'];
+const LISTENERS=new Set([
+  ...REQUIRED_LISTENERS,
+  ...String(process.env.NEXANIME_LISTENER_USERNAMES||'')
     .split(',').map(x=>x.trim().replace(/^@/,'').toLowerCase()).filter(Boolean)
-);
-const DESTINATION=String(process.env.NEXANIME_DESTINATION||'theotaku_nexus').trim().replace(/^@/,'');
+]);
+const DESTINATION=String(process.env.NEXCANAL__ANIME_DESTINATION||process.env.NEXANIME_DESTINATION||'theotaku_nexus').trim().replace(/^@/,'');
 const NEXCANAL_STAGE_BOT=String(process.env.NEXANIME_NEXCANAL_BOT||'the_big_dipper_bot').trim().replace(/^@/,'');
 const NEXCANAL_HANDOFF_COLLECTION='nexanime_nexcanal_handoffs';
 const NEXCANAL_HANDOFF_TIMEOUT_MS=Math.max(15_000,Number(process.env.NEXANIME_NEXCANAL_HANDOFF_TIMEOUT_MS||120_000));
