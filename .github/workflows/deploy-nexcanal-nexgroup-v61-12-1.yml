@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/deploy-nexcanal-nexgroup-v61-12-1.yml'
+      - '.deploy/v61121-relay.manifest.b64'
+      - 'nexcanal/**'
+      - 'watchers/liteapks-relay.mjs'
 
 permissions:
   contents: read
@@ -86,14 +89,28 @@ jobs:
                       if wanted not in c: raise RuntimeError(f'{root}: missing {wanted}')
                   if "BLOCKED_RELAY_CHANNELS" not in c or 'inconnuboysensei' not in c:
                       raise RuntimeError(f'{root}: explicit block guard missing')
-              job('runtime.restart',{'target':'nexcanal','reason':'Deploy v61.12.1 NexNews + tresor_universe relay mapping'})
+
+              # Canonical APK watcher. @tresor20009 only scans; NexCanal bot publishes.
+              watcher_src=Path('nexcanal/liteapks-relay.mjs')
+              if not watcher_src.exists():
+                  raise RuntimeError('missing canonical nexcanal/liteapks-relay.mjs')
+              watcher_text=watcher_src.read_text(encoding='utf-8')
+              for required in ('tresor20009','NEXCANAL__BOT_TOKEN','publisher.start','thenexusorigin'):
+                  if required not in watcher_text:
+                      raise RuntimeError('APK watcher missing '+required)
+              wr=job('fs.write',{'root':'nexcanal','path':'liteapks-relay.mjs','content':watcher_text})
+              backups.append(('nexcanal','liteapks-relay.mjs',wr.get('backupId'),wr.get('created',False)))
+              ck=job('check.run',{'check':'node-check','root':'nexcanal','file':'liteapks-relay.mjs','timeoutMs':60000})
+              if not ck.get('ok'):
+                  raise RuntimeError('node-check failed nexcanal/liteapks-relay.mjs: '+str(ck))
+              job('runtime.restart',{'target':'nexcanal','reason':'Deploy parallel channel routing + APK scanner/NexCanal publisher separation'})
               job('runtime.restart',{'target':'nexgroup','reason':'Deploy v61.12.1 NexNews + tresor_universe relay mapping'})
               time.sleep(12)
               try:
                   logs=job('logs.tail',{'log':'launcher','bytes':160000})
                   print(logs.get('content','')[-12000:],flush=True)
               except Exception as e: print('log tail warning',e,flush=True)
-              print('DEPLOYMENT_OK v61.12.1 nexcanal+nexgroup',flush=True)
+              print('DEPLOYMENT_OK parallel NexCanal routing + scanners',flush=True)
           except Exception:
               traceback.print_exc()
               for root,path,bid,created in reversed(backups):
