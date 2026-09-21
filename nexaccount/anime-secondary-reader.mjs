@@ -46,7 +46,7 @@ export async function startSecondaryAnimeReader(){
       startedAt:new Date(),
       secondaryAnimeReader:true,
       nexCanalHandoffWorker:true,
-      animeScanDisabled:false
+      animeScanDisabled:true
     };
     const started=await startAnimeIngest(local);
     if(!started){
