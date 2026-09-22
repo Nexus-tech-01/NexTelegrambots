@@ -14,39 +14,92 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify canonical chunk set
+      - name: Diagnose both reconstruction modes
         shell: bash
         run: |
-          set -euo pipefail
-          mapfile -t parts < <(printf '%s\n' render-src.b64.part-* | sort)
-          printf 'part_count=%s\n' "${#parts[@]}"
-          test "${#parts[@]}" -eq 9
-          printf '%s\n' "${parts[@]}"
+          set -u
+          : > /tmp/recovery-summary.txt
+          test_bundle() {
+            label="$1"
+            pattern="$2"
+            text="/tmp/${label}-concat.b64"
+            one="/tmp/${label}-decode-once.tar.xz"
+            each="/tmp/${label}-decode-each.tar.xz"
+            : > "$text"; : > "$each"
+            count=0
+            for part in $(printf '%s\n' $pattern | sort); do
+              [ -f "$part" ] || continue
+              count=$((count+1))
+              tr -d '\r\n' < "$part" >> "$text"
+              base64 --decode "$part" >> "$each" 2>/dev/null || true
+            done
+            rem=$(( $(wc -c < "$text") % 4 ))
+            if [ "$rem" -ne 0 ]; then printf '%*s' "$((4-rem))" '' | tr ' ' '=' >> "$text"; fi
+            base64 --decode "$text" > "$one" 2>/dev/null || true
+            echo "${label}_parts=${count}" | tee -a /tmp/recovery-summary.txt
+            for mode in decode-once decode-each; do
+              file="/tmp/${label}-${mode}.tar.xz"
+              set +e
+              xz -t "$file" >/dev/null 2>&1
+              ok=$?
+              set -e
+              echo "${label}_${mode}_xz_status=${ok}" | tee -a /tmp/recovery-summary.txt
+              dir="/tmp/${label}-${mode}-recover"
+              mkdir -p "$dir"
+              set +e
+              xz -dc "$file" 2>/dev/null | tar -x -C "$dir" 2>/dev/null
+              extract=$?
+              set -e
+              echo "${label}_${mode}_partial_extract_status=${extract}" | tee -a /tmp/recovery-summary.txt
+              for f in scripts/orchestrator.mjs scripts/preflight.mjs scripts/install-all.mjs scripts/build-all.mjs; do
+                if [ -f "$dir/$f" ]; then echo "${label}_${mode}_${f}=present"; else echo "${label}_${mode}_${f}=missing"; fi
+              done | tee -a /tmp/recovery-summary.txt
+              for bot in nexgame nexcanal nexdownloader nexgroup nexstick nexcanal-manager nexgroup-manager; do
+                if [ -d "$dir/bots/$bot" ]; then
+                  echo "${label}_${mode}_${bot}_files=$(find "$dir/bots/$bot" -type f | wc -l)"
+                else
+                  echo "${label}_${mode}_${bot}_files=0"
+                fi
+              done | tee -a /tmp/recovery-summary.txt
+              echo "${label}_${mode}_total_files=$(find "$dir" -type f | wc -l)" | tee -a /tmp/recovery-summary.txt
+            done
+          }
 
-      - name: Reconstruct and validate xz archive
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat render-src.b64.part-* | base64 --decode > /tmp/nexus-bots.tar.xz
-          xz -t /tmp/nexus-bots.tar.xz
-          tar -tJf /tmp/nexus-bots.tar.xz > /tmp/archive-files.txt
-          printf 'archive_file_count=%s\n' "$(wc -l < /tmp/archive-files.txt)"
-          for required in \
-            './scripts/orchestrator.mjs' \
-            './scripts/preflight.mjs' \
-            './scripts/install-all.mjs' \
-            './scripts/build-all.mjs' \
-            './bots/nexdownloader/requirements.txt'; do
-            grep -Fxq "$required" /tmp/archive-files.txt
-          done
+          test_bundle canonical 'render-src.b64.part-*'
+          test_bundle legacy 'nexus-bots-src.tar.xz.b64.part-*'
 
-      - name: Extract and verify five bot directories
+      - name: Package sanitized recovered source trees
+        if: always()
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p /tmp/nexus-app
-          tar -xJf /tmp/nexus-bots.tar.xz -C /tmp/nexus-app
-          for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do
-            test -d "/tmp/nexus-app/bots/$bot"
-            printf '%s=present\n' "$bot"
+          set -eu
+          mkdir -p recovery
+          cp /tmp/recovery-summary.txt recovery/summary.txt || true
+          for dir in /tmp/*-recover; do
+            [ -d "$dir" ] || continue
+            name=$(basename "$dir")
+            mkdir -p "recovery/$name"
+            tar -C "$dir" \
+              --exclude='.env' \
+              --exclude='.env.*' \
+              --exclude='node_modules' \
+              --exclude='*.pem' \
+              --exclude='*.key' \
+              --exclude='*.p12' \
+              --exclude='*.pfx' \
+              -cf - . | tar -C "recovery/$name" -xf -
           done
+          find recovery -type f -print | sort > recovery/files.txt
+
+      - name: Upload sanitized partial recovery
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-bundle-partial-recovery
+          path: recovery/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Keep validation red until a bundle is fully valid
+        shell: bash
+        run: exit 1
