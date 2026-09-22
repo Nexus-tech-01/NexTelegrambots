@@ -1,0 +1,26 @@
+[Unit]
+Description=Nexus Resource Watchdog
+After=network-online.target nexcontrol-agent.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nex
+Group=nex
+WorkingDirectory=/var/lib/nex
+Environment=NEXCONTROL_FLEET_ROOT=/var/lib/nex
+Environment=NEXCONTROL_AGENT_CONFIG=/etc/nex/nexcontrol-agent.json
+ExecStart=/usr/bin/node /opt/nex/current/nexcontrol/agent/resource-watchdog.mjs
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/nex/current /etc/nex
+ReadWritePaths=/var/lib/nex
+
+[Install]
+WantedBy=multi-user.target
