@@ -1,0 +1,26 @@
+[Unit]
+Description=Nexus NexControl Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nex
+Group=nex
+WorkingDirectory=/var/lib/nex
+Environment=NEXCONTROL_AGENT_CONFIG=/etc/nex/nexcontrol-agent.json
+EnvironmentFile=-/etc/nex/env/nexcontrol-agent.env
+ExecStart=/usr/bin/node /opt/nex/current/nexcontrol/agent/index.mjs
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/nex /backups/nex
+ReadOnlyPaths=/opt/nex/current /etc/nex
+
+[Install]
+WantedBy=multi-user.target
