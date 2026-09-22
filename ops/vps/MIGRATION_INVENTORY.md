@@ -11,13 +11,15 @@ This document prevents a VPS migration from accidentally deploying an obsolete o
 | Telegram bot fleet / NexAccount / NexCanal / current NexControl Agent | `main` | Treat as the current Telegram baseline. Validate before deployment. |
 | NexMeta / Facebook-Messenger bridge / Nexus bridge / Pterodactyl supervisor | `feature/nexmeta-v1` | Preserve as a separate source island for now. Port the runtime to the VPS only after reconciling with `main`. |
 | NexControl feature lineage used by NexMeta | `feature/nexcontrol-v1` | Historical/feature base. Do not replace the newer `main` agent blindly. |
+| Early NexAccount feature branch | `feature/nexaccount-v1` | Older divergent lineage: 31 commits ahead of its old merge base but 260 commits behind current `main`. Do not deploy it instead of `main`. |
+| NexDownloader inline investigation branch | `feature/nexdownloader-inline` | Diagnostic workflow branch only; currently far behind `main` and not a production source. |
 | Old Render recovery branches and diagnostic PRs | diagnostic/repair branches | Recovery evidence only. Do not use as production source without explicit verification. |
 | NID marketplace | `Nexus-tech-01/Project-02` | Separate product. Not part of the bot VPS cutover unless explicitly scheduled. |
 | Nexus Tech public site | `Nexus-tech-01/Site-officiel-` | Separate web deployment. Not part of the bot runtime cutover. |
 
 ## Important divergence
 
-`main` and `feature/nexmeta-v1` have diverged substantially. The NexMeta branch contains the Facebook/Messenger runtime, companion bridge and `nexus-bridge`, while `main` contains later Telegram/NexAccount/NexControl work. Neither branch should overwrite the other wholesale.
+`main` and `feature/nexmeta-v1` have diverged substantially. At this audit point the branches have a common historical base but hundreds of commits on each side. The NexMeta branch contains the Facebook/Messenger runtime, companion bridge and `nexus-bridge`, while `main` contains later Telegram/NexAccount/NexControl work. Neither branch should overwrite the other wholesale.
 
 The VPS migration must therefore happen in two stages:
 
