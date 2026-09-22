@@ -51,10 +51,12 @@ jobs:
           print('VPS_CONFIG_OK')
           PY
 
-      - name: NexControl agent syntax
+      - name: Node syntax and migration audit
         run: |
           node --check nexcontrol/agent/index.mjs
           node --check nexcontrol/agent/resource-watchdog.mjs
+          node --check ops/vps/audit-repository.mjs
+          node ops/vps/audit-repository.mjs .
 
       - name: Secret-template guard
         run: |
