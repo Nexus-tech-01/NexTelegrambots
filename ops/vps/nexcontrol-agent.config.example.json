@@ -1,0 +1,119 @@
+{
+  "controlUrl": "https://nexcontrol-ochre.vercel.app",
+  "controlUrls": [
+    "https://nexcontrol-ochre.vercel.app",
+    "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol"
+  ],
+  "primaryReprobeMs": 300000,
+  "agentSlug": "nexus-vps-primary",
+  "agentName": "Nexus VPS Primary",
+  "pollMs": 2500,
+  "heartbeatMs": 30000,
+  "maxReadBytes": 4194304,
+  "maxSearchFiles": 8000,
+  "backupDir": "/backups/nex/nexcontrol-agent",
+  "roots": {
+    "nexus": "/opt/nex/current",
+    "nexaccount": "/opt/nex/current/nexaccount",
+    "nexcanal": "/opt/nex/current/nexcanal",
+    "nexcontrol": "/opt/nex/current/nexcontrol",
+    "nexgroup": "/opt/nex/current/bots/nexgroup",
+    "nexgame": "/opt/nex/current/bots/nexgame",
+    "nexdownloader": "/opt/nex/current/bots/nexdownloader",
+    "nexstick": "/opt/nex/current/bots/nexstick",
+    "nexwhisper": "/opt/nex/current/bots/nexwhisper",
+    "stacy": "/opt/nex/current/bots/stacy"
+  },
+  "logFiles": {
+    "launcher": "/var/lib/nex/logs/launcher.log"
+  },
+  "safeChecks": {
+    "node-check": {
+      "command": "node",
+      "args": ["--check", "{file}"]
+    },
+    "npm-test": {
+      "command": "npm",
+      "args": ["test"],
+      "cwdRoot": "{root}"
+    }
+  },
+  "restartHook": {
+    "mode": "file",
+    "path": "/var/lib/nex/runtime/nexcontrol/control/restart.json"
+  },
+  "allowExec": true,
+  "execAllowlist": [
+    "node",
+    "npm",
+    "npx",
+    "git",
+    "python3",
+    "pip3",
+    "ffmpeg",
+    "ffprobe",
+    "yt-dlp",
+    "gallery-dl"
+  ],
+  "allowDependencyInstall": true,
+  "resourceWatchdog": {
+    "intervalMs": 15000,
+    "diskPath": ".",
+    "stateFile": "runtime/nexcontrol/resource-watchdog.json",
+    "restartHook": "runtime/nexcontrol/control/restart.json",
+    "thresholds": {
+      "memoryWarn": 75,
+      "memoryRelief": 85,
+      "memoryCritical": 92,
+      "memoryEmergency": 96,
+      "diskWarn": 75,
+      "diskCleanup": 80,
+      "diskCritical": 90,
+      "diskEmergency": 95
+    },
+    "actionCooldownMs": 600000,
+    "criticalCooldownMs": 180000,
+    "minimumRestartRssMb": 200,
+    "requireSupervisedParent": true,
+    "parentPatterns": [
+      "scripts/orchestrator.mjs",
+      "orchestrator.mjs",
+      "fleet-launcher.mjs"
+    ],
+    "includeCmdline": [
+      "/opt/nex/current/bots/",
+      "/opt/nex/current/nexaccount/"
+    ],
+    "excludeCmdline": [
+      "nexcontrol/agent",
+      "resource-watchdog",
+      "fleet-launcher"
+    ],
+    "cleanupTargets": [
+      {
+        "path": "runtime/nexcontrol/backups",
+        "minAgeMinutes": 10080,
+        "keepNewest": 50,
+        "maxBytes": 1073741824
+      },
+      {
+        "path": "runtime/nexcontrol/tmp",
+        "minAgeMinutes": 120,
+        "keepNewest": 0,
+        "maxBytes": 268435456
+      },
+      {
+        "path": "downloads",
+        "minAgeMinutes": 720,
+        "keepNewest": 2,
+        "maxBytes": 2147483648
+      },
+      {
+        "path": "cache",
+        "minAgeMinutes": 120,
+        "keepNewest": 0,
+        "maxBytes": 1073741824
+      }
+    ]
+  }
+}
