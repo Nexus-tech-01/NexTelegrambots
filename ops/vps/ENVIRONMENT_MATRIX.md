@@ -7,11 +7,11 @@ The VPS should not use one giant `.env` copied from the old host. Split variable
 Recommended file: `/etc/nex/env/shared.env`
 
 - `NEXUS_MONGODB_URI` — secret
-- `NEXUS_MONGODB_DB_NAME` — non-secret database name
+- `NEXUS_MONGODB_DB_NAME` — non-secret database name where a service consumes it
 - Redis URLs used by individual bots — secret
 - `NEXUS_PUBLIC_BASE_URL` — public configuration, only after HTTPS routing exists
 
-Do not print connection strings during health checks.
+Use `ops/vps/shared.env.example` as the starting template. Do not print connection strings during health checks.
 
 ## NexControl Agent
 
@@ -29,6 +29,8 @@ The agent key should not be committed and does not need to be shared with bot pr
 
 Recommended file: `/etc/nex/env/nexaccount.env`
 
+Use `ops/vps/nexaccount.env.example` as the starting template.
+
 Secrets:
 
 - `NEXACCOUNT_TELEGRAM_API_ID`
@@ -43,11 +45,14 @@ Non-secret/runtime configuration:
 - `NEXAI_BOT_USERNAME`
 - `NEXAI_DEFAULT_STYLE`
 - `NEXACCOUNT_DB_NAME`
-- worker/sharding values (`NEXACCOUNT_WORKER_COUNT`, `NEXACCOUNT_WORKER_INDEX`, `NEXACCOUNT_WORKER_ID`)
+- `NEXACCOUNT_WORKER_COUNT`
 - worker capacity and reconcile/lease timing
+- `NEXACCOUNT_RUNTIME_DIR=/var/lib/nex/runtime/nexaccount`
 - `FFMPEG_PATH=ffmpeg`
 
-All workers share the same worker count. Each worker gets a unique worker index. Worker `0` remains the coordinator unless the implementation is deliberately changed.
+The systemd instance `nexaccount@N.service` supplies `NEXACCOUNT_WORKER_INDEX=N` and a stable host/index worker ID. Do not put one global `NEXACCOUNT_WORKER_INDEX` into the shared NexAccount environment file.
+
+All workers share the same worker count. Each worker gets a unique worker index. Worker `0` remains the coordinator. Stop the full worker set before changing `NEXACCOUNT_WORKER_COUNT`; otherwise bucket ownership changes while old workers are still live.
 
 ## NexAnime / scanners
 
@@ -70,9 +75,10 @@ For the VPS set file-backed paths explicitly instead of relying on provider defa
 ```env
 NEXANIME_TMP_DIR=/var/lib/nex/downloads/nexanime-tmp
 NEXANIME_SECONDARY_SESSION_FILE=/var/lib/nex/sessions/nexcanal-reader-session.txt
+NEXCANAL__WATCHER_ID_FILE=/var/lib/nex/sessions/nexcanal-watcher-id.txt
 ```
 
-The current secondary reader otherwise falls back to the old provider path `/home/container/.nexcontrol/nexcanal-reader-session.txt`.
+The current secondary reader otherwise falls back to the old provider path `/home/container/.nexcontrol/nexcanal-reader-session.txt`. The NexAccount store also has a legacy watcher-ID fallback under `/home/container`, so the VPS must set `NEXCANAL__WATCHER_ID_FILE` explicitly until that legacy fallback is removed in a later compatibility cleanup.
 
 ## Telegram bot fleet
 
