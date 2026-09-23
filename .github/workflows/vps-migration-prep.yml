@@ -40,6 +40,7 @@ jobs:
           bash -n ops/vps/export-bot-source.sh
           bash -n ops/vps/restart-dispatcher.sh
           bash -n ops/vps/pre-cutover.sh
+          bash -n ops/vps/prepare-runtime.sh
 
       - name: JSON syntax and watchdog safety
         run: |
@@ -68,6 +69,15 @@ jobs:
           node --check ops/vps/audit-repository.mjs
           node --check ops/vps/check-nexaccount-workers.mjs
           node ops/vps/audit-repository.mjs .
+          node - <<'NODE'
+          const pkg=require('./nexaccount/package.json');
+          const lock=require('./nexaccount/package-lock.json');
+          if(pkg.version!==lock.version)throw new Error('NexAccount package/lock version mismatch');
+          if(JSON.stringify(pkg.dependencies)!==JSON.stringify(lock.packages[''].dependencies)){
+            throw new Error('NexAccount package/lock dependency mismatch');
+          }
+          console.log('NEXACCOUNT_LOCKFILE_METADATA_OK');
+          NODE
 
       - name: NexAccount lifecycle invariants
         run: |
