@@ -129,6 +129,14 @@ else
   bad "restart dispatcher path is not active"
 fi
 
+if systemctl is-active --quiet nex-restart-dispatcher.path && [[ -f "$repo_root/ops/vps/test-restart-bridge.sh" ]]; then
+  if bash "$repo_root/ops/vps/test-restart-bridge.sh"; then
+    ok "restart request bridge consumed a safe unmapped self-test"
+  else
+    bad "restart request bridge self-test failed"
+  fi
+fi
+
 if systemctl is-active --quiet nexcontrol-agent.service; then
   ok "NexControl Agent service is active"
 else
