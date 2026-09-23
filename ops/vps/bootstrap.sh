@@ -37,7 +37,9 @@ install -d -o nex -g nex -m 0750 \
   /var/lib/nex/logs
 install -d -o root -g nex -m 0750 /etc/nex /etc/nex/env /etc/nex/secrets
 install -d -o root -g root -m 0750 /etc/nex/restart-targets.d
-install -d -o root -g root -m 0700 /backups/nex /backups/nex/staging
+install -d -o root -g nex -m 0750 /backups/nex
+install -d -o nex -g nex -m 0750 /backups/nex/nexcontrol-agent
+install -d -o root -g root -m 0700 /backups/nex/staging
 
 # Runtime/control directories used by NexControl Agent and watchdog.
 install -d -o nex -g nex -m 0750 \
