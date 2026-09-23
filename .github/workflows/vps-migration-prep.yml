@@ -7,11 +7,15 @@ on:
     paths:
       - 'ops/vps/**'
       - 'nexcontrol/agent/**'
+      - 'nexaccount/bootstrap.mjs'
+      - 'nexaccount/secure-rpc.mjs'
       - '.github/workflows/vps-migration-prep.yml'
   pull_request:
     paths:
       - 'ops/vps/**'
       - 'nexcontrol/agent/**'
+      - 'nexaccount/bootstrap.mjs'
+      - 'nexaccount/secure-rpc.mjs'
       - '.github/workflows/vps-migration-prep.yml'
 
 permissions:
@@ -55,8 +59,24 @@ jobs:
         run: |
           node --check nexcontrol/agent/index.mjs
           node --check nexcontrol/agent/resource-watchdog.mjs
+          node --check nexaccount/bootstrap.mjs
+          node --check nexaccount/secure-rpc.mjs
           node --check ops/vps/audit-repository.mjs
+          node --check ops/vps/check-nexaccount-workers.mjs
           node ops/vps/audit-repository.mjs .
+
+      - name: NexAccount VPS invariants
+        run: |
+          grep -q 'NEXACCOUNT_RUNTIME_DIR=/var/lib/nex/runtime/nexaccount' ops/vps/nexaccount.env.example
+          grep -q 'NEXANIME_SECONDARY_SESSION_FILE=/var/lib/nex/sessions/' ops/vps/nexaccount.env.example
+          grep -q 'NEXCANAL__WATCHER_ID_FILE=/var/lib/nex/sessions/' ops/vps/nexaccount.env.example
+          grep -q 'Environment=NEXACCOUNT_WORKER_INDEX=%i' ops/vps/systemd/nexaccount@.service
+          grep -q 'ReadOnlyPaths=/opt/nex/current /etc/nex' ops/vps/systemd/nexaccount@.service
+          if grep -q 'systemctl enable.*nexaccount@' ops/vps/install-systemd.sh; then
+            echo 'NexAccount workers must not be auto-enabled during prep' >&2
+            exit 1
+          fi
+          echo 'NEXACCOUNT_VPS_INVARIANTS_OK'
 
       - name: Secret-template guard
         run: |
