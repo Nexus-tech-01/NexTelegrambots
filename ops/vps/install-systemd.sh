@@ -51,6 +51,7 @@ if [[ ! -f /etc/nex/env/backup.env ]]; then
 fi
 
 install -d -o nex -g nex -m 0750 /var/lib/nex/runtime/nexaccount
+install -d -o nex -g nex -m 0750 /var/lib/nex/recovery
 install -d -o nex -g nex -m 0750 /var/lib/nex/downloads/nexanime-tmp
 install -d -o root -g nex -m 0750 /backups/nex
 install -d -o nex -g nex -m 0750 /backups/nex/nexcontrol-agent
