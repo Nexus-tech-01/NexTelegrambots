@@ -63,17 +63,16 @@ if [[ ! -f /etc/nex/restart-targets.d/all.list ]]; then
 fi
 
 systemctl daemon-reload
-systemctl enable nexcontrol-agent.service nex-resource-watchdog.service nex-restart-dispatcher.path
 
 cat <<'EOF'
-Systemd units installed.
+Systemd units installed and configuration templates prepared.
 
-Enabled for future boot:
+Nothing was enabled or started automatically.
+
+Deliberately NOT enabled or started:
   nexcontrol-agent.service
   nex-resource-watchdog.service
   nex-restart-dispatcher.path
-
-Deliberately NOT enabled or started:
   nexaccount@*.service
   nex-backup.timer
 
@@ -83,8 +82,8 @@ Before starting NexControl Agent:
   3. confirm /opt/nex/current is the intended release
 
 Then:
-  systemctl start nex-restart-dispatcher.path
-  systemctl start nexcontrol-agent
+  systemctl enable --now nex-restart-dispatcher.path
+  systemctl enable --now nexcontrol-agent
   journalctl -u nexcontrol-agent -f
 
 Before starting NexAccount:
@@ -104,6 +103,6 @@ Before enabling backups:
   4. restore-test that encrypted backup elsewhere
   5. only then: systemctl enable --now nex-backup.timer
 
-Start the resource watchdog only after runtime paths are verified:
-  systemctl start nex-resource-watchdog
+Enable the resource watchdog only after runtime paths are verified:
+  systemctl enable --now nex-resource-watchdog
 EOF
