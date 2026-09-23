@@ -76,7 +76,7 @@ NexAccount mutable pairing/runtime state can be moved out of the Git checkout th
 13. Add further NexAccount workers only after the one-worker cutover is stable.
 14. Recover the actual old five-bot source from the current runtime using `BOT_SOURCE_RECOVERY.md`; do not deploy the broken Git bundle.
 15. Normalize that recovered source into ordinary Git directories and pass clean build/preflight tests.
-16. Migrate the legacy bot fleet one service at a time only after step 14.
+16. Migrate the legacy bot fleet one service at a time only after step 15.
 17. Move remaining scanners/watchers.
 18. Reconcile and port NexMeta/other platform bridges as stage 2.
 19. Rotate/revoke historically exposed production credentials according to `SECRET_ROTATION.md` without breaking the current live path.
