@@ -19,7 +19,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/nex/current /var/lib/nex /backups/nex
+ReadWritePaths=/opt/nex/current /var/lib/nex /backups/nex/nexcontrol-agent
 ReadOnlyPaths=/etc/nex
 
 [Install]
