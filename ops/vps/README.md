@@ -50,6 +50,9 @@ This migration branch now contains:
 - worker health verifier;
 - repository migration auditor;
 - sanitized old-server bot-source exporter;
+- recovered-source archive verifier, structural inspector and persistent review staging;
+- non-secret RAM/CPU runtime footprint profiler and capacity-planning procedure;
+- public Nexus listener audit;
 - encrypted `age` backup script plus systemd service/timer;
 - NexMeta/Pterodactyl-to-VPS porting/reconciliation notes;
 - current NexControl Vercel control-plane audit;
@@ -75,13 +78,15 @@ NexAccount mutable pairing/runtime state can be moved out of the Git checkout th
 12. Cut over NexAccount using `NEXACCOUNT_WORKERS.md`: stop the old session-bearing runtime first, then start worker 0 on the VPS and validate health.
 13. Add further NexAccount workers only after the one-worker cutover is stable.
 14. Recover the actual old five-bot source from the current runtime using `BOT_SOURCE_RECOVERY.md`; do not deploy the broken Git bundle.
-15. Normalize that recovered source into ordinary Git directories and pass clean build/preflight tests.
-16. Migrate the legacy bot fleet one service at a time only after step 15.
-17. Move remaining scanners/watchers.
-18. Reconcile and port NexMeta/other platform bridges as stage 2.
-19. Rotate/revoke historically exposed production credentials according to `SECRET_ROTATION.md` without breaking the current live path.
-20. Configure and restore-test the encrypted off-host backup flow described in `BACKUP_PLAN.md`.
-21. Enable the resource watchdog and backup timer before declaring the migration complete.
+15. Verify and stage the recovered archive with `verify-recovered-archive.sh` / `stage-recovered-source.sh`; inspect the generated manifest before any Git import.
+16. Normalize that verified source into ordinary Git directories and pass clean install/build/preflight tests.
+17. Profile the recovered services under representative load using `profile-runtime-footprint.py` before deciding final VPS placement.
+18. Migrate the legacy bot fleet one service at a time only after step 16.
+19. Move remaining scanners/watchers.
+20. Reconcile and port NexMeta/other platform bridges as stage 2.
+21. Rotate/revoke historically exposed production credentials according to `SECRET_ROTATION.md` without breaking the current live path.
+22. Configure and restore-test the encrypted off-host backup flow described in `BACKUP_PLAN.md`.
+23. Enable the resource watchdog and backup timer before declaring the migration complete.
 
 ## NexAccount first-start example
 
@@ -115,6 +120,8 @@ Do not mark the VPS ready until all of these are true:
 - `age` and `rsync` are available for encrypted recovery copies.
 - `/opt/nex`, `/var/lib/nex`, `/etc/nex`, `/backups/nex` exist with controlled ownership.
 - NexControl Agent reaches the control plane and reports a heartbeat.
+- NexControl Agent, NexAccount control and NexAccount session-encryption keys use separate trust boundaries.
+- no unexpected Nexus service is publicly listening during stage 1; NexAccount worker ports remain loopback-only.
 - secrets are absent from Git and readable only by the runtime account/root as intended.
 - MongoDB and Redis connectivity is verified without printing credentials.
 - NexAccount worker health reports the configured worker index/count consistently.
