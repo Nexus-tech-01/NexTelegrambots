@@ -45,7 +45,8 @@ jobs:
             ops/vps/prepare-runtime.sh \
             ops/vps/activate-control-plane.sh \
             ops/vps/start-nexaccount-cutover.sh \
-            ops/vps/rollback-nexaccount-cutover.sh
+            ops/vps/rollback-nexaccount-cutover.sh \
+            ops/vps/audit-listeners.sh
           do
             bash -n "$f"
           done
