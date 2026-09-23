@@ -65,7 +65,7 @@ NexAccount mutable pairing/runtime state can be moved out of the Git checkout th
 2. Run `sudo bash ops/vps/bootstrap.sh`.
 3. Copy the repository to `/opt/nex/current` or clone it there.
 4. Run `node ops/vps/audit-repository.mjs .` and review all warnings.
-5. Run `sudo -u nex bash ops/vps/prepare-runtime.sh` to install locked NexAccount dependencies and execute the local regression suite.
+5. Run `runuser -u nex -- bash ops/vps/prepare-runtime.sh` to install locked NexAccount dependencies and execute the local regression suite.
 6. Run `sudo bash ops/vps/install-systemd.sh`.
 7. Fill real secrets in `/etc/nex/env/*.env` with mode `0600` or `0640`.
 8. Review `/etc/nex/nexcontrol-agent.json`.
@@ -90,7 +90,7 @@ With `NEXACCOUNT_WORKER_COUNT=1`:
 ```sh
 sudo systemctl start nexaccount@0
 sudo journalctl -u nexaccount@0 -n 100 --no-pager
-sudo -u nex node /opt/nex/current/ops/vps/check-nexaccount-workers.mjs 1
+runuser -u nex -- node /opt/nex/current/ops/vps/check-nexaccount-workers.mjs 1
 ```
 
 Do **not** run that cutover command while the same persistent MTProto sessions are still active on the old server.
