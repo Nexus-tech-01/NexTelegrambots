@@ -16,7 +16,7 @@ apt-get update
 apt-get install -y --no-install-recommends \
   ca-certificates curl git jq rsync unzip xz-utils age \
   python3 python3-pip python3-venv \
-  ffmpeg procps lsof iproute2
+  ffmpeg procps lsof iproute2 util-linux
 rm -rf /var/lib/apt/lists/*
 
 if ! getent group nex >/dev/null; then
