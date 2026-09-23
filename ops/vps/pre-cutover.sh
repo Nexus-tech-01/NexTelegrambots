@@ -93,6 +93,12 @@ for key in NEXACCOUNT_TELEGRAM_API_ID NEXACCOUNT_TELEGRAM_API_HASH NEXACCOUNT_SE
   if env_has_value "$nex_env" "$key"; then ok "$key configured"; else bad "$key is empty"; fi
 done
 
+dedicated_keys="$(awk -F= '$1=="NEXACCOUNT_REQUIRE_DEDICATED_KEYS"{gsub(/[[:space:]]/,"",$2);print tolower($2)}' "$nex_env" 2>/dev/null | tail -1)"
+case "$dedicated_keys" in
+  1|true|yes|on) ok "NexAccount dedicated-key enforcement is enabled" ;;
+  *) bad "NEXACCOUNT_REQUIRE_DEDICATED_KEYS must be true on the VPS" ;;
+esac
+
 session_key="$(awk -F= '$1=="NEXACCOUNT_SESSION_KEY"{v=substr($0,index($0,"=")+1);gsub(/^[[:space:]]+|[[:space:]]+$/,"",v);print v}' "$nex_env" | tail -1)"
 control_key="$(awk -F= '$1=="NEXACCOUNT_CONTROL_KEY"{v=substr($0,index($0,"=")+1);gsub(/^[[:space:]]+|[[:space:]]+$/,"",v);print v}' "$nex_env" | tail -1)"
 agent_key="$(awk -F= '$1=="NEXCONTROL_AGENT_KEY"{v=substr($0,index($0,"=")+1);gsub(/^[[:space:]]+|[[:space:]]+$/,"",v);print v}' "$agent_env" | tail -1)"
