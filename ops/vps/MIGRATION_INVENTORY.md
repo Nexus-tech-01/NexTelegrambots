@@ -55,9 +55,12 @@ The current 9 Render chunks are unchanged relative to the old validated commit l
 
 Known recovery branches are also incomplete evidence:
 
-- `repair/five-bots-final-v2` contains only the first segment set of a larger recovery attempt; its PR explicitly states later parts were still missing.
-- `repair/healthy-five-bot-runtime` contains only a single runtime-transfer part in the branch comparison.
-- `render-runtime-v2` and `render-final-v7` contain small diagnostic candidate sets, not a demonstrated complete fleet.
+- `render-final-v7` (PR #3) contained only 2 candidate parts. Historical CI reconstructed 14,100 bytes and `xz -t` failed for both decode-once and decode-each modes.
+- `render-runtime-v2` (PR #4) contained only 3 candidate parts. Historical CI reconstructed 27,000 bytes and `xz -t` again failed for both modes.
+- `repair/five-bots-final-v2` (PR #5) was explicitly gated on exactly 58 `runtime-src` parts, but only parts `00` through `32` were present. Its verification failed at the exact-part-count step before archive verification/build.
+- `repair/healthy-five-bot-runtime` contains only a single runtime-transfer part in the current branch comparison.
+
+None of those branches is a complete production source of truth.
 
 See `BOT_SOURCE_RECOVERY.md` before trying to deploy the old five-bot fleet.
 
