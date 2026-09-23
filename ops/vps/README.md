@@ -6,7 +6,9 @@ This directory prepares the Nexus Telegram/automation stack for migration from t
 
 Primary repository: `Nexus-tech-01/NexTelegrambots`.
 
-The current default branch contains the active Telegram/NexAccount/NexControl work. Facebook/NexMeta work currently lives on `feature/nexmeta-v1` and is intentionally **not** merged by this migration-prep branch. See `MIGRATION_INVENTORY.md` before promoting any source to production.
+The current default branch contains the active directly-versioned NexAccount/NexControl work. Facebook/NexMeta work currently lives on `feature/nexmeta-v1` and is intentionally **not** merged by this migration-prep branch.
+
+The old five-bot Render fleet is a separate recovery problem: historical CI proved the checked-in bundle is incomplete/corrupt. See `MIGRATION_INVENTORY.md` and `BOT_SOURCE_RECOVERY.md`.
 
 ## Target filesystem
 
@@ -47,8 +49,10 @@ This migration branch now contains:
 - NexAccount/shared environment templates with blank secrets;
 - worker health verifier;
 - repository migration auditor;
+- sanitized old-server bot-source exporter;
 - encrypted `age` backup script plus systemd service/timer;
-- NexMeta/Pterodactyl-to-VPS porting notes.
+- NexMeta/Pterodactyl-to-VPS porting/reconciliation notes;
+- network exposure model.
 
 NexAccount mutable pairing/runtime state can be moved out of the Git checkout through `NEXACCOUNT_RUNTIME_DIR`. Existing deployments keep their old behavior when that variable is absent.
 
@@ -63,14 +67,16 @@ NexAccount mutable pairing/runtime state can be moved out of the Git checkout th
 7. Review `/etc/nex/nexcontrol-agent.json`.
 8. Run `sudo bash ops/vps/validate-host.sh`.
 9. Start **NexControl Agent first** and verify its heartbeat before any bot runtime.
-10. Deploy one low-risk bot/service and verify logs, restart, persistence and outbound connectivity.
-11. Move the bot fleet.
-12. Cut over NexAccount using `NEXACCOUNT_WORKERS.md`: stop the old session-bearing runtime first, then start worker 0 on the VPS and validate health.
-13. Add further NexAccount workers only after the one-worker cutover is stable.
-14. Move scanners/watchers.
-15. Reconcile and port NexMeta/other platform bridges as stage 2.
-16. Configure and restore-test the encrypted off-host backup flow described in `BACKUP_PLAN.md`.
-17. Enable the resource watchdog and backup timer before declaring the migration complete.
+10. Deploy one low-risk directly-versioned service and verify logs, restart, persistence and outbound connectivity.
+11. Cut over NexAccount using `NEXACCOUNT_WORKERS.md`: stop the old session-bearing runtime first, then start worker 0 on the VPS and validate health.
+12. Add further NexAccount workers only after the one-worker cutover is stable.
+13. Recover the actual old five-bot source from the current runtime using `BOT_SOURCE_RECOVERY.md`; do not deploy the broken Git bundle.
+14. Normalize that recovered source into ordinary Git directories and pass clean build/preflight tests.
+15. Migrate the legacy bot fleet one service at a time only after step 14.
+16. Move remaining scanners/watchers.
+17. Reconcile and port NexMeta/other platform bridges as stage 2.
+18. Configure and restore-test the encrypted off-host backup flow described in `BACKUP_PLAN.md`.
+19. Enable the resource watchdog and backup timer before declaring the migration complete.
 
 ## NexAccount first-start example
 
@@ -111,16 +117,17 @@ Do not mark the VPS ready until all of these are true:
 - pairing private-key state is outside the immutable code tree on the VPS.
 - the disk/RAM watchdog is active and cannot delete persistent session data.
 - at least one encrypted backup has been copied off the runtime host and restore-tested.
+- the old five-bot fleet is not considered migrated until a complete normalized source tree passes a clean build.
 
 ## Deliberately deferred
 
 This branch does not:
 
 - merge `feature/nexmeta-v1` into `main`;
-- rewrite or delete the legacy Render source bundles yet;
+- pretend the legacy Render bundles are healthy;
 - rotate production secrets automatically;
 - copy live sessions from the current server;
 - start production Telegram/Facebook/WhatsApp accounts;
-- guess bot-fleet systemd entrypoints that are still hidden inside the legacy bundle.
+- guess bot-fleet systemd entrypoints that are still hidden/incomplete.
 
 Those actions require either the real VPS or a verified source extraction/cutover window.
