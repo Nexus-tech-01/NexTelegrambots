@@ -102,8 +102,8 @@ jobs:
               raise SystemExit('NexControl Agent must stay excluded from watchdog candidates')
           print('WATCHDOG_SYSTEMD_POLICY_OK')
           PY
-          if grep -q 'systemctl enable.*nexaccount@' ops/vps/install-systemd.sh; then
-            echo 'NexAccount workers must not be auto-enabled during prep' >&2
+          if grep -qE 'systemctl[[:space:]]+enable' ops/vps/install-systemd.sh; then
+            echo 'install-systemd.sh must install only; service activation happens after validation' >&2
             exit 1
           fi
           echo 'NEXACCOUNT_VPS_INVARIANTS_OK'
