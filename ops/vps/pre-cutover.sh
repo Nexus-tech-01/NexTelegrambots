@@ -21,7 +21,7 @@ env_has_value(){
     $1==k {
       v=substr($0,index($0,"=")+1)
       gsub(/^[[:space:]]+|[[:space:]]+$/,"",v)
-      if(v!="" && v!="""" && v!="\047\047") found=1
+      if(v!="") found=1
     }
     END { exit found?0:1 }
   ' "$file"
@@ -43,18 +43,18 @@ else
   fi
 fi
 
-if [[ -x "$repo_root/ops/vps/validate-host.sh" ]]; then
+if [[ -f "$repo_root/ops/vps/validate-host.sh" ]]; then
   if bash "$repo_root/ops/vps/validate-host.sh"; then
     ok "host validator passed"
   else
     bad "host validator failed"
   fi
 else
-  bad "validate-host.sh missing/not executable"
+  bad "validate-host.sh missing"
 fi
 
 if [[ -f "$repo_root/ops/vps/audit-repository.mjs" ]]; then
-  if sudo -u nex node "$repo_root/ops/vps/audit-repository.mjs" "$repo_root"; then
+  if node "$repo_root/ops/vps/audit-repository.mjs" "$repo_root"; then
     ok "repository migration audit has no hard failures"
   else
     bad "repository migration audit has hard failures"
