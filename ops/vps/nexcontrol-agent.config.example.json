@@ -30,11 +30,16 @@
   "safeChecks": {
     "node-check": {
       "command": "node",
-      "args": ["--check", "{file}"]
+      "args": [
+        "--check",
+        "{file}"
+      ]
     },
     "npm-test": {
       "command": "npm",
-      "args": ["test"],
+      "args": [
+        "test"
+      ],
       "cwdRoot": "{root}"
     }
   },
@@ -74,12 +79,8 @@
     "actionCooldownMs": 600000,
     "criticalCooldownMs": 180000,
     "minimumRestartRssMb": 200,
-    "requireSupervisedParent": true,
-    "parentPatterns": [
-      "scripts/orchestrator.mjs",
-      "orchestrator.mjs",
-      "fleet-launcher.mjs"
-    ],
+    "requireSupervisedParent": false,
+    "parentPatterns": [],
     "includeCmdline": [
       "/opt/nex/current/bots/",
       "/opt/nex/current/nexaccount/"
