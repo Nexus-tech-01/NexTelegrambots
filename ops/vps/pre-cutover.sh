@@ -157,6 +157,16 @@ else
 fi
 
 control_url=""
+if [[ -f "$repo_root/ops/vps/audit-listeners.sh" ]]; then
+  if bash "$repo_root/ops/vps/audit-listeners.sh"; then
+    ok "no unexpected public Nexus listener detected"
+  else
+    bad "unexpected public Nexus listener detected"
+  fi
+else
+  bad "audit-listeners.sh missing"
+fi
+
 if [[ -f /etc/nex/nexcontrol-agent.json ]]; then
   if jq empty /etc/nex/nexcontrol-agent.json >/dev/null 2>&1; then
     ok "NexControl Agent JSON config is valid"
