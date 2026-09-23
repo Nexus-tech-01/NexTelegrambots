@@ -133,6 +133,44 @@ if(suspicious.length){
   fail('possible embedded credential material found in: '+suspicious.slice(0,30).map(x=>x.file+' ['+x.label+']').join(', '));
 }else ok('no obvious embedded credential pattern found in scanned text source');
 
+// Check static relative JS/TS imports so missing shared source is caught before Git import.
+const sourceExts=new Set(['.js','.mjs','.cjs','.ts','.tsx','.jsx']);
+const missingImports=[];
+function relativeTargetExists(fromRel,spec){
+  const base=path.resolve(root,path.dirname(fromRel),spec);
+  const candidates=[
+    base,
+    ...['.js','.mjs','.cjs','.ts','.tsx','.jsx','.json'].map(ext=>base+ext),
+    ...['index.js','index.mjs','index.cjs','index.ts','index.tsx','index.jsx','package.json'].map(name=>path.join(base,name))
+  ];
+  return candidates.some(candidate=>{
+    const rel=path.relative(root,candidate);
+    if(rel.startsWith('..')||path.isAbsolute(rel)) return false;
+    try{return fs.statSync(candidate).isFile();}catch{return false;}
+  });
+}
+for(const rel of files){
+  if(!sourceExts.has(path.extname(rel).toLowerCase())) continue;
+  let data;
+  try{data=fs.readFileSync(path.join(root,rel),'utf8');}catch{continue;}
+  const patterns=[
+    /\b(?:import|export)\s+(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]/g,
+    /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g,
+    /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g
+  ];
+  for(const re of patterns){
+    let m;
+    while((m=re.exec(data))){
+      const spec=m[1];
+      if(!spec.startsWith('.')) continue;
+      if(!relativeTargetExists(rel,spec)) missingImports.push({file:rel,spec});
+    }
+  }
+}
+if(missingImports.length){
+  fail('missing static relative import target(s): '+missingImports.slice(0,40).map(x=>x.file+' -> '+x.spec).join(', '));
+}else ok('all detected static relative imports resolve inside recovered source');
+
 const lockfiles=['package-lock.json','npm-shrinkwrap.json','pnpm-lock.yaml','yarn.lock'].filter(name=>fs.existsSync(path.join(root,name)));
 if(lockfiles.length) ok('root lockfile(s): '+lockfiles.join(', '));
 else warn('no root lockfile found');
@@ -159,6 +197,8 @@ const report={
   symlinkCount:symlinks.length,
   forbiddenFileCount:forbiddenFiles.length,
   suspiciousContentCount:suspicious.length,
+  missingRelativeImportCount:missingImports.length,
+  missingRelativeImports:missingImports,
   files:hashes
 };
 const reportPath=path.join(root,'RECOVERY_INSPECTION.json');
