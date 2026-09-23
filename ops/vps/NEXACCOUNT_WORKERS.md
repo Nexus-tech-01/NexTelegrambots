@@ -32,7 +32,7 @@ Then, only after the matching old host runtime has been stopped:
 ```sh
 sudo systemctl start nexaccount@0
 sudo journalctl -u nexaccount@0 -n 100 --no-pager
-sudo -u nex node /opt/nex/current/ops/vps/check-nexaccount-workers.mjs 1
+runuser -u nex -- node /opt/nex/current/ops/vps/check-nexaccount-workers.mjs 1
 ```
 
 Do not enable the service permanently until its health, MongoDB access and session restoration are verified.
@@ -50,7 +50,7 @@ NEXACCOUNT_WORKER_COUNT=4
 Then start instances 0, 1, 2 and 3. Validate with:
 
 ```sh
-sudo -u nex node /opt/nex/current/ops/vps/check-nexaccount-workers.mjs 4
+runuser -u nex -- node /opt/nex/current/ops/vps/check-nexaccount-workers.mjs 4
 ```
 
 Changing the worker count changes bucket ownership. Stop the entire NexAccount worker set before changing that count, then restart the complete set with the new value. Runtime leases are an additional safety guard, not a reason to intentionally run mismatched topologies.
