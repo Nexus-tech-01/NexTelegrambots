@@ -7,15 +7,13 @@ on:
     paths:
       - 'ops/vps/**'
       - 'nexcontrol/agent/**'
-      - 'nexaccount/bootstrap.mjs'
-      - 'nexaccount/secure-rpc.mjs'
+      - 'nexaccount/**'
       - '.github/workflows/vps-migration-prep.yml'
   pull_request:
     paths:
       - 'ops/vps/**'
       - 'nexcontrol/agent/**'
-      - 'nexaccount/bootstrap.mjs'
-      - 'nexaccount/secure-rpc.mjs'
+      - 'nexaccount/**'
       - '.github/workflows/vps-migration-prep.yml'
 
 permissions:
@@ -31,49 +29,46 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Shell syntax
+      - name: Shell and Python syntax
         run: |
-          bash -n ops/vps/bootstrap.sh
-          bash -n ops/vps/validate-host.sh
-          bash -n ops/vps/install-systemd.sh
-          bash -n ops/vps/backup-runtime.sh
-          bash -n ops/vps/export-bot-source.sh
-          bash -n ops/vps/restart-dispatcher.sh
-          bash -n ops/vps/pre-cutover.sh
-          bash -n ops/vps/prepare-runtime.sh
-          bash -n ops/vps/test-restart-bridge.sh
+          set -euo pipefail
+          for f in \
+            ops/vps/bootstrap.sh \
+            ops/vps/validate-host.sh \
+            ops/vps/install-systemd.sh \
+            ops/vps/backup-runtime.sh \
+            ops/vps/export-bot-source.sh \
+            ops/vps/verify-recovered-archive.sh \
+            ops/vps/restart-dispatcher.sh \
+            ops/vps/test-restart-bridge.sh \
+            ops/vps/pre-cutover.sh \
+            ops/vps/prepare-runtime.sh \
+            ops/vps/activate-control-plane.sh \
+            ops/vps/start-nexaccount-cutover.sh \
+            ops/vps/rollback-nexaccount-cutover.sh
+          do
+            bash -n "$f"
+          done
+          python3 -m py_compile ops/vps/profile-runtime-footprint.py
 
-      - name: JSON syntax and watchdog safety
+      - name: Node syntax
         run: |
-          jq empty ops/vps/nexcontrol-agent.config.example.json
-          python3 - <<'PY'
-          import json
-          p='ops/vps/nexcontrol-agent.config.example.json'
-          cfg=json.load(open(p,encoding='utf-8'))
-          targets=[str(x.get('path','')) for x in cfg['resourceWatchdog']['cleanupTargets']]
-          forbidden=('sessions','data','secrets')
-          bad=[x for x in targets if any(k in x.lower().split('/') for k in forbidden)]
-          if bad:
-              raise SystemExit('watchdog cleanup must not target persistent data: '+repr(bad))
-          roots=cfg.get('roots',{})
-          if roots.get('nexus')!='/opt/nex/current':
-              raise SystemExit('unexpected VPS repository root')
-          print('VPS_CONFIG_OK')
-          PY
-
-      - name: Node syntax and migration audit
-        run: |
+          set -euo pipefail
           node --check nexcontrol/agent/index.mjs
           node --check nexcontrol/agent/resource-watchdog.mjs
           node --check nexaccount/bootstrap.mjs
+          node --check nexaccount/config.mjs
           node --check nexaccount/secure-rpc.mjs
           node --check ops/vps/audit-repository.mjs
           node --check ops/vps/check-nexaccount-workers.mjs
           node --check ops/vps/inspect-recovered-source.mjs
-          node ops/vps/audit-repository.mjs .
+
+      - name: NexAccount lockfile metadata
+        run: |
           node - <<'NODE'
-          const pkg=require('./nexaccount/package.json');
-          const lock=require('./nexaccount/package-lock.json');
+          const fs=require('node:fs');
+          const pkg=JSON.parse(fs.readFileSync('nexaccount/package.json','utf8'));
+          const lock=JSON.parse(fs.readFileSync('nexaccount/package-lock.json','utf8'));
           if(pkg.version!==lock.version)throw new Error('NexAccount package/lock version mismatch');
           if(JSON.stringify(pkg.dependencies)!==JSON.stringify(lock.packages[''].dependencies)){
             throw new Error('NexAccount package/lock dependency mismatch');
@@ -81,64 +76,92 @@ jobs:
           console.log('NEXACCOUNT_LOCKFILE_METADATA_OK');
           NODE
 
-      - name: NexAccount lifecycle invariants
+      - name: JSON and watchdog safety
         run: |
-          grep -q 'NEXACCOUNT_RUNTIME_DIR=/var/lib/nex/runtime/nexaccount' ops/vps/nexaccount.env.example
-          grep -q 'NEXANIME_SECONDARY_SESSION_FILE=/var/lib/nex/sessions/' ops/vps/nexaccount.env.example
-          grep -q 'NEXCANAL__WATCHER_ID_FILE=/var/lib/nex/sessions/' ops/vps/nexaccount.env.example
-          grep -q 'Environment=NEXACCOUNT_WORKER_INDEX=%i' ops/vps/systemd/nexaccount@.service
-          grep -q 'ReadOnlyPaths=/opt/nex/current /etc/nex' ops/vps/systemd/nexaccount@.service
-          grep -q '^NEXCONTROL_AGENT_AUTOSTART_NEXACCOUNT=false$' ops/vps/nexcontrol-agent.env.example
-          grep -q 'NEXCONTROL_AGENT_AUTOSTART_NEXACCOUNT' nexcontrol/agent/index.mjs
-          grep -q '^NEXACCOUNT_REQUIRE_DEDICATED_KEYS=true          python3 - <<'PY'
+          set -euo pipefail
+          jq empty ops/vps/nexcontrol-agent.config.example.json
+          python3 - <<'PY'
           import json
           cfg=json.load(open('ops/vps/nexcontrol-agent.config.example.json',encoding='utf-8'))
+          roots=cfg.get('roots',{})
+          if roots.get('nexus')!='/opt/nex/current':
+              raise SystemExit('unexpected VPS repository root')
           wd=cfg['resourceWatchdog']
+          targets=[str(x.get('path','')) for x in wd.get('cleanupTargets',[])]
+          forbidden=('sessions','data','secrets')
+          bad=[x for x in targets if any(k in x.lower().split('/') for k in forbidden)]
+          if bad:
+              raise SystemExit('watchdog cleanup must not target persistent data: '+repr(bad))
           if wd.get('requireSupervisedParent') is not False:
               raise SystemExit('VPS watchdog must allow systemd-parented Nexus runtimes')
           inc=wd.get('includeCmdline',[])
           exc=wd.get('excludeCmdline',[])
           if not any('/opt/nex/current/nexaccount/' in x for x in inc):
-              raise SystemExit('NexAccount runtime is missing from watchdog includeCmdline')
+              raise SystemExit('NexAccount runtime missing from watchdog includeCmdline')
           if not any('nexcontrol/agent' in x for x in exc):
               raise SystemExit('NexControl Agent must stay excluded from watchdog candidates')
-          print('WATCHDOG_SYSTEMD_POLICY_OK')
+          print('WATCHDOG_POLICY_OK')
           PY
-          if grep -qE 'systemctl[[:space:]]+enable' ops/vps/install-systemd.sh; then
-            echo 'install-systemd.sh must install only; service activation happens after validation' >&2
+
+      - name: Repository migration audit
+        run: |
+          node ops/vps/audit-repository.mjs .
+
+      - name: NexAccount lifecycle and privilege invariants
+        run: |
+          set -euo pipefail
+          grep -q 'NEXACCOUNT_RUNTIME_DIR=/var/lib/nex/runtime/nexaccount' ops/vps/nexaccount.env.example
+          grep -q 'NEXANIME_SECONDARY_SESSION_FILE=/var/lib/nex/sessions/' ops/vps/nexaccount.env.example
+          grep -q 'NEXCANAL__WATCHER_ID_FILE=/var/lib/nex/sessions/' ops/vps/nexaccount.env.example
+          grep -q '^NEXACCOUNT_REQUIRE_DEDICATED_KEYS=true$' ops/vps/nexaccount.env.example
+          grep -q 'NEXACCOUNT_REQUIRE_DEDICATED_KEYS' nexaccount/config.mjs
+          grep -q 'Environment=NEXACCOUNT_WORKER_INDEX=%i' ops/vps/systemd/nexaccount@.service
+          grep -q '^ReadOnlyPaths=/opt/nex/current /etc/nex$' ops/vps/systemd/nexaccount@.service
+          grep -q '^ReadWritePaths=/var/lib/nex$' ops/vps/systemd/nexaccount@.service
+          grep -q '^NEXCONTROL_AGENT_AUTOSTART_NEXACCOUNT=false$' ops/vps/nexcontrol-agent.env.example
+          grep -q 'NEXCONTROL_AGENT_AUTOSTART_NEXACCOUNT' nexcontrol/agent/index.mjs
+          grep -q '^ReadWritePaths=/opt/nex/current /var/lib/nex /backups/nex/nexcontrol-agent$' ops/vps/systemd/nexcontrol-agent.service
+          if grep -qE '^systemctl[[:space:]]+enable' ops/vps/install-systemd.sh; then
+            echo 'install-systemd.sh must not activate services automatically' >&2
             exit 1
           fi
-          echo 'NEXACCOUNT_VPS_INVARIANTS_OK'
+          echo 'NEXACCOUNT_LIFECYCLE_INVARIANTS_OK'
 
       - name: Backup safety invariants
         run: |
+          set -euo pipefail
           grep -q 'age -R' ops/vps/backup-runtime.sh
           grep -q 'refusing to create a backup that is only local to the VPS' ops/vps/backup-runtime.sh
           grep -q 'Keep the corresponding private age identity OFF this VPS' ops/vps/backup.env.example
-          if grep -q 'systemctl enable.*nex-backup.timer' ops/vps/install-systemd.sh; then
+          if grep -qE '^systemctl[[:space:]]+enable.*nex-backup\.timer' ops/vps/install-systemd.sh; then
             echo 'Backup timer must not be auto-enabled before restore test' >&2
             exit 1
           fi
           if grep -Eq 'var/lib/nex/(downloads|cache|logs)' ops/vps/backup-runtime.sh; then
-            echo 'Transient runtime paths should not be included in encrypted recovery archive' >&2
+            echo 'Transient runtime paths should not be in encrypted recovery archive' >&2
             exit 1
           fi
           echo 'BACKUP_VPS_INVARIANTS_OK'
 
       - name: Source recovery exporter invariants
         run: |
+          set -euo pipefail
           grep -q -- "--exclude='.env'" ops/vps/export-bot-source.sh
           grep -q -- "--exclude='.env.*'" ops/vps/export-bot-source.sh
           grep -q -- "--exclude='node_modules/'" ops/vps/export-bot-source.sh
           grep -q -- "--exclude='*.session'" ops/vps/export-bot-source.sh
           grep -q 'SOURCE_SHA256SUMS.txt' ops/vps/export-bot-source.sh
-          echo 'SOURCE_RECOVERY_INVARIANTS_OK'
+          grep -q 'copy_path bots' ops/vps/export-bot-source.sh
+          grep -q 'copy_path scripts' ops/vps/export-bot-source.sh
+          echo 'SOURCE_RECOVERY_EXPORTER_OK'
 
       - name: Recovered source inspector synthetic test
         run: |
           set -euo pipefail
           root="$(mktemp -d)"
-          trap 'rm -rf "$root"' EXIT
+          secret_root="$(mktemp -d)"
+          trap 'rm -rf "$root" "$secret_root"' EXIT
+
           mkdir -p "$root/bots" "$root/scripts"
           for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do
             mkdir -p "$root/bots/$bot"
@@ -148,25 +171,27 @@ jobs:
           for f in orchestrator.mjs preflight.mjs install-all.mjs build-all.mjs; do
             printf 'export const ok=true;\n' > "$root/scripts/$f"
           done
+
           node ops/vps/inspect-recovered-source.mjs "$root"
           test -s "$root/RECOVERY_INSPECTION.json"
-          cp -a "$root" "$root-secret"
-          printf 'TOKEN=123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcd1234567890\n' > "$root-secret/.env"
-          if node ops/vps/inspect-recovered-source.mjs "$root-secret"; then
-            echo 'Inspector should reject .env/credential material' >&2
+
+          cp -a "$root/." "$secret_root/"
+          printf 'SHOULD_NOT_BE_HERE=1\n' > "$secret_root/.env"
+          if node ops/vps/inspect-recovered-source.mjs "$secret_root"; then
+            echo 'Inspector should reject a recovered .env file' >&2
             exit 1
           fi
-          rm -rf "$root-secret"
           echo 'RECOVERED_SOURCE_INSPECTOR_OK'
 
       - name: Restart bridge safety invariants
         run: |
+          set -euo pipefail
           grep -q 'systemctl try-restart' ops/vps/restart-dispatcher.sh
           grep -q 'nex-restart-dispatcher.path' ops/vps/install-systemd.sh
           grep -q 'PathExists=/var/lib/nex/runtime/nexcontrol/control/restart.json' ops/vps/systemd/nex-restart-dispatcher.path
           grep -q 'nexcontrol-agent.service' ops/vps/restart-dispatcher.sh
-          grep -q "fs.rename(tmp,hook)" nexcontrol/agent/index.mjs
-          grep -q "fs.rename(tmp,settings.restartHook)" nexcontrol/agent/resource-watchdog.mjs
+          grep -q 'fs.rename(tmp,hook)' nexcontrol/agent/index.mjs
+          grep -q 'fs.rename(tmp,settings.restartHook)' nexcontrol/agent/resource-watchdog.mjs
           if grep -q 'eval ' ops/vps/restart-dispatcher.sh; then
             echo 'Restart dispatcher must never eval request content' >&2
             exit 1
@@ -179,226 +204,7 @@ jobs:
 
       - name: Secret-template guard
         run: |
-          if grep -RInE \
-            --exclude='export-bot-source.sh' \
-            '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|mongodb\+srv://[^.]*:[^@]+@|[0-9]{8,12}:[A-Za-z0-9_-]{30,})' \
-            ops/vps; then
-            echo 'Potential secret found in VPS migration files' >&2
-            exit 1
-          fi
-          echo 'NO_OBVIOUS_SECRETS_IN_VPS_PREP'
- ops/vps/nexaccount.env.example
-          grep -q 'NEXACCOUNT_REQUIRE_DEDICATED_KEYS' nexaccount/config.mjs
-          grep -q '^ReadWritePaths=/var/lib/nex          python3 - <<'PY'
-          import json
-          cfg=json.load(open('ops/vps/nexcontrol-agent.config.example.json',encoding='utf-8'))
-          wd=cfg['resourceWatchdog']
-          if wd.get('requireSupervisedParent') is not False:
-              raise SystemExit('VPS watchdog must allow systemd-parented Nexus runtimes')
-          inc=wd.get('includeCmdline',[])
-          exc=wd.get('excludeCmdline',[])
-          if not any('/opt/nex/current/nexaccount/' in x for x in inc):
-              raise SystemExit('NexAccount runtime is missing from watchdog includeCmdline')
-          if not any('nexcontrol/agent' in x for x in exc):
-              raise SystemExit('NexControl Agent must stay excluded from watchdog candidates')
-          print('WATCHDOG_SYSTEMD_POLICY_OK')
-          PY
-          if grep -qE 'systemctl[[:space:]]+enable' ops/vps/install-systemd.sh; then
-            echo 'install-systemd.sh must install only; service activation happens after validation' >&2
-            exit 1
-          fi
-          echo 'NEXACCOUNT_VPS_INVARIANTS_OK'
-
-      - name: Backup safety invariants
-        run: |
-          grep -q 'age -R' ops/vps/backup-runtime.sh
-          grep -q 'refusing to create a backup that is only local to the VPS' ops/vps/backup-runtime.sh
-          grep -q 'Keep the corresponding private age identity OFF this VPS' ops/vps/backup.env.example
-          if grep -q 'systemctl enable.*nex-backup.timer' ops/vps/install-systemd.sh; then
-            echo 'Backup timer must not be auto-enabled before restore test' >&2
-            exit 1
-          fi
-          if grep -Eq 'var/lib/nex/(downloads|cache|logs)' ops/vps/backup-runtime.sh; then
-            echo 'Transient runtime paths should not be included in encrypted recovery archive' >&2
-            exit 1
-          fi
-          echo 'BACKUP_VPS_INVARIANTS_OK'
-
-      - name: Source recovery exporter invariants
-        run: |
-          grep -q -- "--exclude='.env'" ops/vps/export-bot-source.sh
-          grep -q -- "--exclude='.env.*'" ops/vps/export-bot-source.sh
-          grep -q -- "--exclude='node_modules/'" ops/vps/export-bot-source.sh
-          grep -q -- "--exclude='*.session'" ops/vps/export-bot-source.sh
-          grep -q 'SOURCE_SHA256SUMS.txt' ops/vps/export-bot-source.sh
-          echo 'SOURCE_RECOVERY_INVARIANTS_OK'
-
-      - name: Restart bridge safety invariants
-        run: |
-          grep -q 'systemctl try-restart' ops/vps/restart-dispatcher.sh
-          grep -q 'nex-restart-dispatcher.path' ops/vps/install-systemd.sh
-          grep -q 'PathExists=/var/lib/nex/runtime/nexcontrol/control/restart.json' ops/vps/systemd/nex-restart-dispatcher.path
-          grep -q 'nexcontrol-agent.service' ops/vps/restart-dispatcher.sh
-          grep -q "fs.rename(tmp,hook)" nexcontrol/agent/index.mjs
-          grep -q "fs.rename(tmp,settings.restartHook)" nexcontrol/agent/resource-watchdog.mjs
-          if grep -q 'eval ' ops/vps/restart-dispatcher.sh; then
-            echo 'Restart dispatcher must never eval request content' >&2
-            exit 1
-          fi
-          if grep -q 'sudo ' ops/vps/restart-dispatcher.sh; then
-            echo 'Restart dispatcher must run through its root systemd unit, not sudo' >&2
-            exit 1
-          fi
-          echo 'RESTART_BRIDGE_INVARIANTS_OK'
-
-      - name: Secret-template guard
-        run: |
-          if grep -RInE \
-            --exclude='export-bot-source.sh' \
-            '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|mongodb\+srv://[^.]*:[^@]+@|[0-9]{8,12}:[A-Za-z0-9_-]{30,})' \
-            ops/vps; then
-            echo 'Potential secret found in VPS migration files' >&2
-            exit 1
-          fi
-          echo 'NO_OBVIOUS_SECRETS_IN_VPS_PREP'
- ops/vps/systemd/nexaccount@.service
-          grep -q '^ReadWritePaths=/opt/nex/current /var/lib/nex /backups/nex/nexcontrol-agent          python3 - <<'PY'
-          import json
-          cfg=json.load(open('ops/vps/nexcontrol-agent.config.example.json',encoding='utf-8'))
-          wd=cfg['resourceWatchdog']
-          if wd.get('requireSupervisedParent') is not False:
-              raise SystemExit('VPS watchdog must allow systemd-parented Nexus runtimes')
-          inc=wd.get('includeCmdline',[])
-          exc=wd.get('excludeCmdline',[])
-          if not any('/opt/nex/current/nexaccount/' in x for x in inc):
-              raise SystemExit('NexAccount runtime is missing from watchdog includeCmdline')
-          if not any('nexcontrol/agent' in x for x in exc):
-              raise SystemExit('NexControl Agent must stay excluded from watchdog candidates')
-          print('WATCHDOG_SYSTEMD_POLICY_OK')
-          PY
-          if grep -qE 'systemctl[[:space:]]+enable' ops/vps/install-systemd.sh; then
-            echo 'install-systemd.sh must install only; service activation happens after validation' >&2
-            exit 1
-          fi
-          echo 'NEXACCOUNT_VPS_INVARIANTS_OK'
-
-      - name: Backup safety invariants
-        run: |
-          grep -q 'age -R' ops/vps/backup-runtime.sh
-          grep -q 'refusing to create a backup that is only local to the VPS' ops/vps/backup-runtime.sh
-          grep -q 'Keep the corresponding private age identity OFF this VPS' ops/vps/backup.env.example
-          if grep -q 'systemctl enable.*nex-backup.timer' ops/vps/install-systemd.sh; then
-            echo 'Backup timer must not be auto-enabled before restore test' >&2
-            exit 1
-          fi
-          if grep -Eq 'var/lib/nex/(downloads|cache|logs)' ops/vps/backup-runtime.sh; then
-            echo 'Transient runtime paths should not be included in encrypted recovery archive' >&2
-            exit 1
-          fi
-          echo 'BACKUP_VPS_INVARIANTS_OK'
-
-      - name: Source recovery exporter invariants
-        run: |
-          grep -q -- "--exclude='.env'" ops/vps/export-bot-source.sh
-          grep -q -- "--exclude='.env.*'" ops/vps/export-bot-source.sh
-          grep -q -- "--exclude='node_modules/'" ops/vps/export-bot-source.sh
-          grep -q -- "--exclude='*.session'" ops/vps/export-bot-source.sh
-          grep -q 'SOURCE_SHA256SUMS.txt' ops/vps/export-bot-source.sh
-          echo 'SOURCE_RECOVERY_INVARIANTS_OK'
-
-      - name: Restart bridge safety invariants
-        run: |
-          grep -q 'systemctl try-restart' ops/vps/restart-dispatcher.sh
-          grep -q 'nex-restart-dispatcher.path' ops/vps/install-systemd.sh
-          grep -q 'PathExists=/var/lib/nex/runtime/nexcontrol/control/restart.json' ops/vps/systemd/nex-restart-dispatcher.path
-          grep -q 'nexcontrol-agent.service' ops/vps/restart-dispatcher.sh
-          grep -q "fs.rename(tmp,hook)" nexcontrol/agent/index.mjs
-          grep -q "fs.rename(tmp,settings.restartHook)" nexcontrol/agent/resource-watchdog.mjs
-          if grep -q 'eval ' ops/vps/restart-dispatcher.sh; then
-            echo 'Restart dispatcher must never eval request content' >&2
-            exit 1
-          fi
-          if grep -q 'sudo ' ops/vps/restart-dispatcher.sh; then
-            echo 'Restart dispatcher must run through its root systemd unit, not sudo' >&2
-            exit 1
-          fi
-          echo 'RESTART_BRIDGE_INVARIANTS_OK'
-
-      - name: Secret-template guard
-        run: |
-          if grep -RInE \
-            --exclude='export-bot-source.sh' \
-            '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|mongodb\+srv://[^.]*:[^@]+@|[0-9]{8,12}:[A-Za-z0-9_-]{30,})' \
-            ops/vps; then
-            echo 'Potential secret found in VPS migration files' >&2
-            exit 1
-          fi
-          echo 'NO_OBVIOUS_SECRETS_IN_VPS_PREP'
- ops/vps/systemd/nexcontrol-agent.service
-          python3 - <<'PY'
-          import json
-          cfg=json.load(open('ops/vps/nexcontrol-agent.config.example.json',encoding='utf-8'))
-          wd=cfg['resourceWatchdog']
-          if wd.get('requireSupervisedParent') is not False:
-              raise SystemExit('VPS watchdog must allow systemd-parented Nexus runtimes')
-          inc=wd.get('includeCmdline',[])
-          exc=wd.get('excludeCmdline',[])
-          if not any('/opt/nex/current/nexaccount/' in x for x in inc):
-              raise SystemExit('NexAccount runtime is missing from watchdog includeCmdline')
-          if not any('nexcontrol/agent' in x for x in exc):
-              raise SystemExit('NexControl Agent must stay excluded from watchdog candidates')
-          print('WATCHDOG_SYSTEMD_POLICY_OK')
-          PY
-          if grep -qE 'systemctl[[:space:]]+enable' ops/vps/install-systemd.sh; then
-            echo 'install-systemd.sh must install only; service activation happens after validation' >&2
-            exit 1
-          fi
-          echo 'NEXACCOUNT_VPS_INVARIANTS_OK'
-
-      - name: Backup safety invariants
-        run: |
-          grep -q 'age -R' ops/vps/backup-runtime.sh
-          grep -q 'refusing to create a backup that is only local to the VPS' ops/vps/backup-runtime.sh
-          grep -q 'Keep the corresponding private age identity OFF this VPS' ops/vps/backup.env.example
-          if grep -q 'systemctl enable.*nex-backup.timer' ops/vps/install-systemd.sh; then
-            echo 'Backup timer must not be auto-enabled before restore test' >&2
-            exit 1
-          fi
-          if grep -Eq 'var/lib/nex/(downloads|cache|logs)' ops/vps/backup-runtime.sh; then
-            echo 'Transient runtime paths should not be included in encrypted recovery archive' >&2
-            exit 1
-          fi
-          echo 'BACKUP_VPS_INVARIANTS_OK'
-
-      - name: Source recovery exporter invariants
-        run: |
-          grep -q -- "--exclude='.env'" ops/vps/export-bot-source.sh
-          grep -q -- "--exclude='.env.*'" ops/vps/export-bot-source.sh
-          grep -q -- "--exclude='node_modules/'" ops/vps/export-bot-source.sh
-          grep -q -- "--exclude='*.session'" ops/vps/export-bot-source.sh
-          grep -q 'SOURCE_SHA256SUMS.txt' ops/vps/export-bot-source.sh
-          echo 'SOURCE_RECOVERY_INVARIANTS_OK'
-
-      - name: Restart bridge safety invariants
-        run: |
-          grep -q 'systemctl try-restart' ops/vps/restart-dispatcher.sh
-          grep -q 'nex-restart-dispatcher.path' ops/vps/install-systemd.sh
-          grep -q 'PathExists=/var/lib/nex/runtime/nexcontrol/control/restart.json' ops/vps/systemd/nex-restart-dispatcher.path
-          grep -q 'nexcontrol-agent.service' ops/vps/restart-dispatcher.sh
-          grep -q "fs.rename(tmp,hook)" nexcontrol/agent/index.mjs
-          grep -q "fs.rename(tmp,settings.restartHook)" nexcontrol/agent/resource-watchdog.mjs
-          if grep -q 'eval ' ops/vps/restart-dispatcher.sh; then
-            echo 'Restart dispatcher must never eval request content' >&2
-            exit 1
-          fi
-          if grep -q 'sudo ' ops/vps/restart-dispatcher.sh; then
-            echo 'Restart dispatcher must run through its root systemd unit, not sudo' >&2
-            exit 1
-          fi
-          echo 'RESTART_BRIDGE_INVARIANTS_OK'
-
-      - name: Secret-template guard
-        run: |
+          set -euo pipefail
           if grep -RInE \
             --exclude='export-bot-source.sh' \
             '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|mongodb\+srv://[^.]*:[^@]+@|[0-9]{8,12}:[A-Za-z0-9_-]{30,})' \
