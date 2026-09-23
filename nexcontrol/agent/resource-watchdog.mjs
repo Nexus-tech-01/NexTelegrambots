@@ -166,7 +166,10 @@ async function largestSupervisedBot(){
 async function requestRestart(reason){
   try{
     await fs.mkdir(path.dirname(settings.restartHook),{recursive:true});
-    await fs.writeFile(settings.restartHook,JSON.stringify({target:'all',reason,requestedAt:new Date().toISOString(),nonce:crypto.randomUUID?.()||String(Date.now())},null,2),{mode:0o600});
+    const payload={target:'all',reason,requestedAt:new Date().toISOString(),nonce:crypto.randomUUID?.()||String(Date.now())};
+    const tmp=settings.restartHook+'.'+process.pid+'.'+payload.nonce+'.tmp';
+    await fs.writeFile(tmp,JSON.stringify(payload,null,2),{mode:0o600});
+    await fs.rename(tmp,settings.restartHook);
     return{queued:true,hook:settings.restartHook};
   }catch(error){return{queued:false,error:String(error?.message||error)}}
 }
