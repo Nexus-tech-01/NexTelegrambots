@@ -41,7 +41,17 @@ copy_path(){
 copy_path bots
 copy_path scripts
 
-for rel in package.json package-lock.json npm-shrinkwrap.json pnpm-lock.yaml yarn.lock tsconfig.json; do
+# Shared code used by the legacy fleet may live outside bots/. Copy only known
+# source-oriented top-level directories when they exist; runtime/state directories
+# remain excluded by copy_path.
+for rel in lib shared src watchers; do
+  copy_path "$rel"
+done
+
+for rel in \
+  package.json package-lock.json npm-shrinkwrap.json pnpm-lock.yaml yarn.lock \
+  tsconfig.json jsconfig.json Dockerfile Procfile render.yaml render.yml .nvmrc
+do
   copy_path "$rel"
 done
 
@@ -67,6 +77,10 @@ fi
     find bots -mindepth 1 -maxdepth 1 -type d -printf '  %f\n' | sort
     echo "script_files:"
     find scripts -maxdepth 1 -type f -printf '  %f\n' | sort
+    echo "shared_source_directories:"
+    for d in lib shared src watchers; do
+      [[ -d "$d" ]] && echo "  $d"
+    done
   } > SOURCE_RECOVERY_MANIFEST.txt
 )
 
