@@ -46,3 +46,22 @@ So the next stage after a PASS is:
 6. only then commit ordinary source directories on a dedicated recovery branch.
 
 No Base64 source rebundling is allowed in the normalized result.
+
+
+## Persistent review staging
+
+After the archive passes the isolated verifier, stage a copy for review without importing it into Git:
+
+```sh
+sudo bash /opt/nex/current/ops/vps/stage-recovered-source.sh \
+  /backups/nexus-source/nexus-bot-source-YYYYMMDDTHHMMSSZ.tar.gz \
+  /backups/nexus-source/nexus-bot-source-YYYYMMDDTHHMMSSZ.tar.gz.sha256
+```
+
+The script first snapshots the archive, verifies that exact snapshot, and only then extracts the same bytes under:
+
+```text
+/var/lib/nex/recovery/legacy-source-<UTC timestamp>/source
+```
+
+This avoids verifying one archive and then accidentally extracting different bytes if the original file changes between steps. The staged tree remains review-only and is owned by the `nex` runtime group; it is not wired into systemd or the active release.
