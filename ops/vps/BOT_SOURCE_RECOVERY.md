@@ -15,7 +15,8 @@ From the currently working/most complete old runtime, capture the real source/co
 - NexStick;
 - shared `scripts/` orchestration/preflight/build/install files;
 - root package/build metadata needed to reproduce the runtime;
-- any reusable shared libraries consumed by those bots.
+- any reusable shared libraries consumed by those bots;
+- watcher/source directories and root build metadata actually referenced by that runtime.
 
 Do not assume the historical directory names in the broken bundle are the final names. Record the actual live paths first.
 
@@ -40,7 +41,7 @@ Encrypted disaster-recovery backup is a separate process; see `BACKUP_PLAN.md`.
 
 `export-bot-source.sh` is designed to run on the old host when console/SSH access is available.
 
-It copies the source tree into a temporary staging directory, strips known secret/runtime paths, performs a basic secret-pattern scan and only then creates a tarball.
+It copies `bots/`, `scripts/` and known source-oriented shared directories such as `lib/`, `shared/`, `src/` and `watchers/` when they exist, plus root package/build metadata. It strips known secret/runtime paths, performs a basic secret-pattern scan and only then creates a tarball.
 
 Example:
 
