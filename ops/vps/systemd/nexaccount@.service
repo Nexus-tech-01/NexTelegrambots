@@ -1,0 +1,33 @@
+[Unit]
+Description=Nexus NexAccount worker %i
+After=network-online.target nexcontrol-agent.service
+Wants=network-online.target
+ConditionPathExists=/opt/nex/current/nexaccount/daemon.mjs
+ConditionPathExists=/etc/nex/env/nexaccount.env
+
+[Service]
+Type=simple
+User=nex
+Group=nex
+WorkingDirectory=/opt/nex/current/nexaccount
+EnvironmentFile=-/etc/nex/env/shared.env
+EnvironmentFile=/etc/nex/env/nexaccount.env
+EnvironmentFile=-/etc/nex/env/nexaccount-%i.env
+Environment=NEXACCOUNT_WORKER_INDEX=%i
+Environment=NEXACCOUNT_WORKER_ID=vps-%H-%i
+ExecStart=/usr/bin/node /opt/nex/current/nexaccount/daemon.mjs
+Restart=always
+RestartSec=5
+TimeoutStopSec=90
+KillSignal=SIGTERM
+UMask=0027
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/nex/current /etc/nex
+ReadWritePaths=/var/lib/nex
+
+[Install]
+WantedBy=multi-user.target

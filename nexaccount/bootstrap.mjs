@@ -52,7 +52,9 @@ async function loadHostEnvironment(){
 }
 
 await loadHostEnvironment();
-const stateDir=path.resolve(here,'.runtime');
+// VPS/systemd deployments set NEXACCOUNT_RUNTIME_DIR to /var/lib/nex/runtime/nexaccount.
+// Existing deployments keep using nexaccount/.runtime when the variable is absent.
+const stateDir=path.resolve(process.env.NEXACCOUNT_RUNTIME_DIR||path.join(here,'.runtime'));
 const workerIndex=Math.max(0,Number(process.env.NEXACCOUNT_WORKER_INDEX||0));
 const workerSuffix=workerIndex===0?'':'-worker-'+workerIndex;
 const pidFile=path.join(stateDir,'nexaccount'+workerSuffix+'.pid');
