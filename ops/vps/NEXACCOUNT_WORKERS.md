@@ -12,6 +12,13 @@ NexAccount is horizontally sharded by a shared worker count and a unique worker 
 
 The systemd instance number becomes `NEXACCOUNT_WORKER_INDEX`.
 
+
+## NexControl Agent autostart boundary
+
+On the VPS, `NEXCONTROL_AGENT_AUTOSTART_NEXACCOUNT=false` is mandatory. NexAccount is controlled by `nexaccount@.service` instances so the Agent cannot silently spawn a detached second runtime outside systemd.
+
+The Agent keeps backward-compatible autostart support for older hosts when that variable is absent, but the VPS environment template explicitly disables it.
+
 ## One-worker first cutover
 
 Keep:
