@@ -1,0 +1,22 @@
+[Unit]
+Description=Nexus encrypted off-host backup
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/nex/env/backup.env
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/nex/env/backup.env
+ExecStart=/opt/nex/current/ops/vps/backup-runtime.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/nex/current /etc/nex /var/lib/nex
+ReadWritePaths=/backups/nex /var/lib/nex/runtime/backup-meta
