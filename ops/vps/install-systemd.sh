@@ -9,7 +9,15 @@ fi
 repo_root="${1:-/opt/nex/current}"
 unit_src="$repo_root/ops/vps/systemd"
 
-for unit in nexcontrol-agent.service nex-resource-watchdog.service nexaccount@.service nex-backup.service nex-backup.timer; do
+for unit in \
+  nexcontrol-agent.service \
+  nex-resource-watchdog.service \
+  nexaccount@.service \
+  nex-backup.service \
+  nex-backup.timer \
+  nex-restart-dispatcher.service \
+  nex-restart-dispatcher.path
+do
   if [[ ! -f "$unit_src/$unit" ]]; then
     echo "Missing $unit_src/$unit" >&2
     exit 1
@@ -45,9 +53,17 @@ fi
 install -d -o nex -g nex -m 0750 /var/lib/nex/runtime/nexaccount
 install -d -o nex -g nex -m 0750 /var/lib/nex/downloads/nexanime-tmp
 install -d -o root -g root -m 0700 /backups/nex/staging
+install -d -o root -g root -m 0750 /etc/nex/restart-targets.d
+install -d -o root -g root -m 0700 /var/lib/nex/runtime/nexcontrol/restart-history
+
+# Start with an empty workload allowlist. Future recovered bot units can be added
+# explicitly without granting the nex account arbitrary root/systemctl access.
+if [[ ! -f /etc/nex/restart-targets.d/all.list ]]; then
+  install -o root -g root -m 0640 /dev/null /etc/nex/restart-targets.d/all.list
+fi
 
 systemctl daemon-reload
-systemctl enable nexcontrol-agent.service nex-resource-watchdog.service
+systemctl enable nexcontrol-agent.service nex-resource-watchdog.service nex-restart-dispatcher.path
 
 cat <<'EOF'
 Systemd units installed.
@@ -55,6 +71,7 @@ Systemd units installed.
 Enabled for future boot:
   nexcontrol-agent.service
   nex-resource-watchdog.service
+  nex-restart-dispatcher.path
 
 Deliberately NOT enabled or started:
   nexaccount@*.service
@@ -66,6 +83,7 @@ Before starting NexControl Agent:
   3. confirm /opt/nex/current is the intended release
 
 Then:
+  systemctl start nex-restart-dispatcher.path
   systemctl start nexcontrol-agent
   journalctl -u nexcontrol-agent -f
 
