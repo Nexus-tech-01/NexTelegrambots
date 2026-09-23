@@ -25,6 +25,19 @@ done
 
 if id -u nex >/dev/null 2>&1; then ok "runtime user nex exists"; else bad "runtime user nex missing"; fi
 
+if id -u nex >/dev/null 2>&1; then
+  if runuser -u nex -- test -w /backups/nex/nexcontrol-agent; then
+    ok "NexControl Agent rollback directory writable by nex"
+  else
+    bad "/backups/nex/nexcontrol-agent is not writable by nex"
+  fi
+  if runuser -u nex -- test ! -w /backups/nex/staging; then
+    ok "encrypted backup staging is not writable by nex"
+  else
+    bad "/backups/nex/staging should remain root-only"
+  fi
+fi
+
 if [[ -d /etc/nex/env ]]; then
   while IFS= read -r -d '' f; do
     mode="$(stat -c '%a' "$f" 2>/dev/null || echo '?')"
