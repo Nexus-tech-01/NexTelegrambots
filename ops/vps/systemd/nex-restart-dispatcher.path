@@ -3,7 +3,7 @@ Description=Watch NexControl restart requests
 After=local-fs.target
 
 [Path]
-PathChanged=/var/lib/nex/runtime/nexcontrol/control/restart.json
+PathExists=/var/lib/nex/runtime/nexcontrol/control/restart.json
 Unit=nex-restart-dispatcher.service
 
 [Install]
