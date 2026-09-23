@@ -9,7 +9,7 @@ fi
 repo_root="${1:-/opt/nex/current}"
 unit_src="$repo_root/ops/vps/systemd"
 
-for unit in nexcontrol-agent.service nex-resource-watchdog.service; do
+for unit in nexcontrol-agent.service nex-resource-watchdog.service nexaccount@.service; do
   if [[ ! -f "$unit_src/$unit" ]]; then
     echo "Missing $unit_src/$unit" >&2
     exit 1
@@ -27,21 +27,50 @@ if [[ ! -f /etc/nex/env/nexcontrol-agent.env ]]; then
   echo "Created /etc/nex/env/nexcontrol-agent.env. Fill NEXCONTROL_AGENT_KEY before starting the agent."
 fi
 
+if [[ ! -f /etc/nex/env/shared.env ]]; then
+  install -o root -g nex -m 0640 "$repo_root/ops/vps/shared.env.example" /etc/nex/env/shared.env
+  echo "Created /etc/nex/env/shared.env. Fill only the infrastructure values actually used."
+fi
+
+if [[ ! -f /etc/nex/env/nexaccount.env ]]; then
+  install -o root -g nex -m 0640 "$repo_root/ops/vps/nexaccount.env.example" /etc/nex/env/nexaccount.env
+  echo "Created /etc/nex/env/nexaccount.env. Fill NexAccount secrets before starting any worker."
+fi
+
+install -d -o nex -g nex -m 0750 /var/lib/nex/runtime/nexaccount
+install -d -o nex -g nex -m 0750 /var/lib/nex/downloads/nexanime-tmp
+
 systemctl daemon-reload
 systemctl enable nexcontrol-agent.service nex-resource-watchdog.service
 
 cat <<'EOF'
-Systemd units installed and enabled.
+Systemd units installed.
 
-Do not start the NexControl Agent until:
-  1. /etc/nex/env/nexcontrol-agent.env contains the real agent key
-  2. /etc/nex/nexcontrol-agent.json has been reviewed
-  3. /opt/nex/current points to the intended release
+Enabled for future boot:
+  nexcontrol-agent.service
+  nex-resource-watchdog.service
 
-Then run:
+NexAccount instances were deliberately NOT enabled or started.
+
+Before starting NexControl Agent:
+  1. fill /etc/nex/env/nexcontrol-agent.env
+  2. review /etc/nex/nexcontrol-agent.json
+  3. confirm /opt/nex/current is the intended release
+
+Then:
   systemctl start nexcontrol-agent
   journalctl -u nexcontrol-agent -f
 
-Start the resource watchdog only after the agent/runtime paths have been verified:
+Before starting NexAccount:
+  1. fill /etc/nex/env/shared.env and /etc/nex/env/nexaccount.env
+  2. stop the matching session-bearing runtime on the old host
+  3. start worker 0 first
+  4. verify it before enabling it
+
+Example one-worker cutover:
+  systemctl start nexaccount@0
+  node /opt/nex/current/ops/vps/check-nexaccount-workers.mjs 1
+
+Start the resource watchdog only after runtime paths are verified:
   systemctl start nex-resource-watchdog
 EOF
