@@ -4,7 +4,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
-const runtimeDir=path.join(here,'.runtime');
+// Keep the historical in-tree location as the default, but allow normal VPS
+// deployments to keep mutable key material outside the immutable code tree.
+const runtimeDir=path.resolve(process.env.NEXACCOUNT_RUNTIME_DIR||path.join(here,'.runtime'));
 const privatePath=path.join(runtimeDir,'pairing-private.pem');
 const publicPath=path.join(runtimeDir,'pairing-public.pem');
 
