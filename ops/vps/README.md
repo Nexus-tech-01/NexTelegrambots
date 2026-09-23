@@ -30,7 +30,7 @@ The VPS layout is intentionally split by responsibility:
   env/            # root-readable service environment files
   secrets/        # non-env secret material if required
 
-/backups/nex/     # off-runtime recovery copies
+/backups/nex/     # encrypted local staging before off-host copy
 ```
 
 No `.env` containing production credentials belongs in Git.
@@ -47,6 +47,7 @@ This migration branch now contains:
 - NexAccount/shared environment templates with blank secrets;
 - worker health verifier;
 - repository migration auditor;
+- encrypted `age` backup script plus systemd service/timer;
 - NexMeta/Pterodactyl-to-VPS porting notes.
 
 NexAccount mutable pairing/runtime state can be moved out of the Git checkout through `NEXACCOUNT_RUNTIME_DIR`. Existing deployments keep their old behavior when that variable is absent.
@@ -68,7 +69,8 @@ NexAccount mutable pairing/runtime state can be moved out of the Git checkout th
 13. Add further NexAccount workers only after the one-worker cutover is stable.
 14. Move scanners/watchers.
 15. Reconcile and port NexMeta/other platform bridges as stage 2.
-16. Enable the resource watchdog and backups before declaring the migration complete.
+16. Configure and restore-test the encrypted off-host backup flow described in `BACKUP_PLAN.md`.
+17. Enable the resource watchdog and backup timer before declaring the migration complete.
 
 ## NexAccount first-start example
 
@@ -82,12 +84,24 @@ sudo -u nex node /opt/nex/current/ops/vps/check-nexaccount-workers.mjs 1
 
 Do **not** run that cutover command while the same persistent MTProto sessions are still active on the old server.
 
+## Backup first-run example
+
+After configuring an offline age recipient and `NEX_BACKUP_TARGET`:
+
+```sh
+sudo systemctl start nex-backup.service
+sudo journalctl -u nex-backup.service -n 100 --no-pager
+```
+
+Do not enable the timer until that encrypted backup has been copied elsewhere and successfully restore-tested.
+
 ## Hard gates
 
 Do not mark the VPS ready until all of these are true:
 
 - Node.js 22+ is available.
 - Python 3 and FFmpeg/FFprobe are available.
+- `age` and `rsync` are available for encrypted recovery copies.
 - `/opt/nex`, `/var/lib/nex`, `/etc/nex`, `/backups/nex` exist with controlled ownership.
 - NexControl Agent reaches the control plane and reports a heartbeat.
 - secrets are absent from Git and readable only by the runtime account/root as intended.
@@ -96,7 +110,7 @@ Do not mark the VPS ready until all of these are true:
 - a restart does not lose Telegram sessions or runtime state.
 - pairing private-key state is outside the immutable code tree on the VPS.
 - the disk/RAM watchdog is active and cannot delete persistent session data.
-- backups are stored outside the active runtime tree.
+- at least one encrypted backup has been copied off the runtime host and restore-tested.
 
 ## Deliberately deferred
 
