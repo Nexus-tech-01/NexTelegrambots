@@ -109,19 +109,15 @@ jobs:
         run: |
           grep -q 'systemctl try-restart' ops/vps/restart-dispatcher.sh
           grep -q 'nex-restart-dispatcher.path' ops/vps/install-systemd.sh
-          grep -q "PathChanged=/var/lib/nex/runtime/nexcontrol/control/restart.json" ops/vps/systemd/nex-restart-dispatcher.path
-          grep -q "^[[:space:]]*add_unit \"nexcontrol-agent.service\"" ops/vps/restart-dispatcher.sh
-          if grep -Eq 'systemctl[[:space:]]+(start|restart)[[:space:]]+\
-        run: |
-          # export-bot-source.sh intentionally contains literal credential-detection
-          # regexes, so exclude that scanner implementation from this meta-scan.
-          if grep -RInE             --exclude='export-bot-source.sh'             '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|mongodb\+srv://[^.]*:[^@]+@|[0-9]{8,12}:[A-Za-z0-9_-]{30,})'             ops/vps; then
-            echo 'Potential secret found in VPS migration files' >&2
+          grep -q 'PathChanged=/var/lib/nex/runtime/nexcontrol/control/restart.json' ops/vps/systemd/nex-restart-dispatcher.path
+          grep -q 'nexcontrol-agent.service' ops/vps/restart-dispatcher.sh
+          grep -q 'nex[A-Za-z0-9@_.-].*service' ops/vps/restart-dispatcher.sh
+          if grep -q 'eval ' ops/vps/restart-dispatcher.sh; then
+            echo 'Restart dispatcher must never eval request content' >&2
             exit 1
           fi
-          echo 'NO_OBVIOUS_SECRETS_IN_VPS_PREP'
- ops/vps/restart-dispatcher.sh; then
-            echo 'Restart dispatcher must not execute arbitrary unit names directly' >&2
+          if grep -q 'sudo ' ops/vps/restart-dispatcher.sh; then
+            echo 'Restart dispatcher must run through its root systemd unit, not sudo' >&2
             exit 1
           fi
           echo 'RESTART_BRIDGE_INVARIANTS_OK'
@@ -130,7 +126,10 @@ jobs:
         run: |
           # export-bot-source.sh intentionally contains literal credential-detection
           # regexes, so exclude that scanner implementation from this meta-scan.
-          if grep -RInE             --exclude='export-bot-source.sh'             '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|mongodb\+srv://[^.]*:[^@]+@|[0-9]{8,12}:[A-Za-z0-9_-]{30,})'             ops/vps; then
+          if grep -RInE \
+            --exclude='export-bot-source.sh' \
+            '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|mongodb\+srv://[^.]*:[^@]+@|[0-9]{8,12}:[A-Za-z0-9_-]{30,})' \
+            ops/vps; then
             echo 'Potential secret found in VPS migration files' >&2
             exit 1
           fi
