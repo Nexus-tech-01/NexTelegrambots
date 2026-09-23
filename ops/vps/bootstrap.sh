@@ -14,7 +14,7 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
-  ca-certificates curl git jq rsync unzip xz-utils \
+  ca-certificates curl git jq rsync unzip xz-utils age \
   python3 python3-pip python3-venv \
   ffmpeg procps lsof
 rm -rf /var/lib/apt/lists/*
@@ -36,7 +36,7 @@ install -d -o nex -g nex -m 0750 \
   /var/lib/nex/cache \
   /var/lib/nex/logs
 install -d -o root -g nex -m 0750 /etc/nex /etc/nex/env /etc/nex/secrets
-install -d -o root -g nex -m 0750 /backups/nex
+install -d -o root -g root -m 0700 /backups/nex /backups/nex/staging
 
 # Runtime/control directories used by NexControl Agent and watchdog.
 install -d -o nex -g nex -m 0750 \
@@ -58,6 +58,7 @@ Application root: /opt/nex/current
 Persistent state: /var/lib/nex
 Environment/secrets: /etc/nex
 Backups: /backups/nex
+Encrypted backup tool: $(command -v age || echo missing)
 EOF
 
 if (( node_major < 22 )); then
