@@ -52,6 +52,9 @@ This migration branch now contains:
 - sanitized old-server bot-source exporter;
 - encrypted `age` backup script plus systemd service/timer;
 - NexMeta/Pterodactyl-to-VPS porting/reconciliation notes;
+- current NexControl Vercel control-plane audit;
+- safe NexControl restart-hook dispatcher;
+- controlled historical-secret rotation plan;
 - network exposure model.
 
 NexAccount mutable pairing/runtime state can be moved out of the Git checkout through `NEXACCOUNT_RUNTIME_DIR`. Existing deployments keep their old behavior when that variable is absent.
@@ -75,8 +78,9 @@ NexAccount mutable pairing/runtime state can be moved out of the Git checkout th
 15. Migrate the legacy bot fleet one service at a time only after step 14.
 16. Move remaining scanners/watchers.
 17. Reconcile and port NexMeta/other platform bridges as stage 2.
-18. Configure and restore-test the encrypted off-host backup flow described in `BACKUP_PLAN.md`.
-19. Enable the resource watchdog and backup timer before declaring the migration complete.
+18. Rotate/revoke historically exposed production credentials according to `SECRET_ROTATION.md` without breaking the current live path.
+19. Configure and restore-test the encrypted off-host backup flow described in `BACKUP_PLAN.md`.
+20. Enable the resource watchdog and backup timer before declaring the migration complete.
 
 ## NexAccount first-start example
 
