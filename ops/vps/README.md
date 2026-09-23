@@ -70,7 +70,7 @@ NexAccount mutable pairing/runtime state can be moved out of the Git checkout th
 7. Fill real secrets in `/etc/nex/env/*.env` with mode `0600` or `0640`.
 8. Review `/etc/nex/nexcontrol-agent.json`.
 9. Run `sudo bash ops/vps/validate-host.sh`.
-10. Start **NexControl Agent first** and verify its heartbeat before any bot runtime.
+10. Enable/start `nex-restart-dispatcher.path`, then **NexControl Agent**, and verify its heartbeat before any bot runtime. The installer itself intentionally enables nothing.
 11. Deploy one low-risk directly-versioned service and verify logs, restart, persistence and outbound connectivity.
 12. Cut over NexAccount using `NEXACCOUNT_WORKERS.md`: stop the old session-bearing runtime first, then start worker 0 on the VPS and validate health.
 13. Add further NexAccount workers only after the one-worker cutover is stable.
