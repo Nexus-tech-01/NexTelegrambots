@@ -1,76 +1,78 @@
-# NexControl V1
+# NexControl
 
-NexControl est le centre de contrôle web de l’écosystème Nextech.
+NexControl est le centre de contrôle web privé de l’écosystème Nextech.
 
-## Architecture actuelle
+## Architecture de production
 
-Le déploiement de NexControl **ne dépend plus de GitHub Actions**.
+NexControl ne dépend plus d’un workflow GitHub Actions pour son déploiement.
 
-- Backend/control-plane : Supabase Edge Function `nexcontrol`.
-- Passerelle web : Supabase Edge Function `nexcontrol-ui`.
-- Source de la passerelle : `nexcontrol/supabase-ui/index.ts`.
-- URL web directe :
-  `https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol-ui/`
-- L’ancien projet Vercel peut rester comme proxy/alias historique, mais il n’est plus la chaîne de déploiement obligatoire de NexControl.
-- Les workflows GitHub Actions dédiés au déploiement Vercel de NexControl ont été supprimés.
+- **Frontend web public** : `https://tresor562.github.io/nexcontrol/`
+- **Frontend source** : `Tresor562/Tresor562.github.io/nexcontrol/index.html`
+- **Control-plane backend** : Supabase Edge Function `nexcontrol`
+- **Passerelle sécurisée navigateur ↔ control-plane** : Supabase Edge Function `nexcontrol-ui`
+- **Source de la passerelle** : `nexcontrol/supabase-ui/index.ts`
+- **Ancien Vercel** : compatibilité/diagnostic uniquement. Il n’est plus dans le chemin critique de NexControl.
+- Les anciens workflows privés `deploy-nexcontrol-vercel.yml` et `check-vercel-secrets.yml` ont été supprimés.
 
-## Pourquoi cette architecture
+Le site statique est publié par GitHub Pages depuis le dépôt public du portfolio. Aucun workflow NexControl personnalisé, secret Vercel ou minute GitHub Actions privée n’est nécessaire pour publier l’interface.
 
-Le compte GitHub de l’organisation avait épuisé ses minutes GitHub Actions, ce qui bloquait les déploiements avant même le démarrage des jobs. La passerelle web est désormais déployable directement sur Supabase, indépendamment du quota GitHub Actions.
+## Session web sécurisée
 
-La passerelle :
-- transmet les requêtes au backend `nexcontrol`;
-- conserve les cookies de session;
-- transmet les routes API;
-- force les pages UI en `text/html; charset=utf-8`;
-- retire le CSP `sandbox` problématique et applique un CSP adapté;
-- réécrit les chemins absolus pour fonctionner sous `/functions/v1/nexcontrol-ui/`;
-- désactive le cache pour les pages d’administration.
+Le navigateur ne reçoit jamais le cookie administrateur interne de NexControl.
 
-## Déploiement de la passerelle
+1. Le frontend envoie les requêtes à `nexcontrol-ui`.
+2. Après une authentification administrateur valide, la passerelle conserve le cookie NexControl côté serveur.
+3. Le cookie upstream est chiffré en AES-GCM avant stockage dans `public.nxc_web_proxy_sessions`.
+4. Le navigateur reçoit uniquement un jeton opaque aléatoire conservé dans `sessionStorage`.
+5. Seul le SHA-256 de ce jeton est stocké côté serveur.
+6. La session est liée au hash du User-Agent et expire après 8 heures.
+7. Les tables de session sont inaccessibles directement aux rôles Supabase `anon` et `authenticated`.
 
-Le fichier de référence est :
+Les origines web autorisées par la passerelle sont explicitement limitées aux domaines NexControl/portfolio configurés dans `nexcontrol/supabase-ui/index.ts`.
 
-```
-nexcontrol/supabase-ui/index.ts
-```
+## Routage
 
-La fonction Supabase à mettre à jour est :
+La passerelle reçoit un chemin dans le paramètre `route`, le valide, puis le transmet au control-plane via `x-nexcontrol-path`.
 
-```
-nexcontrol-ui
-```
-
-Elle doit rester avec `verify_jwt=false`, car l’authentification administrateur est gérée par NexControl lui-même via ses cookies/session. Il ne faut pas exposer directement les tables internes Supabase aux clients.
+Les redirections backend sont renvoyées au frontend via `x-nxc-location`, ce qui permet au shell statique de gérer correctement la navigation, le login, le logout et les routes internes sans exposer les cookies cross-origin.
 
 ## Sécurité Supabase
 
-Les tables internes NexControl utilisent RLS et les rôles `anon` / `authenticated` n’ont pas d’accès direct. Les opérations administratives passent par le control-plane serveur avec le rôle de service.
+Les tables internes suivantes sont protégées par RLS et n’accordent aucun DML direct à `anon` ou `authenticated` :
 
-Les RPC `SECURITY DEFINER` de routage interne ne sont pas exécutables par `anon` ou `authenticated`.
+- `_nxc_hotfix_payload_stage`
+- `nxc_nexnews_publications`
+- `nxc_operator_audit`
+- `nxc_deploy_bundle_chunks`
+- `nxc_agent_fleet_members`
+- `nxc_external_watchdog_events`
+- `nxc_external_watchdog_state`
+- `nxc_web_proxy_sessions`
 
-## Fonctions incluses
+Les fonctions `SECURITY DEFINER` internes de routage de jobs ne sont exécutables que par `service_role`.
 
-- Dashboard global : bots, destinations, campagnes, tâches et état des agents.
-- Enregistrement et supervision de la flotte.
-- Synchronisation des droits Telegram.
-- File de livraison multi-bot.
-- Gestion des campagnes immédiates ou programmées.
-- Contrôle serveur/agents.
-- Authentification administrateur par cookie signé HttpOnly.
-- Contrôle NexAccount / NexAI et surfaces Meta associées.
+## Fonctions principales
 
-## Connexion de la flotte
+- Dashboard global
+- Bots et destinations
+- Campagnes et publications
+- Tâches et files de livraison
+- Supervision des agents
+- Contrôle serveur
+- Logs et checks
+- Contrôle NexAccount / NexAI
+- Surfaces de connexion et d’administration associées
 
-La flotte utilise notamment :
+## Secrets
 
-```env
-NEXCONTROL_URL=https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol-ui/
-NEXCONTROL_FLEET_KEY=<clé de flotte>
-```
+Ne jamais commiter :
 
-Les secrets réels ne doivent jamais être commités dans Git.
+- mot de passe administrateur NexControl ;
+- service-role Supabase ;
+- tokens Telegram ;
+- credentials MongoDB/Redis ;
+- clés de flotte/agent ;
+- clés Pterodactyl ;
+- secrets Meta/OAuth.
 
-## Limitation Telegram importante
-
-Telegram Bot API ne fournit pas une méthode globale permettant de demander la liste complète de tous les groupes d’un bot. NexControl construit donc son registre à partir des updates reçues, des chats déjà connus et des vérifications de permissions Telegram.
+Le frontend GitHub Pages ne contient aucun de ces secrets.
