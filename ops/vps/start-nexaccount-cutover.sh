@@ -57,7 +57,7 @@ systemctl start nexaccount@0.service
 
 healthy=0
 for _ in $(seq 1 30); do
-  if sudo -u nex node "$repo_root/ops/vps/check-nexaccount-workers.mjs" 1 >/tmp/nexaccount-cutover-health.json 2>/dev/null; then
+  if runuser -u nex -- node "$repo_root/ops/vps/check-nexaccount-workers.mjs" 1 >/tmp/nexaccount-cutover-health.json 2>/dev/null; then
     healthy=1
     break
   fi
