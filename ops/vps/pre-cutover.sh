@@ -89,9 +89,25 @@ case "$agent_autostart" in
   *) bad "NEXCONTROL_AGENT_AUTOSTART_NEXACCOUNT must be false on the VPS" ;;
 esac
 
-for key in NEXACCOUNT_TELEGRAM_API_ID NEXACCOUNT_TELEGRAM_API_HASH NEXACCOUNT_SESSION_KEY; do
+for key in NEXACCOUNT_TELEGRAM_API_ID NEXACCOUNT_TELEGRAM_API_HASH NEXACCOUNT_SESSION_KEY NEXACCOUNT_CONTROL_KEY NEXAI_BOT_TOKEN NEXAI_BOT_USERNAME; do
   if env_has_value "$nex_env" "$key"; then ok "$key configured"; else bad "$key is empty"; fi
 done
+
+session_key="$(awk -F= '$1=="NEXACCOUNT_SESSION_KEY"{v=substr($0,index($0,"=")+1);gsub(/^[[:space:]]+|[[:space:]]+$/,"",v);print v}' "$nex_env" | tail -1)"
+control_key="$(awk -F= '$1=="NEXACCOUNT_CONTROL_KEY"{v=substr($0,index($0,"=")+1);gsub(/^[[:space:]]+|[[:space:]]+$/,"",v);print v}' "$nex_env" | tail -1)"
+agent_key="$(awk -F= '$1=="NEXCONTROL_AGENT_KEY"{v=substr($0,index($0,"=")+1);gsub(/^[[:space:]]+|[[:space:]]+$/,"",v);print v}' "$agent_env" | tail -1)"
+
+if [[ -n "$session_key" && "$session_key" == "$control_key" ]]; then
+  bad "NEXACCOUNT_SESSION_KEY and NEXACCOUNT_CONTROL_KEY must be distinct on the VPS"
+else
+  ok "NexAccount session-encryption and control keys are distinct"
+fi
+if [[ -n "$agent_key" && ( "$agent_key" == "$session_key" || "$agent_key" == "$control_key" ) ]]; then
+  bad "NEXCONTROL_AGENT_KEY must be distinct from NexAccount session/control keys"
+else
+  ok "NexControl Agent key uses a separate trust boundary"
+fi
+unset session_key control_key agent_key
 
 if env_has_value "$shared_env" NEXUS_MONGODB_URI || env_has_value "$nex_env" NEXUS_MONGODB_URI; then
   ok "NexAccount MongoDB URI configured"
