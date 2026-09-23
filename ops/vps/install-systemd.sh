@@ -9,7 +9,7 @@ fi
 repo_root="${1:-/opt/nex/current}"
 unit_src="$repo_root/ops/vps/systemd"
 
-for unit in nexcontrol-agent.service nex-resource-watchdog.service nexaccount@.service; do
+for unit in nexcontrol-agent.service nex-resource-watchdog.service nexaccount@.service nex-backup.service nex-backup.timer; do
   if [[ ! -f "$unit_src/$unit" ]]; then
     echo "Missing $unit_src/$unit" >&2
     exit 1
@@ -37,8 +37,14 @@ if [[ ! -f /etc/nex/env/nexaccount.env ]]; then
   echo "Created /etc/nex/env/nexaccount.env. Fill NexAccount secrets before starting any worker."
 fi
 
+if [[ ! -f /etc/nex/env/backup.env ]]; then
+  install -o root -g root -m 0600 "$repo_root/ops/vps/backup.env.example" /etc/nex/env/backup.env
+  echo "Created /etc/nex/env/backup.env. Configure an off-host target before enabling backups."
+fi
+
 install -d -o nex -g nex -m 0750 /var/lib/nex/runtime/nexaccount
 install -d -o nex -g nex -m 0750 /var/lib/nex/downloads/nexanime-tmp
+install -d -o root -g root -m 0700 /backups/nex/staging
 
 systemctl daemon-reload
 systemctl enable nexcontrol-agent.service nex-resource-watchdog.service
@@ -50,7 +56,9 @@ Enabled for future boot:
   nexcontrol-agent.service
   nex-resource-watchdog.service
 
-NexAccount instances were deliberately NOT enabled or started.
+Deliberately NOT enabled or started:
+  nexaccount@*.service
+  nex-backup.timer
 
 Before starting NexControl Agent:
   1. fill /etc/nex/env/nexcontrol-agent.env
@@ -70,6 +78,13 @@ Before starting NexAccount:
 Example one-worker cutover:
   systemctl start nexaccount@0
   node /opt/nex/current/ops/vps/check-nexaccount-workers.mjs 1
+
+Before enabling backups:
+  1. configure /etc/nex/env/backup.env
+  2. put public age recipient(s) in /etc/nex/secrets/backup-age-recipients.txt
+  3. run one manual nex-backup.service
+  4. restore-test that encrypted backup elsewhere
+  5. only then: systemctl enable --now nex-backup.timer
 
 Start the resource watchdog only after runtime paths are verified:
   systemctl start nex-resource-watchdog
