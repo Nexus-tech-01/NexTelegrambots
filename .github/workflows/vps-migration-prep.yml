@@ -41,6 +41,7 @@ jobs:
           bash -n ops/vps/restart-dispatcher.sh
           bash -n ops/vps/pre-cutover.sh
           bash -n ops/vps/prepare-runtime.sh
+          bash -n ops/vps/test-restart-bridge.sh
 
       - name: JSON syntax and watchdog safety
         run: |
