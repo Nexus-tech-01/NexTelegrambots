@@ -13,6 +13,9 @@ const pick=(...names)=>{
 
 const configuredWorkerCount=Math.max(1,Math.min(65536,Number(pick('NEXACCOUNT_WORKER_COUNT')||1)));
 const configuredWorkerIndex=Math.max(0,Number(pick('NEXACCOUNT_WORKER_INDEX')||0));
+const requireDedicatedKeys=['1','true','yes','on'].includes(pick('NEXACCOUNT_REQUIRE_DEDICATED_KEYS').toLowerCase());
+const explicitSessionSecret=pick('NEXACCOUNT_SESSION_KEY');
+const explicitControlKey=pick('NEXACCOUNT_CONTROL_KEY');
 
 export const cfg={
   apiId:Number(pick('NEXACCOUNT_TELEGRAM_API_ID','TELEGRAM_API_ID')),
@@ -21,7 +24,7 @@ export const cfg={
   botUsername:pick('NEXAI_BOT_USERNAME').replace(/^@/,''),
   mongoUri:pick('NEXUS_MONGODB_URI','MONGODB_URI'),
   dbName:pick('NEXACCOUNT_DB_NAME')||'nexus_bots',
-  sessionSecret:pick('NEXACCOUNT_SESSION_KEY','NEXCONTROL_SESSION_SECRET','SESSION_SECRET','NEXCONTROL_FLEET_KEY'),
+  sessionSecret:requireDedicatedKeys?explicitSessionSecret:pick('NEXACCOUNT_SESSION_KEY','NEXCONTROL_SESSION_SECRET','SESSION_SECRET','NEXCONTROL_FLEET_KEY'),
   port:Number(pick('NEXACCOUNT_PORT')||(3491+configuredWorkerIndex)),
   host:pick('NEXACCOUNT_HOST')||'127.0.0.1',
   nextechUrl:pick('NEXAI_NEXTECH_URL')||'https://t.me/thenexusorigin',
@@ -50,7 +53,7 @@ export const cfg={
   reconcileMs:Math.max(10000,Number(pick('NEXACCOUNT_RECONCILE_MS')||30000)),
   commandPollMs:Math.max(3000,Number(pick('NEXACCOUNT_COMMAND_POLL_MS')||10000)),
   updateSyncMs:Math.max(5000,Number(pick('NEXACCOUNT_UPDATE_SYNC_MS')||20000)),
-  controlKey:pick('NEXACCOUNT_CONTROL_KEY','NEXCONTROL_FLEET_KEY')||pick('NEXACCOUNT_SESSION_KEY','NEXCONTROL_SESSION_SECRET','SESSION_SECRET')
+  controlKey:requireDedicatedKeys?explicitControlKey:(pick('NEXACCOUNT_CONTROL_KEY','NEXCONTROL_FLEET_KEY')||pick('NEXACCOUNT_SESSION_KEY','NEXCONTROL_SESSION_SECRET','SESSION_SECRET'))
 };
 cfg.creatorUrl='https://t.me/'+cfg.creatorUsername.replace(/^@/,'');
 
@@ -64,7 +67,9 @@ export function assertCoreConfig(){
   if(!Number.isInteger(cfg.apiId)||cfg.apiId<=0)missing.push('NEXACCOUNT_TELEGRAM_API_ID');
   if(!cfg.apiHash)missing.push('NEXACCOUNT_TELEGRAM_API_HASH');
   if(!cfg.mongoUri)missing.push('NEXUS_MONGODB_URI');
-  if(!cfg.sessionSecret)missing.push('NEXACCOUNT_SESSION_KEY/SESSION_SECRET');
+  if(!cfg.sessionSecret)missing.push(requireDedicatedKeys?'NEXACCOUNT_SESSION_KEY':'NEXACCOUNT_SESSION_KEY/SESSION_SECRET');
+  if(requireDedicatedKeys&&!cfg.controlKey)missing.push('NEXACCOUNT_CONTROL_KEY');
+  if(requireDedicatedKeys&&cfg.sessionSecret&&cfg.controlKey&&cfg.sessionSecret===cfg.controlKey)missing.push('NEXACCOUNT_SESSION_KEY and NEXACCOUNT_CONTROL_KEY must be distinct');
   if(missing.length)throw new Error('Missing NexAccount configuration: '+missing.join(', '));
 }
 
