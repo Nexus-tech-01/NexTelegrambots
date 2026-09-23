@@ -36,6 +36,7 @@ jobs:
           bash -n ops/vps/bootstrap.sh
           bash -n ops/vps/validate-host.sh
           bash -n ops/vps/install-systemd.sh
+          bash -n ops/vps/backup-runtime.sh
 
       - name: JSON syntax and safety invariants
         run: |
@@ -77,6 +78,21 @@ jobs:
             exit 1
           fi
           echo 'NEXACCOUNT_VPS_INVARIANTS_OK'
+
+      - name: Backup safety invariants
+        run: |
+          grep -q 'age -R' ops/vps/backup-runtime.sh
+          grep -q 'refusing to create a backup that is only local to the VPS' ops/vps/backup-runtime.sh
+          grep -q 'Keep the corresponding private age identity OFF this VPS' ops/vps/backup.env.example
+          if grep -q 'systemctl enable.*nex-backup.timer' ops/vps/install-systemd.sh; then
+            echo 'Backup timer must not be auto-enabled before restore test' >&2
+            exit 1
+          fi
+          if grep -Eq 'var/lib/nex/(downloads|cache|logs)' ops/vps/backup-runtime.sh; then
+            echo 'Transient runtime paths should not be included in encrypted recovery archive' >&2
+            exit 1
+          fi
+          echo 'BACKUP_VPS_INVARIANTS_OK'
 
       - name: Secret-template guard
         run: |
