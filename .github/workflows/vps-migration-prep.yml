@@ -136,8 +136,10 @@ jobs:
         run: |
           grep -q 'systemctl try-restart' ops/vps/restart-dispatcher.sh
           grep -q 'nex-restart-dispatcher.path' ops/vps/install-systemd.sh
-          grep -q 'PathChanged=/var/lib/nex/runtime/nexcontrol/control/restart.json' ops/vps/systemd/nex-restart-dispatcher.path
+          grep -q 'PathExists=/var/lib/nex/runtime/nexcontrol/control/restart.json' ops/vps/systemd/nex-restart-dispatcher.path
           grep -q 'nexcontrol-agent.service' ops/vps/restart-dispatcher.sh
+          grep -q "fs.rename(tmp,hook)" nexcontrol/agent/index.mjs
+          grep -q "fs.rename(tmp,settings.restartHook)" nexcontrol/agent/resource-watchdog.mjs
           if grep -q 'eval ' ops/vps/restart-dispatcher.sh; then
             echo 'Restart dispatcher must never eval request content' >&2
             exit 1
