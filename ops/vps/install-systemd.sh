@@ -52,6 +52,8 @@ fi
 
 install -d -o nex -g nex -m 0750 /var/lib/nex/runtime/nexaccount
 install -d -o nex -g nex -m 0750 /var/lib/nex/downloads/nexanime-tmp
+install -d -o root -g nex -m 0750 /backups/nex
+install -d -o nex -g nex -m 0750 /backups/nex/nexcontrol-agent
 install -d -o root -g root -m 0700 /backups/nex/staging
 install -d -o root -g root -m 0750 /etc/nex/restart-targets.d
 install -d -o root -g root -m 0700 /var/lib/nex/runtime/nexcontrol/restart-history
