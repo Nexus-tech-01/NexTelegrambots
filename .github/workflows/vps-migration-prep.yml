@@ -37,6 +37,7 @@ jobs:
           bash -n ops/vps/validate-host.sh
           bash -n ops/vps/install-systemd.sh
           bash -n ops/vps/backup-runtime.sh
+          bash -n ops/vps/export-bot-source.sh
 
       - name: JSON syntax and safety invariants
         run: |
@@ -94,9 +95,20 @@ jobs:
           fi
           echo 'BACKUP_VPS_INVARIANTS_OK'
 
+      - name: Source recovery exporter invariants
+        run: |
+          grep -q -- "--exclude='.env'" ops/vps/export-bot-source.sh
+          grep -q -- "--exclude='.env.*'" ops/vps/export-bot-source.sh
+          grep -q -- "--exclude='node_modules/'" ops/vps/export-bot-source.sh
+          grep -q -- "--exclude='*.session'" ops/vps/export-bot-source.sh
+          grep -q 'SOURCE_SHA256SUMS.txt' ops/vps/export-bot-source.sh
+          echo 'SOURCE_RECOVERY_INVARIANTS_OK'
+
       - name: Secret-template guard
         run: |
-          if grep -RInE '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|mongodb\+srv://[^.]*:[^@]+@|[0-9]{8,12}:[A-Za-z0-9_-]{30,})' ops/vps; then
+          # export-bot-source.sh intentionally contains literal credential-detection
+          # regexes, so exclude that scanner implementation from this meta-scan.
+          if grep -RInE             --exclude='export-bot-source.sh'             '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|mongodb\+srv://[^.]*:[^@]+@|[0-9]{8,12}:[A-Za-z0-9_-]{30,})'             ops/vps; then
             echo 'Potential secret found in VPS migration files' >&2
             exit 1
           fi
