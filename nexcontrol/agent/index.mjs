@@ -417,13 +417,25 @@ async function execute(job){switch(job.kind){case'fs.list':return listDir(job.pa
 async function heartbeat(){return api('/api/v1/agent/heartbeat',{displayName:NAME,version:'0.6.3',hostname:os.hostname(),platform:`${process.platform}/${process.arch}`,nodeVersion:process.version,pid:process.pid,uptime:process.uptime(),memory:process.memoryUsage(),capabilities:{jobs:["fs.list","fs.tree","fs.read","fs.search","fs.compare","fs.write","fs.mkdir","fs.move","fs.copy","fs.delete","fs.rollback","fs.stat","fs.hash","fs.chmod","backup.snapshot","deploy.pipeline","deploy.patchPipeline","check.run","logs.tail","logs.search","system.info","process.list","disk.usage","http.check","runtime.envKeys","runtime.envCheck","runtime.versions","dependency.npmList","dependency.npmInstall","git.status","git.diff","git.log","git.branches","git.checkout","git.commit","git.sync","runtime.exec","runtime.signal","runtime.restart"],safeChecks:Object.keys(cfg.safeChecks||{}),logs:Object.keys(cfg.logFiles||{})},roots:Object.keys(roots).map(key=>({key,path:roots[key]}))})}
 
 async function ensureNexAccountRuntime(){
+  const auto=String(process.env.NEXCONTROL_AGENT_AUTOSTART_NEXACCOUNT??'true').trim().toLowerCase();
+  if(['0','false','no','off'].includes(auto)){
+    console.log('[NexControlAgent] NexAccount autostart disabled; runtime is managed externally');
+    return;
+  }
   try{
-    const nexusRoot=roots.nexus;
-    if(!nexusRoot)return;
-    const bootstrap=path.join(nexusRoot,'bots','nexaccount','bootstrap.mjs');
-    try{await fs.access(bootstrap)}catch{return}
+    const candidates=[
+      roots.nexaccount?path.join(roots.nexaccount,'bootstrap.mjs'):null,
+      roots.nexus?path.join(roots.nexus,'nexaccount','bootstrap.mjs'):null,
+      roots.nexus?path.join(roots.nexus,'bots','nexaccount','bootstrap.mjs'):null
+    ].filter(Boolean);
+    let bootstrap='';
+    for(const candidate of candidates){
+      try{await fs.access(candidate);bootstrap=candidate;break}catch{}
+    }
+    if(!bootstrap)return;
+    const cwd=path.dirname(bootstrap);
     const result=await runProcess(process.execPath,[bootstrap],{
-      cwd:nexusRoot,
+      cwd,
       timeoutMs:30000,
       maxOutput:40000
     });
