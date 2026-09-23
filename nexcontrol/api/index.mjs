@@ -1,5 +1,5 @@
 import { handleNexAiPublic } from '../nexai-public.mjs';
-// NexControl proxy build 61.12.1-recovery + NexAccount control surface
+// NexControl proxy build 61.12.2-ui-header-hotfix + NexAccount control surface
 const TARGET='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol';
 const AGENT='nexus-main';
 const NEXMETA_PUBLIC='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexmeta-public';
