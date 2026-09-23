@@ -63,6 +63,16 @@ else
   bad "repository migration auditor missing"
 fi
 
+if [[ -d "$repo_root/nexaccount/node_modules" ]]; then
+  if (cd "$repo_root/nexaccount" && npm ls --omit=dev --depth=0 >/dev/null 2>&1); then
+    ok "NexAccount production dependencies are installed from a coherent tree"
+  else
+    bad "NexAccount dependency tree is incomplete/inconsistent; rerun prepare-runtime.sh"
+  fi
+else
+  bad "NexAccount node_modules missing; run prepare-runtime.sh before cutover"
+fi
+
 agent_env=/etc/nex/env/nexcontrol-agent.env
 nex_env=/etc/nex/env/nexaccount.env
 shared_env=/etc/nex/env/shared.env
