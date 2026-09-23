@@ -11,7 +11,7 @@ need_cmd(){
   if command -v "$cmd" >/dev/null 2>&1; then ok "$cmd: $(command -v "$cmd")"; else bad "missing command: $cmd"; fi
 }
 
-for cmd in node npm python3 ffmpeg ffprobe git jq rsync; do need_cmd "$cmd"; done
+for cmd in node npm python3 ffmpeg ffprobe git jq rsync age; do need_cmd "$cmd"; done
 
 if command -v node >/dev/null 2>&1; then
   major="$(node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null || echo 0)"
@@ -32,6 +32,20 @@ if [[ -d /etc/nex/env ]]; then
       *) warn "review permissions $mode on $f (recommended 600 or 640)" ;;
     esac
   done < <(find /etc/nex/env -maxdepth 1 -type f -print0 2>/dev/null || true)
+fi
+
+if [[ -s /etc/nex/secrets/backup-age-recipients.txt ]]; then
+  ok "backup age recipient file is configured"
+else
+  warn "backup age recipient file not configured yet; off-host backup cannot run"
+fi
+
+if [[ -f /etc/nex/env/backup.env ]]; then
+  if grep -qE '^NEX_BACKUP_TARGET=.+$' /etc/nex/env/backup.env; then
+    ok "backup target is configured"
+  else
+    warn "NEX_BACKUP_TARGET is still empty"
+  fi
 fi
 
 # Refuse obvious production secret files inside the Git checkout.
