@@ -27,7 +27,7 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadOnlyPaths=/opt/nex/current /etc/nex
-ReadWritePaths=/var/lib/nex /backups/nex
+ReadWritePaths=/var/lib/nex
 
 [Install]
 WantedBy=multi-user.target
