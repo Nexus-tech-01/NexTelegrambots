@@ -16,7 +16,11 @@ const required=[
   'nexcontrol/agent/index.mjs',
   'nexcontrol/agent/resource-watchdog.mjs',
   'nexaccount/package.json',
+  'nexaccount/secure-rpc.mjs',
+  'nexaccount/bootstrap.mjs',
   'nexcanal/liteapks-relay.mjs',
+  'ops/vps/systemd/nexaccount@.service',
+  'ops/vps/nexaccount.env.example',
   '.env.example',
   '.gitignore'
 ];
@@ -45,12 +49,52 @@ if(renderParts.length){
   if(duplicates.length)warnings.push('duplicate render bundle chunks: '+duplicates.map(x=>x.rows.join(',')).join(' | '));
 }
 
+const directFleet=['nexgame','nexcanal','nexdownloader','nexgroup','nexstick'];
+const missingDirect=[];
+for(const bot of directFleet){
+  if(!(await exists('bots/'+bot)))missingDirect.push(bot);
+}
+if(missingDirect.length){
+  warnings.push('direct bot source directories are absent from the checkout and still depend on legacy bundle extraction: '+missingDirect.join(','));
+}
+
 if(await exists('.env.example')){
   const env=await read('.env.example');
   const hasDouble=/^NEXANIME__/m.test(env);
   const hasSingle=/^NEXANIME_(?!_)/m.test(env);
   if(hasDouble&&hasSingle)warnings.push('both NEXANIME__* and NEXANIME_* configuration families are documented; reconcile consumers before cutover');
   if(env.includes('/home/container/'))warnings.push('.env.example contains /home/container provider-specific paths');
+}
+
+for(const rel of ['nexaccount/anime-secondary-reader.mjs','nexaccount/store.mjs']){
+  if(await exists(rel)){
+    const src=await read(rel);
+    if(src.includes('/home/container/'))warnings.push(rel+' retains a legacy /home/container fallback; VPS env must override it explicitly');
+  }
+}
+
+for(const rel of ['nexaccount/secure-rpc.mjs','nexaccount/bootstrap.mjs']){
+  if(await exists(rel)){
+    const src=await read(rel);
+    if(!src.includes('NEXACCOUNT_RUNTIME_DIR'))failures.push(rel+' does not support external NEXACCOUNT_RUNTIME_DIR');
+  }
+}
+
+if(await exists('ops/vps/nexaccount.env.example')){
+  const env=await read('ops/vps/nexaccount.env.example');
+  for(const expected of [
+    'NEXACCOUNT_RUNTIME_DIR=/var/lib/nex/runtime/nexaccount',
+    'NEXANIME_SECONDARY_SESSION_FILE=/var/lib/nex/sessions/nexcanal-reader-session.txt',
+    'NEXCANAL__WATCHER_ID_FILE=/var/lib/nex/sessions/nexcanal-watcher-id.txt'
+  ]){
+    if(!env.includes(expected))failures.push('VPS NexAccount template missing: '+expected);
+  }
+  if(/^NEXACCOUNT_WORKER_INDEX=/m.test(env))failures.push('shared NexAccount template must not pin one worker index; systemd instance supplies it');
+}
+
+if(await exists('README.md')){
+  const readme=await read('README.md');
+  if(/5 bots/i.test(readme))warnings.push('root README still describes the older five-bot Render fleet');
 }
 
 if(await exists('.gitignore')){
