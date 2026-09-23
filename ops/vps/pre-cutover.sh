@@ -73,6 +73,12 @@ else
   bad "NexControl Agent key is empty"
 fi
 
+agent_autostart="$(awk -F= '$1=="NEXCONTROL_AGENT_AUTOSTART_NEXACCOUNT"{gsub(/[[:space:]]/,"",$2);print tolower($2)}' "$agent_env" 2>/dev/null | tail -1)"
+case "$agent_autostart" in
+  0|false|no|off) ok "Agent NexAccount autostart is disabled; systemd owns worker lifecycle" ;;
+  *) bad "NEXCONTROL_AGENT_AUTOSTART_NEXACCOUNT must be false on the VPS" ;;
+esac
+
 for key in NEXACCOUNT_TELEGRAM_API_ID NEXACCOUNT_TELEGRAM_API_HASH NEXACCOUNT_SESSION_KEY; do
   if env_has_value "$nex_env" "$key"; then ok "$key configured"; else bad "$key is empty"; fi
 done
@@ -110,9 +116,16 @@ else
   ok "no NexAccount worker has been started yet"
 fi
 
+control_url=""
 if [[ -f /etc/nex/nexcontrol-agent.json ]]; then
   if jq empty /etc/nex/nexcontrol-agent.json >/dev/null 2>&1; then
     ok "NexControl Agent JSON config is valid"
+    control_url="$(jq -r '.controlUrls[0] // .controlUrl // empty' /etc/nex/nexcontrol-agent.json)"
+    if [[ -n "$control_url" ]]; then
+      ok "NexControl control-plane URL configured"
+    else
+      bad "NexControl control-plane URL missing from Agent config"
+    fi
   else
     bad "NexControl Agent JSON config is invalid"
   fi
@@ -121,7 +134,9 @@ else
 fi
 
 # Connectivity probes intentionally do not use or print credentials.
-for url in https://api.telegram.org https://nexcontrol-ochre.vercel.app; do
+probe_urls=(https://api.telegram.org)
+[[ -n "$control_url" ]] && probe_urls+=("$control_url")
+for url in "${probe_urls[@]}"; do
   if curl -sS --connect-timeout 5 --max-time 10 -o /dev/null "$url"; then
     ok "outbound HTTPS reachable: $url"
   else
