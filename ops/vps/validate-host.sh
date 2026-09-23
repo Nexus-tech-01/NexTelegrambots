@@ -11,14 +11,15 @@ need_cmd(){
   if command -v "$cmd" >/dev/null 2>&1; then ok "$cmd: $(command -v "$cmd")"; else bad "missing command: $cmd"; fi
 }
 
-for cmd in node npm python3 ffmpeg ffprobe git jq rsync age; do need_cmd "$cmd"; done
+for cmd in node npm python3 ffmpeg ffprobe git jq rsync age systemctl; do need_cmd "$cmd"; done
 
 if command -v node >/dev/null 2>&1; then
   major="$(node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null || echo 0)"
   if (( major >= 22 )); then ok "Node.js $(node -v)"; else bad "Node.js 22+ required; found $(node -v 2>/dev/null || echo unknown)"; fi
 fi
 
-for dir in /opt/nex/current /var/lib/nex/data /var/lib/nex/sessions /var/lib/nex/runtime /var/lib/nex/downloads /var/lib/nex/logs /etc/nex/env /etc/nex/secrets /backups/nex; do
+for dir in   /opt/nex/current   /var/lib/nex/data   /var/lib/nex/sessions   /var/lib/nex/runtime   /var/lib/nex/downloads   /var/lib/nex/logs   /var/lib/nex/runtime/nexcontrol/control   /var/lib/nex/runtime/nexcontrol/restart-history   /etc/nex/env   /etc/nex/secrets   /etc/nex/restart-targets.d   /backups/nex
+do
   if [[ -d "$dir" ]]; then ok "directory exists: $dir"; else bad "missing directory: $dir"; fi
 done
 
@@ -32,6 +33,17 @@ if [[ -d /etc/nex/env ]]; then
       *) warn "review permissions $mode on $f (recommended 600 or 640)" ;;
     esac
   done < <(find /etc/nex/env -maxdepth 1 -type f -print0 2>/dev/null || true)
+fi
+
+for unit in   nexcontrol-agent.service   nex-resource-watchdog.service   nex-restart-dispatcher.service   nex-restart-dispatcher.path   'nexaccount@.service'   nex-backup.service   nex-backup.timer
+do
+  if systemctl cat "$unit" >/dev/null 2>&1; then ok "systemd unit installed: $unit"; else bad "systemd unit missing: $unit"; fi
+done
+
+if systemctl is-enabled nex-restart-dispatcher.path >/dev/null 2>&1; then
+  ok "restart dispatcher path is enabled"
+else
+  warn "restart dispatcher path is not enabled yet"
 fi
 
 if [[ -s /etc/nex/secrets/backup-age-recipients.txt ]]; then
