@@ -65,22 +65,23 @@ NexAccount mutable pairing/runtime state can be moved out of the Git checkout th
 2. Run `sudo bash ops/vps/bootstrap.sh`.
 3. Copy the repository to `/opt/nex/current` or clone it there.
 4. Run `node ops/vps/audit-repository.mjs .` and review all warnings.
-5. Run `sudo bash ops/vps/install-systemd.sh`.
-6. Fill real secrets in `/etc/nex/env/*.env` with mode `0600` or `0640`.
-7. Review `/etc/nex/nexcontrol-agent.json`.
-8. Run `sudo bash ops/vps/validate-host.sh`.
-9. Start **NexControl Agent first** and verify its heartbeat before any bot runtime.
-10. Deploy one low-risk directly-versioned service and verify logs, restart, persistence and outbound connectivity.
-11. Cut over NexAccount using `NEXACCOUNT_WORKERS.md`: stop the old session-bearing runtime first, then start worker 0 on the VPS and validate health.
-12. Add further NexAccount workers only after the one-worker cutover is stable.
-13. Recover the actual old five-bot source from the current runtime using `BOT_SOURCE_RECOVERY.md`; do not deploy the broken Git bundle.
-14. Normalize that recovered source into ordinary Git directories and pass clean build/preflight tests.
-15. Migrate the legacy bot fleet one service at a time only after step 14.
-16. Move remaining scanners/watchers.
-17. Reconcile and port NexMeta/other platform bridges as stage 2.
-18. Rotate/revoke historically exposed production credentials according to `SECRET_ROTATION.md` without breaking the current live path.
-19. Configure and restore-test the encrypted off-host backup flow described in `BACKUP_PLAN.md`.
-20. Enable the resource watchdog and backup timer before declaring the migration complete.
+5. Run `sudo -u nex bash ops/vps/prepare-runtime.sh` to install locked NexAccount dependencies and execute the local regression suite.
+6. Run `sudo bash ops/vps/install-systemd.sh`.
+7. Fill real secrets in `/etc/nex/env/*.env` with mode `0600` or `0640`.
+8. Review `/etc/nex/nexcontrol-agent.json`.
+9. Run `sudo bash ops/vps/validate-host.sh`.
+10. Start **NexControl Agent first** and verify its heartbeat before any bot runtime.
+11. Deploy one low-risk directly-versioned service and verify logs, restart, persistence and outbound connectivity.
+12. Cut over NexAccount using `NEXACCOUNT_WORKERS.md`: stop the old session-bearing runtime first, then start worker 0 on the VPS and validate health.
+13. Add further NexAccount workers only after the one-worker cutover is stable.
+14. Recover the actual old five-bot source from the current runtime using `BOT_SOURCE_RECOVERY.md`; do not deploy the broken Git bundle.
+15. Normalize that recovered source into ordinary Git directories and pass clean build/preflight tests.
+16. Migrate the legacy bot fleet one service at a time only after step 14.
+17. Move remaining scanners/watchers.
+18. Reconcile and port NexMeta/other platform bridges as stage 2.
+19. Rotate/revoke historically exposed production credentials according to `SECRET_ROTATION.md` without breaking the current live path.
+20. Configure and restore-test the encrypted off-host backup flow described in `BACKUP_PLAN.md`.
+21. Enable the resource watchdog and backup timer before declaring the migration complete.
 
 ## NexAccount first-start example
 
