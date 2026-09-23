@@ -78,6 +78,20 @@ jobs:
           grep -q 'ReadOnlyPaths=/opt/nex/current /etc/nex' ops/vps/systemd/nexaccount@.service
           grep -q '^NEXCONTROL_AGENT_AUTOSTART_NEXACCOUNT=false$' ops/vps/nexcontrol-agent.env.example
           grep -q 'NEXCONTROL_AGENT_AUTOSTART_NEXACCOUNT' nexcontrol/agent/index.mjs
+          python3 - <<'PY'
+          import json
+          cfg=json.load(open('ops/vps/nexcontrol-agent.config.example.json',encoding='utf-8'))
+          wd=cfg['resourceWatchdog']
+          if wd.get('requireSupervisedParent') is not False:
+              raise SystemExit('VPS watchdog must allow systemd-parented Nexus runtimes')
+          inc=wd.get('includeCmdline',[])
+          exc=wd.get('excludeCmdline',[])
+          if not any('/opt/nex/current/nexaccount/' in x for x in inc):
+              raise SystemExit('NexAccount runtime is missing from watchdog includeCmdline')
+          if not any('nexcontrol/agent' in x for x in exc):
+              raise SystemExit('NexControl Agent must stay excluded from watchdog candidates')
+          print('WATCHDOG_SYSTEMD_POLICY_OK')
+          PY
           if grep -q 'systemctl enable.*nexaccount@' ops/vps/install-systemd.sh; then
             echo 'NexAccount workers must not be auto-enabled during prep' >&2
             exit 1
