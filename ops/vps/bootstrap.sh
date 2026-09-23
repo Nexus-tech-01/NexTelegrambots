@@ -32,6 +32,7 @@ install -d -o nex -g nex -m 0750 \
   /var/lib/nex/data \
   /var/lib/nex/sessions \
   /var/lib/nex/runtime \
+  /var/lib/nex/recovery \
   /var/lib/nex/downloads \
   /var/lib/nex/cache \
   /var/lib/nex/logs
