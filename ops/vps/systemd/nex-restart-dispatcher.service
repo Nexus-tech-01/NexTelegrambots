@@ -1,0 +1,19 @@
+[Unit]
+Description=Dispatch approved NexControl restart request
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=NEX_RESTART_HOOK=/var/lib/nex/runtime/nexcontrol/control/restart.json
+Environment=NEX_RESTART_MAP_DIR=/etc/nex/restart-targets.d
+Environment=NEX_RESTART_HISTORY_DIR=/var/lib/nex/runtime/nexcontrol/restart-history
+ExecStart=/opt/nex/current/ops/vps/restart-dispatcher.sh
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/nex/current /etc/nex
+ReadWritePaths=/var/lib/nex/runtime/nexcontrol
