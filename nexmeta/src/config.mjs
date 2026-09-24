@@ -155,7 +155,14 @@ export function assertRuntimeConfig() {
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) {
     throw new Error('PORT must be a valid TCP port');
   }
-  if (!config.mongoUri) throw new Error('NEXUS_MONGODB_URI is required');
+
+  const sessionOnly = /^(?:1|true|yes|on)$/i.test(
+    clean(process.env.NEXMETA_SESSION_ONLY)
+  );
+
+  if (!sessionOnly && !config.mongoUri) {
+    throw new Error('NEXUS_MONGODB_URI is required');
+  }
 }
 
 export function assertGraphConfig() {
