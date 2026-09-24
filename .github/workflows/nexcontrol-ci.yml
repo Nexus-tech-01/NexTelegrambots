@@ -1,0 +1,71 @@
+name: NexControl CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'nexcontrol/**'
+      - '.nexcontrol-transfer/current.json'
+      - '.github/workflows/nexcontrol-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'nexcontrol/**'
+      - '.nexcontrol-transfer/current.json'
+      - '.github/workflows/nexcontrol-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  syntax-and-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Check JavaScript modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do
+            echo "checking $file"
+            node --check "$file"
+          done < <(find nexcontrol -type f \( -name '*.mjs' -o -name '*.js' -o -name '*.cjs' \) -print0)
+
+      - name: Validate JSON configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "for (const f of ['nexcontrol/package.json','nexcontrol/agent/package.json','nexcontrol/agent/agent.config.example.json','nexcontrol/vercel.json']) JSON.parse(require('fs').readFileSync(f,'utf8')); console.log('json=ok')"
+
+      - name: Reject transfer tokens in tracked metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -Eiq '([?&]token=|authorization[[:space:]]*:|bearer[[:space:]]+[A-Za-z0-9._-]{16,})' .nexcontrol-transfer/current.json 2>/dev/null; then
+            echo 'Sensitive transfer credential found in tracked metadata.' >&2
+            exit 1
+          fi
+          echo 'transfer-metadata=clean'
+
+      - name: Verify Agent advertised jobs are accepted by control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('fs');
+          const agent=fs.readFileSync('nexcontrol/agent/index.mjs','utf8');
+          const control=fs.readFileSync('nexcontrol/lib/agent-control.mjs','utf8');
+          const hb=agent.match(/jobs:\s*\[([^\]]+)\]/s);
+          const allow=control.match(/const JOB_KINDS=new Set\((\[[^;]+\])\);/s);
+          if(!hb||!allow) throw new Error('job capability declarations not found');
+          const advertised=[...hb[1].matchAll(/"([^"]+)"/g)].map(x=>x[1]);
+          const allowed=JSON.parse(allow[1]);
+          const missing=advertised.filter(x=>!allowed.includes(x));
+          if(missing.length) throw new Error('control plane rejects advertised jobs: '+missing.join(', '));
+          console.log('advertised='+advertised.length,'allowed='+allowed.length,'missing=0');
+          NODE
