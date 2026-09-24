@@ -39,10 +39,10 @@ test('enqueue is idempotent across queued and completed events',()=>{
 test('completed registry is pruned by ttl and limit',()=>{
   const st={queue:[],completed:[
     {eventId:'telegram:x:1',completedAt:1},
-    {eventId:'telegram:x:2',completedAt:1000},
-    {eventId:'telegram:x:3',completedAt:1100}
+    {eventId:'telegram:x:2',completedAt:50000},
+    {eventId:'telegram:x:3',completedAt:119000}
   ]};
-  pruneCompleted(st,{now:1200,ttlMs:100,limit:100});
+  pruneCompleted(st,{now:120000,ttlMs:60000,limit:100});
   assert.deepEqual(st.completed.map(x=>x.eventId),['telegram:x:3']);
 });
 
