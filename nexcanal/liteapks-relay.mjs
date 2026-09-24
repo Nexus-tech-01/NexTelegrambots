@@ -3,6 +3,7 @@ import path from 'node:path';
 import { TelegramClient, Api } from 'teleproto';
 import { StringSession } from 'teleproto/sessions/index.js';
 import { CustomFile } from 'teleproto/client/uploads.js';
+import { enqueueSourceEvent, hasEvent, markEventCompleted, normalizeInterrouteState, normalizeQueueItem } from './internal-event-core.mjs';
 
 const dst=(process.env.NEXCANAL__APK_DESTINATION||process.env.NEXCANAL__WATCHER_DESTINATION||'thenexusorigin').replace(/^@/,'').trim();
 const token=(process.env.NEXCANAL__BOT_TOKEN||'').trim();
@@ -304,16 +305,20 @@ async function load(){
   try{
     const x=JSON.parse(await fs.readFile(stateFile,'utf8'));
     x.sources=x.sources||{};
-    x.queue=Array.isArray(x.queue)?x.queue:[];
+    normalizeInterrouteState(x);
     return x;
-  }catch{return {version:2,sources:{},queue:[]};}
+  }catch{
+    const x={version:3,sources:{},queue:[],completed:[]};
+    normalizeInterrouteState(x);
+    return x;
+  }
 }
 let saveChain=Promise.resolve();
 async function save(s){
   saveChain=saveChain.then(async()=>{
     await fs.mkdir(path.dirname(stateFile),{recursive:true});
     const tmp=stateFile+'.tmp-'+process.pid;
-    await fs.writeFile(tmp,JSON.stringify({...s,version:2,updatedAt:new Date().toISOString()}));
+    await fs.writeFile(tmp,JSON.stringify({...s,version:3,updatedAt:new Date().toISOString()}));
     await fs.rename(tmp,stateFile);
   });
   return saveChain;
@@ -344,8 +349,14 @@ function ensureSourceState(st,key){
   st.sources[key].descriptors=Array.isArray(st.sources[key].descriptors)?st.sources[key].descriptors:[];
   return st.sources[key];
 }
-function queueKey(sourceKey,id){return sourceKey+':'+id;}
-function isQueued(st,sourceKey,id){const k=queueKey(sourceKey,id);return st.queue.some(x=>x.key===k);}
+function queueKey(sourceKey,id){
+  const item=normalizeQueueItem({source:sourceKey,id,addedAt:Date.now()});
+  return item?.key||String(sourceKey)+':'+String(id);
+}
+function isQueued(st,sourceKey,id){return hasEvent(st,sourceKey,id);}
+function enqueueDiscovered(st,sourceKey,id){
+  return enqueueSourceEvent(st,sourceKey,id,{now:Date.now()});
+}
 
 function isTlDecodeError(error){
   return /Constructor ID|TLObject/i.test(String(error?.message||error||''));
@@ -385,7 +396,7 @@ async function discover(c,st,sources){
         const list=[...recent].filter(m=>{const d=Number(m?.date||0);return !d||d*1000>=cutoff;}).sort((a,b)=>Number(a.id)-Number(b.id));
         for(const m of list){
           const id=Number(m.id);
-          if(id&&!isQueued(st,key,id))st.queue.push({key:queueKey(key,id),source:key,id,addedAt:Date.now(),retries:0,nextRetryAt:0});
+          if(id&&!isQueued(st,key,id))enqueueDiscovered(st,key,id);
           ss.cursor=Math.max(Number(ss.cursor||0),id||0);
         }
         log('bootstrapped',key,list.length,'message(s) through',ss.cursor);
@@ -398,7 +409,7 @@ async function discover(c,st,sources){
       for(const m of list){
         const id=Number(m.id);
         if(!isQueued(st,key,id)){
-          st.queue.push({key:queueKey(key,id),source:key,id,addedAt:Date.now(),retries:0,nextRetryAt:0});
+          enqueueDiscovered(st,key,id);
           changed=true;
         }
         ss.cursor=Math.max(Number(ss.cursor||0),id);
@@ -441,6 +452,9 @@ function pruneDescriptors(ss){
 }
 
 async function processItem(c,publisher,destination,st,sources,item){
+  const normalized=normalizeQueueItem(item);
+  if(!normalized)throw new Error('invalid canonical queue event');
+  item=normalized;
   const source=sources.get(item.source);
   if(!source)throw new Error('source unavailable: '+item.source);
   const ss=ensureSourceState(st,item.source);
@@ -478,7 +492,7 @@ const workerLimit=Math.max(1,Math.min(4,Number(process.env.NEXCANAL__WATCHER_WOR
 async function handleQueueItem(c,publisher,destination,st,sources,item){
   try{
     const result=await processItem(c,publisher,destination,st,sources,item);
-    st.queue=st.queue.filter(x=>x.key!==item.key);
+    markEventCompleted(st,item,{now:Date.now()});
     await save(st);
     log('processed',item.key,result.reason,'queue',st.queue.length,'active',processing.size);
   }catch(e){
