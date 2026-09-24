@@ -4,6 +4,8 @@ on:
   pull_request:
     branches:
       - main
+    paths:
+      - 'render-src.b64.part-*'
 
 permissions:
   contents: read
