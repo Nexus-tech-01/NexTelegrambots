@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node index.mjs"
+    "start": "node index.mjs",
+    "check": "node --check index.mjs && node --check ../lib/agent-control.mjs && node --check ../ui/server.mjs"
   }
 }
