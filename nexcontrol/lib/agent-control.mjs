@@ -5,7 +5,7 @@ import { body, db, json } from './core.mjs';
 let indexed=false;
 const hash=s=>crypto.createHash('sha256').update(String(s??'')).digest();
 const equal=(a,b)=>{try{return crypto.timingSafeEqual(hash(a),hash(b))}catch{return false}};
-const JOB_KINDS=new Set(['fs.list','fs.read','fs.search','fs.write','fs.mkdir','fs.move','fs.delete','fs.rollback','check.run','logs.tail','runtime.restart']);
+const JOB_KINDS=new Set(["fs.list","fs.tree","fs.read","fs.search","fs.compare","fs.write","fs.mkdir","fs.move","fs.copy","fs.delete","fs.rollback","fs.stat","fs.hash","fs.chmod","backup.snapshot","deploy.pipeline","deploy.patchPipeline","check.run","logs.tail","logs.search","system.info","process.list","service.list","service.status","service.health","service.action","service.logs","disk.usage","runtime.versions","dependency.npmList","dependency.npmInstall","http.check","runtime.envKeys","runtime.envCheck","git.status","git.diff","git.log","git.branches","git.checkout","git.commit","git.sync","runtime.exec","runtime.signal","runtime.restart"]);
 
 async function agentDb(){
   const d=await db();
