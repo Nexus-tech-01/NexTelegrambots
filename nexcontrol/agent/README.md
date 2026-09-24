@@ -38,3 +38,32 @@ Priority order:
 6. built-in Supabase NexControl fallback
 
 Every agent request also sends `x-nexcontrol-path`, so the same runtime works both behind the Vercel proxy and directly against the Supabase Edge Function. After failover, the agent periodically retries the primary endpoint (default: 5 minutes; override with `NEXCONTROL_PRIMARY_REPROBE_MS`).
+
+## Service registry (P1)
+
+Critical systemd services are explicitly allowlisted in `agent.config.json` under `services`. NexControl never accepts an arbitrary unit name from a job payload.
+
+Example:
+
+```json
+{
+  "services": {
+    "nexcontrol-agent": {
+      "unit": "nexcontrol-agent.service",
+      "description": "NexControl Agent",
+      "actions": ["start", "stop", "restart"],
+      "healthUrl": "http://127.0.0.1:8787/health"
+    }
+  }
+}
+```
+
+Supported service jobs:
+
+- `service.list` — status/resource snapshot for every configured service
+- `service.status` — one configured service
+- `service.health` — compact systemd + HTTP health result
+- `service.action` — `start`, `stop`, or `restart`, constrained by the registry
+- `service.logs` — bounded `journalctl` output for the configured unit
+
+The Server page displays the most recent successful `service.list` snapshot. Run `npm run check` in `nexcontrol/agent` before deployment.
