@@ -94,6 +94,22 @@ async function isLoggedIn() {
   if (!page || page.isClosed()) return false;
 
   try {
+    const currentUrl = String(page.url() || '').toLowerCase();
+    if (
+      currentUrl.includes('/login') ||
+      currentUrl.includes('/checkpoint') ||
+      currentUrl.includes('/recover')
+    ) {
+      return false;
+    }
+
+    const cookies = await page.cookies('https://www.facebook.com/');
+    const cUser = cookies.find(
+      cookie => cookie.name === 'c_user' && String(cookie.value || '').trim()
+    );
+
+    if (!cUser) return false;
+
     return await page.evaluate(() => {
       const loginForm = document.querySelector(
         'input[name="email"],input[name="pass"],form[action*="login"]'
@@ -102,11 +118,10 @@ async function isLoggedIn() {
       if (loginForm) return false;
 
       const body = String(document.body?.innerText || '').toLowerCase();
-      const explicitLogin =
+      return !(
         body.includes('log in to facebook') ||
-        body.includes('se connecter à facebook');
-
-      return !explicitLogin;
+        body.includes('se connecter à facebook')
+      );
     });
   } catch {
     return false;
