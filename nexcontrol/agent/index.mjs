@@ -411,10 +411,93 @@ async function runtimeSignal(p){
   process.kill(pid,signal);return{pid,signal,sent:true};
 }
 
+
+function serviceDefinition(name){
+  const key=String(name||'').trim();
+  if(!/^[A-Za-z0-9._-]{1,80}$/.test(key))throw new Error('Invalid service name');
+  const raw=cfg.services?.[key];
+  if(!raw)throw new Error('Unknown service');
+  const data=typeof raw==='string'?{unit:raw}:raw;
+  const unit=String(data?.unit||'').trim();
+  if(!/^[A-Za-z0-9@_.:\\-]+\.service$/.test(unit))throw new Error('Invalid configured systemd unit');
+  const actions=Array.isArray(data.actions)&&data.actions.length
+    ?data.actions.map(String).filter(x=>['start','stop','restart'].includes(x))
+    :['start','stop','restart'];
+  return{name:key,unit,description:String(data.description||key).slice(0,240),healthUrl:data.healthUrl?String(data.healthUrl):null,actions:[...new Set(actions)]};
+}
+function parseSystemdProperties(text=''){
+  const out={};
+  for(const line of String(text).split(/\r?\n/)){
+    const i=line.indexOf('=');if(i<=0)continue;
+    out[line.slice(0,i)]=line.slice(i+1);
+  }
+  return out;
+}
+async function serviceStatusOne(def,{includeHealth=true}={}){
+  if(process.platform!=='linux')throw new Error('service.* currently requires Linux/systemd');
+  const props=['Id','Description','LoadState','ActiveState','SubState','UnitFileState','MainPID','MemoryCurrent','CPUUsageNSec','ExecMainStatus','ActiveEnterTimestamp'];
+  const r=await runProcess('systemctl',['show',def.unit,'--no-page','--property='+props.join(',')],{timeoutMs:15000,maxOutput:120000});
+  const p=parseSystemdProperties(r.stdout);
+  let health=null;
+  if(includeHealth&&def.healthUrl){
+    try{health=await httpCheck({url:def.healthUrl,timeoutMs:5000,previewBytes:300})}
+    catch(error){health={url:def.healthUrl,ok:false,error:String(error?.message||error).slice(0,1000)}}
+  }
+  const mainPid=Number(p.MainPID||0)||0;
+  const memoryCurrent=Number(p.MemoryCurrent);
+  const cpuUsageNSec=Number(p.CPUUsageNSec);
+  return{
+    name:def.name,unit:def.unit,description:def.description,actions:def.actions,
+    loadState:p.LoadState||null,activeState:p.ActiveState||null,subState:p.SubState||null,
+    unitFileState:p.UnitFileState||null,mainPid,
+    memoryCurrent:Number.isFinite(memoryCurrent)?memoryCurrent:null,
+    cpuUsageNSec:Number.isFinite(cpuUsageNSec)?cpuUsageNSec:null,
+    execMainStatus:p.ExecMainStatus===''?null:Number(p.ExecMainStatus),
+    activeEnterTimestamp:p.ActiveEnterTimestamp||null,
+    healthy:r.ok&&p.LoadState!=='not-found'&&p.ActiveState==='active'&&(health?health.ok===true:true),
+    health,systemctl:{ok:r.ok,code:r.code,stderr:String(r.stderr||'').slice(0,4000)}
+  };
+}
+async function serviceList(p={}){
+  const names=Object.keys(cfg.services||{}).sort();
+  const items=[];
+  for(const name of names){
+    try{items.push(await serviceStatusOne(serviceDefinition(name),{includeHealth:p.includeHealth!==false}))}
+    catch(error){items.push({name,healthy:false,error:String(error?.message||error).slice(0,4000)})}
+  }
+  return{count:items.length,healthy:items.filter(x=>x.healthy).length,items};
+}
+async function serviceStatus(p={}){
+  return serviceStatusOne(serviceDefinition(p.name),{includeHealth:p.includeHealth!==false});
+}
+async function serviceHealth(p={}){
+  const x=await serviceStatusOne(serviceDefinition(p.name),{includeHealth:true});
+  return{name:x.name,unit:x.unit,healthy:x.healthy,activeState:x.activeState,subState:x.subState,health:x.health};
+}
+async function serviceAction(p={}){
+  const def=serviceDefinition(p.name),action=String(p.action||'').trim();
+  if(!['start','stop','restart'].includes(action))throw new Error('Unsupported service action');
+  if(!def.actions.includes(action))throw new Error('Service action not allowed by registry');
+  const r=await runProcess('systemctl',[action,def.unit],{timeoutMs:60000,maxOutput:120000});
+  const status=await serviceStatusOne(def,{includeHealth:true}).catch(error=>({name:def.name,unit:def.unit,healthy:false,error:String(error?.message||error).slice(0,4000)}));
+  return{ok:r.ok,action,name:def.name,unit:def.unit,code:r.code,stdout:String(r.stdout||'').slice(0,12000),stderr:String(r.stderr||'').slice(0,12000),status};
+}
+async function serviceLogs(p={}){
+  const def=serviceDefinition(p.name),lines=Math.min(2000,Math.max(20,Number(p.lines||200)));
+  const since=String(p.since||'').trim();
+  const args=['--unit',def.unit,'--no-pager','--output','short-iso','-n',String(lines)];
+  if(since){
+    if(since.length>80||/[\r\n\0]/.test(since))throw new Error('Invalid journal since value');
+    args.push('--since',since);
+  }
+  const r=await runProcess('journalctl',args,{timeoutMs:30000,maxOutput:500000});
+  return{name:def.name,unit:def.unit,lines,ok:r.ok,code:r.code,content:r.stdout,stderr:r.stderr};
+}
+
 async function tailLogs(p){const f=cfg.logFiles?.[p.log];if(!f)throw new Error('Unknown log');const out=path.resolve(String(f)),st=await fs.stat(out),bytes=Math.min(st.size,Math.max(1024,Math.min(512000,Number(p.bytes||100000)))),h=await fs.open(out,'r'),buf=Buffer.alloc(bytes);await h.read(buf,0,bytes,st.size-bytes);await h.close();return{log:p.log,bytes,content:buf.toString('utf8')}}
 async function restart(p){if(cfg.restartHook?.mode!=='file')throw new Error('Restart hook not configured');const hook=path.resolve(cfg.restartHook.path);await fs.mkdir(path.dirname(hook),{recursive:true});await fs.writeFile(hook,JSON.stringify({target:p.target||'all',reason:p.reason||'NexControl',requestedAt:new Date().toISOString(),nonce:crypto.randomUUID()},null,2));return{queued:true,target:p.target||'all',hook}}
-async function execute(job){switch(job.kind){case'fs.list':return listDir(job.payload);case'fs.tree':return fsTree(job.payload);case'fs.read':return readFile(job.payload);case'fs.search':return searchFiles(job.payload);case'fs.compare':return compareFiles(job.payload);case'fs.write':return writeFile(job.payload);case'fs.mkdir':return mkdir(job.payload);case'fs.move':return move(job.payload);case'fs.copy':return copyPath(job.payload);case'fs.delete':return remove(job.payload);case'fs.rollback':return rollback(job.payload);case'fs.stat':return statPath(job.payload);case'fs.hash':return hashFile(job.payload);case'fs.chmod':return chmodPath(job.payload);case'backup.snapshot':return backupSnapshot(job.payload);case'deploy.pipeline':return deployPipeline(job.payload);case'deploy.patchPipeline':return deployPatchPipeline(job.payload);case'check.run':return runCheck(job.payload);case'logs.tail':return tailLogs(job.payload);case'logs.search':return searchLogs(job.payload);case'system.info':return systemInfo();case'process.list':return processList(job.payload);case'disk.usage':return diskUsage(job.payload);case'runtime.versions':return runtimeVersions(job.payload);case'dependency.npmList':return npmList(job.payload);case'dependency.npmInstall':return npmInstallSafe(job.payload);case'http.check':return httpCheck(job.payload);case'runtime.envKeys':return envKeys();case'runtime.envCheck':return envCheck(job.payload);case'git.status':return gitStatus(job.payload);case'git.diff':return gitDiff(job.payload);case'git.log':return gitLog(job.payload);case'git.branches':return gitBranches(job.payload);case'git.checkout':return gitCheckout(job.payload);case'git.commit':return gitCommit(job.payload);case'git.sync':return gitSync(job.payload);case'runtime.exec':return runtimeExec(job.payload);case'runtime.signal':return runtimeSignal(job.payload);case'runtime.restart':return restart(job.payload);default:throw new Error(`Unsupported job kind: ${job.kind}`)}}
-async function heartbeat(){return api('/api/v1/agent/heartbeat',{displayName:NAME,version:'0.6.3',hostname:os.hostname(),platform:`${process.platform}/${process.arch}`,nodeVersion:process.version,pid:process.pid,uptime:process.uptime(),memory:process.memoryUsage(),capabilities:{jobs:["fs.list","fs.tree","fs.read","fs.search","fs.compare","fs.write","fs.mkdir","fs.move","fs.copy","fs.delete","fs.rollback","fs.stat","fs.hash","fs.chmod","backup.snapshot","deploy.pipeline","deploy.patchPipeline","check.run","logs.tail","logs.search","system.info","process.list","disk.usage","http.check","runtime.envKeys","runtime.envCheck","runtime.versions","dependency.npmList","dependency.npmInstall","git.status","git.diff","git.log","git.branches","git.checkout","git.commit","git.sync","runtime.exec","runtime.signal","runtime.restart"],safeChecks:Object.keys(cfg.safeChecks||{}),logs:Object.keys(cfg.logFiles||{})},roots:Object.keys(roots).map(key=>({key,path:roots[key]}))})}
+async function execute(job){switch(job.kind){case'fs.list':return listDir(job.payload);case'fs.tree':return fsTree(job.payload);case'fs.read':return readFile(job.payload);case'fs.search':return searchFiles(job.payload);case'fs.compare':return compareFiles(job.payload);case'fs.write':return writeFile(job.payload);case'fs.mkdir':return mkdir(job.payload);case'fs.move':return move(job.payload);case'fs.copy':return copyPath(job.payload);case'fs.delete':return remove(job.payload);case'fs.rollback':return rollback(job.payload);case'fs.stat':return statPath(job.payload);case'fs.hash':return hashFile(job.payload);case'fs.chmod':return chmodPath(job.payload);case'backup.snapshot':return backupSnapshot(job.payload);case'deploy.pipeline':return deployPipeline(job.payload);case'deploy.patchPipeline':return deployPatchPipeline(job.payload);case'check.run':return runCheck(job.payload);case'logs.tail':return tailLogs(job.payload);case'logs.search':return searchLogs(job.payload);case'system.info':return systemInfo();case'process.list':return processList(job.payload);case'service.list':return serviceList(job.payload);case'service.status':return serviceStatus(job.payload);case'service.health':return serviceHealth(job.payload);case'service.action':return serviceAction(job.payload);case'service.logs':return serviceLogs(job.payload);case'disk.usage':return diskUsage(job.payload);case'runtime.versions':return runtimeVersions(job.payload);case'dependency.npmList':return npmList(job.payload);case'dependency.npmInstall':return npmInstallSafe(job.payload);case'http.check':return httpCheck(job.payload);case'runtime.envKeys':return envKeys();case'runtime.envCheck':return envCheck(job.payload);case'git.status':return gitStatus(job.payload);case'git.diff':return gitDiff(job.payload);case'git.log':return gitLog(job.payload);case'git.branches':return gitBranches(job.payload);case'git.checkout':return gitCheckout(job.payload);case'git.commit':return gitCommit(job.payload);case'git.sync':return gitSync(job.payload);case'runtime.exec':return runtimeExec(job.payload);case'runtime.signal':return runtimeSignal(job.payload);case'runtime.restart':return restart(job.payload);default:throw new Error(`Unsupported job kind: ${job.kind}`)}}
+async function heartbeat(){return api('/api/v1/agent/heartbeat',{displayName:NAME,version:'1.2.0',hostname:os.hostname(),platform:`${process.platform}/${process.arch}`,nodeVersion:process.version,pid:process.pid,uptime:process.uptime(),memory:process.memoryUsage(),capabilities:{jobs:["fs.list","fs.tree","fs.read","fs.search","fs.compare","fs.write","fs.mkdir","fs.move","fs.copy","fs.delete","fs.rollback","fs.stat","fs.hash","fs.chmod","backup.snapshot","deploy.pipeline","deploy.patchPipeline","check.run","logs.tail","logs.search","system.info","process.list","service.list","service.status","service.health","service.action","service.logs","disk.usage","http.check","runtime.envKeys","runtime.envCheck","runtime.versions","dependency.npmList","dependency.npmInstall","git.status","git.diff","git.log","git.branches","git.checkout","git.commit","git.sync","runtime.exec","runtime.signal","runtime.restart"],safeChecks:Object.keys(cfg.safeChecks||{}),logs:Object.keys(cfg.logFiles||{})},roots:Object.keys(roots).map(key=>({key,path:roots[key]}))})}
 
 async function ensureNexAccountRuntime(){
   try{
