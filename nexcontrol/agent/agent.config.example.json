@@ -124,5 +124,16 @@
         "maxBytes": 1073741824
       }
     ]
+  },
+  "services": {
+    "nexcontrol-agent": {
+      "unit": "nexcontrol-agent.service",
+      "description": "NexControl Agent",
+      "actions": [
+        "start",
+        "stop",
+        "restart"
+      ]
+    }
   }
 }

@@ -13,6 +13,15 @@ export async function serverPage(url){
   const agents=await d.collection('agents').find({}).sort({displayName:1}).toArray();
   const selected=String(url.searchParams.get('agent')||agents[0]?.slug||'');
   const jobs=await d.collection('agent_jobs').find(selected?{agentSlug:selected}:{}).sort({createdAt:-1}).limit(60).toArray();
+  const serviceJob=selected?await d.collection('agent_jobs').findOne({agentSlug:selected,kind:'service.list',status:'succeeded'},{sort:{finishedAt:-1,createdAt:-1}}):null;
+  const services=Array.isArray(serviceJob?.result?.items)?serviceJob.result.items:[];
+  const serviceRows=services.map(s=>{
+    const mem=Number(s.memoryCurrent);
+    const mb=Number.isFinite(mem)?Math.round(mem/1048576):null;
+    const state=[s.activeState,s.subState].filter(Boolean).join(' / ')||'unknown';
+    const health=s.healthy===true?'HEALTHY':s.healthy===false?'DEGRADED':'UNKNOWN';
+    return `<tr><td><strong>${X(s.name||s.unit||'service')}</strong><div class="dest-id">${X(s.unit||'')}</div></td><td><span class="pill">${X(health)}</span></td><td>${X(state)}</td><td>${Number(s.mainPid||0)||'—'}</td><td>${mb==null?'—':X(String(mb))+' MB'}</td><td>${s.health?.latencyMs!=null?X(String(s.health.latencyMs))+' ms':'—'}</td></tr>`;
+  }).join('');
   const opts=agents.map(a=>`<option value="${X(a.slug)}"${a.slug===selected?' selected':''}>${X(a.displayName||a.slug)} · ${X(a.slug)}</option>`).join('');
   const cards=agents.map(a=>{
     const online=a.lastHeartbeatAt&&(Date.now()-new Date(a.lastHeartbeatAt).getTime()<90000);
@@ -34,10 +43,16 @@ export async function serverPage(url){
     'fs.rollback':{backupId:'BACKUP_ID'},
     'check.run':{check:'node-check',root:'nexgroup',file:'src/index.js',timeoutMs:60000},
     'logs.tail':{log:'launcher',bytes:100000},
+    'service.list':{includeHealth:true},
+    'service.status':{name:'nexcontrol-agent',includeHealth:true},
+    'service.health':{name:'nexcontrol-agent'},
+    'service.action':{name:'nexcontrol-agent',action:'restart'},
+    'service.logs':{name:'nexcontrol-agent',lines:250},
     'runtime.restart':{target:'all',reason:'NexControl'}
   };
   return page('Server',`<div class="page-head"><div><div class="eyebrow">Pterodactyl-independent control plane</div><h1 class="page-title">Server</h1></div><p class="page-sub">L’Agent ouvre uniquement des connexions sortantes vers NexControl. Les opérations fichiers, checks, logs et demandes de restart passent par une file de jobs MongoDB — aucune API Pterodactyl n’est nécessaire.</p></div>
   <section class="section fade-up"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px">${cards||'<div class="empty">Aucun Agent n’a encore envoyé de heartbeat.</div>'}</div></section>
+  <section class="section fade-up"><div class="panel"><div style="padding:24px 24px 4px"><div class="eyebrow">Service registry</div><h2 style="font-size:32px;margin:8px 0">Services critiques</h2><div class="muted">Snapshot le plus récent via <code>service.list</code>${serviceJob?' · '+X(fmtDate(serviceJob.finishedAt||serviceJob.createdAt)):' · aucun snapshot disponible'}. Utilise les actions service.* ci-dessous pour actualiser, contrôler ou lire les logs.</div></div><div style="overflow:auto"><table class="table"><thead><tr><th>Service</th><th>Santé</th><th>État</th><th>PID</th><th>RAM</th><th>Health</th></tr></thead><tbody>${serviceRows||'<tr><td colspan="6" class="muted">Aucun état de service enregistré. Lance service.list.</td></tr>'}</tbody></table></div></div></section>
   <section class="section fade-up"><div class="panel" style="padding:26px"><div class="eyebrow">Create agent job</div><h2 style="font-size:32px;margin:8px 0 22px">Commande sécurisée</h2><form id="agentJob"><label>Agent</label><select name="agentSlug" required>${opts}</select><label>Action</label><select name="kind" id="jobKind" required>${Object.keys(templates).map(k=>`<option value="${k}">${k}</option>`).join('')}</select><label>Payload JSON</label><textarea name="payload" id="jobPayload" spellcheck="false" style="min-height:230px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace"></textarea><div style="display:flex;gap:10px;margin-top:20px"><button class="action primary" style="flex:1">Envoyer à l’Agent</button><button type="button" class="action" id="refreshJob">Actualiser</button></div><div class="result" id="jobOut"></div></form></div></section>
   <section class="section fade-up"><div class="panel"><div style="padding:24px 24px 4px"><div class="eyebrow">Job history</div><h2 style="font-size:32px;margin:8px 0">${selected?X(selected):'Tous les agents'}</h2></div><div style="overflow:auto"><table class="table"><thead><tr><th>Job</th><th>État</th><th>Créé</th><th>Détails</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="muted">Aucun job.</td></tr>'}</tbody></table></div></div></section>
   <script>const templates=${JSON.stringify(templates)};const kind=document.getElementById('jobKind'),payload=document.getElementById('jobPayload'),out=document.getElementById('jobOut');function sync(){payload.value=JSON.stringify(templates[kind.value]||{},null,2)}kind.onchange=sync;sync();document.getElementById('refreshJob').onclick=()=>location.reload();document.getElementById('agentJob').onsubmit=async e=>{e.preventDefault();out.textContent='Envoi…';let p;try{p=JSON.parse(payload.value)}catch{out.textContent='Payload JSON invalide';return}const r=await fetch('/api/admin/agent/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({agentSlug:e.target.agentSlug.value,kind:kind.value,payload:p})});const j=await r.json();out.textContent=r.ok?'Job créé : '+j.jobId:'Erreur : '+(j.error||'inconnue');if(r.ok)setTimeout(()=>location.href='/server?agent='+encodeURIComponent(e.target.agentSlug.value),700)}</script>`,'server');
