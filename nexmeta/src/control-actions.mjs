@@ -70,9 +70,15 @@ import {
   enqueueCompanionCommand,
   getCompanionCommand
 } from './companion.mjs';
+import {
+  persistentSessionStatus,
+  executePersistentSessionCommand
+} from './session-agent.mjs';
 
 export const CONTROL_CAPABILITIES = Object.freeze([
   'status',
+  'persistent_session_status',
+  'persistent_session_command',
   'companion_create_pairing',
   'companion_status',
   'companion_list_devices',
@@ -132,6 +138,7 @@ export const CONTROL_CAPABILITIES = Object.freeze([
 ]);
 
 const META_WRITE_ACTIONS = new Set([
+  'persistent_session_command',
   'companion_enqueue',
   'send_text',
   'send_media',
@@ -218,6 +225,24 @@ export async function executeControlAction(body) {
   await assertMetaWritesEnabled(action);
 
   switch (action) {
+    case 'persistent_session_status':
+      return persistentSessionStatus();
+
+    case 'persistent_session_command':
+      return executePersistentSessionCommand({
+        type: requireString(
+          body.commandType || body.type,
+          'commandType',
+          80
+        ),
+        payload:
+          body.payload &&
+          typeof body.payload === 'object' &&
+          !Array.isArray(body.payload)
+            ? body.payload
+            : {}
+      });
+
     case 'companion_create_pairing':
       return createCompanionPairing({
         label: optionalString(body.label, 120),
