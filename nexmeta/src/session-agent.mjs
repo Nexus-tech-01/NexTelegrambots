@@ -349,6 +349,402 @@ refresh();
 </html>`;
 }
 
+
+const sessionControlKey = String(
+  process.env.NEXMETA_SESSION_CONTROL_KEY || ''
+).trim();
+
+function sessionControlAuthorized(req) {
+  const supplied = String(req?.headers?.authorization || '')
+    .replace(/^Bearer\s+/i, '')
+    .trim();
+
+  return Boolean(
+    sessionControlKey.length >= 32 &&
+    timingSafeEqualText(supplied, sessionControlKey)
+  );
+}
+
+function supportedFacebookUrl(value) {
+  try {
+    const url = new URL(String(value || ''), 'https://www.facebook.com/');
+    return [
+      'facebook.com',
+      'www.facebook.com',
+      'web.facebook.com',
+      'm.facebook.com',
+      'messenger.com',
+      'www.messenger.com'
+    ].includes(url.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+async function requireAuthenticatedSession() {
+  await launchBrowser();
+  const context = await refreshContext();
+
+  if (!context?.loggedIn) {
+    const error = new Error('facebook_session_authentication_required');
+    error.status = 409;
+    throw error;
+  }
+
+  return context;
+}
+
+async function navigateFacebook(targetUrl) {
+  if (!supportedFacebookUrl(targetUrl)) {
+    const error = new Error('target_url_not_allowed');
+    error.status = 400;
+    throw error;
+  }
+
+  if (!page || page.isClosed()) {
+    const error = new Error('browser_not_ready');
+    error.status = 503;
+    throw error;
+  }
+
+  const target = new URL(String(targetUrl), 'https://www.facebook.com/').toString();
+  if (page.url() !== target) {
+    await page.goto(target, {
+      waitUntil: 'domcontentloaded',
+      timeout: 60_000
+    });
+    await new Promise(resolve => setTimeout(resolve, 1200));
+  }
+
+  return refreshContext();
+}
+
+async function browserPageContext() {
+  const context = await requireAuthenticatedSession();
+
+  return {
+    ...context,
+    browserRunning: Boolean(browser?.connected),
+    pageReady: Boolean(page && !page.isClosed())
+  };
+}
+
+async function listBrowserConversations() {
+  await requireAuthenticatedSession();
+
+  if (!/\/messages(?:\/|$)/i.test(page.url())) {
+    await navigateFacebook('https://www.facebook.com/messages/');
+  }
+
+  await page.waitForSelector('body', { timeout: 15_000 });
+
+  return page.evaluate(() => {
+    const visible = element => {
+      if (!(element instanceof Element)) return false;
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.visibility !== 'hidden' &&
+        style.display !== 'none'
+      );
+    };
+
+    const seen = new Set();
+    const conversations = [];
+
+    for (const anchor of document.querySelectorAll('a[href*="/messages/t/"]')) {
+      if (!visible(anchor)) continue;
+
+      let href = '';
+      try {
+        const url = new URL(anchor.href, location.href);
+        url.hash = '';
+        href = url.toString();
+      } catch {
+        continue;
+      }
+
+      if (seen.has(href)) continue;
+      seen.add(href);
+
+      const label = String(
+        anchor.getAttribute('aria-label') ||
+        anchor.innerText ||
+        anchor.textContent ||
+        ''
+      )
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 500);
+
+      conversations.push({
+        url: href,
+        label: label || null
+      });
+
+      if (conversations.length >= 80) break;
+    }
+
+    return {
+      url: location.href,
+      title: document.title,
+      conversations
+    };
+  });
+}
+
+async function readBrowserConversation(threadUrl) {
+  await requireAuthenticatedSession();
+
+  if (threadUrl) {
+    await navigateFacebook(threadUrl);
+  } else if (!/\/messages\/t\//i.test(page.url())) {
+    const error = new Error('thread_url_required');
+    error.status = 400;
+    throw error;
+  }
+
+  await page.waitForSelector('body', { timeout: 15_000 });
+
+  return page.evaluate(() => {
+    const visible = element => {
+      if (!(element instanceof Element)) return false;
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.visibility !== 'hidden' &&
+        style.display !== 'none'
+      );
+    };
+
+    const main =
+      document.querySelector('div[role="main"]') ||
+      document.querySelector('main') ||
+      document.body;
+
+    const seen = new Set();
+    const items = [];
+
+    for (const node of main.querySelectorAll(
+      '[data-ad-comet-preview="message"], div[role="row"], [dir="auto"]'
+    )) {
+      if (!visible(node)) continue;
+
+      const text = String(node.innerText || node.textContent || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (!text || text.length > 2500 || seen.has(text)) continue;
+      seen.add(text);
+      items.push(text);
+
+      if (items.length >= 120) break;
+    }
+
+    return {
+      url: location.href,
+      title: document.title,
+      items
+    };
+  });
+}
+
+async function sendBrowserMessage(threadUrl, rawText) {
+  await requireAuthenticatedSession();
+
+  const text = String(rawText || '');
+  if (!text.trim()) {
+    const error = new Error('message_text_required');
+    error.status = 400;
+    throw error;
+  }
+  if (text.length > 5000) {
+    const error = new Error('message_too_long');
+    error.status = 400;
+    throw error;
+  }
+
+  if (threadUrl) {
+    await navigateFacebook(threadUrl);
+  } else if (!/\/messages\/t\//i.test(page.url())) {
+    const error = new Error('thread_url_required');
+    error.status = 400;
+    throw error;
+  }
+
+  const selector =
+    '[contenteditable="true"][role="textbox"],' +
+    '[contenteditable="true"][data-lexical-editor="true"]';
+
+  await page.waitForFunction(
+    selector => {
+      const nodes = [...document.querySelectorAll(selector)];
+      return nodes.some(node => {
+        const rect = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        return (
+          rect.width > 0 &&
+          rect.height > 0 &&
+          style.visibility !== 'hidden' &&
+          style.display !== 'none'
+        );
+      });
+    },
+    { timeout: 20_000 },
+    selector
+  );
+
+  const focused = await page.evaluate(selector => {
+    const visible = node => {
+      const rect = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.visibility !== 'hidden' &&
+        style.display !== 'none'
+      );
+    };
+
+    const candidates = [...document.querySelectorAll(selector)].filter(visible);
+    const preferred = candidates.find(node => {
+      const label = String(
+        node.getAttribute('aria-label') ||
+        node.getAttribute('data-placeholder') ||
+        ''
+      ).toLowerCase();
+
+      return (
+        /message|envoyer|écrire|write|mensaje|nachricht|messaggio|mensagem|type/.test(label) ||
+        Boolean(node.closest('[role="main"]'))
+      );
+    });
+
+    const composer = preferred || candidates[candidates.length - 1];
+    if (!composer) return false;
+    composer.focus();
+    return true;
+  }, selector);
+
+  if (!focused) {
+    const error = new Error('message_composer_not_found');
+    error.status = 503;
+    throw error;
+  }
+
+  await page.keyboard.press('Control+A').catch(() => {});
+  await page.keyboard.press('Backspace').catch(() => {});
+  await page.keyboard.type(text, { delay: 15 });
+  await new Promise(resolve => setTimeout(resolve, 250));
+
+  const clicked = await page.evaluate(() => {
+    const visible = node => {
+      const rect = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.visibility !== 'hidden' &&
+        style.display !== 'none'
+      );
+    };
+
+    const patterns = [
+      'send',
+      'envoyer',
+      'enviar',
+      'senden',
+      'invia',
+      'enviar mensagem'
+    ];
+
+    const nodes = document.querySelectorAll(
+      'button[aria-label], div[role="button"][aria-label]'
+    );
+
+    const button = [...nodes].find(node => {
+      if (!visible(node)) return false;
+      const label = String(node.getAttribute('aria-label') || '').toLowerCase();
+      return patterns.some(pattern => label === pattern || label.includes(pattern));
+    });
+
+    if (!button) return false;
+    button.click();
+    return true;
+  });
+
+  if (!clicked) {
+    await page.keyboard.press('Enter');
+  }
+
+  await new Promise(resolve => setTimeout(resolve, 700));
+
+  return {
+    sent: true,
+    url: page.url(),
+    usedButton: clicked,
+    textLength: text.length
+  };
+}
+
+export async function executePersistentSessionCommand({
+  type,
+  payload = {}
+} = {}) {
+  const command = String(type || '').trim().toLowerCase();
+  const data =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? payload
+      : {};
+
+  if (command === 'ping') {
+    return {
+      pong: true,
+      status: await persistentSessionStatus()
+    };
+  }
+
+  if (command === 'get_context') {
+    return browserPageContext();
+  }
+
+  if (command === 'open_url') {
+    const context = await requireAuthenticatedSession();
+    const targetUrl = String(data.url || '');
+    const next = await navigateFacebook(targetUrl);
+    return {
+      opened: true,
+      previousUrl: context.url,
+      context: next
+    };
+  }
+
+  if (command === 'list_conversations') {
+    return listBrowserConversations();
+  }
+
+  if (command === 'read_conversation') {
+    return readBrowserConversation(
+      String(data.threadUrl || data.url || '')
+    );
+  }
+
+  if (command === 'send_message') {
+    return sendBrowserMessage(
+      String(data.threadUrl || data.url || ''),
+      data.text
+    );
+  }
+
+  const error = new Error('unsupported_persistent_session_command');
+  error.status = 400;
+  throw error;
+}
+
 export async function persistentSessionStatus() {
   try {
     await launchBrowser();
@@ -380,6 +776,28 @@ export async function persistentSessionStatus() {
 export async function handlePersistentSessionRequest(req, res, pathname) {
   try {
     await launchBrowser();
+
+
+    if (pathname === '/nexmeta/session/command') {
+      if (req.method !== 'POST') {
+        return writeJson(res, 405, { error: 'method_not_allowed' });
+      }
+
+      if (!sessionControlAuthorized(req)) {
+        return writeJson(res, 401, { error: 'unauthorized' });
+      }
+
+      const body = await readJson(req, 64_000);
+      const result = await executePersistentSessionCommand({
+        type: body.type,
+        payload: body.payload
+      });
+
+      return writeJson(res, 200, {
+        ok: true,
+        result
+      });
+    }
 
     if (pathname === '/nexmeta/session/health') {
       return writeJson(res, 200, await persistentSessionStatus());
