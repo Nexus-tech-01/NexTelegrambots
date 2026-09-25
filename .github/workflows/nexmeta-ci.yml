@@ -57,6 +57,11 @@ jobs:
           node --check src/control-actions.mjs
           node --check src/handler.mjs
           node --check src/server.mjs
+          node --check src/session-agent.mjs
+          node --check src/personal-watcher.mjs
+          node --check src/page-worker.mjs
+          node --check src/page-publisher.mjs
+          node --check src/companion.mjs
           node --check ../nexcontrol/lib/nexmeta-client.mjs
           node --check ../nexcontrol/ui/meta-page.mjs
           node --check ../nexcontrol/api/index.mjs
