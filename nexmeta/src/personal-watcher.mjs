@@ -40,9 +40,14 @@ const maxThreads = Math.max(
   )
 );
 
+const runtimeRoot = path.resolve(
+  process.env.NEXUS_ROOT ||
+  process.cwd()
+);
+
 const stateFile = path.resolve(
   process.env.NEXMETA_PERSONAL_WATCH_STATE_FILE ||
-  '/var/lib/nex/nexmeta/personal-watcher-state.json'
+  path.join(runtimeRoot, '.nexmeta-state', 'personal-watcher-state.json')
 );
 
 let timer = null;
