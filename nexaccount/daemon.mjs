@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { cfg, assertCoreConfig } from './config.mjs';
 import { beginPairing, cancelPairing, cleanupPairings, pairingStatus, setPairingConnectedHandler, submitPairingCode, submitPairingPassword } from './pairing.mjs';
-import { animeRuntimeDiscover, animeRuntimeRebuild, attachConnectedClient, engineStatus, loadSavedRuntimes, reconcileRuntimes, runtimeCommandTest, runtimeMenuProbe, runtimeStatus, stopRuntimes } from './runtime.mjs';
+import { animeRuntimeDiscover, animeRuntimeRebuild, attachConnectedClient, engineStatus, loadSavedRuntimes, reconcileRuntimes, runtimeCommandTest, runtimeGroupSmoke, runtimeMenuProbe, runtimeStatus, stopRuntimes } from './runtime.mjs';
 import { listAccounts, patchSettings, closeStore } from './store.mjs';
 import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
 import { loadBotToken } from './secrets.mjs';
@@ -51,7 +51,7 @@ setPairingConnectedHandler(onPaired);
 
 async function runStartupSmoke(){
   const mode=String(process.env.NEXACCOUNT_STARTUP_SMOKE||'').trim().toLowerCase();
-  if(!['1','true','yes','on','basic','full','download','health'].includes(mode))return;
+  if(!['1','true','yes','on','basic','full','download','health','group'].includes(mode))return;
   const active=runtimeStatus().find(row=>row.connected!==false)||runtimeStatus()[0];
   if(!active?.telegramUserId)throw new Error('startup_smoke_no_runtime');
   const id=String(active.telegramUserId);
@@ -61,7 +61,7 @@ async function runStartupSmoke(){
     '.song https://www.youtube.com/watch?v=aqz-KE-bpKQ',
     '.video https://www.youtube.com/watch?v=aqz-KE-bpKQ'
   ];
-  const commands=mode==='full'?full:mode==='download'?download:mode==='health'?[]:basic;
+  const commands=mode==='full'?full:mode==='download'?download:(mode==='health'||mode==='group')?[]:basic;
   const results=[];
   const menu=await runtimeMenuProbe(id,'me');
   results.push({type:'menu',ok:menu?.ok===true,resultType:menu?.resultType||null});
@@ -83,6 +83,14 @@ async function runStartupSmoke(){
       results.push({type:'command',text,ok:result?.ok===true});
     }catch(error){
       results.push({type:'command',text,ok:false,error:String(error?.message||error).slice(0,300)});
+    }
+  }
+  if(mode==='group'){
+    try{
+      const group=await runtimeGroupSmoke(id);
+      results.push({type:'group-smoke',...group});
+    }catch(error){
+      results.push({type:'group-smoke',ok:false,error:String(error?.message||error).slice(0,500)});
     }
   }
   console.log('[NexAccount startup-smoke]',JSON.stringify({mode,telegramUserId:id,results}));
