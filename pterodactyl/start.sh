@@ -76,7 +76,7 @@ if [ -f scripts/preflight.mjs ]; then
   node scripts/preflight.mjs
 fi
 
-if [ ! -f nexmeta/node_modules/mongodb/package.json ] || [ ! -f nexmeta/node_modules/puppeteer/package.json ]; then
+if [ ! -f nexmeta/node_modules/mongodb/package.json ] || [ ! -f nexmeta/node_modules/puppeteer-core/package.json ] || [ ! -f nexmeta/node_modules/@sparticuz/chromium/package.json ]; then
   echo "[Pterodactyl] Installing NexMeta production dependencies (including persistent browser runtime)..."
   if ! npm --prefix nexmeta install --omit=dev --no-audit --no-fund; then
     echo "[Pterodactyl] WARNING: NexMeta dependency installation failed."
@@ -87,6 +87,9 @@ fi
 node --check pterodactyl/start.mjs
 node --check nexmeta/src/server.mjs
 node --check nexmeta/src/session-agent.mjs
+node --check nexmeta/src/page-worker.mjs
+node --check nexmeta/src/page-publisher.mjs
+node --check nexmeta/src/personal-watcher.mjs
 node --check nexus-bridge/receiver.mjs
 node --check nexus-bridge/adapter-loader.mjs
 node --check nexus-bridge/media-registry.mjs
