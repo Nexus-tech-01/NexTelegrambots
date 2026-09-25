@@ -44,6 +44,8 @@ jobs:
         run: node nexaccount/scripts/test-media-send.mjs
       - name: Menu resilience regression
         run: node nexaccount/scripts/test-menu-resilience.mjs
+      - name: Critical public routes regression
+        run: node nexaccount/scripts/test-critical-routes.mjs
       - name: Syntax
         run: |
           for f in nexaccount/*.mjs nexaccount/scripts/*.mjs nexcontrol/api/index.mjs; do node --check "$f"; done
