@@ -20,6 +20,7 @@ const NEXCANAL_HANDOFF_TIMEOUT_MS=Math.max(15_000,Number(process.env.NEXANIME_NE
 const DISCOVERY_MS=Math.max(15*60*1000,Number(process.env.NEXANIME_DISCOVERY_MS||6*60*60*1000));
 const PUBLISH_MS=Math.max(5000,Number(process.env.NEXANIME_PUBLISH_MS||15000));
 const INTER_SERIES_MS=Math.max(60_000,Number(process.env.NEXANIME_INTER_SERIES_MS||15*60*1000));
+const PUBLISHER_LEASE_GRACE_MS=Math.max(INTER_SERIES_MS+60_000,Number(process.env.NEXANIME_PUBLISHER_LEASE_GRACE_MS||INTER_SERIES_MS+5*60*1000));
 const POLL_MS=Math.max(30000,Number(process.env.NEXANIME_POLL_MS||60000));
 const STALE_PUBLISH_MS=Math.max(2*60*1000,Number(process.env.NEXANIME_STALE_PUBLISH_MS||10*60*1000));
 const SOURCE_SAMPLE_LIMIT=Math.min(80,Math.max(12,Number(process.env.NEXANIME_SOURCE_SAMPLE_LIMIT||40)));
@@ -1163,7 +1164,7 @@ async function releaseGlobalPublishLock(runtime){
   const d=await db();
   await d.collection('nexanime_locks').updateOne(
     {_id:'publisher',owner:String(runtime.account.telegramUserId)},
-    {$set:{expiresAt:new Date(0),updatedAt:new Date()}}
+    {$set:{expiresAt:new Date(Date.now()+PUBLISHER_LEASE_GRACE_MS),updatedAt:new Date()}}
   ).catch(()=>{});
 }
 async function queuedSeriesCandidates(d){
