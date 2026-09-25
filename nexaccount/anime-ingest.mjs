@@ -21,6 +21,7 @@ const DISCOVERY_MS=Math.max(15*60*1000,Number(process.env.NEXANIME_DISCOVERY_MS|
 const PUBLISH_MS=Math.max(5000,Number(process.env.NEXANIME_PUBLISH_MS||15000));
 const INTER_SERIES_MS=Math.max(60_000,Number(process.env.NEXANIME_INTER_SERIES_MS||15*60*1000));
 const POLL_MS=Math.max(30000,Number(process.env.NEXANIME_POLL_MS||60000));
+const STALE_PUBLISH_MS=Math.max(2*60*1000,Number(process.env.NEXANIME_STALE_PUBLISH_MS||10*60*1000));
 const SOURCE_SAMPLE_LIMIT=Math.min(80,Math.max(12,Number(process.env.NEXANIME_SOURCE_SAMPLE_LIMIT||40)));
 const DIALOG_LIMIT=Math.min(250,Math.max(20,Number(process.env.NEXANIME_DIALOG_LIMIT||120)));
 const BACKFILL_LIMIT=Math.min(5000,Math.max(50,Number(process.env.NEXANIME_BACKFILL_LIMIT||3000)));
@@ -35,6 +36,7 @@ const SERIES_CACHE=new Map();
 let ANI_CHAIN=Promise.resolve();
 let ANI_LAST_AT=0;
 let indexesReady=false;
+let stalePublishingReconcileAt=0;
 
 const BLOCK_RE=[
   /\b(?:porn|porno|pornographie|xxx|nsfw|nudes?|naked|onlyfans|sex(?:e|ual)?|hentai|18\+|🔞)\b/i,
@@ -1383,8 +1385,118 @@ async function ensureLiveEpisodePresentation(d,seriesKey,episodeItem){
   );
 }
 
+function episodeVariantScore(item){
+  const language=String(item?.language||'UNK').toUpperCase();
+  const quality=String(item?.quality||'auto').toLowerCase();
+  const languageScore={VF:40,MULTI:30,VOSTFR:20,UNK:10}[language]||5;
+  const qualityScore=/2160|4k/.test(quality)?6:/1080/.test(quality)?5:/720/.test(quality)?4:quality==='auto'?3:/480/.test(quality)?2:/360/.test(quality)?1:0;
+  return languageScore+qualityScore;
+}
+
+async function reconcileStalePublishing(){
+  const nowMs=Date.now();
+  if(nowMs-stalePublishingReconcileAt<30_000)return 0;
+  stalePublishingReconcileAt=nowMs;
+  const d=await db(),now=new Date(),cutoff=new Date(nowMs-STALE_PUBLISH_MS);
+  const queue=d.collection('nexanime_queue');
+  const publications=d.collection('nexanime_publications');
+  const handoffs=d.collection(NEXCANAL_HANDOFF_COLLECTION);
+  const stale=await queue.find({
+    status:'publishing',
+    $or:[{claimAt:{$lte:cutoff}},{claimAt:{$exists:false}}]
+  }).limit(100).toArray();
+  let repaired=0;
+
+  for(const item of stale){
+    const existingPublication=await publications.findOne({
+      dedupeKey:item.dedupeKey,
+      purgedAt:{$exists:false}
+    });
+    if(existingPublication){
+      await queue.updateOne(
+        {_id:item._id,status:'publishing'},
+        {$set:{status:'published',publishedAt:existingPublication.publishedAt||now,updatedAt:now,deduplicated:true,recoveredFromStaleClaim:true},$unset:{claimAt:'',claimBy:'',lastError:''}}
+      );
+      repaired++;
+      continue;
+    }
+
+    const handoff=await handoffs.findOne({dedupeKey:item.dedupeKey});
+    if(handoff?.status==='done'&&Number(handoff?.resultMessageId)>0){
+      await publications.updateOne(
+        {dedupeKey:item.dedupeKey},
+        {$setOnInsert:{
+          dedupeKey:item.dedupeKey,seriesKey:item.seriesKey,kind:item.kind,title:item.title,
+          season:item.season,episode:item.episode,language:item.language||'',quality:item.quality||'',
+          mode:item.mode||'',destination:'@'+DESTINATION,createdAt:now
+        },$set:{
+          publishedAt:handoff.updatedAt||now,publisherRole:'nexcanal-bot',
+          publisherBotUsername:NEXCANAL_STAGE_BOT,
+          stagingAccountId:String(handoff.fromChatId||item.claimBy||''),
+          telegramMessageId:Number(handoff.resultMessageId),
+          recoveredFromHandoff:true
+        },$unset:{purgedAt:'',purgedBy:'',purgeError:''}},
+        {upsert:true}
+      );
+      await queue.updateOne(
+        {_id:item._id,status:'publishing'},
+        {$set:{status:'published',publishedAt:handoff.updatedAt||now,updatedAt:now,recoveredFromHandoff:true},$unset:{claimAt:'',claimBy:'',lastError:''}}
+      );
+      repaired++;
+      continue;
+    }
+
+    const handoffUpdated=handoff?.updatedAt?new Date(handoff.updatedAt):null;
+    if(handoff&&['pending','processing'].includes(handoff.status)&&handoffUpdated&&handoffUpdated>cutoff){
+      continue;
+    }
+    if(handoff&&['pending','processing'].includes(handoff.status)){
+      await handoffs.updateOne(
+        {_id:handoff._id,status:handoff.status},
+        {$set:{status:'failed',lastError:'stale_handoff_recovered',updatedAt:now,nextAttemptAt:now}}
+      );
+    }
+    await queue.updateOne(
+      {_id:item._id,status:'publishing'},
+      {$set:{status:'queued',updatedAt:now,recoveredFromStaleClaim:true},$unset:{claimAt:'',claimBy:''}}
+    );
+    repaired++;
+  }
+  return repaired;
+}
+
+async function suppressAlreadyPublishedEpisode(d,seriesKey,season,episode){
+  const published=await d.collection('nexanime_publications').findOne({
+    seriesKey,kind:'episode',season,episode,purgedAt:{$exists:false}
+  },{projection:{_id:1,telegramMessageId:1}});
+  if(!published)return false;
+  await d.collection('nexanime_queue').updateMany(
+    {seriesKey,season,episode,status:'queued',kind:{$in:['episode','presentation']}},
+    {$set:{status:'superseded',supersededAt:new Date(),supersededReason:'episode_already_published',updatedAt:new Date()}}
+  );
+  return true;
+}
+
+async function preferredEpisodeVariant(d,seriesKey,season,episode){
+  const variants=await d.collection('nexanime_queue').find(
+    {seriesKey,status:'queued',kind:'episode',season,episode}
+  ).limit(50).toArray();
+  if(!variants.length)return null;
+  variants.sort((a,b)=>episodeVariantScore(b)-episodeVariantScore(a)||new Date(a.createdAt||0)-new Date(b.createdAt||0));
+  const keep=variants[0];
+  const discard=variants.slice(1).map(x=>x._id);
+  if(discard.length){
+    await d.collection('nexanime_queue').updateMany(
+      {_id:{$in:discard},status:'queued'},
+      {$set:{status:'superseded',supersededAt:new Date(),supersededReason:'duplicate_episode_variant',preferredDedupeKey:keep.dedupeKey,updatedAt:new Date()}}
+    );
+  }
+  return keep;
+}
+
 async function claimNext(runtime){
   await ensureIndexes();
+  await reconcileStalePublishing();
   const d=await db();
   const accountId=String(runtime.account.telegramUserId);
   const allowAny=isPublisherRuntime(runtime);
@@ -1417,6 +1529,10 @@ async function claimNext(runtime){
   const season=nextEpisode.season??1;
   const episode=nextEpisode.episode;
 
+  if(await suppressAlreadyPublishedEpisode(d,seriesKey,season,episode)){
+    return claimNext(runtime);
+  }
+
   if(nextEpisode.kind==='episode'&&nextEpisode.mode==='live'){
     await ensureLiveEpisodePresentation(d,seriesKey,nextEpisode);
   }
@@ -1430,11 +1546,10 @@ async function claimNext(runtime){
     return claimExactItem(d,episodePresentation,accountId,{allowAny});
   }
 
-  // 4) Publish every language/quality found for this episode before moving on.
-  const media=await d.collection('nexanime_queue').findOne(
-    {seriesKey,status:'queued',kind:'episode',season,episode},
-    {sort:{language:1,quality:-1,createdAt:1}}
-  );
+  // 4) Publish one best media variant per episode. Alternate sources,
+  // languages and qualities are superseded so the channel never receives the
+  // same episode multiple times.
+  const media=await preferredEpisodeVariant(d,seriesKey,season,episode);
   if(media){
     return claimExactItem(d,media,accountId,{allowAny});
   }
@@ -1662,7 +1777,7 @@ export const __test={
   parseEpisode,detectLanguage,detectQuality,stripNoiseTitle,cleanCaption,safeFilename,
   classifyMessage,sourceStats,titleSimilarity,releaseKey,presentationKey,
   cleanSeriesTitle,sourceTitleCandidate,deriveRawAnchors,commonPrefixTitle,verifyAnimeTitle,
-  standardizedCaption,quotedCaption,titleFromMessage,bestAnchor
+  standardizedCaption,quotedCaption,titleFromMessage,bestAnchor,episodeVariantScore
 };
 
 
