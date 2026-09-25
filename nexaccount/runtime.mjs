@@ -151,14 +151,28 @@ async function sendInline(client,peer,query){
   if(!cfg.botUsername)throw new Error('NEXAI_BOT_USERNAME/NEXAI_BOT_TOKEN non configuré');
   const inputPeer=await client.getInputEntity(peer);
   const bot=await client.getInputEntity('@'+cfg.botUsername);
-  const results=await client.invoke(new Api.messages.GetInlineBotResults({
-    bot,peer:inputPeer,query:String(query||'menu'),offset:''
-  }));
-  const result=results.results?.[0];
-  if(!result)throw new Error('NexAI Inline Mode ne renvoie aucun résultat');
-  return client.invoke(new Api.messages.SendInlineBotResult({
-    peer:inputPeer,randomId:randomLong(),queryId:results.queryId,id:result.id
-  }));
+  const errors=[];
+
+  // Inline queries can briefly race the bot update loop after a restart.
+  // Retry a few times before degrading the user experience.
+  for(let attempt=0;attempt<3;attempt++){
+    try{
+      const results=await client.invoke(new Api.messages.GetInlineBotResults({
+        bot,peer:inputPeer,query:String(query||'menu'),offset:''
+      }));
+      const result=results.results?.[0];
+      if(!result)throw new Error('NexAI Inline Mode ne renvoie aucun résultat');
+      return await client.invoke(new Api.messages.SendInlineBotResult({
+        peer:inputPeer,randomId:randomLong(),queryId:results.queryId,id:result.id
+      }));
+    }catch(error){
+      const reason=String(error?.errorMessage||error?.message||error||'unknown_error');
+      errors.push(reason.slice(0,350));
+      if(/INLINE_DISABLED|BOT_INLINE_DISABLED|USERNAME_NOT_OCCUPIED/i.test(reason))break;
+      if(attempt<2)await sleep(250*(attempt+1));
+    }
+  }
+  throw new Error('inline_menu_failed '+errors.join(' | '));
 }
 
 async function sendMenu(runtime,peer){
@@ -173,10 +187,22 @@ async function sendMenu(runtime,peer){
     console.error('[NexAccount menu]',String(account.telegramUserId),'inline:failed',reason);
     const settings=await settingsFor(account.telegramUserId);
     const model=await menuModel({account,settings,commands,view:'home'});
-    const note=String(settings.language||'fr').toLowerCase().startsWith('en')
-      ? '\n\nInline menu is temporarily unavailable. Text fallback is active.'
-      : '\n\nLe menu inline est temporairement indisponible. Le mode texte de secours est actif.';
-    return sendText(client,peer,String(model.text||'NexAI')+note);
+
+    // Last-resort degradation: keep the real menu content and the artwork of
+    // the active style. Do not display the old alarming "temporarily unavailable"
+    // banner; users can still run every listed command while the inline layer
+    // recovers on the next .menu.
+    if(model.photoUrl){
+      try{
+        return await client.sendFile(peer,{
+          file:model.photoUrl,
+          caption:String(model.text||'NexAI').slice(0,1024)
+        });
+      }catch(photoError){
+        console.error('[NexAccount menu]',String(account.telegramUserId),'fallback-photo:failed',String(photoError?.message||photoError).slice(0,350));
+      }
+    }
+    return sendText(client,peer,String(model.text||'NexAI'));
   }
 }
 
