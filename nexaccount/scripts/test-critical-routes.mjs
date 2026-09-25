@@ -56,8 +56,11 @@ for(const name of ['account','pair','sessions','settings','prefix','mode','langu
 for(const name of ['promote','demote','kick','ban','unban','mute','unmute','warn','tagall','hidetag','mediatag','slowmode']){
   requireCommand(name,{engine:'group',groupOnly:true,adminOnly:true});
 }
-for(const name of ['antilink','antispam','antiraid','antitag','antigroupmention','antibadword','captcha','raidmode','nightmode','logs','blacklist','whitelist','risk']){
+for(const name of ['antilink','antispam','antitag','antigroupmention','antibadword','blacklist','whitelist','risk']){
   requireCommand(name,{engine:'group',groupOnly:true,adminOnly:true});
+}
+for(const name of ['antiraid','captcha','raidmode','nightmode','logs','autoapprove','autotyping']){
+  if(commands.has(name))errors.push('configuration-only-command-exposed:'+name);
 }
 
 for(const name of ['tourl','crop','resize','analyzesound','vv']){
@@ -101,7 +104,7 @@ console.log(JSON.stringify({
   stickers:6,
   games:3,
   anime:anime.length,
-  protections:13,
+  protections:8,
   accountControls:7,
   noSilentUnknown:true
 },null,2));
