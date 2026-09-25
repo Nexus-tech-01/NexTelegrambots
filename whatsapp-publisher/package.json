@@ -1,0 +1,13 @@
+{
+  "name": "nex-whatsapp-publisher",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {"start":"node server.mjs","check":"node --check server.mjs"},
+  "engines":{"node":">=20"},
+  "dependencies":{
+    "@hapi/boom":"^10.0.1",
+    "@whiskeysockets/baileys":"6.7.22",
+    "pino":"^9.0.0"
+  }
+}
