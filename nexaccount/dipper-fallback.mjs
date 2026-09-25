@@ -132,17 +132,20 @@ async function youtubeAudio(input){
         const d=await json('https://eliteprotech-apis.zone.id/ytdown?url='+u+'&format=mp3');
         return d?.success&&d?.downloadURL?{url:d.downloadURL,title:d.title||target.title}:null;
       }],
-      ['Yupra',async()=>{
-        const d=await json('https://api.yupra.my.id/api/downloader/ytmp3?url='+u);
-        return d?.success&&d?.data?.download_url?{url:d.data.download_url,title:d.data.title||target.title}:null;
+      ['Cobalt',async()=>{
+        const d=await postJson('https://api.cobalt.tools/',{
+          url:target.url,
+          downloadMode:'audio',
+          audioFormat:'mp3',
+          audioBitrate:'128',
+          filenameStyle:'pretty'
+        });
+        const v=cobaltUrl(d);
+        return v?{url:v,title:target.title}:null;
       }],
       ['Okatsu',async()=>{
         const d=await json('https://okatsu-rolezapiiz.vercel.app/downloader/ytmp3?url='+u);
         return d?.dl?{url:d.dl,title:d.title||target.title}:null;
-      }],
-      ['Izumi',async()=>{
-        const d=await json('https://izumiiiiiiii.dpdns.org/downloader/youtube?url='+u+'&format=mp3',{},60000);
-        return d?.result?.download?{url:d.result.download,title:d.result.title||target.title}:null;
       }]
     );
   }
@@ -163,9 +166,17 @@ async function youtubeVideo(input){
       const d=await json('https://eliteprotech-apis.zone.id/ytdown?url='+u+'&format=mp4');
       return d?.success&&d?.downloadURL?{url:d.downloadURL,title:d.title||target.title}:null;
     }],
-    ['Yupra',async()=>{
-      const d=await json('https://api.yupra.my.id/api/downloader/ytmp4?url='+u);
-      return d?.success&&d?.data?.download_url?{url:d.data.download_url,title:d.data.title||target.title}:null;
+    ['Cobalt',async()=>{
+      const d=await postJson('https://api.cobalt.tools/',{
+        url:target.url,
+        downloadMode:'auto',
+        videoQuality:'720',
+        youtubeVideoCodec:'h264',
+        youtubeVideoContainer:'mp4',
+        filenameStyle:'pretty'
+      });
+      const v=cobaltUrl(d);
+      return v?{url:v,title:target.title}:null;
     }],
     ['Okatsu',async()=>{
       const d=await json('https://okatsu-rolezapiiz.vercel.app/downloader/ytmp4?url='+u);
@@ -195,7 +206,7 @@ async function tiktokMedia(client,peer,url){
       return {sent:true,title};
     }],
     ['Cobalt',async()=>{
-      const d=await postJson('https://api.cobalt.tools/',{url,downloadMode:'auto',videoQuality:'max',tiktokH265:false});
+      const d=await postJson('https://api.cobalt.tools/',{url,downloadMode:'auto',videoQuality:'max',allowH265:false});
       const v=cobaltUrl(d);
       if(!v)return null;
       await sendRemote(client,peer,v,{caption:'NexAi · Download\nTikTok\nSource : Cobalt',fileName:'tiktok.mp4'});
