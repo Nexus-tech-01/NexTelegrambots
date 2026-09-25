@@ -51,13 +51,17 @@ setPairingConnectedHandler(onPaired);
 
 async function runStartupSmoke(){
   const mode=String(process.env.NEXACCOUNT_STARTUP_SMOKE||'').trim().toLowerCase();
-  if(!['1','true','yes','on','basic','full'].includes(mode))return;
+  if(!['1','true','yes','on','basic','full','download'].includes(mode))return;
   const active=runtimeStatus().find(row=>row.connected!==false)||runtimeStatus()[0];
   if(!active?.telegramUserId)throw new Error('startup_smoke_no_runtime');
   const id=String(active.telegramUserId);
   const basic=['.ping','.alive','.account','.settings','.style','.calc 2+2'];
   const full=[...basic,'.translate en bonjour','.ai Réponds seulement par OK.','.animeinfo Naruto'];
-  const commands=mode==='full'?full:basic;
+  const download=[
+    '.song https://www.youtube.com/watch?v=BaW_jenozKc',
+    '.video https://www.youtube.com/watch?v=BaW_jenozKc'
+  ];
+  const commands=mode==='full'?full:mode==='download'?download:basic;
   const results=[];
   const menu=await runtimeMenuProbe(id,'me');
   results.push({type:'menu',ok:menu?.ok===true,resultType:menu?.resultType||null});
