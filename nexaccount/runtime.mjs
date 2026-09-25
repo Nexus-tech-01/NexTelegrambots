@@ -622,14 +622,23 @@ async function maybeServiceGreeting(runtime,event){
 }
 
 async function maintainPresence(runtime){
-  const settings=await settingsFor(runtime.account.telegramUserId);
-  if(settings.presence?.enabled!==true)return;
   try{
     await runtime.client.invoke(new Api.account.UpdateStatus({offline:false}));
     runtime.lastPresenceAt=new Date();
   }catch(error){
     console.warn('[NexAccount presence]',String(runtime.account.telegramUserId),String(error?.errorMessage||error?.message||error).slice(0,300));
   }
+}
+
+async function configurePresence(runtime,enabled){
+  if(runtime.presenceTimer){
+    clearInterval(runtime.presenceTimer);
+    runtime.presenceTimer=null;
+  }
+  if(enabled!==true)return false;
+  const initialSettings=await settingsFor(id);
+  await configurePresence(runtime,initialSettings.presence?.enabled===true);
+  return true;
 }
 
 async function runAutoJoin(runtime){
@@ -888,8 +897,10 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
     commandPollStartedAt:Date.now(),
     lastCommandPollAt:null,
     commandPollFailures:0,
-    pollingCommands:false
+    pollingCommands:false,
+    presenceTimer:null
   };
+  runtime.setPresenceEnabled=enabled=>configurePresence(runtime,enabled);
   runtimes.set(id,runtime);
 
   client.addEventHandler(async event=>{
