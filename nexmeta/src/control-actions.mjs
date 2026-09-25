@@ -63,6 +63,10 @@ import {
   getActivePageCredential
 } from './token-vault.mjs';
 import {
+  publishBrowserPagePost,
+  probeBrowserPagePublisher
+} from './page-publisher.mjs';
+import {
   createCompanionPairing,
   companionStatus,
   listCompanionDevices,
@@ -103,6 +107,7 @@ export const CONTROL_CAPABILITIES = Object.freeze([
   'inspect_messenger_profile',
   'delete_messenger_profile_fields',
   'probe_page',
+  'probe_page_publisher',
   'metrics',
   'deployment_readiness',
   'connection_readiness',
@@ -544,14 +549,42 @@ export async function executeControlAction(body) {
         optionalString(body.pageId, 300)
       );
 
-    case 'publish_page_post':
+    case 'probe_page_publisher':
+      return probeBrowserPagePublisher({
+        pageId: optionalString(body.pageId, 300),
+        source: optionalString(body.source, 120) || 'nexcontrol'
+      });
+
+    case 'publish_page_post': {
+      const pageId = optionalString(body.pageId, 300);
+      const source = optionalString(body.source, 120) || 'nexcontrol';
+
+      if (
+        pageId === String(
+          process.env.NEXMETA_INTERNAL_PUBLISH_PAGE_ID ||
+          '106458282029367'
+        )
+      ) {
+        return publishBrowserPagePost({
+          message: optionalString(body.message, 63206) || '',
+          link: optionalString(body.link, 5000),
+          buttons: Array.isArray(body.buttons) ? body.buttons : undefined,
+          pageId,
+          source,
+          mediaUrl: optionalString(body.mediaUrl, 5000),
+          fileName: optionalString(body.fileName, 500),
+          dryRun: body.dryRun === true
+        });
+      }
+
       return publishPagePost({
         message: optionalString(body.message, 63206) || '',
         link: optionalString(body.link, 5000),
         published: body.published !== false,
         scheduledPublishTime: body.scheduledPublishTime,
-        pageId: optionalString(body.pageId, 300)
+        pageId
       });
+    }
 
     case 'edit_page_post':
       return editObjectMessage(
