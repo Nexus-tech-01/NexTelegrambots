@@ -168,7 +168,7 @@ async function launchBrowser() {
   launchPromise = (async () => {
     await mkdir(profileDir, { recursive: true });
 
-    const executablePath = await chromium.executablePath();
+    const executablePath = process.env.NEXMETA_CHROMIUM_PATH || await chromium.executablePath();
 
     browser = await puppeteer.launch({
       executablePath,
@@ -708,6 +708,11 @@ async function listBrowserConversations() {
       if (seen.has(href)) continue;
       seen.add(href);
 
+      const descendantLabels = [...anchor.querySelectorAll('[aria-label]')]
+        .map(node => node.getAttribute('aria-label') || '')
+        .filter(Boolean)
+        .join(' ');
+
       const label = String(
         anchor.getAttribute('aria-label') ||
         anchor.innerText ||
@@ -716,11 +721,24 @@ async function listBrowserConversations() {
       )
         .replace(/\s+/g, ' ')
         .trim()
-        .slice(0, 500);
+        .slice(0, 800);
+
+      const accessibilityText = (label + ' ' + descendantLabels)
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 1600);
+
+      const unread = /(?:\bunread\b|\bnon\s+lu(?:e)?\b|nouveau(?:x)?\s+message|new\s+message)/i
+        .test(accessibilityText);
+
+      const outboundHint = /(?:^|\s)(?:you|vous)\s*[:：]|vous\s+avez\s+envoy[ée]|you\s+sent/i
+        .test(accessibilityText);
 
       conversations.push({
         url: href,
-        label: label || null
+        label: label || null,
+        unread,
+        outboundHint
       });
 
       if (conversations.length >= 80) break;
@@ -767,10 +785,15 @@ async function readBrowserConversation(threadUrl) {
 
     const seen = new Set();
     const items = [];
+    const messages = [];
 
-    for (const node of main.querySelectorAll(
-      '[data-ad-comet-preview="message"], div[role="row"], [dir="auto"]'
-    )) {
+    const rowCandidates = [
+      ...main.querySelectorAll(
+        '[data-ad-comet-preview="message"], div[role="row"]'
+      )
+    ];
+
+    for (const node of rowCandidates) {
       if (!visible(node)) continue;
 
       const text = String(node.innerText || node.textContent || '')
@@ -778,16 +801,59 @@ async function readBrowserConversation(threadUrl) {
         .trim();
 
       if (!text || text.length > 2500 || seen.has(text)) continue;
+
+      const labels = [
+        node.getAttribute('aria-label') || '',
+        ...[...node.querySelectorAll('[aria-label]')]
+          .map(item => item.getAttribute('aria-label') || '')
+      ]
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 2200);
+
+      const outbound =
+        /(?:vous\s+avez\s+envoy[ée]|you\s+sent|sent\s+by\s+you|envoy[ée]\s+par\s+vous)/i
+          .test(labels) ||
+        /^(?:vous|you)\s*[:：]/i.test(text);
+
       seen.add(text);
       items.push(text);
+      messages.push({
+        text,
+        outbound,
+        accessibility: labels || null
+      });
 
-      if (items.length >= 120) break;
+      if (messages.length >= 120) break;
+    }
+
+    if (!messages.length) {
+      for (const node of main.querySelectorAll('[dir="auto"]')) {
+        if (!visible(node)) continue;
+
+        const text = String(node.innerText || node.textContent || '')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        if (!text || text.length > 2500 || seen.has(text)) continue;
+        seen.add(text);
+        items.push(text);
+        messages.push({
+          text,
+          outbound: false,
+          accessibility: null
+        });
+
+        if (messages.length >= 120) break;
+      }
     }
 
     return {
       url: location.href,
       title: document.title,
-      items
+      items,
+      messages
     };
   });
 }
