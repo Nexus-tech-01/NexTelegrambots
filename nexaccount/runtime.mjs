@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { TelegramClient, Api } from 'teleproto';
 import { StringSession } from 'teleproto/sessions/index.js';
 import { NewMessage } from 'teleproto/events/index.js';
+import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { cfg, isOwnerId } from './config.mjs';
 import { commandMap } from './commands.mjs';
 import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, disableAccount, enableAccount, listAccountsForWorker, patchSettings, releaseRuntimeLease, renewRuntimeLease, settingsFor } from './store.mjs';
@@ -276,7 +277,7 @@ async function userIsGroupAdmin(client,peer,userId){
     }
   }catch{}
   try{
-    const channel=await client.getInputEntity(peer);
+    const channel=getInputChannel(await client.getInputEntity(peer));
     const participant=await client.getInputEntity(id);
     const r=await client.invoke(new Api.channels.GetParticipant({channel,participant}));
     const p=r?.participant;
@@ -1134,6 +1135,124 @@ export async function runtimeCommandTest(telegramUserId,text='.menu',peer='me'){
     isGroup:false
   },parsed);
   return {ok:true,telegramUserId:id,peer:String(peer||'me'),command:parsed.name};
+}
+
+export async function runtimeGroupSmoke(telegramUserId){
+  const id=String(telegramUserId||'');
+  const runtime=runtimes.get(id);
+  if(!runtime)throw new Error('runtime_not_active');
+  const {client,account}=runtime;
+  const settings=await settingsFor(id);
+  const prefix=String(settings.prefix||'.');
+  const title='NexAi QA '+Date.now();
+  let inputChannel=null;
+  let chatId='';
+  const results=[];
+
+  async function latestId(peer){
+    const rows=await client.getMessages(peer,{limit:1});
+    const row=Array.isArray(rows)?rows[0]:rows;
+    return Number(row?.id||0);
+  }
+  async function run(peer,text,expected=[]){
+    const before=await latestId(peer);
+    const parsed=parseCommand(text,prefix);
+    if(!parsed)throw new Error('group_smoke_command_not_parsed:'+text);
+    let thrown='';
+    try{
+      await handleCommand(runtime,{
+        chatId,
+        message:{
+          peerId:peer,
+          id:0,
+          out:true,
+          fromId:{userId:account.telegramUserId},
+          senderId:account.telegramUserId
+        },
+        sender:{
+          id:account.telegramUserId,
+          username:account.username||'',
+          premium:account.premium===true,
+          bot:false
+        },
+        isPrivate:false,
+        isGroup:true
+      },parsed);
+    }catch(error){
+      thrown=String(error?.errorMessage||error?.message||error).slice(0,400);
+    }
+    await sleep(250);
+    const recent=await client.getMessages(peer,{limit:20});
+    const outputs=[...(recent||[])]
+      .filter(m=>Number(m?.id||0)>before)
+      .sort((a,b)=>Number(a.id||0)-Number(b.id||0))
+      .map(m=>textOf(m))
+      .filter(Boolean);
+    const joined=outputs.join('\n');
+    const failed=Boolean(thrown)||/(?:impossible|erreur interne|introuvable|réservée|nécessite)/i.test(joined);
+    const expectedOk=(expected||[]).every(x=>joined.includes(x));
+    const row={text,ok:!failed&&expectedOk,outputs:outputs.slice(-6)};
+    if(thrown)row.error=thrown;
+    results.push(row);
+    return row;
+  }
+
+  try{
+    const created=await client.invoke(new Api.channels.CreateChannel({
+      title,
+      about:'Temporary NexAi automated QA group',
+      megagroup:true
+    }));
+    const chat=(created?.chats||[]).find(x=>x?.id);
+    if(!chat)throw new Error('group_smoke_create_failed');
+    chatId=String(chat.id);
+    inputChannel=getInputChannel(await client.getInputEntity(chat));
+
+    if(cfg.botUsername){
+      const botPeer=await client.getInputEntity('@'+cfg.botUsername);
+      const botUser=getInputUser(botPeer);
+      await client.invoke(new Api.channels.InviteToChannel({channel:inputChannel,users:[botUser]}));
+      results.push({text:'invite_inline_bot',ok:true});
+      await sleep(500);
+    }
+
+    await run(inputChannel,prefix+'id',['Chat ID']);
+    await run(inputChannel,prefix+'groupname',[title]);
+    await run(inputChannel,prefix+'groupstats',['Membres']);
+    await run(inputChannel,prefix+'admins',['NexAi · Admins']);
+    await run(inputChannel,prefix+'config',['NexAi · config']);
+    await run(inputChannel,prefix+'risk',['Indice de risque']);
+    await run(inputChannel,prefix+'antilink on',['ON']);
+    await run(inputChannel,prefix+'antispam on',['ON']);
+    await run(inputChannel,prefix+'antitag on',['ON']);
+    await run(inputChannel,prefix+'antigroupmention on',['ON']);
+    await run(inputChannel,prefix+'antibadword on',['ON']);
+    await run(inputChannel,prefix+'setrules NEXAI_QA_RULE',['enregistré']);
+    await run(inputChannel,prefix+'rules',['NEXAI_QA_RULE']);
+    await run(inputChannel,prefix+'slowmode 10',['Slow mode : 10 s']);
+    await run(inputChannel,prefix+'slowmode 0',['Slow mode : 0 s']);
+    await run(inputChannel,prefix+'grouplink',['https://']);
+    if(cfg.botUsername){
+      await run(inputChannel,prefix+'tag @'+cfg.botUsername+' NEXAI_QA_TAG',['NEXAI_QA_TAG']);
+      await run(inputChannel,prefix+'promote @'+cfg.botUsername,['Administrateur ajouté']);
+      await run(inputChannel,prefix+'demote @'+cfg.botUsername,['Administrateur retiré']);
+    }
+    await run(inputChannel,prefix+'backup',['NexAi · Backup']);
+    await run(inputChannel,prefix+'restore',['restaurée']);
+
+    return {
+      ok:results.every(x=>x.ok!==false),
+      telegramUserId:id,
+      temporaryGroup:title,
+      chatId,
+      results
+    };
+  }finally{
+    if(inputChannel){
+      try{await client.invoke(new Api.channels.DeleteChannel({channel:inputChannel}))}
+      catch(error){results.push({text:'delete_temporary_group',ok:false,error:String(error?.message||error).slice(0,300)})}
+    }
+  }
 }
 
 export async function runtimeMenuProbe(telegramUserId,peer='me'){
