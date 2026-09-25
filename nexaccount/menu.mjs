@@ -1,6 +1,6 @@
 import { cfg, isOwnerId } from './config.mjs';
 import { CATEGORY_ICONS, CATEGORY_LABELS, CATEGORY_ORDER, commandsByCategory, commandStats } from './commands.mjs';
-import { getStyle, listStyles, renderDipperHeader, resolveStyleImage, telegramizeDipperText, toSmallCaps } from './styles.mjs';
+import { getStyle, listStyles, renderDipperHeader, resolveInlinePhoto, resolveStyleImage, telegramizeDipperText, toSmallCaps } from './styles.mjs';
 
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
 const FALLBACK_EMOJI={
@@ -46,6 +46,19 @@ function commandText(lines,style){
 
 function localized(settings,fr,en){
   return String(settings?.language||'fr').toLowerCase().startsWith('en')?en:fr;
+}
+
+async function menuArtwork(settings,styleId){
+  // Custom artwork is bound to the style that was active when the user chose it.
+  // Changing styles therefore cannot leave an unrelated old image attached.
+  const bound=Number(settings?.menuImageStyle||0)===Number(styleId)
+    ?String(settings?.menuImageUrl||'').trim()
+    :'';
+  if(bound){
+    const custom=await resolveInlinePhoto(bound);
+    if(custom)return custom;
+  }
+  return resolveStyleImage(styleId,'');
 }
 
 export async function menuModel({account,settings,commands,view='home',category=null,page=0}){
@@ -140,10 +153,7 @@ export async function menuModel({account,settings,commands,view='home',category=
     text,
     entities:expandableEntities(text,spans),
     reply_markup:{inline_keyboard:buttons},
-    // Menu artwork is style-owned. A stale per-user URL must never survive a style change.
-    // If the active style has no usable artwork, render the interactive menu without a photo
-    // rather than showing an unrelated image.
-    photoUrl:await resolveStyleImage(style.id,'')
+    photoUrl:await menuArtwork(settings,style.id)
   };
 }
 
@@ -163,7 +173,7 @@ export async function stylesModel({account,settings}){
     text,
     entities:expandableEntities(text,spans),
     reply_markup:{inline_keyboard:[[button('↩ '+toSmallCaps('Menu'),'menu:home','primary','back')]]},
-    photoUrl:await resolveStyleImage(settings.style||1,'')
+    photoUrl:await menuArtwork(settings,settings.style||1)
   };
 }
 
