@@ -30,6 +30,9 @@ function commandText(lines,style,prefix='.'){
         if(at>=0){
           before=rendered.slice(0,at);
           after=rendered.slice(at+marker.length);
+          // Historical Dipper category templates may prepend "/" themselves.
+          // NexAccount commands use the configured prefix, so never render "/.cmd".
+          if(!command.startsWith('/')&&before.endsWith('/'))before=before.slice(0,-1);
           if(!after.endsWith('\n'))after+='\n';
         }
       }catch{}
