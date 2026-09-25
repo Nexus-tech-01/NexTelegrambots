@@ -142,6 +142,8 @@ async function localBridgeState() {
 
   localBridgePromise = (async () => {
     const root = localBridgeRoot();
+    process.env.NEXUS_ROOT = root;
+
     const [
       { loadNexusAdapters },
       { dispatchNexusEnvelope }
