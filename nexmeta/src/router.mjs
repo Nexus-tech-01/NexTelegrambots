@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import path from 'node:path';
 import { config } from './config.mjs';
 import { toNexusEnvelope } from './normalizer.mjs';
 
@@ -86,6 +87,136 @@ export function classifyNexusRoute(event) {
   };
 }
 
+let localBridgePromise = null;
+const localSeenEvents = new Map();
+
+function localBridgeRoot() {
+  return path.resolve(
+    process.env.NEXUS_ROOT ||
+    path.join(process.cwd(), '..')
+  );
+}
+
+function localAutoService(envelope, services) {
+  const intent = String(
+    envelope?.routing?.intent || ''
+  ).toLowerCase();
+
+  const byIntent = {
+    download: 'nexdownloader',
+    game: 'nexgame',
+    sticker: 'nexstick',
+    whisper: 'nexwhisper',
+    group: 'nexgroup',
+    channel: 'nexcanal',
+    page_event: 'nexcanal',
+    assistant: 'nexai'
+  };
+
+  const preferred = byIntent[intent];
+
+  if (preferred && services[preferred]) {
+    return preferred;
+  }
+
+  if (services.nexai) return 'nexai';
+  if (services.auto) return 'auto';
+  return 'auto';
+}
+
+function pruneLocalSeen() {
+  const now = Date.now();
+  for (const [key, expiresAt] of localSeenEvents) {
+    if (expiresAt <= now) localSeenEvents.delete(key);
+  }
+}
+
+async function localBridgeState() {
+  if (localBridgePromise) return localBridgePromise;
+
+  localBridgePromise = (async () => {
+    const root = localBridgeRoot();
+    const [
+      { loadNexusAdapters },
+      { dispatchNexusEnvelope }
+    ] = await Promise.all([
+      import('../../nexus-bridge/adapter-loader.mjs'),
+      import('../../nexus-bridge/receiver.mjs')
+    ]);
+
+    const directory = path.resolve(
+      process.env.NEXUS_ADAPTER_DIR ||
+      path.join(root, 'nexus-bridge/adapters')
+    );
+
+    const adapterState = await loadNexusAdapters({
+      directory
+    });
+
+    return {
+      root,
+      adapterState,
+      dispatchNexusEnvelope
+    };
+  })().catch(error => {
+    localBridgePromise = null;
+    throw error;
+  });
+
+  return localBridgePromise;
+}
+
+async function callLocalNexusGateway(event, context = {}) {
+  const {
+    adapterState,
+    dispatchNexusEnvelope
+  } = await localBridgeState();
+
+  const routing = classifyNexusRoute(event);
+  const envelope = toNexusEnvelope(
+    event,
+    routing,
+    context.identity || {}
+  );
+
+  const result = await dispatchNexusEnvelope(
+    envelope,
+    {
+      services: adapterState.services,
+      serviceStatus: adapterState.status,
+      resolveAuto: env => localAutoService(
+        env,
+        adapterState.services
+      ),
+      claimEvent: async ({ eventId, source }) => {
+        pruneLocalSeen();
+        const key = [
+          source?.platform || 'unknown',
+          source?.pageId || 'no-page',
+          eventId
+        ].join(':');
+
+        if (localSeenEvents.has(key)) return false;
+
+        localSeenEvents.set(
+          key,
+          Date.now() + 10 * 60_000
+        );
+
+        return key;
+      },
+      releaseEvent: async key => {
+        if (key) localSeenEvents.delete(key);
+      }
+    }
+  );
+
+  return {
+    ok: true,
+    ...result
+  };
+}
+
 function signedHeaders(body) {
   const headers = {
     'content-type': 'application/json'
@@ -141,10 +272,36 @@ async function postNexusGatewayBody(body, timeoutMs = 20000) {
 
 export async function probeNexusGateway() {
   if (!config.nexusGatewayUrl || !config.nexusGatewayKey) {
-    return {
-      ok: false,
-      error: 'gateway_not_configured'
-    };
+    try {
+      const { adapterState } = await localBridgeState();
+      const availableServices = Object.keys(adapterState.services).sort();
+      const readyServices = adapterState.status
+        .filter(item =>
+          item?.loaded === true &&
+          item?.manifest?.productionReady === true
+        )
+        .map(item => String(item.service))
+        .sort();
+
+      return {
+        ok: availableServices.length > 0,
+        local: true,
+        latencyMs: 0,
+        handledBy: 'nexus-bridge-local',
+        availableServices,
+        readyServices,
+        serviceStatus: adapterState.status
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        local: true,
+        error: String(error?.message || error).slice(0, 160),
+        availableServices: [],
+        readyServices: [],
+        serviceStatus: []
+      };
+    }
   }
 
   const startedAt = Date.now();
@@ -211,9 +368,16 @@ export async function probeNexusGateway() {
 
 export async function fetchNexusBridgeStatus() {
   if (!config.nexusGatewayUrl || !config.nexusGatewayKey) {
-    const error = new Error('gateway_not_configured');
-    error.status = 503;
-    throw error;
+    const { adapterState } = await localBridgeState();
+
+    return {
+      ok: true,
+      local: true,
+      proxy: false,
+      childExited: false,
+      adapters: adapterState.status,
+      discovery: null
+    };
   }
 
   const url = new URL(config.nexusGatewayUrl);
@@ -263,7 +427,9 @@ export async function fetchNexusBridgeStatus() {
 }
 
 export async function callNexusGateway(event, context = {}) {
-  if (!config.nexusGatewayUrl) return null;
+  if (!config.nexusGatewayUrl) {
+    return callLocalNexusGateway(event, context);
+  }
 
   const routing = classifyNexusRoute(event);
   const body = JSON.stringify(
