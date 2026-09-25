@@ -140,7 +140,10 @@ export async function menuModel({account,settings,commands,view='home',category=
     text,
     entities:expandableEntities(text,spans),
     reply_markup:{inline_keyboard:buttons},
-    photoUrl:String(settings.menuImageUrl||'').trim()||await resolveStyleImage(style.id,cfg.defaultMenuImage)
+    // Menu artwork is style-owned. A stale per-user URL must never survive a style change.
+    // If the active style has no usable artwork, render the interactive menu without a photo
+    // rather than showing an unrelated image.
+    photoUrl:await resolveStyleImage(style.id,'')
   };
 }
 
@@ -160,7 +163,7 @@ export async function stylesModel({account,settings}){
     text,
     entities:expandableEntities(text,spans),
     reply_markup:{inline_keyboard:[[button('↩ '+toSmallCaps('Menu'),'menu:home','primary','back')]]},
-    photoUrl:await resolveStyleImage(settings.style||1,cfg.defaultMenuImage)
+    photoUrl:await resolveStyleImage(settings.style||1,'')
   };
 }
 
