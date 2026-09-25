@@ -178,10 +178,8 @@ async function launchBrowser() {
       )
     );
 
-    browser = await puppeteer.launch({
-      executablePath,
-      headless: true,
-      userDataDir: profileDir,
+    const launchArgs = await puppeteer.defaultArgs({
+      headless: 'shell',
       args: [
         ...chromium.args,
         '--disable-dev-shm-usage',
@@ -192,7 +190,14 @@ async function launchBrowser() {
         `--remote-debugging-port=${debugPort}`,
         '--lang=fr-FR',
         '--window-size=1440,1400'
-      ],
+      ]
+    });
+
+    browser = await puppeteer.launch({
+      executablePath,
+      headless: 'shell',
+      userDataDir: profileDir,
+      args: launchArgs,
       defaultViewport: {
         width: 1440,
         height: 1400,
