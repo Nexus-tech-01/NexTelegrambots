@@ -49,6 +49,40 @@ async function onPaired(client,account){
 
 setPairingConnectedHandler(onPaired);
 
+async function runStartupSmoke(){
+  const mode=String(process.env.NEXACCOUNT_STARTUP_SMOKE||'').trim().toLowerCase();
+  if(!['1','true','yes','on','basic','full'].includes(mode))return;
+  const active=runtimeStatus().find(row=>row.connected!==false)||runtimeStatus()[0];
+  if(!active?.telegramUserId)throw new Error('startup_smoke_no_runtime');
+  const id=String(active.telegramUserId);
+  const basic=['.ping','.alive','.account','.settings','.style','.calc 2+2'];
+  const full=[...basic,'.translate en bonjour','.ai Réponds seulement par OK.','.animeinfo Naruto'];
+  const commands=mode==='full'?full:basic;
+  const results=[];
+  const menu=await runtimeMenuProbe(id,'me');
+  results.push({type:'menu',ok:menu?.ok===true,resultType:menu?.resultType||null});
+  const engines=await engineStatus();
+  results.push({
+    type:'engines',
+    ok:engines?.ok===true,
+    runtimeConnected:engines?.runtimeConnected===true,
+    services:(engines?.engines||[]).map(row=>({
+      service:row.service,
+      configured:row.configured===true,
+      reachable:row.reachable===true
+    }))
+  });
+  for(const text of commands){
+    try{
+      const result=await runtimeCommandTest(id,text,'me');
+      results.push({type:'command',text,ok:result?.ok===true});
+    }catch(error){
+      results.push({type:'command',text,ok:false,error:String(error?.message||error).slice(0,300)});
+    }
+  }
+  console.log('[NexAccount startup-smoke]',JSON.stringify({mode,telegramUserId:id,results}));
+}
+
 async function route(req,res){
   const url=new URL(req.url,'http://127.0.0.1');
   try{
@@ -150,6 +184,7 @@ server.listen(cfg.port,cfg.host,async()=>{
   const loaded=await loadSavedRuntimes().catch(e=>{console.error('[NexAccount restore]',e);return[]});
   if(cfg.coordinator)await startSecondaryAnimeReader().catch(e=>console.error('[NexAnime secondary]',e));
   console.log('[NexAccount] worker '+cfg.workerIndex+'/'+cfg.workerCount+(cfg.coordinator?' · coordinator':'')+' restored '+loaded.length+' account(s), capacity '+cfg.maxRuntimesPerWorker);
+  await runStartupSmoke().catch(error=>console.error('[NexAccount startup-smoke]',String(error?.message||error)));
 });
 
 const reconcile=setInterval(()=>reconcileRuntimes().catch(e=>console.error('[NexAccount reconcile]',e)),cfg.reconcileMs);
