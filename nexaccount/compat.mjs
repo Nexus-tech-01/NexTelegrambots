@@ -394,14 +394,14 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(name==='dashboard'||name==='settings'||name==='stats'||name==='premium'){
     const s=await settingsFor(account.telegramUserId);
     if(name==='premium'){
-      await sendText(client,peer,'NexAi Premium · 250 Stars/mois\nStatut : '+(account.premium?'Premium Telegram détecté':'Free')+'\nUn seul Premium NexAi pour les fonctions avancées intégrées.');
+      await sendText(client,peer,'Telegram Premium · compte connecté\nStatut : '+(account.premium?'ACTIF':'NON ACTIF')+'\nLes fonctions de cette catégorie dépendent de Telegram Premium. L’abonnement payant NexAi n’est pas encore activé dans cette phase.');
       return true;
     }
     if(name==='dashboard'||name==='settings'){
       await sendText(client,peer,'NexAi · '+toSmallCaps(name)+'\nCompte : '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nPréfixe : '+(s.prefix||'.')+'\nMode : '+(s.accessMode==='public'?'PUBLIC':'PRIVÉ')+'\nLangue : '+(s.language||'fr')+'\nStyle : '+(s.style||1)+'\nAuto-join : '+(s.autoJoin?.enabled?'ON':'OFF')+'\nAuto-react : '+(s.autoReact?.enabled?'ON':'OFF'));
       return true;
     }
-    await sendText(client,peer,'NexAi · stats\nCompte : '+(account.username?'@'+account.username:account.telegramUserId)+'\nTelegram ID : '+account.telegramUserId+'\nPremium : '+(account.premium?'oui':'non'));
+    await sendText(client,peer,'NexAi · stats\nCompte : '+(account.username?'@'+account.username:account.telegramUserId)+'\nTelegram ID : '+account.telegramUserId+'\nTelegram Premium : '+(account.premium?'oui':'non'));
     return true;
   }
   if(name==='stylelist'){await sendInline(client,peer,'styles');return true}
@@ -684,7 +684,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       warnings[chat]={...(warnings[chat]||{})};
       if(name==='resetwarn')warnings[chat][tid]=0;else warnings[chat][tid]=Number(warnings[chat][tid]||0)+1;
       await patchSettings(account.telegramUserId,{warnings});
-      await sendText(client,peer,name==='resetwarn'?'Avertissements réinitialisés.':'Avertissement '+warnings[chat][tid]+'/3.');
+      await sendText(client,peer,name==='resetwarn'?'Avertissements réinitialisés.':'Avertissement enregistré · total : '+warnings[chat][tid]+'.');
     }catch(e){await sendText(client,peer,'Warn impossible : '+e.message)}
     return true;
   }
@@ -800,8 +800,13 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const s=await settingsFor(account.telegramUserId),cur=s[name]?.enabled===true;
     const enabled=parseToggle(args[0],cur);
     await patchSettings(account.telegramUserId,{[name]:{enabled}});
-    if(enabled&&name==='presence')await client.invoke(new Api.account.UpdateStatus({offline:false})).catch(()=>{});
-    await sendText(client,peer,toSmallCaps(name)+' : '+(enabled?'ON':'OFF'));return true;
+    if(name==='presence'){
+      if(typeof runtime.setPresenceEnabled==='function')await runtime.setPresenceEnabled(enabled);
+      else if(enabled)await client.invoke(new Api.account.UpdateStatus({offline:false})).catch(()=>{});
+    }
+    await sendText(client,peer,name==='presence'
+      ?'Présence persistante : '+(enabled?'ON · NexAi maintiendra périodiquement la session en ligne.':'OFF')
+      :toSmallCaps(name)+' : '+(enabled?'ON':'OFF'));return true;
   }
 
   if(name==='getname'||name==='getabout'||name==='getpp'||name==='inspecter'){
@@ -872,7 +877,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     if(['config','status','permissions'].includes(name)){
       const c=await currentChat(client,peer);let extra='';
       if(name==='permissions')extra='\nLes actions utilisent les permissions réelles du compte Telegram connecté.';
-      await sendText(client,peer,'NexAi · '+name+'\nChat : '+(c?.title||c?.username||chat)+'\nID : '+chat+'\nAnti-link : '+(policy.antilink?'ON':'OFF')+'\nAnti-spam : '+(policy.antispam?'ON':'OFF')+'\nAnti-raid : '+(policy.antiraid?'ON':'OFF')+'\nWelcome : '+(policy.welcome?'ON':'OFF')+extra);return true;
+      await sendText(client,peer,'NexAi · '+name+'\nChat : '+(c?.title||c?.username||chat)+'\nID : '+chat+'\nAnti-link : '+(policy.antilink?'ON':'OFF')+'\nAnti-spam : '+(policy.antispam?'ON':'OFF')+'\nAnti-tag : '+(policy.antitag?'ON':'OFF')+'\nAnti-mention massive : '+(policy.antigroupmention?'ON':'OFF')+'\nFiltre de mots : '+(policy.antibadword?'ON':'OFF')+'\nWelcome : '+(policy.welcome?'ON':'OFF')+extra);return true;
     }
     if(name==='id'){await sendText(client,peer,'Chat ID : '+chat+'\nCompte : '+account.telegramUserId);return true}
     if(name==='kickall'){
@@ -897,8 +902,13 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       await sendText(client,peer,'Warnings\n'+(rows.join('\n')||'Aucun avertissement.'));return true;
     }
     if(name==='risk'){
-      let score=0;if(!policy.antilink)score+=20;if(!policy.antispam)score+=20;if(!policy.antiraid)score+=20;if(!policy.captcha)score+=20;if(!policy.logs)score+=20;
-      await sendText(client,peer,'Indice de risque configuration : '+score+'/100\nPlus le score est bas, plus les protections NexAi configurées sont nombreuses.');return true;
+      let score=0;
+      if(!policy.antilink)score+=20;
+      if(!policy.antispam)score+=20;
+      if(!policy.antitag)score+=20;
+      if(!policy.antigroupmention)score+=20;
+      if(!policy.antibadword)score+=20;
+      await sendText(client,peer,'Indice de risque configuration : '+score+'/100\nCe score reflète uniquement les protections réellement appliquées aux messages par cette version de NexAi.');return true;
     }
     if(name==='privacy'){await sendText(client,peer,'NexAi utilise uniquement les données Telegram nécessaires aux fonctions activées. Les sessions NexAccount sont chiffrées au repos.');return true}
     if(name==='report'||name==='appeal'){
@@ -977,7 +987,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     await sendText(client,peer,a+'  ×  '+b+'  →  '+a+b);return true;
   }
   if(name==='device'){
-    await sendText(client,peer,'NexAccount · '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nTelegram ID : '+account.telegramUserId+'\nSession : active\nPremium : '+(account.premium?'oui':'non'));return true;
+    await sendText(client,peer,'NexAccount · '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nTelegram ID : '+account.telegramUserId+'\nSession : active\nTelegram Premium : '+(account.premium?'oui':'non'));return true;
   }
 
 

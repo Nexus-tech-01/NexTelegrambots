@@ -223,7 +223,7 @@ async function joinTarget(client,target){
 }
 
 async function premiumDenied(client,peer,name){
-  await sendText(client,peer,'Cette commande ('+name+') est disponible uniquement pour les utilisateurs Premium.');
+  await sendText(client,peer,'Cette commande ('+name+') nécessite Telegram Premium sur le compte connecté.');
 }
 
 async function handleStyle(runtime,peer,args,inlineName=''){
@@ -432,7 +432,7 @@ async function handleCommand(runtime,event,parsed){
       await sendText(client,peer,'NexAi · Dipper est actif sur ce compte.');
       return true;
     case 'account':
-      await sendText(client,peer,'Compte : '+(account.username?'@'+account.username:account.firstName)+'\nPremium : '+(account.premium?'Oui':'Non')+'\nNexAccount : connecté');
+      await sendText(client,peer,'Compte : '+(account.username?'@'+account.username:account.firstName)+'\nTelegram Premium : '+(account.premium?'Oui':'Non')+'\nNexAccount : connecté');
       return true;
     case 'help':
       await sendText(client,peer,'Utilise .menu pour afficher le menu interactif.');
@@ -599,7 +599,13 @@ async function maybeAutoModerate(runtime,event){
     const recent=(spamWindows.get(key)||[]).filter(t=>now-t<10000);recent.push(now);spamWindows.set(key,recent);
     if(recent.length>5)remove=true;
   }
-  if(remove){try{await client.deleteMessages(message.peerId,[message.id],{revoke:true})}catch{}}
+  if(remove){
+    // Never let automatic filters punish Telegram bots or group administrators.
+    // Explicit moderation commands remain available to admins when action is intended.
+    if(await messageAuthorIsBot(client,message,event?.sender))return;
+    if(sender&&await userIsGroupAdmin(client,message.peerId,sender))return;
+    try{await client.deleteMessages(message.peerId,[message.id],{revoke:true})}catch{}
+  }
 }
 
 async function maybeServiceGreeting(runtime,event){
@@ -613,6 +619,26 @@ async function maybeServiceGreeting(runtime,event){
   }else if(/ChatDeleteUser/i.test(kind)&&policy.goodbye){
     await sendText(client,message.peerId,String(policy.goodbyeText||'À bientôt.')).catch(()=>{});
   }
+}
+
+async function maintainPresence(runtime){
+  try{
+    await runtime.client.invoke(new Api.account.UpdateStatus({offline:false}));
+    runtime.lastPresenceAt=new Date();
+  }catch(error){
+    console.warn('[NexAccount presence]',String(runtime.account.telegramUserId),String(error?.errorMessage||error?.message||error).slice(0,300));
+  }
+}
+
+async function configurePresence(runtime,enabled){
+  if(runtime.presenceTimer){
+    clearInterval(runtime.presenceTimer);
+    runtime.presenceTimer=null;
+  }
+  if(enabled!==true)return false;
+  const initialSettings=await settingsFor(id);
+  await configurePresence(runtime,initialSettings.presence?.enabled===true);
+  return true;
 }
 
 async function runAutoJoin(runtime){
@@ -851,6 +877,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
   if(runtimes.has(id)){
     const old=runtimes.get(id);
     if(old.autoJoinTimer)clearInterval(old.autoJoinTimer);
+    if(old.presenceTimer)clearInterval(old.presenceTimer);
     if(old.updateSyncTimer)clearInterval(old.updateSyncTimer);
     if(old.commandPollTimer)clearInterval(old.commandPollTimer);
     if(old.leaseTimer)clearInterval(old.leaseTimer);
@@ -870,8 +897,10 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
     commandPollStartedAt:Date.now(),
     lastCommandPollAt:null,
     commandPollFailures:0,
-    pollingCommands:false
+    pollingCommands:false,
+    presenceTimer:null
   };
+  runtime.setPresenceEnabled=enabled=>configurePresence(runtime,enabled);
   runtimes.set(id,runtime);
 
   client.addEventHandler(async event=>{
@@ -928,6 +957,10 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
   runtime.autoJoinTimer=setInterval(()=>runAutoJoin(runtime).catch(()=>{}),30*60*1000);
   runtime.autoJoinTimer.unref?.();
 
+  await maintainPresence(runtime);
+  runtime.presenceTimer=setInterval(()=>maintainPresence(runtime).catch(()=>{}),45*1000);
+  runtime.presenceTimer.unref?.();
+
   // Telegram can leave a session transport connected while the update stream
   // has silently stopped advancing. catchUp() asks Telegram for the missing
   // difference and dispatches those updates through the normal event handlers.
@@ -961,6 +994,7 @@ export async function detachRuntime(telegramUserId,{releaseLease=true}={}){
   const runtime=runtimes.get(id);
   if(runtime){
     if(runtime.autoJoinTimer)clearInterval(runtime.autoJoinTimer);
+    if(runtime.presenceTimer)clearInterval(runtime.presenceTimer);
     if(runtime.updateSyncTimer)clearInterval(runtime.updateSyncTimer);
     if(runtime.commandPollTimer)clearInterval(runtime.commandPollTimer);
     if(runtime.leaseTimer)clearInterval(runtime.leaseTimer);

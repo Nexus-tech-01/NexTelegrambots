@@ -56,8 +56,11 @@ for(const name of ['account','pair','sessions','settings','prefix','mode','langu
 for(const name of ['promote','demote','kick','ban','unban','mute','unmute','warn','tagall','hidetag','mediatag','slowmode']){
   requireCommand(name,{engine:'group',groupOnly:true,adminOnly:true});
 }
-for(const name of ['antilink','antispam','antiraid','antitag','antigroupmention','antibadword','captcha','raidmode','nightmode','logs','blacklist','whitelist','risk']){
+for(const name of ['antilink','antispam','antitag','antigroupmention','antibadword','blacklist','whitelist','risk']){
   requireCommand(name,{engine:'group',groupOnly:true,adminOnly:true});
+}
+for(const name of ['antiraid','captcha','raidmode','nightmode','logs','autoapprove','autotyping']){
+  if(commands.has(name))errors.push('configuration-only-command-exposed:'+name);
 }
 
 for(const name of ['tourl','crop','resize','analyzesound','vv']){
@@ -67,6 +70,7 @@ for(const name of ['tourl','crop','resize','analyzesound','vv']){
 const runtime=fs.readFileSync(path.join(ROOT,'runtime.mjs'),'utf8');
 const compat=fs.readFileSync(path.join(ROOT,'compat.mjs'),'utf8');
 const inline=fs.readFileSync(path.join(ROOT,'inline-bot.mjs'),'utf8');
+const commandSource=fs.readFileSync(path.join(ROOT,'commands.mjs'),'utf8');
 
 for(const marker of [
   "if(parsed.name==='menu')return sendMenu(runtime,peer)",
@@ -79,7 +83,16 @@ for(const marker of [
 ]){
   if(!runtime.includes(marker))errors.push('runtime-marker:'+marker);
 }
+if(compat.includes('250 Stars/mois')||compat.includes('NexAi Premium ·'))errors.push('unimplemented-nexai-stars-subscription-advertised');
+for(const name of ['waifuhd','cosplayvip','amvhd','openingvip']){
+  const cmd=commands.get(name);
+  if(cmd?.premium===true)errors.push('anime-command-wrongly-gated-by-telegram-premium:'+name);
+}
+if(!commandSource.includes("PREMIUM:'TELEGRAM PREMIUM'"))errors.push('telegram-premium-category-label-missing');
 if(!runtime.includes('Commande inconnue'))errors.push('unknown-command-response-missing');
+if(!runtime.includes('presenceTimer'))errors.push('persistent-presence-heartbeat-missing');
+if(!runtime.includes('messageAuthorIsBot(client,message,event?.sender)'))errors.push('auto-moderation-bot-exemption-missing');
+if(!runtime.includes('userIsGroupAdmin(client,message.peerId,sender)'))errors.push('auto-moderation-admin-exemption-missing');
 if(!inline.includes("bot.command('start'"))errors.push('/start-handler-missing');
 if(!inline.includes("bot.command('menu'"))errors.push('/menu-handler-missing');
 if(!inline.includes("bot.command('help'"))errors.push('/help-handler-missing');
@@ -101,7 +114,7 @@ console.log(JSON.stringify({
   stickers:6,
   games:3,
   anime:anime.length,
-  protections:13,
+  protections:8,
   accountControls:7,
   noSilentUnknown:true
 },null,2));
