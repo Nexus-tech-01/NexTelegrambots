@@ -91,10 +91,16 @@ let localBridgePromise = null;
 const localSeenEvents = new Map();
 
 function localBridgeRoot() {
-  return path.resolve(
+  const configured = path.resolve(
     process.env.NEXUS_ROOT ||
-    path.join(process.cwd(), '..')
+    process.cwd()
   );
+
+  if (path.basename(configured).toLowerCase() === 'nexmeta') {
+    return path.dirname(configured);
+  }
+
+  return configured;
 }
 
 function localAutoService(envelope, services) {
