@@ -5,12 +5,15 @@ import { NewMessage } from 'teleproto/events/index.js';
 import { cfg } from './config.mjs';
 import { animeIngestStatus, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 
-const SESSION_FILE=process.env.NEXANIME_SECONDARY_SESSION_FILE||'/home/container/.nexcontrol/nexcanal-reader-session.txt';
+const SECONDARY_ENABLED=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXANIME_SECONDARY_ENABLED||'false').trim());
+const SESSION_FILE=String(process.env.NEXANIME_SECONDARY_SESSION_FILE||'').trim();
 const EXPECTED_USERNAME=String(process.env.NEXANIME_SECONDARY_EXPECTED_USERNAME||'tresor20009').trim().replace(/^@/,'').toLowerCase();
 let runtime=null;
 let starting=null;
 
 export async function startSecondaryAnimeReader(){
+  if(!SECONDARY_ENABLED)return {enabled:false,connected:false,reason:'disabled'};
+  if(!SESSION_FILE)return {enabled:false,connected:false,reason:'session_file_not_configured'};
   if(runtime?.client?.connected===true)return secondaryAnimeStatus();
   if(starting)return starting;
   starting=(async()=>{
@@ -88,8 +91,11 @@ export async function stopSecondaryAnimeReader(){
 }
 
 export function secondaryAnimeStatus(){
+  if(!SECONDARY_ENABLED){
+    return {enabled:false,connected:false,reason:'disabled'};
+  }
   if(!runtime){
-    return {enabled:false,connected:false,sessionFile:SESSION_FILE};
+    return {enabled:true,connected:false,sessionFile:SESSION_FILE||null};
   }
   return {
     enabled:true,

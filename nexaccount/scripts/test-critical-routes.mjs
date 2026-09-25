@@ -71,6 +71,7 @@ const runtime=fs.readFileSync(path.join(ROOT,'runtime.mjs'),'utf8');
 const compat=fs.readFileSync(path.join(ROOT,'compat.mjs'),'utf8');
 const inline=fs.readFileSync(path.join(ROOT,'inline-bot.mjs'),'utf8');
 const commandSource=fs.readFileSync(path.join(ROOT,'commands.mjs'),'utf8');
+const secondaryAnimeSource=fs.readFileSync(path.join(ROOT,'anime-secondary-reader.mjs'),'utf8');
 
 for(const marker of [
   "if(parsed.name==='menu')return sendMenu(runtime,peer)",
@@ -89,6 +90,9 @@ for(const name of ['waifuhd','cosplayvip','amvhd','openingvip']){
   if(cmd?.premium===true)errors.push('anime-command-wrongly-gated-by-telegram-premium:'+name);
 }
 if(!commandSource.includes("PREMIUM:'TELEGRAM PREMIUM'"))errors.push('telegram-premium-category-label-missing');
+if(!secondaryAnimeSource.includes("NEXANIME_SECONDARY_ENABLED"))errors.push('secondary-anime-enabled-guard-missing');
+if(!secondaryAnimeSource.includes("reason:'disabled'"))errors.push('secondary-anime-disabled-state-missing');
+if(secondaryAnimeSource.includes("||'/home/container/.nexcontrol/nexcanal-reader-session.txt'"))errors.push('legacy-secondary-session-fallback-still-present');
 if(!runtime.includes('Commande inconnue'))errors.push('unknown-command-response-missing');
 if(!runtime.includes('presenceTimer'))errors.push('persistent-presence-heartbeat-missing');
 if(!runtime.includes('messageAuthorIsBot(client,message,event?.sender)'))errors.push('auto-moderation-bot-exemption-missing');
