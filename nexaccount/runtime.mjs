@@ -1113,6 +1113,7 @@ export async function runtimeCommandTest(telegramUserId,text='.menu',peer='me'){
   const id=String(telegramUserId||'');
   const runtime=runtimes.get(id);
   if(!runtime)throw new Error('runtime_not_active');
+  const {account}=runtime;
   const settings=await settingsFor(id);
   const parsed=parseCommand(String(text||''),settings.prefix||'.');
   if(!parsed)throw new Error('command_not_parsed');
