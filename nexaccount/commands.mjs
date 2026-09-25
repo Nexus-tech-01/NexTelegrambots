@@ -308,7 +308,10 @@ export const REMOVED_COMMANDS=new Set([
   'annihiler','exaucee','setsudo','delsudo','setvip','delvip','transferowner',
   'filtervcf','pausequeue','adoration','arcanes','boutique','rang','sanctuaire',
   'fresque','quete_fresque','jugement_d','malediction','piege','destin','fakehack',
-  'leaderboard','rep','schedule','template','topicpolicy'
+  'leaderboard','rep','schedule','template','topicpolicy',
+  // Hidden until they have a real enforcement engine. Public NexAI must never
+  // advertise a toggle that only stores settings without changing Telegram behavior.
+  'antiraid','captcha','raidmode','nightmode','logs','autoapprove','autotyping'
 ]);
 
 function loadDipperManifest(){
