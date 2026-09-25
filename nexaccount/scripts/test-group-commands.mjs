@@ -20,6 +20,9 @@ for(const name of ['tag','tagall','hidetag','mediatag','tagadmin','promote','dem
 for(const name of ['tagall','hidetag','mediatag','promote','demote','kick','ban','mute','warnings','slowmode']){
   assert.equal(commands.get(name)?.adminOnly,true,name+' must require admin rights');
 }
+assert.match(compatSource,/getInputChannel/,'channel APIs must import InputChannel conversion');
+assert.match(compatSource,/const channel=getInputChannel\(await client\.getInputEntity\(peer\)\)/,'moderation APIs must receive InputChannel');
+assert.match(compatSource,/ToggleSlowMode\(\{channel:input,seconds\}\)/,'slowmode route must use converted InputChannel');
 assert.match(compatSource,/const target=getInputUser\(targetPeer\)/,'moderation APIs must receive InputUser');
 assert.match(compatSource,/users:\[user\]/,'group invite route must use converted InputUser');
 assert.match(compatSource,/HideChatJoinRequest\(\{peer:input,userId:user,approved:true\}\)/,'join approval must use converted InputUser');

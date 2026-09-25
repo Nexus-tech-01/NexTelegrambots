@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { Api } from 'teleproto';
-import { getInputUser } from 'teleproto/Utils.js';
+import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { cfg, isOwnerId } from './config.mjs';
 import { listAccounts, patchSettings, settingsFor } from './store.mjs';
 import { toSmallCaps } from './styles.mjs';
@@ -301,7 +301,7 @@ async function setListSetting(accountId,key,value,remove=false){
 async function doModeration(client,peer,message,name,args){
   const targetPeer=await targetEntity(client,peer,message,args);
   const target=getInputUser(targetPeer);
-  const channel=await client.getInputEntity(peer);
+  const channel=getInputChannel(await client.getInputEntity(peer));
   if(name==='promote'||name==='selfadmin'){
     await client.invoke(new Api.channels.EditAdmin({
       channel,userId:target,
@@ -645,7 +645,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(name==='add'){
     if(!args[0]){await sendText(client,peer,'Usage : .add @username');return true}
     try{
-      const channel=await client.getInputEntity(peer),user=getInputUser(await client.getInputEntity(args[0]));
+      const channel=getInputChannel(await client.getInputEntity(peer)),user=getInputUser(await client.getInputEntity(args[0]));
       await client.invoke(new Api.channels.InviteToChannel({channel,users:[user]}));
       await sendText(client,peer,'Invitation envoyée.');
     }catch(e){await sendText(client,peer,'Ajout impossible : '+String(e.errorMessage||e.message||e))}
@@ -888,7 +888,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     }
     if(name==='purge'){return handleCompatCommand({runtime,event,name:'clean',args,cmd:{},sendText,sendInline})}
     if(name==='slowmode'){
-      const seconds=Math.max(0,Math.min(21600,Number(args[0])||0));try{const input=await client.getInputEntity(peer);await client.invoke(new Api.channels.ToggleSlowMode({channel:input,seconds}));await sendText(client,peer,'Slow mode : '+seconds+' s')}catch(e){await sendText(client,peer,'Slow mode impossible : '+String(e.errorMessage||e.message||e))}return true;
+      const seconds=Math.max(0,Math.min(21600,Number(args[0])||0));try{const input=getInputChannel(await client.getInputEntity(peer));await client.invoke(new Api.channels.ToggleSlowMode({channel:input,seconds}));await sendText(client,peer,'Slow mode : '+seconds+' s')}catch(e){await sendText(client,peer,'Slow mode impossible : '+String(e.errorMessage||e.message||e))}return true;
     }
     if(name==='rules'||name==='setrules'||name==='notes'){
       if(name==='setrules'||(name==='notes'&&argText)){const key=name==='notes'?'notes':'rules';await patchGroupPolicy(account.telegramUserId,chat,{[key]:argText});await sendText(client,peer,toSmallCaps(key)+' enregistré.');return true}
