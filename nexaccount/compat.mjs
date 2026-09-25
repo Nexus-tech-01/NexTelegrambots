@@ -299,7 +299,8 @@ async function setListSetting(accountId,key,value,remove=false){
   return next;
 }
 async function doModeration(client,peer,message,name,args){
-  const target=await targetEntity(client,peer,message,args);
+  const targetPeer=await targetEntity(client,peer,message,args);
+  const target=getInputUser(targetPeer);
   const channel=await client.getInputEntity(peer);
   if(name==='promote'||name==='selfadmin'){
     await client.invoke(new Api.channels.EditAdmin({
@@ -644,7 +645,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(name==='add'){
     if(!args[0]){await sendText(client,peer,'Usage : .add @username');return true}
     try{
-      const channel=await client.getInputEntity(peer),user=await client.getInputEntity(args[0]);
+      const channel=await client.getInputEntity(peer),user=getInputUser(await client.getInputEntity(args[0]));
       await client.invoke(new Api.channels.InviteToChannel({channel,users:[user]}));
       await sendText(client,peer,'Invitation envoyée.');
     }catch(e){await sendText(client,peer,'Ajout impossible : '+String(e.errorMessage||e.message||e))}
@@ -655,7 +656,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       const input=await client.getInputEntity(peer);
       if(name==='approveall')await client.invoke(new Api.messages.HideAllChatJoinRequests({peer:input,approved:true}));
       else{
-        const user=await targetEntity(client,peer,event.message,args);
+        const user=getInputUser(await targetEntity(client,peer,event.message,args));
         await client.invoke(new Api.messages.HideChatJoinRequest({peer:input,userId:user,approved:true}));
       }
       await sendText(client,peer,'Demande(s) approuvée(s).');
