@@ -104,6 +104,7 @@ if(!daemonSource.includes('NEXACCOUNT_STARTUP_SMOKE'))errors.push('startup-smoke
 if(!daemonSource.includes('runtimeMenuProbe'))errors.push('startup-smoke-menu-probe-missing');
 if(!daemonSource.includes('engineStatus'))errors.push('startup-smoke-engine-status-missing');
 if(!daemonSource.includes("mode==='download'"))errors.push('download-startup-smoke-mode-missing');
+if(!daemonSource.includes("mode==='health'"))errors.push('health-startup-smoke-mode-missing');
 if(!daemonSource.includes("aqz-KE-bpKQ"))errors.push('download-startup-smoke-fixture-missing');
 if(!downloadSource.includes("/opt/nex/tools/yt-dlp/yt-dlp"))errors.push('local-ytdlp-path-missing');
 if(!downloadSource.includes("Source : yt-dlp local"))errors.push('local-ytdlp-primary-route-missing');
