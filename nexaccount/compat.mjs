@@ -800,7 +800,10 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const s=await settingsFor(account.telegramUserId),cur=s[name]?.enabled===true;
     const enabled=parseToggle(args[0],cur);
     await patchSettings(account.telegramUserId,{[name]:{enabled}});
-    if(enabled&&name==='presence')await client.invoke(new Api.account.UpdateStatus({offline:false})).catch(()=>{});
+    if(name==='presence'){
+      if(typeof runtime.setPresenceEnabled==='function')await runtime.setPresenceEnabled(enabled);
+      else if(enabled)await client.invoke(new Api.account.UpdateStatus({offline:false})).catch(()=>{});
+    }
     await sendText(client,peer,name==='presence'
       ?'Présence persistante : '+(enabled?'ON · NexAi maintiendra périodiquement la session en ligne.':'OFF')
       :toSmallCaps(name)+' : '+(enabled?'ON':'OFF'));return true;
