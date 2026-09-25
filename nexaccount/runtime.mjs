@@ -686,7 +686,17 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
     'out='+String(message?.out===true),
     'author='+messageAuthorId(message)
   );
-  await handleCommand(runtime,event,parsed);
+  const handled=await handleCommand(runtime,event,parsed);
+  if(handled===false){
+    const lang=String(settings.language||account.preferredLanguage||'fr').toLowerCase();
+    await sendText(
+      client,
+      message.peerId,
+      lang.startsWith('en')
+        ? 'Unknown command: '+String(settings.prefix||'.')+parsed.name+'. Use '+String(settings.prefix||'.')+'menu to see available commands.'
+        : 'Commande inconnue : '+String(settings.prefix||'.')+parsed.name+'. Utilise '+String(settings.prefix||'.')+'menu pour voir les commandes disponibles.'
+    );
+  }
   return true;
 }
 
