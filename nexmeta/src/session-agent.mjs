@@ -180,6 +180,7 @@ async function launchBrowser() {
         '--disable-background-timer-throttling',
         '--disable-renderer-backgrounding',
         '--disable-features=CalculateNativeWinOcclusion',
+        '--lang=fr-FR',
         '--window-size=1280,900'
       ],
       defaultViewport: chromium.defaultViewport || {
@@ -208,8 +209,35 @@ async function launchBrowser() {
       '(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
     );
 
-    if (!page.url() || page.url() === 'about:blank') {
-      await page.goto('https://www.facebook.com/', {
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.7'
+    });
+
+    await page.evaluateOnNewDocument(() => {
+      try {
+        Object.defineProperty(navigator, 'language', {
+          configurable: true,
+          get: () => 'fr-FR'
+        });
+        Object.defineProperty(navigator, 'languages', {
+          configurable: true,
+          get: () => ['fr-FR', 'fr', 'en']
+        });
+      } catch {}
+    });
+
+    await page.setCookie({
+      name: 'locale',
+      value: 'fr_FR',
+      domain: '.facebook.com',
+      path: '/',
+      secure: true,
+      httpOnly: false,
+      sameSite: 'Lax'
+    }).catch(() => {});
+
+    if (!page.url() || page.url() === 'about:blank' || /facebook\.com/i.test(page.url())) {
+      await page.goto('https://www.facebook.com/?locale=fr_FR', {
         waitUntil: 'domcontentloaded',
         timeout: 60_000
       }).catch(() => {});
@@ -271,12 +299,13 @@ h1{margin:6px 0 8px;font-size:28px}
 p{color:#aaa;line-height:1.5}
 .card{background:#121216;border:1px solid #292a31;border-radius:18px;padding:12px}
 #screen{display:block;width:100%;border-radius:12px;background:#222;touch-action:none}
-.controls{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:8px;margin-top:10px}
+.controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
+.quick{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0}
 input,button{font:inherit;padding:12px;border-radius:10px;border:1px solid #363740}
 input{background:#090a0d;color:#fff}
 button{background:#272932;color:#fff}
 small{color:#85858c}
-@media(max-width:680px){.controls{grid-template-columns:1fr 1fr}.controls input{grid-column:1/-1}}
+@media(max-width:680px){.quick{grid-template-columns:1fr 1fr}.controls{grid-template-columns:1fr 1fr}.controls input{grid-column:1/-1}}
 </style>
 </head>
 <body>
@@ -284,16 +313,24 @@ small{color:#85858c}
 <small>NEXMETA · PERSISTENT SESSION</small>
 <h1>Connexion Facebook du serveur</h1>
 <p>
-Le navigateur ci-dessous tourne sur ton serveur. Clique dans la capture pour sélectionner
-un champ Facebook, puis utilise la zone de saisie. NexMeta ne sauvegarde pas le mot de passe :
-seul le profil Chromium persistant conserve la session créée par Facebook.
+Le navigateur Facebook ci-dessous tourne directement sur ton serveur. Utilise les boutons
+<b>E-mail</b> et <b>Mot de passe</b> pour sélectionner automatiquement le bon champ, saisis
+la valeur dans la zone prévue puis appuie sur <b>Saisir</b>. Ensuite appuie sur
+<b>Connexion</b>. Si Facebook demande un code 2FA ou une confirmation, utilise la capture
+comme un navigateur distant. NexMeta ne journalise pas les identifiants saisis.
 </p>
 <div class="card">
 <img id="screen" alt="Navigateur Facebook distant">
+<div class="quick">
+<button id="email">E-mail</button>
+<button id="password">Mot de passe</button>
+<button id="login">Connexion</button>
+<button id="french">Forcer le français</button>
+</div>
 <div class="controls">
-<input id="text" type="password" placeholder="Texte à saisir dans le champ sélectionné">
+<input id="text" type="password" autocomplete="off" placeholder="Valeur à saisir dans le champ sélectionné">
 <button id="type">Saisir</button>
-<button id="tab">Tab</button>
+<button id="tab">Champ suivant</button>
 <button id="enter">Entrée</button>
 </div>
 </div>
@@ -332,6 +369,11 @@ screen.addEventListener('click',e=>{
   const y=(e.clientY-rect.top)/rect.height*screen.naturalHeight;
   send({action:'click',x,y}).catch(()=>{});
 });
+
+document.getElementById('email').onclick=()=>send({action:'focus',field:'email'}).catch(()=>{});
+document.getElementById('password').onclick=()=>send({action:'focus',field:'password'}).catch(()=>{});
+document.getElementById('login').onclick=()=>send({action:'submit_login'}).catch(()=>{});
+document.getElementById('french').onclick=()=>send({action:'force_french'}).catch(()=>{});
 
 document.getElementById('type').onclick=()=>{
   const el=document.getElementById('text');
@@ -877,7 +919,73 @@ export async function handlePersistentSessionRequest(req, res, pathname) {
       const body = await readJson(req);
       const action = String(body.action || '');
 
-      if (action === 'click') {
+      if (action === 'focus') {
+        const field = String(body.field || '');
+        const selector =
+          field === 'email'
+            ? 'input[name="email"],input[type="email"],input[id*="email"]'
+            : field === 'password'
+              ? 'input[name="pass"],input[type="password"]'
+              : '';
+
+        if (!selector) {
+          return writeJson(res, 400, { error: 'unsupported_field' });
+        }
+
+        const found = await page.evaluate(selector => {
+          const node = document.querySelector(selector);
+          if (!node) return false;
+          node.focus();
+          if (typeof node.select === 'function') node.select();
+          return true;
+        }, selector);
+
+        if (!found) {
+          return writeJson(res, 409, { error: 'field_not_found' });
+        }
+      } else if (action === 'submit_login') {
+        const clicked = await page.evaluate(() => {
+          const candidates = [
+            ...document.querySelectorAll('button, input[type="submit"], div[role="button"]')
+          ];
+          const target = candidates.find(node => {
+            const text = String(
+              node.innerText ||
+              node.value ||
+              node.getAttribute('aria-label') ||
+              ''
+            ).trim().toLowerCase();
+            return [
+              'se connecter',
+              'connexion',
+              'log in',
+              'login',
+              'bejelentkezés'
+            ].some(label => text === label || text.includes(label));
+          });
+          if (!target) return false;
+          target.click();
+          return true;
+        });
+
+        if (!clicked) {
+          await page.keyboard.press('Enter');
+        }
+      } else if (action === 'force_french') {
+        await page.setCookie({
+          name: 'locale',
+          value: 'fr_FR',
+          domain: '.facebook.com',
+          path: '/',
+          secure: true,
+          httpOnly: false,
+          sameSite: 'Lax'
+        }).catch(() => {});
+        await page.goto('https://www.facebook.com/?locale=fr_FR', {
+          waitUntil: 'domcontentloaded',
+          timeout: 60_000
+        }).catch(() => {});
+      } else if (action === 'click') {
         const x = Number(body.x);
         const y = Number(body.y);
 
