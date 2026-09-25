@@ -27,6 +27,14 @@ const handledCommands=new Map();
 const aiAutoWindows=new Map();
 let reconcilingRuntimes=false;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const ANIME_PRIMARY_PUBLISHER_ENABLED=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXANIME_PRIMARY_PUBLISHER_ENABLED||'').trim());
+const ANIME_PRIMARY_PUBLISHER_USERNAME=String(process.env.NEXANIME_PRIMARY_PUBLISHER_USERNAME||'tresor20001').trim().replace(/^@/,'').toLowerCase();
+
+function isPrimaryAnimePublisher(account){
+  if(!ANIME_PRIMARY_PUBLISHER_ENABLED)return false;
+  const username=String(account?.username||'').trim().replace(/^@/,'').toLowerCase();
+  return Boolean(username&&username===ANIME_PRIMARY_PUBLISHER_USERNAME);
+}
 
 function randomLong(){
   return BigInt.asIntN(64,BigInt('0x'+crypto.randomBytes(8).toString('hex')));
@@ -888,6 +896,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
   const runtime={
     client,
     account,
+    animePublisher:isPrimaryAnimePublisher(account),
     startedAt:new Date(),
     lastUpdateAt:null,
     lastCatchUpAt:null,
