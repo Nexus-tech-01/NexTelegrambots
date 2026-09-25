@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { cfg, sessionKey } from './config.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
-const file=path.join(here,'.runtime','nexai-bot-token.enc');
+const defaultFile=path.join(here,'.runtime','nexai-bot-token.enc');
+const configuredFile=String(process.env.NEXAI_BOT_TOKEN_FILE||'').trim();
+const file=configuredFile?path.resolve(configuredFile):defaultFile;
 
 export async function saveBotToken(token){
   const value=String(token||'').trim();
