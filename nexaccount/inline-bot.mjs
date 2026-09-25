@@ -464,7 +464,8 @@ export async function startInlineBot(){
       const mode=await editInline(ctx,model,accountId,{replaceMedia});
       console.log('[NexAI callback] edited',action,'mode='+mode);
       await recordEvent(ctx.from,'callback',{source:'nexai',command:action,chatType:'inline'}).catch(()=>{});
-      await ctx.answerCallbackQuery(callbackText?{text:callbackText}:{});
+      if(callbackText)await ctx.answerCallbackQuery({text:callbackText});
+      else await ctx.answerCallbackQuery();
     }catch(error){
       const reason=String(error?.description||error?.message||error).slice(0,700);
       console.error('[NexAI callback] failed',action,reason);
