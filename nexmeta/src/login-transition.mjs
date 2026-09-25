@@ -32,7 +32,6 @@ const interactiveServices = [
 ];
 
 const targetServices = [
-  'nexmeta-bridge.service',
   'nexmeta-session.service'
 ];
 
