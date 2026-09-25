@@ -207,15 +207,15 @@ export const CORE_COMMANDS=[
   C('avataranime','ANIME',{engine:'anime',description:'Avatar de personnage'}),
   C('banneranime','ANIME',{engine:'anime',description:'Bannière anime'}),
   C('waifu','ANIME',{engine:'anime',description:'Image waifu SFW'}),
-  C('waifuhd','ANIME',{engine:'anime',premium:true,description:'Waifu HD Premium'}),
+  C('waifuhd','ANIME',{engine:'anime',description:'Waifu HD'}),
   C('husbando','ANIME',{engine:'anime',description:'Personnage masculin aléatoire'}),
   C('neko','ANIME',{engine:'anime',description:'Image neko SFW'}),
   C('cosplay','ANIME',{engine:'anime',description:'Image cosplay/anime SFW'}),
-  C('cosplayvip','ANIME',{engine:'anime',premium:true,description:'Cosplay HD Premium'}),
+  C('cosplayvip','ANIME',{engine:'anime',description:'Cosplay HD'}),
   C('amv','ANIME',{engine:'anime',description:'AMV anime aléatoire'}),
-  C('amvhd','ANIME',{engine:'anime',premium:true,description:'AMV HD Premium'}),
+  C('amvhd','ANIME',{engine:'anime',description:'AMV HD'}),
   C('opening','ANIME',{engine:'anime',description:'Opening anime aléatoire'}),
-  C('openingvip','ANIME',{engine:'anime',premium:true,description:'Opening Premium'}),
+  C('openingvip','ANIME',{engine:'anime',description:'Opening spécial'}),
   C('ship','ANIME',{engine:'anime',description:'Compatibilité fictive entre personnages'}),
   C('guessanime','ANIME',{engine:'anime',description:'Jeu devine l’anime'}),
   C('guesscharacter','ANIME',{engine:'anime',description:'Jeu devine le personnage'}),
@@ -338,7 +338,7 @@ export const CATEGORY_LABELS={
   GENERAL:'MAIN',ACCOUNT:'ACCOUNT',AI:'AI',DOWNLOAD:'DOWNLOAD',GROUP:'GROUP',
   PROTECTION:'PROTECTION',TOOLS:'TOOLS',MEDIA:'MEDIA',
   STICKERS:'STICKERS',FUN:'FUN',SEARCH:'SEARCH',ANIME:'ANIME',
-  PREMIUM:'PREMIUM',OWNER:'OWNER'
+  PREMIUM:'TELEGRAM PREMIUM',OWNER:'OWNER'
 };
 export const CATEGORY_ICONS={
   GENERAL:'general',ACCOUNT:'account',AI:'ai',DOWNLOAD:'download',GROUP:'group',
