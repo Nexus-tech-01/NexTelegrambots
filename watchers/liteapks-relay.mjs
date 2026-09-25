@@ -14,6 +14,10 @@ const stateFile=process.env.NEXCANAL__WATCHER_STATE_FILE||'/home/container/.nexc
 const mediaTmpDir=process.env.NEXCANAL__WATCHER_MEDIA_TMP||'/home/container/.nexcontrol/nexcanal-media';
 const watcherIdentityFile=process.env.NEXCANAL__WATCHER_ID_FILE||'/home/container/.nexcontrol/nexcanal-watcher-id.txt';
 const poll=Math.max(1500,Number(process.env.NEXCANAL__WATCHER_POLL_MS||2500));
+// Keep scanning continuously, but pace public publication by logical batch.
+// A descriptor (image/caption) and its matching APK are one batch and may be sent back-to-back.
+const publicationGapMs=Math.max(60*1000,Number(process.env.NEXCANAL__WATCHER_PUBLICATION_GAP_MS||2*60*60*1000));
+const linkedBatchWindowMs=Math.max(60*1000,Number(process.env.NEXCANAL__WATCHER_LINK_WINDOW_MS||30*60*1000));
 const botLimit=49*1024*1024;
 const maxFetch=500;
 
@@ -347,6 +351,39 @@ function ensureSourceState(st,key){
 function queueKey(sourceKey,id){return sourceKey+':'+id;}
 function isQueued(st,sourceKey,id){const k=queueKey(sourceKey,id);return st.queue.some(x=>x.key===k);}
 
+function publicationState(st){
+  st.publication=st.publication||{};
+  st.publication.lastBatchAt=Number(st.publication.lastBatchAt||0);
+  const open=st.publication.openBatch;
+  if(open&&Number(open.expiresAt||0)<=Date.now())st.publication.openBatch=null;
+  return st.publication;
+}
+function nextPublicationAt(st){
+  const ps=publicationState(st);
+  return Number(ps.lastBatchAt||0)+publicationGapMs;
+}
+function isOpenBatchCompanion(st,item,descriptor){
+  const open=publicationState(st).openBatch;
+  if(!open||!descriptor)return false;
+  return open.source===item.source
+    && Number(open.descriptorId)===Number(descriptor.id)
+    && Number(open.expiresAt||0)>Date.now();
+}
+function markBatchStart(st,{source,descriptorId=null}={}){
+  const ps=publicationState(st);
+  const now=Date.now();
+  ps.lastBatchAt=now;
+  ps.openBatch=descriptorId?{
+    source,
+    descriptorId:Number(descriptorId),
+    startedAt:now,
+    expiresAt:now+linkedBatchWindowMs
+  }:null;
+}
+function closeOpenBatch(st){
+  publicationState(st).openBatch=null;
+}
+
 function isTlDecodeError(error){
   return /Constructor ID|TLObject/i.test(String(error?.message||error||''));
 }
@@ -448,14 +485,29 @@ async function processItem(c,publisher,destination,st,sources,item){
   const m=rows?.[0];
   if(!m)return {done:true,reason:'source-message-missing'};
   if(m?.noforwards||source.entity?.noforwards)return {done:true,reason:'protected'};
+
   if(isApk(m)){
     const linked=bestDescriptor(ss,m);
+    const companion=isOpenBatchCompanion(st,item,linked);
+    if(!companion){
+      const nextAt=nextPublicationAt(st);
+      if(Date.now()<nextAt)return {done:false,deferUntil:nextAt,reason:'publication-gap'};
+    }
+
     await postApk(c,publisher,destination,m,source.kind,!!linked);
     if(linked)linked.used=true;
     pruneDescriptors(ss);
+
+    if(companion)closeOpenBatch(st);
+    else markBatchStart(st,{source:item.source});
+
     return {done:true,reason:linked?'apk-linked':'apk-standalone'};
   }
+
   if(isDescriptor(m)){
+    const nextAt=nextPublicationAt(st);
+    if(Date.now()<nextAt)return {done:false,deferUntil:nextAt,reason:'publication-gap'};
+
     await postDescriptor(c,m,source.kind);
     ss.descriptors.push({
       id:Number(m.id),
@@ -465,19 +517,29 @@ async function processItem(c,publisher,destination,st,sources,item){
       used:false
     });
     pruneDescriptors(ss);
-    return {done:true,reason:'descriptor'};
+    markBatchStart(st,{source:item.source,descriptorId:Number(m.id)});
+    return {done:true,reason:'descriptor-batch-start'};
   }
+
   return {done:true,reason:'ignored'};
 }
 
 
 const processing=new Set();
 const processingSources=new Set();
-const workerLimit=Math.max(1,Math.min(4,Number(process.env.NEXCANAL__WATCHER_WORKERS||3)));
+// One publisher worker prevents two unrelated items from claiming the same publication slot.
+const workerLimit=1;
 
 async function handleQueueItem(c,publisher,destination,st,sources,item){
   try{
     const result=await processItem(c,publisher,destination,st,sources,item);
+    if(result?.done===false&&Number(result.deferUntil||0)>Date.now()){
+      item.nextRetryAt=Number(result.deferUntil);
+      item.lastError='';
+      await save(st);
+      log('deferred',item.key,result.reason,'until',new Date(item.nextRetryAt).toISOString());
+      return;
+    }
     st.queue=st.queue.filter(x=>x.key!==item.key);
     await save(st);
     log('processed',item.key,result.reason,'queue',st.queue.length,'active',processing.size);
@@ -496,9 +558,14 @@ async function handleQueueItem(c,publisher,destination,st,sources,item){
 
 function kickWorkers(c,publisher,destination,st,sources){
   if(processing.size>=workerLimit)return;
+  const open=publicationState(st).openBatch;
+  const priority=item=>open
+    && item.source===open.source
+    && Number(item.id)>Number(open.descriptorId)
+    && Number(item.id)-Number(open.descriptorId)<=3 ? 0 : 1;
   const ready=[...st.queue]
     .filter(item=>!processing.has(item.key)&&!processingSources.has(item.source)&&Number(item.nextRetryAt||0)<=Date.now())
-    .sort((a,b)=>Number(a.addedAt||0)-Number(b.addedAt||0)||Number(a.id)-Number(b.id));
+    .sort((a,b)=>priority(a)-priority(b)||Number(a.addedAt||0)-Number(b.addedAt||0)||Number(a.id)-Number(b.id));
   for(const item of ready){
     if(processing.size>=workerLimit)break;
     if(processingSources.has(item.source))continue;
