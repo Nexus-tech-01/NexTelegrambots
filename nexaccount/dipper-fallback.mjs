@@ -138,12 +138,6 @@ async function youtubeAudio(input){
       }]
     );
   }
-  if(!isHttp(raw)){
-    attempts.push(['IzumiQuery',async()=>{
-      const d=await json('https://izumiiiiiiii.dpdns.org/downloader/youtube-play?query='+encodeURIComponent(raw),{},60000);
-      return d?.result?.download?{url:d.result.download,title:d.result.title||raw}:null;
-    }]);
-  }
   const result=await cascade('audio YouTube',attempts);
   return {...result,target:target||{title:raw,url:''}};
 }
