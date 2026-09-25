@@ -9,7 +9,8 @@ function loadNexMetaEnvFile() {
       ? path.join(process.env.NEXUS_ROOT, '.env')
       : '',
     path.resolve(process.cwd(), '.env'),
-    '/home/container/.env'
+    '/home/container/.env',
+    '/etc/nex/secrets/legacy-root.env'
   ].filter(Boolean);
 
   const file = candidates.find(candidate => {
@@ -37,10 +38,22 @@ function loadNexMetaEnvFile() {
     if (index < 1) continue;
 
     const key = line.slice(0, index).trim();
-    if (
-      !key.startsWith('NEXMETA_') &&
-      key !== 'NEXUS_PUBLIC_BASE_URL'
-    ) {
+    const allowedPrefixes = [
+      'NEXMETA_',
+      'NEXUS_',
+      'NEXDOWNLOADER_',
+      'NEXGAME_',
+      'NEXSTICK_',
+      'NEXGROUP_',
+      'NEXCANAL_',
+      'NEXWHISPER_',
+      'NEXAI_',
+      'STACY_',
+      'MONGODB_',
+      'REDIS_'
+    ];
+
+    if (!allowedPrefixes.some(prefix => key.startsWith(prefix))) {
       continue;
     }
 
