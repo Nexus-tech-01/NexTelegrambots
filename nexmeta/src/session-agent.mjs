@@ -170,6 +170,14 @@ async function launchBrowser() {
 
     const executablePath = process.env.NEXMETA_CHROMIUM_PATH || await chromium.executablePath();
 
+    const debugPort = Math.max(
+      1024,
+      Math.min(
+        65535,
+        Number(process.env.NEXMETA_BROWSER_DEBUG_PORT || 9223)
+      )
+    );
+
     browser = await puppeteer.launch({
       executablePath,
       headless: true,
@@ -180,6 +188,8 @@ async function launchBrowser() {
         '--disable-background-timer-throttling',
         '--disable-renderer-backgrounding',
         '--disable-features=CalculateNativeWinOcclusion',
+        '--remote-debugging-address=127.0.0.1',
+        `--remote-debugging-port=${debugPort}`,
         '--lang=fr-FR',
         '--window-size=1440,1400'
       ],
