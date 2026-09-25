@@ -984,7 +984,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     await sendText(client,peer,a+'  ×  '+b+'  →  '+a+b);return true;
   }
   if(name==='device'){
-    await sendText(client,peer,'NexAccount · '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nTelegram ID : '+account.telegramUserId+'\nSession : active\nPremium : '+(account.premium?'oui':'non'));return true;
+    await sendText(client,peer,'NexAccount · '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nTelegram ID : '+account.telegramUserId+'\nSession : active\nTelegram Premium : '+(account.premium?'oui':'non'));return true;
   }
 
 
