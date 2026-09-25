@@ -166,6 +166,161 @@ async function connectBrowser() {
   });
 }
 
+async function dismissBusinessSuiteOverlays(page) {
+  for (let round = 0; round < 10; round += 1) {
+    const clicked = await page.evaluate(() => {
+      const cleanText = value =>
+        String(value || '').replace(/\s+/g, ' ').trim();
+
+      const visible = element => {
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+
+        return (
+          rect.width > 0 &&
+          rect.height > 0 &&
+          style.display !== 'none' &&
+          style.visibility !== 'hidden'
+        );
+      };
+
+      const pattern =
+        /^(Terminé|Fermer|OK|Done|Close|Compris|Got it)$/i;
+
+      const item = [
+        ...document.querySelectorAll(
+          'button,[role="button"]'
+        )
+      ]
+        .filter(visible)
+        .find(element =>
+          pattern.test(
+            cleanText(
+              element.innerText ||
+              element.getAttribute('aria-label') ||
+              ''
+            )
+          )
+        );
+
+      if (!item) return false;
+      item.click();
+      return true;
+    }).catch(() => false);
+
+    if (!clicked && round > 2) break;
+    await sleep(clicked ? 350 : 120);
+  }
+}
+
+async function openBusinessComposer(browser, pageId) {
+  const existingPages = await browser.pages();
+
+  const existing = existingPages.find(candidate => {
+    const url = String(candidate.url() || '');
+    return (
+      url.includes('business.facebook.com/latest/composer/') &&
+      url.includes('asset_id=' + encodeURIComponent(pageId))
+    );
+  });
+
+  if (existing) {
+    return {
+      page: existing,
+      launcher: null,
+      existing: true
+    };
+  }
+
+  const launcher = await browser.newPage();
+
+  await launcher.goto(contentPageUrl(pageId), {
+    waitUntil: 'domcontentloaded',
+    timeout: 45000
+  });
+
+  await dismissBusinessSuiteOverlays(launcher);
+
+  const clicked = await launcher.evaluate(() => {
+    const cleanText = value =>
+      String(value || '').replace(/\s+/g, ' ').trim();
+
+    const visible = element => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.display !== 'none' &&
+        style.visibility !== 'hidden'
+      );
+    };
+
+    const item = [
+      ...document.querySelectorAll('[role="button"]')
+    ]
+      .filter(visible)
+      .find(element =>
+        /^(Créer une publication|Create post)$/i.test(
+          cleanText(
+            element.innerText ||
+            element.getAttribute('aria-label') ||
+            ''
+          )
+        )
+      );
+
+    if (!item) return false;
+    item.click();
+    return true;
+  });
+
+  if (!clicked) {
+    await launcher.close().catch(() => {});
+    throw new Error('facebook_create_post_button_not_found');
+  }
+
+  const started = Date.now();
+
+  while (Date.now() - started < 20000) {
+    const pages = await browser.pages();
+
+    const composer = pages.find(candidate => {
+      const url = String(candidate.url() || '');
+      return (
+        url.includes('business.facebook.com/latest/composer/') &&
+        url.includes('asset_id=' + encodeURIComponent(pageId))
+      );
+    });
+
+    if (composer) {
+      return {
+        page: composer,
+        launcher,
+        existing: existingPages.includes(composer)
+      };
+    }
+
+    if (
+      String(launcher.url() || '').includes(
+        'business.facebook.com/latest/composer/'
+      )
+    ) {
+      return {
+        page: launcher,
+        launcher: null,
+        existing: false
+      };
+    }
+
+    await sleep(350);
+  }
+
+  await launcher.close().catch(() => {});
+  throw new Error('facebook_composer_open_timeout');
+}
+
 async function facebookLoggedIn(page) {
   const cookies = await page.cookies('https://www.facebook.com/');
 
@@ -268,19 +423,23 @@ export async function probeBrowserPagePublisher({
   });
 
   const browser = await connectBrowser();
-  const page = await browser.newPage();
+  let page = null;
+  let launcher = null;
 
   try {
-    await page.goto(composerUrl(policy.pageId), {
-      waitUntil: 'domcontentloaded',
-      timeout: 60000
-    });
+    const opened = await openBusinessComposer(
+      browser,
+      policy.pageId
+    );
+
+    page = opened.page;
+    launcher = opened.launcher;
 
     if (!await facebookLoggedIn(page)) {
       throw new Error('facebook_session_not_authenticated');
     }
 
-    const composer = await waitForComposer(page, 25000);
+    const composer = await waitForComposer(page, 15000);
     const publishButton = await buttonByText(
       page,
       [/^Publier$/i, /^Publish$/i],
@@ -299,7 +458,10 @@ export async function probeBrowserPagePublisher({
       transport: 'business_suite_browser'
     };
   } finally {
-    await page.close().catch(() => {});
+    if (page) await page.close().catch(() => {});
+    if (launcher && launcher !== page) {
+      await launcher.close().catch(() => {});
+    }
     await browser.disconnect().catch(() => {});
   }
 }
@@ -328,13 +490,17 @@ export async function publishBrowserPagePost({
   });
 
   const browser = await connectBrowser();
-  const page = await browser.newPage();
+  let page = null;
+  let launcher = null;
 
   try {
-    await page.goto(composerUrl(policy.pageId), {
-      waitUntil: 'domcontentloaded',
-      timeout: 60000
-    });
+    const opened = await openBusinessComposer(
+      browser,
+      policy.pageId
+    );
+
+    page = opened.page;
+    launcher = opened.launcher;
 
     if (!await facebookLoggedIn(page)) {
       throw new Error('facebook_session_not_authenticated');
@@ -425,7 +591,10 @@ export async function publishBrowserPagePost({
       textLength: publication.message.length
     };
   } finally {
-    await page.close().catch(() => {});
+    if (page) await page.close().catch(() => {});
+    if (launcher && launcher !== page) {
+      await launcher.close().catch(() => {});
+    }
     await browser.disconnect().catch(() => {});
   }
 }
