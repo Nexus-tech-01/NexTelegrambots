@@ -58,8 +58,8 @@ async function runStartupSmoke(){
   const basic=['.ping','.alive','.account','.settings','.style','.calc 2+2'];
   const full=[...basic,'.translate en bonjour','.ai Réponds seulement par OK.','.animeinfo Naruto'];
   const download=[
-    '.song https://www.youtube.com/watch?v=BaW_jenozKc',
-    '.video https://www.youtube.com/watch?v=BaW_jenozKc'
+    '.song https://www.youtube.com/watch?v=aqz-KE-bpKQ',
+    '.video https://www.youtube.com/watch?v=aqz-KE-bpKQ'
   ];
   const commands=mode==='full'?full:mode==='download'?download:basic;
   const results=[];
