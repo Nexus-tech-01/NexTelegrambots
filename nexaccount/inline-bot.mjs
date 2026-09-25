@@ -8,7 +8,7 @@ import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { observeUser, recordEvent } from './analytics.mjs';
 import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
 import { attachConnectedClient } from './runtime.mjs';
-import { toSmallCaps } from './styles.mjs';
+import { listStyles, toSmallCaps } from './styles.mjs';
 
 const commands=commandMap();
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
@@ -286,7 +286,10 @@ async function sendOwner(ctx,kind,args=[]){
 }
 
 function telegramCommandMenu(){
-  const rows=[
+  // Only commands with real Bot API handlers belong in Telegram's native slash
+  // menu. NexAccount commands are executed by the connected user session with
+  // its configured prefix (normally ".") and must never be advertised here.
+  return [
     {command:'start',description:'Démarrer NexAI'},
     {command:'menu',description:'Ouvrir le menu principal'},
     {command:'help',description:'Afficher l’aide'},
@@ -294,19 +297,6 @@ function telegramCommandMenu(){
     {command:'language',description:'Changer la langue'},
     {command:'creator',description:'Afficher le créateur'}
   ];
-  const seen=new Set(rows.map(x=>x.command));
-  for(const cmd of commands.values()){
-    const name=String(cmd?.name||'').trim().toLowerCase();
-    if(!/^[a-z0-9_]{1,32}$/.test(name)||seen.has(name))continue;
-    const description=String(cmd?.description||cmd?.category||'Commande NexAI')
-      .replace(/[\r\n]+/g,' ')
-      .trim()
-      .slice(0,256)||'Commande NexAI';
-    rows.push({command:name,description});
-    seen.add(name);
-    if(rows.length>=100)break;
-  }
-  return rows;
 }
 
 async function syncTelegramCommandMenu(bot){
@@ -443,15 +433,38 @@ export async function startInlineBot(){
     const account=await accountRecord(accountId);
     if(!account||account.enabled!==true){await ctx.answerCallbackQuery({text:'Compte déconnecté.'});return}
     let model;
-    if(action==='menu:home')model=await modelFor(account,'menu');
-    else if(action.startsWith('cat:'))model=await modelFor(account,action);
-    else {await ctx.answerCallbackQuery();return}
+    let callbackText='';
+    let replaceMedia=false;
+    if(action==='menu:home'){
+      model=await modelFor(account,'menu');
+      replaceMedia=true;
+    }else if(action==='menu:styles'){
+      model=await modelFor(account,'styles');
+      replaceMedia=true;
+    }else if(action.startsWith('style:set:')){
+      const styleId=Number(action.slice('style:set:'.length));
+      const styles=await listStyles();
+      const style=styles.find(s=>Number(s.id)===styleId&&Number(s.id)>0);
+      if(!style){
+        await ctx.answerCallbackQuery({text:'Style invalide.',show_alert:false});
+        return;
+      }
+      await patchSettings(accountId,{style:styleId});
+      model=await modelFor(account,'styles');
+      callbackText='Style '+styleId+' · '+String(style.name||'NexAI')+' activé';
+      replaceMedia=true;
+    }else if(action.startsWith('cat:')){
+      model=await modelFor(account,action);
+    }else{
+      await ctx.answerCallbackQuery();
+      return;
+    }
 
     try{
-      const mode=await editInline(ctx,model,accountId,{replaceMedia:action==='menu:home'});
+      const mode=await editInline(ctx,model,accountId,{replaceMedia});
       console.log('[NexAI callback] edited',action,'mode='+mode);
       await recordEvent(ctx.from,'callback',{source:'nexai',command:action,chatType:'inline'}).catch(()=>{});
-      await ctx.answerCallbackQuery();
+      await ctx.answerCallbackQuery(callbackText?{text:callbackText}:{});
     }catch(error){
       const reason=String(error?.description||error?.message||error).slice(0,700);
       console.error('[NexAI callback] failed',action,reason);
@@ -473,4 +486,4 @@ export async function stopInlineBot(){
 }
 
 
-export const __test={stampMarkup,portableMarkup,inlineResult};
+export const __test={stampMarkup,portableMarkup,inlineResult,telegramCommandMenu};
