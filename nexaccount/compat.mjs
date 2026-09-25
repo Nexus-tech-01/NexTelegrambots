@@ -1098,9 +1098,15 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       const buffer=await client.downloadMedia(reply);
       if(!buffer?.length)throw new Error('image vide');
       if(buffer.length>10*1024*1024)throw new Error('image > 10 Mo');
-      const url=await uploadCatbox(Buffer.from(buffer),'nexai-menu-'+Date.now()+'.jpg');
-      await patchSettings(account.telegramUserId,{menuImageUrl:url});
-      await sendText(client,peer,'Illustration du menu NexAi mise à jour.');
+      const uploaded=await uploadCatbox(Buffer.from(buffer),'nexai-menu-'+Date.now()+'.jpg');
+      // InlineQueryResultPhoto requires JPEG. Normalize the user's artwork to a
+      // bounded JPEG URL, then bind it to the currently active style so a later
+      // style switch cannot keep showing the old illustration.
+      const url='https://images.weserv.nl/?url='+encodeURIComponent(uploaded)+'&w=1280&output=jpg&q=90';
+      const settings=await settingsFor(account.telegramUserId);
+      const style=Math.max(1,Number(settings.style)||1);
+      await patchSettings(account.telegramUserId,{menuImageUrl:url,menuImageStyle:style});
+      await sendText(client,peer,'Illustration du menu NexAi mise à jour pour le style '+style+'.');
     }catch(e){await sendText(client,peer,'Image du menu impossible : '+String(e.message||e))}
     return true;
   }
