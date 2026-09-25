@@ -394,14 +394,14 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(name==='dashboard'||name==='settings'||name==='stats'||name==='premium'){
     const s=await settingsFor(account.telegramUserId);
     if(name==='premium'){
-      await sendText(client,peer,'NexAi Premium · 250 Stars/mois\nStatut : '+(account.premium?'Premium Telegram détecté':'Free')+'\nUn seul Premium NexAi pour les fonctions avancées intégrées.');
+      await sendText(client,peer,'Telegram Premium · compte connecté\nStatut : '+(account.premium?'ACTIF':'NON ACTIF')+'\nLes fonctions de cette catégorie dépendent de Telegram Premium. L’abonnement payant NexAi n’est pas encore activé dans cette phase.');
       return true;
     }
     if(name==='dashboard'||name==='settings'){
       await sendText(client,peer,'NexAi · '+toSmallCaps(name)+'\nCompte : '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nPréfixe : '+(s.prefix||'.')+'\nMode : '+(s.accessMode==='public'?'PUBLIC':'PRIVÉ')+'\nLangue : '+(s.language||'fr')+'\nStyle : '+(s.style||1)+'\nAuto-join : '+(s.autoJoin?.enabled?'ON':'OFF')+'\nAuto-react : '+(s.autoReact?.enabled?'ON':'OFF'));
       return true;
     }
-    await sendText(client,peer,'NexAi · stats\nCompte : '+(account.username?'@'+account.username:account.telegramUserId)+'\nTelegram ID : '+account.telegramUserId+'\nPremium : '+(account.premium?'oui':'non'));
+    await sendText(client,peer,'NexAi · stats\nCompte : '+(account.username?'@'+account.username:account.telegramUserId)+'\nTelegram ID : '+account.telegramUserId+'\nTelegram Premium : '+(account.premium?'oui':'non'));
     return true;
   }
   if(name==='stylelist'){await sendInline(client,peer,'styles');return true}
