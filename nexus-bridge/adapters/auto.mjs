@@ -1,5 +1,6 @@
 import { eventText, languageOf } from './_shared.mjs';
 import * as nexgame from './nexgame.mjs';
+import * as nexai from './nexai.mjs';
 
 export const adapterManifest = Object.freeze({
   version:'1.1.0',
@@ -26,10 +27,6 @@ export async function handle(envelope) {
       ]
     };
   }
-  return {
-    text: lang === 'fr'
-      ? 'Commande non reconnue. Essaie /download, /game, /sticker, /whisper, /group, /channel ou /ai.'
-      : 'Unknown command. Try /download, /game, /sticker, /whisper, /group, /channel or /ai.'
-  };
+  return nexai.handle(envelope);
 }
 export default handle;
