@@ -10,18 +10,18 @@ const FALLBACK_EMOJI={
 };
 
 export function expandableEntities(text,commandSpans=[]){
-  const entities=[{type:'expandable_blockquote',offset:0,length:utf16len(text)}];
-  for(const span of commandSpans){
-    entities.push({type:'bot_command',offset:utf16len(text.slice(0,span.start)),length:utf16len(span.text)});
-  }
-  return entities;
+  // NexAccount commands use the user's configured prefix (normally ".") and
+  // are not Bot API slash commands. Marking them as bot_command made Telegram
+  // route clicks to @NexAi01_bot instead of the connected account. Keep the
+  // themed expandable quote, but never advertise a false clickable slash route.
+  return [{type:'expandable_blockquote',offset:0,length:utf16len(text)}];
 }
 
-function commandText(lines,style){
+function commandText(lines,style,prefix='.'){
   let text='',spans=[];
   const marker='98765432101234567890';
   for(const line of lines){
-    const command='/'+line.name;
+    const command=String(prefix||'.')+line.name;
     let before=style.id===1?'┃➻ ':'• ',after='\n';
     if(style.exactCatCmd){
       try{
@@ -99,7 +99,7 @@ export async function menuModel({account,settings,commands,view='home',category=
         c.premium&&!account.premium?'  · 👑 '+toSmallCaps('Premium'):''
       ].join('')
     }));
-    const ct=commandText(visibleCommands,style);
+    const ct=commandText(visibleCommands,style,settings.prefix||'.');
     const shift=body.length;
     body+=ct.text;
     spans.push(...ct.spans.map(x=>({...x,start:x.start+shift})));
@@ -131,6 +131,7 @@ export async function menuModel({account,settings,commands,view='home',category=
         return button((id?'':(FALLBACK_EMOJI[cat]||'')+' ')+label,'cat:'+cat,'primary',CATEGORY_ICONS[cat]);
       }));
     }
+    buttons.push([button('🎨 '+toSmallCaps(localized(settings,'Styles','Styles')),'menu:styles','primary','style')]);
     const links=[];
     if(cfg.nextechUrl)links.push(urlButton('ɴᴇxᴛᴇᴄʜ',cfg.nextechUrl,'success','nextech'));
     if(cfg.nexnewsUrl)links.push(urlButton('ɴᴇxɴᴇᴡѕ',cfg.nexnewsUrl,'success','news'));
@@ -159,20 +160,31 @@ export async function menuModel({account,settings,commands,view='home',category=
 
 export async function stylesModel({account,settings}){
   const styles=(await listStyles()).filter(s=>s.id>0);
+  const prefix=String(settings.prefix||'.');
   let text='🔮 ɴᴇxᴀɪ • ᴅɪᴘᴘᴇʀ • ѕᴛʏʟᴇѕ\n\n',spans=[];
   for(const s of styles){
-    const command='/style'+s.id;
+    const command=prefix+'style'+s.id;
     const start=text.length;
     text+=command;
     spans.push({start,text:command});
     text+=' • '+toSmallCaps(s.name)+(Number(settings.style)===s.id?' • '+toSmallCaps(localized(settings,'Actif','Active')):'')+'\n';
   }
-  text+='\n'+toSmallCaps(localized(settings,'Utilise aussi .style <numéro>.','You can also use .style <number>.'))+
+  text+='\n'+toSmallCaps(localized(settings,'Choisis un style ci-dessous ou utilise '+prefix+'style <numéro>.','Choose a style below or use '+prefix+'style <number>.'))+
     '\n♛ ɴᴇxᴀɪ • ᴅɪᴘᴘᴇʀ × ɴᴇxᴛᴇᴄʜ ♛';
+
+  const keyboard=[];
+  for(let i=0;i<styles.length;i+=2){
+    keyboard.push(styles.slice(i,i+2).map(s=>{
+      const active=Number(settings.style)===s.id;
+      return button((active?'✓ ':'')+String(s.id)+' · '+toSmallCaps(s.name),'style:set:'+s.id,active?'success':'primary','style');
+    }));
+  }
+  keyboard.push([button('↩ '+toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back')]);
+
   return {
     text,
     entities:expandableEntities(text,spans),
-    reply_markup:{inline_keyboard:[[button('↩ '+toSmallCaps('Menu'),'menu:home','primary','back')]]},
+    reply_markup:{inline_keyboard:keyboard},
     photoUrl:await menuArtwork(settings,settings.style||1)
   };
 }
