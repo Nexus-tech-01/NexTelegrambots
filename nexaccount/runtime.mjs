@@ -14,8 +14,7 @@ import { menuModel } from './menu.mjs';
 import { canHandleAnimeCommand, handleAnimeCommand } from './anime-engine.mjs';
 import { canHandleDownloadCommand, handleDownloadCommand } from './dipper-fallback.mjs';
 import { aiProviderStatus, canHandleAiCommand, generateAiReply, handleAiCommand } from './ai-engine.mjs';
-import { canHandleStickerCommand, handleStickerCommand } from './sticker-engine.mjs';
-import { loadBotToken } from './secrets.mjs';
+import { canHandleStickerCommand, handleStickerCommand, stickerEngineDiagnostic } from './sticker-engine.mjs';
 import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
 import { animeBeginRebuild, animeDiscoverNow, animeIngestStatus, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
@@ -1165,7 +1164,9 @@ export async function runtimeMenuProbe(telegramUserId,peer='me'){
 export async function engineStatus(){
   const runtime=[...runtimes.values()][0]||null;
   const providers=aiProviderStatus();
-  const stickerToken=await loadBotToken();
+  let stickerProbe={ok:false,botReachable:false,localConversion:false,error:''};
+  try{stickerProbe=await stickerEngineDiagnostic()}
+  catch(error){stickerProbe.error=String(error?.message||error).slice(0,300)}
   return {
     ok:true,
     standalone:true,
@@ -1174,7 +1175,13 @@ export async function engineStatus(){
       {service:'ai',type:'local',configured:providers.length>0,reachable:providers.length>0,providers},
       {service:'download',type:'local',configured:true,reachable:true},
       {service:'group',type:'local',configured:true,reachable:true},
-      {service:'sticker',type:'local',configured:Boolean(stickerToken),reachable:Boolean(stickerToken)},
+      {
+        service:'sticker',
+        type:'local',
+        configured:stickerProbe.ok===true,
+        reachable:stickerProbe.botReachable===true&&stickerProbe.localConversion===true,
+        probe:stickerProbe
+      },
       {service:'game',type:'local',configured:true,reachable:true},
       {service:'anime',type:'local',configured:true,reachable:true},
       {service:'audio',type:'local',configured:true,reachable:true}
