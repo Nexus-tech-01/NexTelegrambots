@@ -20,8 +20,8 @@ import {
   saveMessage
 } from './store.mjs';
 
-const enabled = /^(?:1|true|yes|on)$/i.test(
-  String(process.env.NEXMETA_PERSONAL_WATCHER || '')
+const enabled = !/^(?:0|false|no|off)$/i.test(
+  String(process.env.NEXMETA_PERSONAL_WATCHER ?? '1')
 );
 
 const pollMs = Math.max(
