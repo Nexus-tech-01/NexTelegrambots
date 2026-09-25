@@ -96,6 +96,7 @@ if(!secondaryAnimeSource.includes("reason:'disabled'"))errors.push('secondary-an
 if(secondaryAnimeSource.includes("||'/home/container/.nexcontrol/nexcanal-reader-session.txt'"))errors.push('legacy-secondary-session-fallback-still-present');
 if(!cliSource.includes("case 'command-test':"))errors.push('live-command-diagnostic-cli-missing');
 if(!runtime.includes("out:true"))errors.push('diagnostic-command-not-self-authored');
+if(!runtime.includes("const {account}=runtime;"))errors.push('diagnostic-command-account-not-bound');
 if(!runtime.includes('Commande inconnue'))errors.push('unknown-command-response-missing');
 if(!runtime.includes('presenceTimer'))errors.push('persistent-presence-heartbeat-missing');
 if(!runtime.includes('messageAuthorIsBot(client,message,event?.sender)'))errors.push('auto-moderation-bot-exemption-missing');
