@@ -1086,6 +1086,31 @@ export async function runtimeCommandTest(telegramUserId,text='.menu',peer='me'){
   return {ok:true,telegramUserId:id,peer:String(peer||'me'),command:parsed.name};
 }
 
+export async function runtimeMenuProbe(telegramUserId,peer='me'){
+  const id=String(telegramUserId||'');
+  const runtime=runtimes.get(id);
+  if(!runtime)throw new Error('runtime_not_active');
+  if(!cfg.botUsername)throw new Error('nexai_bot_username_missing');
+  const inputPeer=await runtime.client.getInputEntity(peer||'me');
+  const inlineBot=await runtime.client.getInputEntity('@'+cfg.botUsername);
+  const results=await runtime.client.invoke(new Api.messages.GetInlineBotResults({
+    bot:inlineBot,
+    peer:inputPeer,
+    query:'menu',
+    offset:''
+  }));
+  const result=results.results?.[0];
+  if(!result)throw new Error('inline_menu_no_result');
+  return {
+    ok:true,
+    telegramUserId:id,
+    botUsername:'@'+cfg.botUsername,
+    resultType:String(result?.className||result?.constructor?.name||'inline-result'),
+    resultId:String(result?.id||''),
+    hasSendMessage:Boolean(result?.sendMessage)
+  };
+}
+
 export async function engineStatus(){
   const runtime=[...runtimes.values()][0]||null;
   const providers=aiProviderStatus();
