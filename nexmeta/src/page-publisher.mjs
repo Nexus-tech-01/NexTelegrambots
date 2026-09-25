@@ -214,111 +214,147 @@ async function dismissBusinessSuiteOverlays(page) {
 }
 
 async function openBusinessComposer(browser, pageId) {
-  const existingPages = await browser.pages();
-
-  const existing = existingPages.find(candidate => {
-    const url = String(candidate.url() || '');
-    return (
-      url.includes('business.facebook.com/latest/composer/') &&
-      url.includes('asset_id=' + encodeURIComponent(pageId))
-    );
-  });
-
-  if (existing) {
-    return {
-      page: existing,
-      launcher: null,
-      existing: true
-    };
-  }
-
+  const before = await browser.pages();
   const launcher = await browser.newPage();
 
-  await launcher.goto(contentPageUrl(pageId), {
-    waitUntil: 'domcontentloaded',
-    timeout: 45000
-  });
-
-  await dismissBusinessSuiteOverlays(launcher);
-
-  const clicked = await launcher.evaluate(() => {
-    const cleanText = value =>
-      String(value || '').replace(/\s+/g, ' ').trim();
-
-    const visible = element => {
-      const rect = element.getBoundingClientRect();
-      const style = getComputedStyle(element);
-
-      return (
-        rect.width > 0 &&
-        rect.height > 0 &&
-        style.display !== 'none' &&
-        style.visibility !== 'hidden'
-      );
-    };
-
-    const item = [
-      ...document.querySelectorAll('[role="button"]')
-    ]
-      .filter(visible)
-      .find(element =>
-        /^(Créer une publication|Create post)$/i.test(
-          cleanText(
-            element.innerText ||
-            element.getAttribute('aria-label') ||
-            ''
-          )
-        )
-      );
-
-    if (!item) return false;
-    item.click();
-    return true;
-  });
-
-  if (!clicked) {
-    await launcher.close().catch(() => {});
-    throw new Error('facebook_create_post_button_not_found');
-  }
-
-  const started = Date.now();
-
-  while (Date.now() - started < 20000) {
-    const pages = await browser.pages();
-
-    const composer = pages.find(candidate => {
-      const url = String(candidate.url() || '');
-      return (
-        url.includes('business.facebook.com/latest/composer/') &&
-        url.includes('asset_id=' + encodeURIComponent(pageId))
-      );
+  try {
+    await launcher.goto(contentPageUrl(pageId), {
+      waitUntil: 'domcontentloaded',
+      timeout: 35000
     });
 
-    if (composer) {
-      return {
-        page: composer,
-        launcher,
-        existing: existingPages.includes(composer)
+    await sleep(1200);
+    await dismissBusinessSuiteOverlays(launcher);
+
+    const buttonBox = await launcher.evaluate(() => {
+      const cleanText = value =>
+        String(value || '').replace(/\s+/g, ' ').trim();
+
+      const visible = element => {
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+
+        return (
+          rect.width > 0 &&
+          rect.height > 0 &&
+          style.display !== 'none' &&
+          style.visibility !== 'hidden'
+        );
       };
+
+      const item = [
+        ...document.querySelectorAll('[role="button"]')
+      ]
+        .filter(visible)
+        .find(element =>
+          /^(Créer une publication|Create post)$/i.test(
+            cleanText(
+              element.innerText ||
+              element.getAttribute('aria-label') ||
+              ''
+            )
+          )
+        );
+
+      if (!item) return null;
+
+      const rect = item.getBoundingClientRect();
+
+      return {
+        x: rect.x + rect.width / 2,
+        y: rect.y + rect.height / 2
+      };
+    });
+
+    if (!buttonBox) {
+      throw new Error('facebook_create_post_button_not_found');
     }
 
-    if (
-      String(launcher.url() || '').includes(
-        'business.facebook.com/latest/composer/'
-      )
-    ) {
-      return {
-        page: launcher,
-        launcher: null,
-        existing: false
-      };
+    await launcher.mouse.click(buttonBox.x, buttonBox.y);
+
+    const started = Date.now();
+
+    while (Date.now() - started < 12000) {
+      await sleep(250);
+
+      const pages = await browser.pages();
+
+      for (const candidate of pages) {
+        const url = String(candidate.url() || '');
+
+        if (
+          !url.includes(
+            'business.facebook.com/latest/composer/'
+          ) ||
+          !url.includes(
+            'asset_id=' + encodeURIComponent(pageId)
+          )
+        ) {
+          continue;
+        }
+
+        const ready = await candidate.evaluate(() => {
+          const visible = element => {
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+
+            return (
+              rect.width > 0 &&
+              rect.height > 0 &&
+              style.display !== 'none' &&
+              style.visibility !== 'hidden'
+            );
+          };
+
+          const editor = [
+            ...document.querySelectorAll(
+              '[role="combobox"],[contenteditable="true"]'
+            )
+          ]
+            .filter(visible)
+            .find(element =>
+              /ajouter du texte|add text/i.test(
+                element.getAttribute('aria-label') || ''
+              )
+            );
+
+          const publish = [
+            ...document.querySelectorAll(
+              'button,[role="button"]'
+            )
+          ]
+            .filter(visible)
+            .find(element =>
+              /^(Publier|Publish)$/i.test(
+                String(
+                  element.innerText ||
+                  element.getAttribute('aria-label') ||
+                  ''
+                )
+                  .replace(/\s+/g, ' ')
+                  .trim()
+              )
+            );
+
+          return Boolean(editor && publish);
+        }).catch(() => false);
+
+        if (ready) {
+          return {
+            page: candidate,
+            launcher:
+              candidate === launcher ? null : launcher,
+            existing: before.includes(candidate)
+          };
+        }
+      }
     }
 
-    await sleep(350);
+    throw new Error('facebook_composer_open_timeout');
+  } catch (error) {
+    await launcher.close().catch(() => {});
+    throw error;
   }
-
-  await launcher.close().catch(() => {});
-  throw new Error('facebook_composer_open_timeout');
 }
 
 async function facebookLoggedIn(page) {
