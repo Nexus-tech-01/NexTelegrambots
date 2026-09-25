@@ -271,7 +271,13 @@ function makeZip(files){
 export const STICKER_ENGINE_COMMANDS=new Set(['sticker','stickerinfo','clonepack','createpack','mypacks','exportwhatsapp']);
 export function canHandleStickerCommand(name){return STICKER_ENGINE_COMMANDS.has(String(name||'').toLowerCase())}
 
-export async function stickerEngineDiagnostic(){
+let stickerDiagnosticCache={at:0,value:null};
+
+export async function stickerEngineDiagnostic({force=false}={}){
+  const now=Date.now();
+  if(!force&&stickerDiagnosticCache.value&&now-stickerDiagnosticCache.at<60000){
+    return stickerDiagnosticCache.value;
+  }
   const png=Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQMcAAAAASUVORK5CYII=',
     'base64'
@@ -281,7 +287,7 @@ export async function stickerEngineDiagnostic(){
     throw new Error('conversion sticker locale invalide');
   }
   const me=await botApi('getMe',{},null,12000);
-  return {
+  const value={
     ok:true,
     localConversion:true,
     format:prepared.format,
@@ -289,6 +295,8 @@ export async function stickerEngineDiagnostic(){
     botReachable:Boolean(me?.id),
     botUsername:me?.username||''
   };
+  stickerDiagnosticCache={at:now,value};
+  return value;
 }
 
 export async function handleStickerCommand({runtime,event,name,args=[]}){
