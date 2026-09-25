@@ -746,7 +746,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     await sendText(client,peer,'NexAi · sessions plateforme : '+accounts.length+'\n\n'+(lines.join('\n')||'Aucune session.'));return true;
   }
   if(name==='pair'){
-    await sendText(client,peer,'Pour ajouter un compte : ouvre @NexAi01_bot et utilise /pair +numéro, ou NexAi Connect sur le site.');return true;
+    await sendText(client,peer,'Pour ajouter ou reconnecter un compte : ouvre @NexAi01_bot et utilise /pair. Le numéro, le code Telegram et la 2FA se saisissent uniquement sur la page sécurisée, jamais dans un chat Telegram.');return true;
   }
   if(name==='botstatus'){
     const s=await settingsFor(account.telegramUserId);
