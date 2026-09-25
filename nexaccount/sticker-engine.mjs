@@ -279,7 +279,7 @@ export async function stickerEngineDiagnostic({force=false}={}){
     return stickerDiagnosticCache.value;
   }
   const png=Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQMcAAAAASUVORK5CYII=',
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=',
     'base64'
   );
   const prepared=await prepareSticker({buffer:png,mime:'image/png'});
