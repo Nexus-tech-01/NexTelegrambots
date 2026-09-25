@@ -181,11 +181,11 @@ async function launchBrowser() {
         '--disable-renderer-backgrounding',
         '--disable-features=CalculateNativeWinOcclusion',
         '--lang=fr-FR',
-        '--window-size=1280,900'
+        '--window-size=1440,1400'
       ],
-      defaultViewport: chromium.defaultViewport || {
-        width: 1280,
-        height: 900,
+      defaultViewport: {
+        width: 1440,
+        height: 1400,
         deviceScaleFactor: 1
       }
     });
@@ -298,14 +298,19 @@ main{max-width:1100px;margin:auto}
 h1{margin:6px 0 8px;font-size:28px}
 p{color:#aaa;line-height:1.5}
 .card{background:#121216;border:1px solid #292a31;border-radius:18px;padding:12px}
-#screen{display:block;width:100%;border-radius:12px;background:#222;touch-action:none}
+#viewport{width:100%;height:72vh;overflow:auto;border-radius:14px;border:1px solid #2d3340;background:#050608;-webkit-overflow-scrolling:touch}
+#stage{min-width:100%;min-height:100%;display:flex;align-items:flex-start;justify-content:flex-start}
+#screen{display:block;max-width:none;height:auto;border-radius:12px;background:#222;user-select:none;-webkit-user-drag:none;touch-action:pan-x pan-y}
 .controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
 .quick{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0}
+.viewerTools{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:10px 0}
+.status{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;color:#999;font-size:12px}
+.badge{padding:5px 8px;border-radius:999px;background:#0c1018;border:1px solid #242937}
 input,button{font:inherit;padding:12px;border-radius:10px;border:1px solid #363740}
 input{background:#090a0d;color:#fff}
 button{background:#272932;color:#fff}
 small{color:#85858c}
-@media(max-width:680px){.quick{grid-template-columns:1fr 1fr}.controls{grid-template-columns:1fr 1fr}.controls input{grid-column:1/-1}}
+@media(max-width:680px){.quick,.viewerTools{grid-template-columns:1fr 1fr}.controls{grid-template-columns:1fr 1fr}.controls input{grid-column:1/-1}#viewport{height:68vh}}
 </style>
 </head>
 <body>
@@ -320,7 +325,19 @@ la valeur dans la zone prévue puis appuie sur <b>Saisir</b>. Ensuite appuie sur
 comme un navigateur distant. NexMeta ne journalise pas les identifiants saisis.
 </p>
 <div class="card">
-<img id="screen" alt="Navigateur Facebook distant">
+<div class="viewerTools">
+<button id="refresh">Actualiser</button>
+<button id="zoomOut">Zoom −</button>
+<button id="fit">Ajuster</button>
+<button id="zoomIn">Zoom +</button>
+<button id="fullscreen">Plein écran</button>
+</div>
+<div id="viewport"><div id="stage"><img id="screen" alt="Navigateur Facebook distant"></div></div>
+<div class="status">
+<span class="badge" id="zoomLabel">Zoom : --</span>
+<span class="badge" id="sizeLabel">Image : --</span>
+<span class="badge" id="liveLabel">État : chargement…</span>
+</div>
 <div class="quick">
 <button id="email">E-mail</button>
 <button id="password">Mot de passe</button>
@@ -338,19 +355,69 @@ comme un navigateur distant. NexMeta ne journalise pas les identifiants saisis.
 <script>
 const token=${safeToken};
 const screen=document.getElementById('screen');
+const viewport=document.getElementById('viewport');
+const zoomLabel=document.getElementById('zoomLabel');
+const sizeLabel=document.getElementById('sizeLabel');
+const liveLabel=document.getElementById('liveLabel');
 let lastUrl=null;
+let naturalWidth=0;
+let naturalHeight=0;
+let zoom=1;
+let initialized=false;
+
+function setLive(t){liveLabel.textContent='État : '+t}
+function clamp(v,min,max){return Math.max(min,Math.min(max,v))}
+function applyZoom(next,keepCenter=true){
+  if(!naturalWidth||!naturalHeight)return;
+  const oldW=screen.getBoundingClientRect().width||1;
+  const oldH=screen.getBoundingClientRect().height||1;
+  const cx=viewport.scrollLeft+viewport.clientWidth/2;
+  const cy=viewport.scrollTop+viewport.clientHeight/2;
+  zoom=clamp(next,0.35,4);
+  screen.style.width=Math.round(naturalWidth*zoom)+'px';
+  screen.style.height='auto';
+  zoomLabel.textContent='Zoom : '+Math.round(zoom*100)+'%';
+  if(keepCenter){
+    requestAnimationFrame(()=>{
+      const nw=screen.getBoundingClientRect().width||1;
+      const nh=screen.getBoundingClientRect().height||1;
+      viewport.scrollLeft=(cx/oldW)*nw-viewport.clientWidth/2;
+      viewport.scrollTop=(cy/oldH)*nh-viewport.clientHeight/2;
+    });
+  }
+}
+function fit(){
+  if(!naturalWidth)return;
+  const z=Math.max(.35,(viewport.clientWidth-4)/naturalWidth);
+  applyZoom(z,false);
+  viewport.scrollLeft=0;
+  viewport.scrollTop=0;
+}
 
 async function refresh(){
-  const r=await fetch('/nexmeta/session/screenshot/'+token,{cache:'no-store'});
-  if(r.status===410){
-    document.body.innerHTML='<main><h1>Session configurée ou lien expiré.</h1><p>Tu peux fermer cette page.</p></main>';
-    return;
-  }
-  if(!r.ok)return;
-  const blob=await r.blob();
-  if(lastUrl)URL.revokeObjectURL(lastUrl);
-  lastUrl=URL.createObjectURL(blob);
-  screen.src=lastUrl;
+  try{
+    setLive('chargement…');
+    const r=await fetch('/nexmeta/session/screenshot/'+token,{cache:'no-store'});
+    if(r.status===410){
+      document.body.innerHTML='<main><h1>Session configurée ou lien expiré.</h1><p>Tu peux fermer cette page.</p></main>';
+      return;
+    }
+    if(!r.ok){setLive('erreur '+r.status);return}
+    const blob=await r.blob();
+    if(lastUrl)URL.revokeObjectURL(lastUrl);
+    lastUrl=URL.createObjectURL(blob);
+    const img=new Image();
+    img.onload=()=>{
+      naturalWidth=img.naturalWidth;
+      naturalHeight=img.naturalHeight;
+      sizeLabel.textContent='Image : '+naturalWidth+'×'+naturalHeight;
+      screen.src=lastUrl;
+      if(!initialized){initialized=true;fit()}else{applyZoom(zoom,false)}
+      setLive('capture reçue');
+    };
+    img.onerror=()=>setLive('image illisible');
+    img.src=lastUrl;
+  }catch{setLive('erreur réseau')}
 }
 
 async function send(body){
@@ -369,6 +436,12 @@ screen.addEventListener('click',e=>{
   const y=(e.clientY-rect.top)/rect.height*screen.naturalHeight;
   send({action:'click',x,y}).catch(()=>{});
 });
+
+document.getElementById('refresh').onclick=()=>refresh();
+document.getElementById('zoomIn').onclick=()=>applyZoom(zoom+.25);
+document.getElementById('zoomOut').onclick=()=>applyZoom(zoom-.25);
+document.getElementById('fit').onclick=()=>fit();
+document.getElementById('fullscreen').onclick=async()=>{try{if(!document.fullscreenElement)await viewport.requestFullscreen();else await document.exitFullscreen()}catch{}};
 
 document.getElementById('email').onclick=()=>send({action:'focus',field:'email'}).catch(()=>{});
 document.getElementById('password').onclick=()=>send({action:'focus',field:'password'}).catch(()=>{});
@@ -893,13 +966,12 @@ export async function handlePersistentSessionRequest(req, res, pathname) {
       }
 
       const shot = await page.screenshot({
-        type: 'jpeg',
-        quality: 72
+        type: 'png'
       });
 
       res.statusCode = 200;
       securityHeaders(res);
-      res.setHeader('content-type', 'image/jpeg');
+      res.setHeader('content-type', 'image/png');
       return res.end(shot);
     }
 
