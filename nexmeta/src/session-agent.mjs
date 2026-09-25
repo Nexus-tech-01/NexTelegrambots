@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { spawn } from 'node:child_process';
 import puppeteer from 'puppeteer-core';
 import chromium, {
   inflate,
@@ -32,6 +33,67 @@ let setupExpiresAt = 0;
 let lastLoginState = false;
 let lastContext = null;
 let launchPromise = null;
+
+function runProbe(command, args = [], timeoutMs = 8_000) {
+  return new Promise(resolve => {
+    let settled = false;
+    let stdout = '';
+    let stderr = '';
+
+    const child = spawn(command, args, {
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    const finish = value => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({
+        ...value,
+        stdout: stdout.slice(-4_000),
+        stderr: stderr.slice(-8_000)
+      });
+    };
+
+    child.stdout?.on('data', chunk => {
+      stdout += String(chunk);
+    });
+
+    child.stderr?.on('data', chunk => {
+      stderr += String(chunk);
+    });
+
+    child.once('error', error => {
+      finish({
+        ok: false,
+        error: String(error?.message || error)
+      });
+    });
+
+    child.once('exit', (code, signal) => {
+      finish({
+        ok: code === 0,
+        code,
+        signal: signal || null
+      });
+    });
+
+    const timer = setTimeout(() => {
+      try {
+        child.kill('SIGKILL');
+      } catch {}
+      finish({
+        ok: false,
+        timeout: true,
+        code: child.exitCode,
+        signal: child.signalCode || 'SIGKILL'
+      });
+    }, timeoutMs);
+
+    timer.unref?.();
+  });
+}
 
 function randomToken() {
   return crypto.randomBytes(32).toString('base64url');
@@ -238,17 +300,49 @@ async function launchBrowser() {
       ]
     });
 
-    browser = await puppeteer.launch({
-      executablePath,
-      headless: 'shell',
-      userDataDir: profileDir,
-      args: launchArgs,
-      defaultViewport: {
-        width: 1440,
-        height: 1400,
-        deviceScaleFactor: 1
-      }
-    });
+    try {
+      browser = await puppeteer.launch({
+        executablePath,
+        headless: 'shell',
+        userDataDir: profileDir,
+        args: launchArgs,
+        defaultViewport: {
+          width: 1440,
+          height: 1400,
+          deviceScaleFactor: 1
+        }
+      });
+    } catch (error) {
+      const versionProbe = await runProbe(
+        executablePath,
+        ['--version']
+      );
+
+      const libraryProbe = process.platform === 'linux'
+        ? await runProbe(
+            'ldd',
+            [executablePath]
+          )
+        : null;
+
+      const diagnostic = {
+        launchError: String(error?.message || error).slice(0, 2_000),
+        versionProbe,
+        libraryProbe
+      };
+
+      console.error(
+        '[NexMeta Session] Chromium launch diagnostic',
+        diagnostic
+      );
+
+      const wrapped = new Error(
+        'chromium_launch_failed: ' +
+        JSON.stringify(diagnostic).slice(0, 12_000)
+      );
+      wrapped.cause = error;
+      throw wrapped;
+    }
 
     browser.on('disconnected', () => {
       browser = null;
