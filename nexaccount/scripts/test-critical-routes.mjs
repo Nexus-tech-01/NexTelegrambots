@@ -74,6 +74,7 @@ const commandSource=fs.readFileSync(path.join(ROOT,'commands.mjs'),'utf8');
 const cliSource=fs.readFileSync(path.join(ROOT,'cli.mjs'),'utf8');
 const secondaryAnimeSource=fs.readFileSync(path.join(ROOT,'anime-secondary-reader.mjs'),'utf8');
 const daemonSource=fs.readFileSync(path.join(ROOT,'daemon.mjs'),'utf8');
+const downloadSource=fs.readFileSync(path.join(ROOT,'dipper-fallback.mjs'),'utf8');
 
 for(const marker of [
   "if(parsed.name==='menu')return sendMenu(runtime,peer)",
@@ -101,6 +102,12 @@ if(!runtime.includes("const {account}=runtime;"))errors.push('diagnostic-command
 if(!daemonSource.includes('NEXACCOUNT_STARTUP_SMOKE'))errors.push('startup-smoke-flag-missing');
 if(!daemonSource.includes('runtimeMenuProbe'))errors.push('startup-smoke-menu-probe-missing');
 if(!daemonSource.includes('engineStatus'))errors.push('startup-smoke-engine-status-missing');
+if(!downloadSource.includes("/opt/nex/tools/yt-dlp/yt-dlp"))errors.push('local-ytdlp-path-missing');
+if(!downloadSource.includes("Source : yt-dlp local"))errors.push('local-ytdlp-primary-route-missing');
+if(downloadSource.includes('api.yupra.my.id'))errors.push('dead-yupra-provider-still-present');
+if(downloadSource.includes('izumiiiiiiii.dpdns.org'))errors.push('dead-izumi-provider-still-present');
+if(downloadSource.includes('tiktokH265'))errors.push('obsolete-cobalt-tiktok-option-present');
+if(!downloadSource.includes('allowH265:false'))errors.push('current-cobalt-tiktok-option-missing');
 if(!runtime.includes('Commande inconnue'))errors.push('unknown-command-response-missing');
 if(!runtime.includes('presenceTimer'))errors.push('persistent-presence-heartbeat-missing');
 if(!runtime.includes('messageAuthorIsBot(client,message,event?.sender)'))errors.push('auto-moderation-bot-exemption-missing');

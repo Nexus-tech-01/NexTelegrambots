@@ -132,17 +132,9 @@ async function youtubeAudio(input){
         const d=await json('https://eliteprotech-apis.zone.id/ytdown?url='+u+'&format=mp3');
         return d?.success&&d?.downloadURL?{url:d.downloadURL,title:d.title||target.title}:null;
       }],
-      ['Yupra',async()=>{
-        const d=await json('https://api.yupra.my.id/api/downloader/ytmp3?url='+u);
-        return d?.success&&d?.data?.download_url?{url:d.data.download_url,title:d.data.title||target.title}:null;
-      }],
       ['Okatsu',async()=>{
         const d=await json('https://okatsu-rolezapiiz.vercel.app/downloader/ytmp3?url='+u);
         return d?.dl?{url:d.dl,title:d.title||target.title}:null;
-      }],
-      ['Izumi',async()=>{
-        const d=await json('https://izumiiiiiiii.dpdns.org/downloader/youtube?url='+u+'&format=mp3',{},60000);
-        return d?.result?.download?{url:d.result.download,title:d.result.title||target.title}:null;
       }]
     );
   }
@@ -162,10 +154,6 @@ async function youtubeVideo(input){
     ['EliteProTech',async()=>{
       const d=await json('https://eliteprotech-apis.zone.id/ytdown?url='+u+'&format=mp4');
       return d?.success&&d?.downloadURL?{url:d.downloadURL,title:d.title||target.title}:null;
-    }],
-    ['Yupra',async()=>{
-      const d=await json('https://api.yupra.my.id/api/downloader/ytmp4?url='+u);
-      return d?.success&&d?.data?.download_url?{url:d.data.download_url,title:d.data.title||target.title}:null;
     }],
     ['Okatsu',async()=>{
       const d=await json('https://okatsu-rolezapiiz.vercel.app/downloader/ytmp4?url='+u);
@@ -195,7 +183,7 @@ async function tiktokMedia(client,peer,url){
       return {sent:true,title};
     }],
     ['Cobalt',async()=>{
-      const d=await postJson('https://api.cobalt.tools/',{url,downloadMode:'auto',videoQuality:'max',tiktokH265:false});
+      const d=await postJson('https://api.cobalt.tools/',{url,downloadMode:'auto',videoQuality:'max',allowH265:false});
       const v=cobaltUrl(d);
       if(!v)return null;
       await sendRemote(client,peer,v,{caption:'NexAi · Download\nTikTok\nSource : Cobalt',fileName:'tiktok.mp4'});
@@ -290,6 +278,79 @@ function runFfmpeg(args,timeout=120000){
     });
   });
 }
+
+const YTDLP=String(process.env.YTDLP_PATH||'/opt/nex/tools/yt-dlp/yt-dlp');
+
+function runYtDlp(args,timeout=180000){
+  return new Promise((resolve,reject)=>{
+    execFile(YTDLP,args,{
+      timeout,
+      maxBuffer:16*1024*1024,
+      env:{...process.env,NO_COLOR:'1'}
+    },(err,stdout,stderr)=>{
+      if(err)return reject(new Error(String(stderr||stdout||err.message||err).trim().slice(-1800)));
+      resolve({stdout:String(stdout||''),stderr:String(stderr||'')});
+    });
+  });
+}
+
+async function localYoutubeFile(input,mode='audio'){
+  if(!fs.existsSync(YTDLP))throw new Error('yt-dlp local absent');
+  const target=await resolveYoutube(input);
+  const base='nexai-ytdlp-'+process.pid+'-'+Date.now()+'-'+crypto.randomBytes(4).toString('hex');
+  const template=path.join(os.tmpdir(),base+'-%(id)s.%(ext)s');
+  const common=[
+    '--no-playlist','--no-progress','--quiet','--no-warnings',
+    '--restrict-filenames','--max-filesize',String(MAX_MEDIA_BYTES),
+    '--print','after_move:filepath','-o',template
+  ];
+  const args=mode==='video'
+    ?[
+      ...common,
+      '-f','bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/b[height<=720]',
+      '--merge-output-format','mp4',
+      target.url
+    ]
+    :[
+      ...common,
+      '-x','--audio-format','mp3','--audio-quality','5',
+      target.url
+    ];
+  let file='';
+  try{
+    const out=await runYtDlp(args);
+    const lines=out.stdout.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+    file=lines[lines.length-1]||'';
+    if(!file||!fs.existsSync(file))throw new Error('yt-dlp n’a produit aucun fichier');
+    const buffer=fs.readFileSync(file);
+    if(!buffer.length)throw new Error('yt-dlp a produit un média vide');
+    if(buffer.length>MAX_MEDIA_BYTES)throw new Error('fichier trop volumineux ('+Math.round(buffer.length/1024/1024)+' Mo)');
+    return {
+      buffer,
+      title:target.title||'YouTube',
+      fileName:mode==='video'?safeName(target.title||'video')+'.mp4':safeName(target.title||'audio')+'.mp3',
+      mimeType:mode==='video'?'video/mp4':'audio/mpeg'
+    };
+  }finally{
+    if(file)try{fs.unlinkSync(file)}catch{}
+    try{
+      for(const name of fs.readdirSync(os.tmpdir())){
+        if(name.startsWith(base+'-'))try{fs.unlinkSync(path.join(os.tmpdir(),name))}catch{}
+      }
+    }catch{}
+  }
+}
+
+async function sendLocalYoutube(client,peer,input,mode='audio'){
+  const media=await localYoutubeFile(input,mode);
+  await sendTelegramMedia(client,peer,media.buffer,{
+    fileName:media.fileName,
+    caption:'NexAi · Download\n'+media.title+'\nSource : yt-dlp local',
+    mimeType:media.mimeType,
+    kind:mode==='video'?'video':'audio'
+  });
+  return true;
+}
 async function localToMp3(client,peer,message){
   const source=await repliedOrCurrentMedia(client,peer,message);
   if(!source?.media)throw new Error('Réponds à un audio ou une vidéo, ou donne un lien/titre après .tomp3.');
@@ -360,11 +421,19 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
   const input=args.join(' ').trim();
 
   if(command==='song'){
+    try{return await sendLocalYoutube(client,peer,input,'audio')}
+    catch(localError){
+      console.warn('[NexAi download yt-dlp audio]',String(localError?.message||localError).slice(0,500));
+    }
     const r=await youtubeAudio(input);
     await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'audio')+'.mp3'});
     return true;
   }
   if(command==='video'){
+    try{return await sendLocalYoutube(client,peer,input,'video')}
+    catch(localError){
+      console.warn('[NexAi download yt-dlp video]',String(localError?.message||localError).slice(0,500));
+    }
     const r=await youtubeVideo(input);
     await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'video')+'.mp4'});
     return true;
@@ -394,6 +463,10 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
   }
   if(command==='tomp3'){
     if(input){
+      try{return await sendLocalYoutube(client,peer,input,'audio')}
+      catch(localError){
+        console.warn('[NexAi download yt-dlp tomp3]',String(localError?.message||localError).slice(0,500));
+      }
       const r=await youtubeAudio(input);
       await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'audio')+'.mp3'});
       return true;
