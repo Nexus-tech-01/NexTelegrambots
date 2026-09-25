@@ -872,7 +872,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     if(['config','status','permissions'].includes(name)){
       const c=await currentChat(client,peer);let extra='';
       if(name==='permissions')extra='\nLes actions utilisent les permissions réelles du compte Telegram connecté.';
-      await sendText(client,peer,'NexAi · '+name+'\nChat : '+(c?.title||c?.username||chat)+'\nID : '+chat+'\nAnti-link : '+(policy.antilink?'ON':'OFF')+'\nAnti-spam : '+(policy.antispam?'ON':'OFF')+'\nAnti-raid : '+(policy.antiraid?'ON':'OFF')+'\nWelcome : '+(policy.welcome?'ON':'OFF')+extra);return true;
+      await sendText(client,peer,'NexAi · '+name+'\nChat : '+(c?.title||c?.username||chat)+'\nID : '+chat+'\nAnti-link : '+(policy.antilink?'ON':'OFF')+'\nAnti-spam : '+(policy.antispam?'ON':'OFF')+'\nAnti-tag : '+(policy.antitag?'ON':'OFF')+'\nAnti-mention massive : '+(policy.antigroupmention?'ON':'OFF')+'\nFiltre de mots : '+(policy.antibadword?'ON':'OFF')+'\nWelcome : '+(policy.welcome?'ON':'OFF')+extra);return true;
     }
     if(name==='id'){await sendText(client,peer,'Chat ID : '+chat+'\nCompte : '+account.telegramUserId);return true}
     if(name==='kickall'){
@@ -897,8 +897,13 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       await sendText(client,peer,'Warnings\n'+(rows.join('\n')||'Aucun avertissement.'));return true;
     }
     if(name==='risk'){
-      let score=0;if(!policy.antilink)score+=20;if(!policy.antispam)score+=20;if(!policy.antiraid)score+=20;if(!policy.captcha)score+=20;if(!policy.logs)score+=20;
-      await sendText(client,peer,'Indice de risque configuration : '+score+'/100\nPlus le score est bas, plus les protections NexAi configurées sont nombreuses.');return true;
+      let score=0;
+      if(!policy.antilink)score+=20;
+      if(!policy.antispam)score+=20;
+      if(!policy.antitag)score+=20;
+      if(!policy.antigroupmention)score+=20;
+      if(!policy.antibadword)score+=20;
+      await sendText(client,peer,'Indice de risque configuration : '+score+'/100\nCe score reflète uniquement les protections réellement appliquées aux messages par cette version de NexAi.');return true;
     }
     if(name==='privacy'){await sendText(client,peer,'NexAi utilise uniquement les données Telegram nécessaires aux fonctions activées. Les sessions NexAccount sont chiffrées au repos.');return true}
     if(name==='report'||name==='appeal'){
