@@ -1,8 +1,12 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import puppeteer from 'puppeteer-core';
-import chromium from '@sparticuz/chromium';
+import chromium, {
+  inflate,
+  setupLambdaEnvironment
+} from '@sparticuz/chromium';
 
 const root = path.resolve(process.env.NEXUS_ROOT || process.cwd());
 const publicBaseUrl = String(
@@ -168,7 +172,48 @@ async function launchBrowser() {
   launchPromise = (async () => {
     await mkdir(profileDir, { recursive: true });
 
-    const executablePath = process.env.NEXMETA_CHROMIUM_PATH || await chromium.executablePath();
+    const chromiumBinDir = path.resolve(
+      process.env.NEXMETA_CHROMIUM_BIN_DIR ||
+      path.join(
+        root,
+        'node_modules',
+        '@sparticuz',
+        'chromium',
+        'bin'
+      )
+    );
+
+    if (
+      process.platform === 'linux' &&
+      !/^(?:0|false|no|off)$/i.test(
+        String(
+          process.env.NEXMETA_SPARTICUZ_COMPAT_LIBS ??
+          '1'
+        )
+      )
+    ) {
+      const compatRoot = await inflate(
+        path.join(
+          chromiumBinDir,
+          'al2023.tar.br'
+        )
+      );
+
+      setupLambdaEnvironment(
+        path.join(
+          compatRoot || path.join(tmpdir(), 'al2023'),
+          'lib'
+        )
+      );
+    }
+
+    chromium.setGraphicsMode = false;
+
+    const executablePath =
+      process.env.NEXMETA_CHROMIUM_PATH ||
+      await chromium.executablePath(
+        chromiumBinDir
+      );
 
     const debugPort = Math.max(
       1024,
