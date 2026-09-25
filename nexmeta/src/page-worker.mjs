@@ -18,14 +18,19 @@ const GATEWAY_KEY = String(
   ''
 ).trim();
 
+const runtimeRoot = path.resolve(
+  process.env.NEXUS_ROOT ||
+  process.cwd()
+);
+
 const STATE_FILE = path.resolve(
   process.env.NEXMETA_PAGE_STATE_FILE ||
-  '/var/lib/nex/nexmeta/page-worker-state.json'
+  path.join(runtimeRoot, '.nexmeta-state', 'page-worker-state.json')
 );
 
 const HEALTH_FILE = path.resolve(
   process.env.NEXMETA_PAGE_HEALTH_FILE ||
-  '/var/lib/nex/nexmeta/page-worker-health.json'
+  path.join(runtimeRoot, '.nexmeta-state', 'page-worker-health.json')
 );
 
 const POLL_MS = Math.max(
