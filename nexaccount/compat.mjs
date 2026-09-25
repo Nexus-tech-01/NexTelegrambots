@@ -684,7 +684,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       warnings[chat]={...(warnings[chat]||{})};
       if(name==='resetwarn')warnings[chat][tid]=0;else warnings[chat][tid]=Number(warnings[chat][tid]||0)+1;
       await patchSettings(account.telegramUserId,{warnings});
-      await sendText(client,peer,name==='resetwarn'?'Avertissements réinitialisés.':'Avertissement '+warnings[chat][tid]+'/3.');
+      await sendText(client,peer,name==='resetwarn'?'Avertissements réinitialisés.':'Avertissement enregistré · total : '+warnings[chat][tid]+'.');
     }catch(e){await sendText(client,peer,'Warn impossible : '+e.message)}
     return true;
   }
@@ -801,7 +801,9 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const enabled=parseToggle(args[0],cur);
     await patchSettings(account.telegramUserId,{[name]:{enabled}});
     if(enabled&&name==='presence')await client.invoke(new Api.account.UpdateStatus({offline:false})).catch(()=>{});
-    await sendText(client,peer,toSmallCaps(name)+' : '+(enabled?'ON':'OFF'));return true;
+    await sendText(client,peer,name==='presence'
+      ?'Présence persistante : '+(enabled?'ON · NexAi maintiendra périodiquement la session en ligne.':'OFF')
+      :toSmallCaps(name)+' : '+(enabled?'ON':'OFF'));return true;
   }
 
   if(name==='getname'||name==='getabout'||name==='getpp'||name==='inspecter'){
