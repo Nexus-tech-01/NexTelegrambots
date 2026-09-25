@@ -38,19 +38,18 @@ jobs:
       - name: Sync Dipper styles
         run: node nexaccount/scripts/sync-dipper.mjs _dipper nexaccount
 
-      - name: Syntax checks
-        shell: bash
-        run: |
-          set -e
-          for f in nexaccount/*.mjs nexaccount/scripts/*.mjs nexcontrol/api/index.mjs; do
-            node --check "$f"
-          done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-      - name: Validate command registry
-        run: node nexaccount/scripts/validate-registry.mjs
+      - name: Install NexAccount dependencies
+        run: npm install --prefix nexaccount --ignore-scripts
 
-      - name: Media send regression
-        run: node nexaccount/scripts/test-media-send.mjs
+      - name: Full NexAccount public stability gate
+        run: npm --prefix nexaccount run check
+
+      - name: NexControl API syntax
+        run: node --check nexcontrol/api/index.mjs
 
       - name: Deploy through NexControl Agent
         shell: bash
@@ -171,6 +170,41 @@ jobs:
                   anime=row.get('anime') or {}
                   if anime.get('listener') is not True or anime.get('publisher') is True:
                       raise RuntimeError('@'+required+' must be scanner-only: '+str(anime))
+
+              probe_row=by_name.get('tresor20001') or next((x for x in active if x.get('connected') is True),None)
+              if not probe_row or not probe_row.get('telegramUserId'):
+                  raise RuntimeError('no connected NexAccount runtime available for inline menu probe')
+              menu_probe=job('runtime.exec',{
+                  'root':'nexus',
+                  'command':'node',
+                  'args':['bots/nexaccount/cli.mjs','menu-probe',str(probe_row.get('telegramUserId'))],
+                  'timeoutMs':30000
+              },timeout=60)
+              probe_text=menu_probe.get('stdout','').strip()
+              probe_json=json.loads(probe_text or '{}')
+              if probe_json.get('ok') is not True or not probe_json.get('resultId'):
+                  raise RuntimeError('NexAI inline menu probe failed: '+str(probe_json))
+              print('NEXAI_INLINE_MENU_OK',probe_json)
+
+              engines=job('runtime.exec',{
+                  'root':'nexus',
+                  'command':'node',
+                  'args':['bots/nexaccount/cli.mjs','engines'],
+                  'timeoutMs':30000
+              },timeout=60)
+              engines_text=engines.get('stdout','').strip()
+              engines_json=json.loads(engines_text or '{}')
+              engine_rows={str(x.get('service')):x for x in (engines_json.get('engines') or [])}
+              for required in ('download','group','sticker','game','anime','audio'):
+                  row=engine_rows.get(required) or {}
+                  if row.get('configured') is not True or row.get('reachable') is not True:
+                      raise RuntimeError('required NexAI engine not ready: '+required+' '+str(row))
+              ai=engine_rows.get('ai') or {}
+              if ai.get('configured') is not True or ai.get('reachable') is not True:
+                  print('WARNING NexAI AI provider is not configured/reachable:',ai)
+              else:
+                  print('NEXAI_AI_OK',ai)
+
               print('ANIME_SCANNERS_OK @tresor20001 + @tresor20009; NexCanal handoff active')
               print('DEPLOYMENT_OK NexAccount')
           except Exception:
@@ -180,5 +214,14 @@ jobs:
                       elif created: job('fs.delete',{'root':'nexus','path':'bots/nexaccount/'+rel,'allowDir':False})
                   except Exception as e:
                       print('rollback warning',rel,e)
+              try:
+                  job('runtime.exec',{
+                      'root':'nexus',
+                      'command':'node',
+                      'args':['bots/nexaccount/bootstrap.mjs','--restart'],
+                      'timeoutMs':60000
+                  },timeout=90)
+              except Exception as e:
+                  print('rollback restart warning',e)
               raise
           PY

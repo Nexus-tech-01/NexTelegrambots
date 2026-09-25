@@ -121,6 +121,24 @@ export async function renderDipperHeader(styleId,{botName='NEXAI',ownerName='Uti
 
 const directImageCache=new Map();
 const lastStyleImage=new Map();
+const INLINE_PHOTO_MAX_BYTES=5*1024*1024;
+const IMAGE_CACHE_OK_MS=60*60*1000;
+const IMAGE_CACHE_FAIL_MS=5*60*1000;
+
+function cachedImage(url){
+  const row=directImageCache.get(url);
+  if(!row)return undefined;
+  if(row.expiresAt<=Date.now()){directImageCache.delete(url);return undefined}
+  return row.value;
+}
+
+function cacheImage(url,value){
+  directImageCache.set(url,{
+    value,
+    expiresAt:Date.now()+(value?IMAGE_CACHE_OK_MS:IMAGE_CACHE_FAIL_MS)
+  });
+  return value;
+}
 
 function randomOrder(values){
   const out=[...new Set(values.filter(Boolean))];
@@ -131,21 +149,49 @@ function randomOrder(values){
   return out;
 }
 
-async function directImage(url){
-  if(directImageCache.has(url))return directImageCache.get(url);
+async function jpegUrl(url){
   if(!/^https?:\/\//i.test(url))return '';
-  if(!/https?:\/\/(?:www\.)?ibb\.co\//i.test(url)){
-    directImageCache.set(url,url);
-    return url;
-  }
   try{
-    const res=await fetch(url,{headers:{'user-agent':'Mozilla/5.0'},signal:AbortSignal.timeout(6000)});
-    const html=await res.text();
-    const m=html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)/i)||html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
-    const v=m?.[1]?.replace(/&amp;/g,'&')||'';
-    if(v){directImageCache.set(url,v);return v}
-  }catch{}
-  return '';
+    const response=await fetch(url,{
+      headers:{'user-agent':'Mozilla/5.0','range':'bytes=0-4095','accept':'image/jpeg,image/*;q=0.8'},
+      redirect:'follow',
+      signal:AbortSignal.timeout(3500)
+    });
+    if(!response.ok&&response.status!==206)return '';
+    const length=Number(response.headers.get('content-length')||0);
+    const range=String(response.headers.get('content-range')||'');
+    const total=Number(range.match(/\/(\d+)\s*$/)?.[1]||0);
+    if(length>INLINE_PHOTO_MAX_BYTES||total>INLINE_PHOTO_MAX_BYTES)return '';
+    const bytes=new Uint8Array(await response.arrayBuffer());
+    const jpeg=bytes.length>=3&&bytes[0]===0xff&&bytes[1]===0xd8&&bytes[2]===0xff;
+    // InlineQueryResultPhoto officially requires JPEG. Content-Type alone is
+    // not trusted because CDNs sometimes return HTML error pages as image/jpeg.
+    if(!jpeg)return '';
+    return response.url||url;
+  }catch{return ''}
+}
+
+async function directImage(url){
+  const cached=cachedImage(url);
+  if(cached!==undefined)return cached;
+  if(!/^https?:\/\//i.test(url))return '';
+
+  let candidate=url;
+  if(/https?:\/\/(?:www\.)?ibb\.co\//i.test(url)){
+    try{
+      const res=await fetch(url,{headers:{'user-agent':'Mozilla/5.0'},signal:AbortSignal.timeout(2200)});
+      if(!res.ok)return cacheImage(url,'');
+      const html=await res.text();
+      const m=html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)/i)||html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+      candidate=m?.[1]?.replace(/&amp;/g,'&')||'';
+    }catch{candidate=''}
+  }
+
+  return cacheImage(url,await jpegUrl(candidate));
+}
+
+export async function resolveInlinePhoto(url){
+  return directImage(String(url||'').trim());
 }
 
 export async function resolveStyleImage(styleId,fallback=''){
@@ -159,12 +205,15 @@ export async function resolveStyleImage(styleId,fallback=''){
   }
   if(fallback)urls.push(fallback);
 
-  for(const url of urls){
-    const resolved=await directImage(url);
-    if(!resolved)continue;
-    if((s.images||[]).includes(url))lastStyleImage.set(key,url);
-    return resolved;
+  // Keep inline answers fast: probe only a small randomized window in parallel.
+  // A broken image host must never hold the whole Telegram query for tens of seconds.
+  const candidates=urls.slice(0,4);
+  const resolved=await Promise.all(candidates.map(url=>directImage(url)));
+  for(let i=0;i<candidates.length;i++){
+    if(!resolved[i])continue;
+    if((s.images||[]).includes(candidates[i]))lastStyleImage.set(key,candidates[i]);
+    return resolved[i];
   }
-  return fallback||'';
+  return '';
 }
 

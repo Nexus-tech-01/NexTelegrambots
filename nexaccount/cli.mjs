@@ -39,6 +39,10 @@ try{
     case 'health':out=await call('GET','/health');break;
     case 'accounts':out=await call('GET','/accounts');break;
     case 'engines':out=await call('GET','/engines');break;
+    case 'menu-probe':
+      if(!args[0])throw new Error('telegram user id required');
+      out=await call('POST','/diagnostics/menu',{telegramUserId:args[0],peer:args[1]||'me'});
+      break;
     case 'anime-status':out=await call('GET','/anime/status');break;
     case 'anime-discover':out=await call('POST','/anime/discover',{username:args[0]||''});break;
     case 'anime-retry':out=await call('POST','/anime/retry',{includeQuarantine:true,includeFailures:true});break;
@@ -65,7 +69,7 @@ try{
       out=await call('GET','/pair/status?id='+encodeURIComponent(args[0]));
       break;
     default:
-      throw new Error('usage: cli.mjs health|accounts|engines|anime-status|anime-discover [@username]|anime-retry|anime-rebuild [@username] [deadline]|public-key|secure ENVELOPE|pair-status ID');
+      throw new Error('usage: cli.mjs health|accounts|engines|menu-probe TELEGRAM_USER_ID [peer]|anime-status|anime-discover [@username]|anime-retry|anime-rebuild [@username] [deadline]|public-key|secure ENVELOPE|pair-status ID');
   }
   process.stdout.write(JSON.stringify(out));
 }catch(e){

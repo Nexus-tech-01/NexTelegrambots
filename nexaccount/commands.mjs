@@ -328,7 +328,7 @@ function loadSourceManifest(){
 export const SOURCE_COMMANDS=loadSourceManifest();
 
 export const CATEGORY_ORDER=[
-  'GENERAL','ACCOUNT','AI','DOWNLOAD','GROUP','GROUP','PROTECTION',
+  'GENERAL','ACCOUNT','AI','DOWNLOAD','GROUP','PROTECTION',
   'TOOLS','MEDIA','STICKERS','FUN','SEARCH','ANIME','PREMIUM','OWNER'
 ];
 export const CATEGORY_LABELS={

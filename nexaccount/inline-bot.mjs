@@ -60,15 +60,31 @@ function stampMarkup(markup,accountId){
   return copy;
 }
 
-function inlineResult(model,accountId,id='menu',forceArticle=false){
-  const reply_markup=stampMarkup(model.reply_markup,accountId);
+function portableMarkup(markup){
+  const copy=structuredClone(markup||{inline_keyboard:[]});
+  for(const row of copy.inline_keyboard||[]){
+    for(const button of row){
+      // Button colors and custom emoji are optional presentation features.
+      // If Telegram rejects either capability, callbacks must still stay alive.
+      delete button.style;
+      delete button.icon_custom_emoji_id;
+    }
+  }
+  return copy;
+}
+
+function inlineResult(model,accountId,id='menu',forceArticle=false,portable=false){
+  const stamped=stampMarkup(model.reply_markup,accountId);
+  const reply_markup=portable?portableMarkup(stamped):stamped;
+  const captionEntities=portable?[]:model.entities.filter(e=>e.offset+e.length<=1024);
+  const textEntities=portable?[]:model.entities.filter(e=>e.offset+e.length<=4096);
   if(model.photoUrl&&!forceArticle){
     return {
       type:'photo',id,
       photo_url:model.photoUrl,
       thumbnail_url:model.photoUrl,
       caption:model.text.slice(0,1024),
-      caption_entities:model.entities.filter(e=>e.offset+e.length<=1024),
+      caption_entities:captionEntities,
       reply_markup
     };
   }
@@ -76,7 +92,7 @@ function inlineResult(model,accountId,id='menu',forceArticle=false){
     type:'article',id,title:'NexAI',description:'NexAccount menu',
     input_message_content:{
       message_text:model.text.slice(0,4096),
-      entities:model.entities.filter(e=>e.offset+e.length<=4096),
+      entities:textEntities,
       link_preview_options:{is_disabled:true}
     },
     reply_markup
@@ -94,55 +110,101 @@ async function modelFor(account,query){
   return menuModel({account,settings,commands,view:'home'});
 }
 
-async function editInline(ctx,model,accountId,{replaceMedia=false}={}){
-  const inlineId=ctx.callbackQuery.inline_message_id;
-  if(!inlineId)throw new Error('inline_message_id_missing');
-  const reply_markup=stampMarkup(model.reply_markup,accountId);
+async function sendModelMessage(ctx,model,accountId){
+  const rich=stampMarkup(model.reply_markup,accountId);
+  const plain=portableMarkup(rich);
   const errors=[];
 
-  // Returning to Menu also refreshes the style artwork. Dipper rotates its
-  // image pool on every menu opening; edit the inline media so Telegram does
-  // not keep the previous picture while only changing the caption.
-  if(replaceMedia&&model.photoUrl){
+  if(model.photoUrl){
     try{
-      await ctx.editMessageMedia({
-        type:'photo',
-        media:model.photoUrl,
+      return await ctx.replyWithPhoto(model.photoUrl,{
         caption:model.text.slice(0,1024),
-        caption_entities:model.entities.filter(e=>e.offset+e.length<=1024)
-      },{reply_markup});
-      return 'media';
+        caption_entities:model.entities.filter(e=>e.offset+e.length<=1024),
+        reply_markup:rich
+      });
     }catch(error){
-      errors.push('media:'+String(error?.description||error?.message||error).slice(0,350));
+      errors.push('photo:'+String(error?.description||error?.message||error).slice(0,350));
     }
   }
 
-  // grammY context methods automatically target callbackQuery.inline_message_id.
-  // Using ctx.api.editMessageCaption/Text with a single object is the wrong
-  // signature in the installed grammY version and silently made buttons inert.
   try{
-    await ctx.editMessageCaption({
-      caption:model.text.slice(0,1024),
-      caption_entities:model.entities.filter(e=>e.offset+e.length<=1024),
-      reply_markup
-    });
-    return 'caption';
-  }catch(error){
-    errors.push('caption:'+String(error?.description||error?.message||error).slice(0,350));
-  }
-
-  try{
-    await ctx.editMessageText(model.text.slice(0,4096),{
+    return await ctx.reply(model.text.slice(0,4096),{
       entities:model.entities.filter(e=>e.offset+e.length<=4096),
       link_preview_options:{is_disabled:true},
-      reply_markup
+      reply_markup:rich
     });
-    return 'text';
   }catch(error){
-    errors.push('text:'+String(error?.description||error?.message||error).slice(0,350));
+    errors.push('text-rich:'+String(error?.description||error?.message||error).slice(0,350));
   }
 
-  throw new Error('inline_edit_failed '+errors.join(' | '));
+  try{
+    return await ctx.reply(model.text.slice(0,4096),{
+      link_preview_options:{is_disabled:true},
+      reply_markup:plain
+    });
+  }catch(error){
+    errors.push('text-portable:'+String(error?.description||error?.message||error).slice(0,350));
+  }
+  throw new Error('menu_send_failed '+errors.join(' | '));
+}
+
+async function sendDirectMenu(ctx,account,query='menu'){
+  const model=await modelFor(account,query);
+  return sendModelMessage(ctx,model,account.telegramUserId);
+}
+
+async function editInline(ctx,model,accountId,{replaceMedia=false}={}){
+  const target=ctx.callbackQuery.inline_message_id||ctx.callbackQuery.message;
+  if(!target)throw new Error('callback_message_target_missing');
+  const rich=stampMarkup(model.reply_markup,accountId);
+  const markups=[['rich',rich],['portable',portableMarkup(rich)]];
+  const errors=[];
+
+  // Context edit methods work for both inline_message_id callbacks and normal
+  // bot messages. This keeps /menu and .menu on the same navigation engine.
+  if(replaceMedia&&model.photoUrl){
+    for(const [kind,reply_markup] of markups){
+      try{
+        await ctx.editMessageMedia({
+          type:'photo',
+          media:model.photoUrl,
+          caption:model.text.slice(0,1024),
+          caption_entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=1024):[]
+        },{reply_markup});
+        return 'media-'+kind;
+      }catch(error){
+        errors.push('media-'+kind+':'+String(error?.description||error?.message||error).slice(0,350));
+      }
+    }
+  }
+
+  for(const [kind,reply_markup] of markups){
+    try{
+      await ctx.editMessageCaption({
+        caption:model.text.slice(0,1024),
+        caption_entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=1024):[],
+        reply_markup
+      });
+      return 'caption-'+kind;
+    }catch(error){
+      errors.push('caption-'+kind+':'+String(error?.description||error?.message||error).slice(0,350));
+    }
+  }
+
+  for(const [kind,reply_markup] of markups){
+    try{
+      await ctx.editMessageText(model.text.slice(0,4096),{
+        entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=4096):[],
+        link_preview_options:{is_disabled:true},
+        reply_markup
+      });
+      return 'text-'+kind;
+    }catch(error){
+      errors.push('text-'+kind+':'+String(error?.description||error?.message||error).slice(0,350));
+    }
+  }
+
+  throw new Error('menu_edit_failed '+errors.join(' | '));
 }
 
 async function preferredLanguage(userId,telegramLanguage=''){
@@ -176,25 +238,19 @@ function ownerEntities(text){
 
 async function sendStart(ctx){
   const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
-  const paired=(await accountRecord(ctx.from.id))?.enabled===true;
+  const account=await accountRecord(ctx.from.id);
+  if(account?.enabled===true){
+    await recordEvent(ctx.from,'command',{source:'nexai',command:'start',chatType:ctx.chat?.type||'private'}).catch(()=>{});
+    return sendDirectMenu(ctx,account,'menu');
+  }
   const text=lang==='en'
-    ? [
-      '♰ ɴᴇxᴀɪ','',
-      paired?'🔗 ᴀᴄᴄᴏᴜɴᴛ • ᴄᴏɴɴᴇᴄᴛᴇᴅ':'🔗 ᴄᴏɴɴᴇᴄᴛ ʏᴏᴜʀ ᴛᴇʟᴇɢʀᴀᴍ ᴀᴄᴄᴏᴜɴᴛ',
-      paired?'ᴜѕᴇ .ᴍᴇɴᴜ ғʀᴏᴍ ʏᴏᴜʀ ᴘᴇʀѕᴏɴᴀʟ ᴀᴄᴄᴏᴜɴᴛ.':'/pair',
-      '',
-      '/creator',
-      '/language'
-    ].join('\n')
-    : [
-      '♰ ɴᴇxᴀɪ','',
-      paired?'🔗 ᴄᴏᴍᴘᴛᴇ • ᴄᴏɴɴᴇᴄᴛé':'🔗 ʀᴇʟɪᴇ ᴛᴏɴ ᴄᴏᴍᴘᴛᴇ ᴛᴇʟᴇɢʀᴀᴍ',
-      paired?'ᴜᴛɪʟɪѕᴇ .ᴍᴇɴᴜ ᴅᴇᴘᴜɪѕ ᴛᴏɴ ᴄᴏᴍᴘᴛᴇ ᴘᴇʀѕᴏɴɴᴇʟ.':'/pair',
-      '',
-      '/creator',
-      '/language'
-    ].join('\n');
-  return ctx.reply(text,{entities:quotedEntities(text,['/pair','/creator','/language'])});
+    ? ['♰ ɴᴇxᴀɪ','','🔗 ᴄᴏɴɴᴇᴄᴛ ʏᴏᴜʀ ᴛᴇʟᴇɢʀᴀᴍ ᴀᴄᴄᴏᴜɴᴛ','/pair','','/creator','/language'].join('\n')
+    : ['♰ ɴᴇxᴀɪ','','🔗 ʀᴇʟɪᴇ ᴛᴏɴ ᴄᴏᴍᴘᴛᴇ ᴛᴇʟᴇɢʀᴀᴍ','/pair','','/creator','/language'].join('\n');
+  return ctx.reply(text,{
+    entities:quotedEntities(text,['/pair','/creator','/language']),
+    reply_markup:connectMarkup(lang),
+    link_preview_options:{is_disabled:true}
+  });
 }
 
 async function sendCreator(ctx){
@@ -274,6 +330,20 @@ export async function startInlineBot(){
   });
 
   bot.command('start',ctx=>sendStart(ctx));
+  bot.command('menu',async ctx=>{
+    const account=await accountRecord(ctx.from.id);
+    if(!account||account.enabled!==true){
+      const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
+      return sendPairLink(ctx,lang);
+    }
+    await recordEvent(ctx.from,'command',{source:'nexai',command:'menu',chatType:ctx.chat?.type||'private'}).catch(()=>{});
+    return sendDirectMenu(ctx,account,'menu');
+  });
+  bot.command('help',async ctx=>{
+    const account=await accountRecord(ctx.from.id);
+    if(account?.enabled===true)return sendDirectMenu(ctx,account,'menu');
+    return sendStart(ctx);
+  });
   for(const name of ['creator','about','founder','ceo'])bot.command(name,ctx=>sendCreator(ctx));
 
   bot.command('language',async ctx=>{
@@ -341,17 +411,23 @@ export async function startInlineBot(){
     }
     const model=await modelFor(account,ctx.inlineQuery.query);
     const resultId='nex-'+Date.now();
-    try{
-      await ctx.answerInlineQuery([inlineResult(model,account.telegramUserId,resultId)],{
-        cache_time:0,is_personal:true
-      });
-    }catch(error){
-      if(!model.photoUrl)throw error;
-      console.error('[NexAI inline photo]',String(error?.message||error));
-      await ctx.answerInlineQuery([inlineResult(model,account.telegramUserId,resultId,true)],{
-        cache_time:0,is_personal:true
-      });
+    const attempts=[
+      ['photo-rich',inlineResult(model,account.telegramUserId,resultId,false,false)],
+      ['article-rich',inlineResult(model,account.telegramUserId,resultId,true,false)],
+      ['article-portable',inlineResult(model,account.telegramUserId,resultId,true,true)]
+    ];
+    const errors=[];
+    for(const [kind,result] of attempts){
+      if(kind==='photo-rich'&&!model.photoUrl)continue;
+      try{
+        await ctx.answerInlineQuery([result],{cache_time:0,is_personal:true});
+        if(errors.length)console.warn('[NexAI inline] recovered with',kind,'after',errors.join(' | '));
+        return;
+      }catch(error){
+        errors.push(kind+':'+String(error?.description||error?.message||error).slice(0,350));
+      }
     }
+    throw new Error('inline_answer_failed '+errors.join(' | '));
   });
 
   bot.on('callback_query:data',async ctx=>{
@@ -395,3 +471,6 @@ export async function startInlineBot(){
 export async function stopInlineBot(){
   try{await bot?.stop()}catch{}
 }
+
+
+export const __test={stampMarkup,portableMarkup,inlineResult};
