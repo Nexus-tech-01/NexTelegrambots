@@ -116,7 +116,7 @@ async function prepareSticker(source){
   }finally{cleanup(input,output)}
 }
 
-async function botApi(method,fields={},file=null){
+async function botApi(method,fields={},file=null,timeout=60000){
   const token=await loadBotToken();
   if(!token)throw new Error('Le token NexAi est indisponible dans le coffre local.');
   const url='https://api.telegram.org/bot'+token+'/'+method;
@@ -133,7 +133,7 @@ async function botApi(method,fields={},file=null){
     headers['content-type']='application/json';
     body=JSON.stringify(fields);
   }
-  const r=await fetch(url,{method:'POST',headers,body,signal:AbortSignal.timeout(60000)});
+  const r=await fetch(url,{method:'POST',headers,body,signal:AbortSignal.timeout(timeout)});
   const d=await r.json().catch(()=>null);
   if(!r.ok||!d?.ok)throw new Error(clean(d?.description)||('Bot API '+method+' HTTP '+r.status));
   return d.result;
@@ -270,6 +270,34 @@ function makeZip(files){
 
 export const STICKER_ENGINE_COMMANDS=new Set(['sticker','stickerinfo','clonepack','createpack','mypacks','exportwhatsapp']);
 export function canHandleStickerCommand(name){return STICKER_ENGINE_COMMANDS.has(String(name||'').toLowerCase())}
+
+let stickerDiagnosticCache={at:0,value:null};
+
+export async function stickerEngineDiagnostic({force=false}={}){
+  const now=Date.now();
+  if(!force&&stickerDiagnosticCache.value&&now-stickerDiagnosticCache.at<60000){
+    return stickerDiagnosticCache.value;
+  }
+  const png=Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQMcAAAAASUVORK5CYII=',
+    'base64'
+  );
+  const prepared=await prepareSticker({buffer:png,mime:'image/png'});
+  if(prepared.format!=='static'||prepared.mime!=='image/webp'||!prepared.buffer?.length){
+    throw new Error('conversion sticker locale invalide');
+  }
+  const me=await botApi('getMe',{},null,12000);
+  const value={
+    ok:true,
+    localConversion:true,
+    format:prepared.format,
+    bytes:prepared.buffer.length,
+    botReachable:Boolean(me?.id),
+    botUsername:me?.username||''
+  };
+  stickerDiagnosticCache={at:now,value};
+  return value;
+}
 
 export async function handleStickerCommand({runtime,event,name,args=[]}){
   const {client,account}=runtime,peer=event.message.peerId;
