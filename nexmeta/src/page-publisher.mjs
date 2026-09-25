@@ -271,7 +271,7 @@ export async function probeBrowserPagePublisher({
   const page = await browser.newPage();
 
   try {
-    await page.goto(contentPageUrl(policy.pageId), {
+    await page.goto(composerUrl(policy.pageId), {
       waitUntil: 'domcontentloaded',
       timeout: 60000
     });
@@ -280,42 +280,10 @@ export async function probeBrowserPagePublisher({
       throw new Error('facebook_session_not_authenticated');
     }
 
-    const permission = await page
-      .evaluate(() => {
-        const cleanText = value =>
-          String(value || '')
-            .replace(/\s+/g, ' ')
-            .trim();
+    const composer = await waitForComposer(page, 25000);
+    const publishButton = await waitForPublishButton(page, 15000);
 
-        const visible = element => {
-          const rect = element.getBoundingClientRect();
-          const style = getComputedStyle(element);
-
-          return (
-            rect.width > 0 &&
-            rect.height > 0 &&
-            style.display !== 'none' &&
-            style.visibility !== 'hidden'
-          );
-        };
-
-        return [
-          ...document.querySelectorAll('[role="button"]')
-        ]
-          .filter(visible)
-          .some(element =>
-            /^(Créer une publication|Create post)$/i.test(
-              cleanText(
-                element.innerText ||
-                element.getAttribute('aria-label') ||
-                ''
-              )
-            )
-          );
-      })
-      .catch(() => false);
-
-    if (!permission) {
+    if (!composer || !publishButton) {
       throw new Error('facebook_publish_permission_not_visible');
     }
 
