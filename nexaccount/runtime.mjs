@@ -223,7 +223,7 @@ async function joinTarget(client,target){
 }
 
 async function premiumDenied(client,peer,name){
-  await sendText(client,peer,'Cette commande ('+name+') est disponible uniquement pour les utilisateurs Premium.');
+  await sendText(client,peer,'Cette commande ('+name+') nécessite Telegram Premium sur le compte connecté.');
 }
 
 async function handleStyle(runtime,peer,args,inlineName=''){
@@ -432,7 +432,7 @@ async function handleCommand(runtime,event,parsed){
       await sendText(client,peer,'NexAi · Dipper est actif sur ce compte.');
       return true;
     case 'account':
-      await sendText(client,peer,'Compte : '+(account.username?'@'+account.username:account.firstName)+'\nPremium : '+(account.premium?'Oui':'Non')+'\nNexAccount : connecté');
+      await sendText(client,peer,'Compte : '+(account.username?'@'+account.username:account.firstName)+'\nTelegram Premium : '+(account.premium?'Oui':'Non')+'\nNexAccount : connecté');
       return true;
     case 'help':
       await sendText(client,peer,'Utilise .menu pour afficher le menu interactif.');
