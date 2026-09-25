@@ -38,6 +38,12 @@ assert.equal(article.type,'article');
 assert.deepEqual(article.input_message_content.entities,[]);
 assert.equal(article.reply_markup.inline_keyboard[0][0].callback_data,'menu:home|999');
 
+assert.deepEqual(
+  __test.telegramCommandMenu().map(x=>x.command),
+  ['start','menu','help','pair','language','creator'],
+  'Telegram slash menu must contain only real Bot API handlers'
+);
+
 const inlineSource=fs.readFileSync(path.join(ROOT,'inline-bot.mjs'),'utf8');
 const runtimeSource=fs.readFileSync(path.join(ROOT,'runtime.mjs'),'utf8');
 const menuSource=fs.readFileSync(path.join(ROOT,'menu.mjs'),'utf8');
@@ -47,7 +53,15 @@ assert.match(inlineSource,/bot\.command\('menu'/,'/menu handler must exist');
 assert.match(inlineSource,/bot\.command\('help'/,'/help handler must exist');
 assert.match(inlineSource,/ctx\.callbackQuery\.inline_message_id\|\|ctx\.callbackQuery\.message/,'callbacks must support inline and direct bot messages');
 assert.match(inlineSource,/article-portable/,'inline fallback must preserve an interactive article result');
+assert.match(inlineSource,/action==='menu:styles'/,'styles menu callback must be handled');
+assert.match(inlineSource,/action\.startsWith\('style:set:'\)/,'style selection callback must be handled');
+assert.match(inlineSource,/patchSettings\(accountId,\{style:styleId\}\)/,'style callback must persist selection');
+assert.ok(!inlineSource.includes('for(const cmd of commands.values())'),'native slash menu must not advertise NexAccount commands');
 assert.ok(!runtimeSource.includes('Le menu inline est temporairement indisponible'),'legacy alarming fallback must be removed');
+assert.match(menuSource,/commandText\(visibleCommands,style,settings\.prefix\|\|'\.'\)/,'menu commands must use configured NexAccount prefix');
+assert.ok(!menuSource.includes("type:'bot_command'"),'NexAccount commands must not be emitted as Bot API slash-command entities');
+assert.match(menuSource,/menu:styles/,'home menu must expose styles callback');
+assert.match(menuSource,/style:set:/,'styles must be selectable with callbacks');
 assert.match(menuSource,/menuImageStyle/,'custom artwork must be bound to a style');
 assert.match(menuSource,/Number\(settings\?\.menuImageStyle\|\|0\)===Number\(styleId\)/,'style binding guard missing');
 assert.match(menuSource,/resolveInlinePhoto/,'custom artwork must be validated before inline use');
