@@ -18,6 +18,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: ${{ false }} # legacy nexus-main is secondary only; production deploys are disabled here
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
