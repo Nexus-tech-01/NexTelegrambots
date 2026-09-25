@@ -367,26 +367,84 @@ async function facebookLoggedIn(page) {
   );
 }
 
-async function findComposer(page) {
-  const selectors = [
-    '[role="combobox"][aria-label*="ajouter du texte"]',
-    '[role="combobox"][aria-label*="add text"]',
-    '[contenteditable="true"][role="combobox"]',
-    '[contenteditable="true"][role="textbox"]'
-  ];
+async function focusComposer(page) {
+  return page.evaluate(() => {
+    const visible = element => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
 
-  for (const selector of selectors) {
-    const handles = await page.$$(selector);
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.display !== 'none' &&
+        style.visibility !== 'hidden'
+      );
+    };
 
-    for (const handle of handles) {
-      const box = await handle.boundingBox().catch(() => null);
-      if (box && box.width > 180 && box.height > 20) {
-        return handle;
-      }
-    }
+    const candidates = [
+      ...document.querySelectorAll(
+        '[role="combobox"],[contenteditable="true"][role="textbox"]'
+      )
+    ].filter(visible);
+
+    const editor =
+      candidates.find(element =>
+        /ajouter du texte|add text/i.test(
+          element.getAttribute('aria-label') || ''
+        )
+      ) ||
+      candidates.find(element =>
+        element.getBoundingClientRect().width > 250
+      );
+
+    if (!editor) return false;
+
+    editor.focus();
+    return true;
+  });
+}
+
+async function clearComposer(page) {
+  const focused = await focusComposer(page);
+  if (!focused) return false;
+
+  await page.keyboard.down('Control');
+  await page.keyboard.press('KeyA');
+  await page.keyboard.up('Control');
+  await page.keyboard.press('Backspace');
+  await sleep(200);
+
+  return true;
+}
+
+async function discardComposer(page) {
+  const cancel = await buttonByText(
+    page,
+    [/^Annuler$/i, /^Cancel$/i],
+    { allowDisabled: false }
+  );
+
+  if (cancel) {
+    await cancel.click().catch(() => {});
+    await sleep(350);
   }
 
-  return null;
+  const discard = await buttonByText(
+    page,
+    [
+      /^Supprimer$/i,
+      /^Ignorer$/i,
+      /^Abandonner$/i,
+      /^Discard$/i,
+      /^Delete$/i
+    ],
+    { allowDisabled: false }
+  );
+
+  if (discard) {
+    await discard.click().catch(() => {});
+    await sleep(250);
+  }
 }
 
 async function buttonByText(page, patterns, { allowDisabled = false } = {}) {
@@ -421,13 +479,14 @@ async function buttonByText(page, patterns, { allowDisabled = false } = {}) {
   return null;
 }
 
-async function waitForComposer(page, timeoutMs = 20000) {
-  const start = Date.now();
+async function waitForComposer(page, timeoutMs = 15000) {
+  const started = Date.now();
 
-  while (Date.now() - start < timeoutMs) {
-    const composer = await findComposer(page);
-    if (composer) return composer;
-    await sleep(400);
+  while (Date.now() - started < timeoutMs) {
+    if (await focusComposer(page).catch(() => false)) {
+      return true;
+    }
+    await sleep(250);
   }
 
   throw new Error('facebook_composer_not_found');
@@ -475,14 +534,14 @@ export async function probeBrowserPagePublisher({
       throw new Error('facebook_session_not_authenticated');
     }
 
-    const composer = await waitForComposer(page, 15000);
+    const composerReady = await waitForComposer(page, 15000);
     const publishButton = await buttonByText(
       page,
       [/^Publier$/i, /^Publish$/i],
       { allowDisabled: true }
     );
 
-    if (!composer || !publishButton) {
+    if (!composerReady || !publishButton) {
       throw new Error('facebook_publish_permission_not_visible');
     }
 
@@ -542,42 +601,23 @@ export async function publishBrowserPagePost({
       throw new Error('facebook_session_not_authenticated');
     }
 
-    const composer = await waitForComposer(page);
-
-    await composer.focus();
-
-    await composer.evaluate((element, value) => {
-      element.focus();
-
-      let inserted = false;
-      try {
-        inserted = document.execCommand('insertText', false, value);
-      } catch {}
-
-      if (!inserted) {
-        element.textContent = value;
-        element.dispatchEvent(
-          new InputEvent('input', {
-            bubbles: true,
-            inputType: 'insertText',
-            data: value
-          })
-        );
-      }
-    }, publication.message);
-
+    await waitForComposer(page);
+    await page.keyboard.insertText(publication.message);
     await sleep(700);
 
     if (dryRun) {
-      const publishButton = await buttonByText(
+      const publishButton = await waitForPublishButton(
         page,
-        [/^Publier$/i, /^Publish$/i],
-        { allowDisabled: true }
+        7000
       );
 
       if (!publishButton) {
-        throw new Error('facebook_publish_button_not_found');
+        throw new Error('facebook_publish_button_not_enabled');
       }
+
+      await clearComposer(page).catch(() => false);
+      await discardComposer(page).catch(() => {});
+
       return {
         ok: true,
         authorized: true,
