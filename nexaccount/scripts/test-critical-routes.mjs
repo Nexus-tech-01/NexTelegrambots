@@ -83,6 +83,9 @@ for(const marker of [
   if(!runtime.includes(marker))errors.push('runtime-marker:'+marker);
 }
 if(!runtime.includes('Commande inconnue'))errors.push('unknown-command-response-missing');
+if(!runtime.includes('presenceTimer'))errors.push('persistent-presence-heartbeat-missing');
+if(!runtime.includes('messageAuthorIsBot(client,message,event?.sender)'))errors.push('auto-moderation-bot-exemption-missing');
+if(!runtime.includes('userIsGroupAdmin(client,message.peerId,sender)'))errors.push('auto-moderation-admin-exemption-missing');
 if(!inline.includes("bot.command('start'"))errors.push('/start-handler-missing');
 if(!inline.includes("bot.command('menu'"))errors.push('/menu-handler-missing');
 if(!inline.includes("bot.command('help'"))errors.push('/help-handler-missing');
