@@ -602,7 +602,7 @@ export async function publishBrowserPagePost({
     }
 
     await waitForComposer(page);
-    await page.keyboard.insertText(publication.message);
+    await page.keyboard.type(publication.message, { delay: 0 });
     await sleep(700);
 
     if (dryRun) {
