@@ -253,7 +253,7 @@ async function launchBrowser() {
 
 function tokenFromPath(pathname) {
   const match = String(pathname || '').match(
-    /^\/nexmeta\/session\/(?:setup|screenshot|input)\/([^/]+)$/
+    /^\/nexmeta\/session\/(?:setup|screenshot|captcha|input)\/([^/]+)$/
   );
 
   return match?.[1] || '';
@@ -267,6 +267,53 @@ function setupAuthorized(pathname) {
     Date.now() < setupExpiresAt &&
     timingSafeEqualText(token, setupToken)
   );
+}
+
+async function captchaClipBox() {
+  if (!page || page.isClosed()) return null;
+
+  const candidates = [];
+  for (const frame of page.frames()) {
+    const url = String(frame.url() || '').toLowerCase();
+    if (!url.includes('recaptcha') && !url.includes('/captcha/')) continue;
+
+    const element = await frame.frameElement().catch(() => null);
+    if (!element) continue;
+
+    const box = await element.boundingBox().catch(() => null);
+    if (!box || box.width < 40 || box.height < 40) continue;
+
+    const priority =
+      url.includes('fbsbx.com/captcha') ? 3 :
+      url.includes('/bframe') ? 2 :
+      1;
+
+    candidates.push({ box, priority });
+  }
+
+  if (!candidates.length) return null;
+
+  candidates.sort((a, b) =>
+    (b.priority - a.priority) ||
+    (b.box.width * b.box.height - a.box.width * a.box.height)
+  );
+
+  const box = candidates[0].box;
+  const viewport = page.viewport() || { width: 1440, height: 1400 };
+  const pad = 18;
+
+  const x = Math.max(0, Math.floor(box.x - pad));
+  const y = Math.max(0, Math.floor(box.y - pad));
+  const width = Math.max(
+    1,
+    Math.min(viewport.width - x, Math.ceil(box.width + pad * 2))
+  );
+  const height = Math.max(
+    1,
+    Math.min(viewport.height - y, Math.ceil(box.height + pad * 2))
+  );
+
+  return { x, y, width, height };
 }
 
 function securityHeaders(res) {
@@ -300,7 +347,11 @@ p{color:#aaa;line-height:1.5}
 .card{background:#121216;border:1px solid #292a31;border-radius:18px;padding:12px}
 #viewport{width:100%;height:72vh;overflow:auto;border-radius:14px;border:1px solid #2d3340;background:#050608;-webkit-overflow-scrolling:touch}
 #stage{min-width:100%;min-height:100%;display:flex;align-items:flex-start;justify-content:flex-start}
-#screen{display:block;max-width:none;height:auto;border-radius:12px;background:#222;user-select:none;-webkit-user-drag:none;touch-action:pan-x pan-y}
+#screen{display:block;max-width:none;height:auto;border-radius:12px;background:#222;user-select:none;-webkit-user-drag:none;touch-action:none}
+#captchaPanel{display:none;margin:10px 0;padding:12px;border:1px solid #3a4150;border-radius:14px;background:#0b0e14}
+#captchaPanel p{margin:6px 0 10px}
+#captchaViewport{width:100%;overflow:auto;border-radius:12px;background:#050608;border:1px solid #2d3340}
+#captchaScreen{display:block;width:100%;height:auto;max-width:none;user-select:none;-webkit-user-drag:none;touch-action:none}
 .controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
 .quick{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0}
 .viewerTools{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:10px 0}
@@ -325,6 +376,12 @@ la valeur dans la zone prévue puis appuie sur <b>Saisir</b>. Ensuite appuie sur
 comme un navigateur distant. NexMeta ne journalise pas les identifiants saisis.
 </p>
 <div class="card">
+<div id="captchaPanel">
+<strong>Validation reCAPTCHA</strong>
+<p>Quand Facebook affiche le test, touche directement cette zone. Elle est séparée du grand écran pour que les taps arrivent au bon endroit.</p>
+<div id="captchaViewport"><img id="captchaScreen" alt="reCAPTCHA Facebook"></div>
+<div class="status"><span class="badge" id="captchaState">CAPTCHA : détection…</span></div>
+</div>
 <div class="viewerTools">
 <button id="refresh">Actualiser</button>
 <button id="zoomOut">Zoom −</button>
@@ -355,6 +412,9 @@ comme un navigateur distant. NexMeta ne journalise pas les identifiants saisis.
 <script>
 const token=${safeToken};
 const screen=document.getElementById('screen');
+const captchaPanel=document.getElementById('captchaPanel');
+const captchaScreen=document.getElementById('captchaScreen');
+const captchaState=document.getElementById('captchaState');
 const viewport=document.getElementById('viewport');
 const zoomLabel=document.getElementById('zoomLabel');
 const sizeLabel=document.getElementById('sizeLabel');
@@ -364,6 +424,8 @@ let naturalWidth=0;
 let naturalHeight=0;
 let zoom=1;
 let initialized=false;
+let interactionPauseUntil=0;
+let captchaUrl=null;
 
 function setLive(t){liveLabel.textContent='État : '+t}
 function clamp(v,min,max){return Math.max(min,Math.min(max,v))}
@@ -395,6 +457,7 @@ function fit(){
 }
 
 async function refresh(){
+  if(Date.now()<interactionPauseUntil)return;
   try{
     setLive('chargement…');
     const r=await fetch('/nexmeta/session/screenshot/'+token,{cache:'no-store'});
@@ -420,22 +483,79 @@ async function refresh(){
   }catch{setLive('erreur réseau')}
 }
 
+async function refreshCaptcha(){
+  if(Date.now()<interactionPauseUntil)return;
+  try{
+    const r=await fetch('/nexmeta/session/captcha/'+token,{cache:'no-store'});
+    if(r.status===204){
+      captchaPanel.style.display='none';
+      return;
+    }
+    if(r.status===410){
+      captchaPanel.style.display='none';
+      return;
+    }
+    if(!r.ok){
+      captchaState.textContent='CAPTCHA : erreur '+r.status;
+      return;
+    }
+    const blob=await r.blob();
+    if(captchaUrl)URL.revokeObjectURL(captchaUrl);
+    captchaUrl=URL.createObjectURL(blob);
+    captchaScreen.src=captchaUrl;
+    captchaPanel.style.display='block';
+    captchaState.textContent='CAPTCHA : prêt — touche directement l’image';
+  }catch{
+    captchaState.textContent='CAPTCHA : erreur réseau';
+  }
+}
+
 async function send(body){
+  interactionPauseUntil=Date.now()+1800;
   const r=await fetch('/nexmeta/session/input/'+token,{
     method:'POST',
     headers:{'content-type':'application/json'},
     body:JSON.stringify(body)
   });
   if(!r.ok)throw new Error(await r.text());
-  setTimeout(refresh,250);
+  setTimeout(()=>{
+    interactionPauseUntil=0;
+    refresh();
+    refreshCaptcha();
+  },850);
 }
 
-screen.addEventListener('click',e=>{
-  const rect=screen.getBoundingClientRect();
-  const x=(e.clientX-rect.left)/rect.width*screen.naturalWidth;
-  const y=(e.clientY-rect.top)/rect.height*screen.naturalHeight;
-  send({action:'click',x,y}).catch(()=>{});
-});
+function bindTap(img,action){
+  let down=null;
+  img.addEventListener('pointerdown',e=>{
+    down={x:e.clientX,y:e.clientY,id:e.pointerId};
+    interactionPauseUntil=Date.now()+2500;
+    try{img.setPointerCapture(e.pointerId)}catch{}
+  });
+  img.addEventListener('pointercancel',()=>{down=null;interactionPauseUntil=0});
+  img.addEventListener('pointerup',e=>{
+    if(!down||down.id!==e.pointerId)return;
+    const moved=Math.hypot(e.clientX-down.x,e.clientY-down.y);
+    down=null;
+    if(moved>18){
+      interactionPauseUntil=0;
+      return;
+    }
+    const rect=img.getBoundingClientRect();
+    if(!rect.width||!rect.height||!img.naturalWidth||!img.naturalHeight){
+      interactionPauseUntil=0;
+      return;
+    }
+    const x=(e.clientX-rect.left)/rect.width*img.naturalWidth;
+    const y=(e.clientY-rect.top)/rect.height*img.naturalHeight;
+    send({action,x,y}).catch(()=>{
+      interactionPauseUntil=0;
+    });
+  });
+}
+
+bindTap(screen,'click');
+bindTap(captchaScreen,'captcha_click');
 
 document.getElementById('refresh').onclick=()=>refresh();
 document.getElementById('zoomIn').onclick=()=>applyZoom(zoom+.25);
@@ -457,8 +577,12 @@ document.getElementById('type').onclick=()=>{
 document.getElementById('tab').onclick=()=>send({action:'key',key:'Tab'}).catch(()=>{});
 document.getElementById('enter').onclick=()=>send({action:'key',key:'Enter'}).catch(()=>{});
 
-setInterval(refresh,1200);
+setInterval(()=>{
+  refresh();
+  refreshCaptcha();
+},2500);
 refresh();
+refreshCaptcha();
 </script>
 </body>
 </html>`;
@@ -954,6 +1078,37 @@ export async function handlePersistentSessionRequest(req, res, pathname) {
       return res.end(setupHtml(tokenFromPath(pathname)));
     }
 
+    if (pathname.startsWith('/nexmeta/session/captcha/')) {
+      if (!setupAuthorized(pathname)) {
+        res.statusCode = 410;
+        securityHeaders(res);
+        return res.end();
+      }
+
+      if (!page || page.isClosed()) {
+        return writeJson(res, 503, { error: 'browser_not_ready' });
+      }
+
+      const clip = await captchaClipBox();
+      if (!clip) {
+        res.statusCode = 204;
+        securityHeaders(res);
+        return res.end();
+      }
+
+      const shot = await page.screenshot({
+        type: 'png',
+        clip
+      });
+
+      res.statusCode = 200;
+      securityHeaders(res);
+      res.setHeader('content-type', 'image/png');
+      res.setHeader('x-nexmeta-captcha-width', String(clip.width));
+      res.setHeader('x-nexmeta-captcha-height', String(clip.height));
+      return res.end(shot);
+    }
+
     if (pathname.startsWith('/nexmeta/session/screenshot/')) {
       if (!setupAuthorized(pathname)) {
         res.statusCode = 410;
@@ -1066,6 +1221,24 @@ export async function handlePersistentSessionRequest(req, res, pathname) {
         }
 
         await page.mouse.click(x, y);
+      } else if (action === 'captcha_click') {
+        const x = Number(body.x);
+        const y = Number(body.y);
+        const clip = await captchaClipBox();
+
+        if (
+          !clip ||
+          !Number.isFinite(x) ||
+          !Number.isFinite(y) ||
+          x < 0 ||
+          y < 0 ||
+          x > clip.width ||
+          y > clip.height
+        ) {
+          return writeJson(res, 400, { error: 'invalid_captcha_coordinates' });
+        }
+
+        await page.mouse.click(clip.x + x, clip.y + y);
       } else if (action === 'type') {
         const text = String(body.text || '');
 
