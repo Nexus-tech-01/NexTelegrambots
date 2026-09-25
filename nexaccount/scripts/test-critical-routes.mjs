@@ -105,6 +105,11 @@ if(!daemonSource.includes('runtimeMenuProbe'))errors.push('startup-smoke-menu-pr
 if(!daemonSource.includes('engineStatus'))errors.push('startup-smoke-engine-status-missing');
 if(!daemonSource.includes("mode==='download'"))errors.push('download-startup-smoke-mode-missing');
 if(!daemonSource.includes("mode==='health'"))errors.push('health-startup-smoke-mode-missing');
+if(!daemonSource.includes("mode==='group'"))errors.push('group-startup-smoke-mode-missing');
+if(!runtime.includes('runtimeGroupSmoke'))errors.push('runtime-group-smoke-missing');
+if(!runtime.includes('Api.channels.CreateChannel'))errors.push('temporary-group-create-missing');
+if(!runtime.includes('Api.channels.DeleteChannel'))errors.push('temporary-group-cleanup-missing');
+if(!runtime.includes('getInputChannel(await client.getInputEntity(peer))'))errors.push('runtime-admin-input-channel-conversion-missing');
 if(!daemonSource.includes("aqz-KE-bpKQ"))errors.push('download-startup-smoke-fixture-missing');
 if(!downloadSource.includes("/opt/nex/tools/yt-dlp/yt-dlp"))errors.push('local-ytdlp-path-missing');
 if(!downloadSource.includes("Source : yt-dlp local"))errors.push('local-ytdlp-primary-route-missing');
