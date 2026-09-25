@@ -198,7 +198,7 @@ async function findComposer(page) {
   return null;
 }
 
-async function buttonByText(page, patterns) {
+async function buttonByText(page, patterns, { allowDisabled = false } = {}) {
   const handles = await page.$$(
     'button,[role="button"]'
   );
@@ -219,7 +219,7 @@ async function buttonByText(page, patterns) {
       }))
       .catch(() => null);
 
-    if (!data || data.disabled || !data.text) continue;
+    if (!data || (!allowDisabled && data.disabled) || !data.text) continue;
 
     if (patterns.some(pattern => pattern.test(data.text))) {
       const box = await handle.boundingBox().catch(() => null);
@@ -281,7 +281,11 @@ export async function probeBrowserPagePublisher({
     }
 
     const composer = await waitForComposer(page, 25000);
-    const publishButton = await waitForPublishButton(page, 15000);
+    const publishButton = await buttonByText(
+      page,
+      [/^Publier$/i, /^Publish$/i],
+      { allowDisabled: true }
+    );
 
     if (!composer || !publishButton) {
       throw new Error('facebook_publish_permission_not_visible');
@@ -340,13 +344,38 @@ export async function publishBrowserPagePost({
 
     await composer.focus();
 
-    await page.keyboard.insertText(publication.message);
+    await composer.evaluate((element, value) => {
+      element.focus();
+
+      let inserted = false;
+      try {
+        inserted = document.execCommand('insertText', false, value);
+      } catch {}
+
+      if (!inserted) {
+        element.textContent = value;
+        element.dispatchEvent(
+          new InputEvent('input', {
+            bubbles: true,
+            inputType: 'insertText',
+            data: value
+          })
+        );
+      }
+    }, publication.message);
 
     await sleep(700);
 
-    const publishButton = await waitForPublishButton(page);
-
     if (dryRun) {
+      const publishButton = await buttonByText(
+        page,
+        [/^Publier$/i, /^Publish$/i],
+        { allowDisabled: true }
+      );
+
+      if (!publishButton) {
+        throw new Error('facebook_publish_button_not_found');
+      }
       return {
         ok: true,
         authorized: true,
@@ -358,6 +387,7 @@ export async function publishBrowserPagePost({
       };
     }
 
+    const publishButton = await waitForPublishButton(page);
     await publishButton.click();
 
     const started = Date.now();
