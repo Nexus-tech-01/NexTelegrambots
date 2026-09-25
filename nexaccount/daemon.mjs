@@ -51,7 +51,7 @@ setPairingConnectedHandler(onPaired);
 
 async function runStartupSmoke(){
   const mode=String(process.env.NEXACCOUNT_STARTUP_SMOKE||'').trim().toLowerCase();
-  if(!['1','true','yes','on','basic','full','download'].includes(mode))return;
+  if(!['1','true','yes','on','basic','full','download','health'].includes(mode))return;
   const active=runtimeStatus().find(row=>row.connected!==false)||runtimeStatus()[0];
   if(!active?.telegramUserId)throw new Error('startup_smoke_no_runtime');
   const id=String(active.telegramUserId);
@@ -61,7 +61,7 @@ async function runStartupSmoke(){
     '.song https://www.youtube.com/watch?v=aqz-KE-bpKQ',
     '.video https://www.youtube.com/watch?v=aqz-KE-bpKQ'
   ];
-  const commands=mode==='full'?full:mode==='download'?download:basic;
+  const commands=mode==='full'?full:mode==='download'?download:mode==='health'?[]:basic;
   const results=[];
   const menu=await runtimeMenuProbe(id,'me');
   results.push({type:'menu',ok:menu?.ok===true,resultType:menu?.resultType||null});
@@ -73,7 +73,8 @@ async function runStartupSmoke(){
     services:(engines?.engines||[]).map(row=>({
       service:row.service,
       configured:row.configured===true,
-      reachable:row.reachable===true
+      reachable:row.reachable===true,
+      ...(row.service==='sticker'&&row.probe?{probe:row.probe}:{})
     }))
   });
   for(const text of commands){
