@@ -4,6 +4,7 @@ import { commandMap, commandsByCategory } from '../commands.mjs';
 import { handleCompatCommand } from '../compat.mjs';
 
 const commands=commandMap();
+const compatSource=await import('node:fs').then(fs=>fs.readFileSync(new URL('../compat.mjs',import.meta.url),'utf8'));
 const grouped=commandsByCategory(commands);
 
 assert.equal(grouped.ADMIN,undefined,'ADMIN must not be a separate visible category');
@@ -19,6 +20,10 @@ for(const name of ['tag','tagall','hidetag','mediatag','tagadmin','promote','dem
 for(const name of ['tagall','hidetag','mediatag','promote','demote','kick','ban','mute','warnings','slowmode']){
   assert.equal(commands.get(name)?.adminOnly,true,name+' must require admin rights');
 }
+assert.match(compatSource,/const target=getInputUser\(targetPeer\)/,'moderation APIs must receive InputUser');
+assert.match(compatSource,/users:\[user\]/,'group invite route must use converted InputUser');
+assert.match(compatSource,/HideChatJoinRequest\(\{peer:input,userId:user,approved:true\}\)/,'join approval must use converted InputUser');
+
 assert.equal(commands.get('mode')?.selfOnly,true,'mode must be owner-only');
 for(const name of ['block','unblock','vv','sticker','clonepack','createpack','customreact','emoji_status','effect']){
   assert.equal(commands.get(name)?.selfOnly,true,name+' must stay unavailable to public callers');
