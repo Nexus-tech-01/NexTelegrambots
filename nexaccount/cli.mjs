@@ -43,6 +43,10 @@ try{
       if(!args[0])throw new Error('telegram user id required');
       out=await call('POST','/diagnostics/menu',{telegramUserId:args[0],peer:args[1]||'me'});
       break;
+    case 'command-test':
+      if(!args[0]||!args[1])throw new Error('telegram user id and command text required');
+      out=await call('POST','/diagnostics/command',{telegramUserId:args[0],text:args[1],peer:args[2]||'me'});
+      break;
     case 'anime-status':out=await call('GET','/anime/status');break;
     case 'anime-discover':out=await call('POST','/anime/discover',{username:args[0]||''});break;
     case 'anime-retry':out=await call('POST','/anime/retry',{includeQuarantine:true,includeFailures:true});break;
@@ -69,7 +73,7 @@ try{
       out=await call('GET','/pair/status?id='+encodeURIComponent(args[0]));
       break;
     default:
-      throw new Error('usage: cli.mjs health|accounts|engines|menu-probe TELEGRAM_USER_ID [peer]|anime-status|anime-discover [@username]|anime-retry|anime-rebuild [@username] [deadline]|public-key|secure ENVELOPE|pair-status ID');
+      throw new Error('usage: cli.mjs health|accounts|engines|menu-probe TELEGRAM_USER_ID [peer]|command-test TELEGRAM_USER_ID TEXT [peer]|anime-status|anime-discover [@username]|anime-retry|anime-rebuild [@username] [deadline]|public-key|secure ENVELOPE|pair-status ID');
   }
   process.stdout.write(JSON.stringify(out));
 }catch(e){
