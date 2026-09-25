@@ -43,6 +43,25 @@ const metaPort = Number(
   publicPort + 2
 );
 
+const browserDebugPort = Number(
+  process.env.NEXMETA_BROWSER_DEBUG_PORT ||
+  9223
+);
+
+const pageWorkerEnabled = !/^(?:0|false|no|off)$/i.test(
+  String(process.env.NEXMETA_PAGE_WORKER_ENABLED ?? '1')
+);
+
+const pageWorkerStateFile = path.resolve(
+  process.env.NEXMETA_PAGE_STATE_FILE ||
+  path.join(root, '.nexmeta-state', 'page-worker-state.json')
+);
+
+const pageWorkerHealthFile = path.resolve(
+  process.env.NEXMETA_PAGE_HEALTH_FILE ||
+  path.join(root, '.nexmeta-state', 'page-worker-health.json')
+);
+
 const publicBaseUrl = String(
   process.env.NEXUS_PUBLIC_BASE_URL ||
   process.env.NEXMETA_PUBLIC_BASE_URL ||
@@ -69,7 +88,8 @@ function validPort(value) {
 for (const [name, value] of [
   ['PORT', publicPort],
   ['NEXUS_TELEGRAM_INTERNAL_PORT', telegramPort],
-  ['NEXMETA_INTERNAL_PORT', metaPort]
+  ['NEXMETA_INTERNAL_PORT', metaPort],
+  ['NEXMETA_BROWSER_DEBUG_PORT', browserDebugPort]
 ]) {
   if (!validPort(value)) {
     throw new Error(`${name} must be a valid TCP port`);
@@ -80,11 +100,12 @@ if (
   new Set([
     publicPort,
     telegramPort,
-    metaPort
-  ]).size !== 3
+    metaPort,
+    browserDebugPort
+  ]).size !== 4
 ) {
   throw new Error(
-    'public, Telegram and NexMeta ports must be different'
+    'public, Telegram, NexMeta and browser debug ports must be different'
   );
 }
 
@@ -374,6 +395,11 @@ const metaScript = path.join(
   'nexmeta/src/server.mjs'
 );
 
+const pageWorkerScript = path.join(
+  root,
+  'nexmeta/src/page-worker.mjs'
+);
+
 function startChildren() {
   spawnManaged({
     label: 'telegram',
@@ -404,10 +430,38 @@ function startChildren() {
         ),
       NEXUS_COMMAND_GATEWAY_URL:
         `http://127.0.0.1:${publicPort}/internal/nexus/events`,
-        NEXUS_COMMAND_GATEWAY_KEY:
-          bridgeKey
+      NEXUS_COMMAND_GATEWAY_KEY:
+        bridgeKey,
+      NEXMETA_BROWSER_DEBUG_PORT:
+        String(browserDebugPort),
+      NEXMETA_BROWSER_DEBUG_URL:
+        `http://127.0.0.1:${browserDebugPort}`,
+      NEXMETA_PAGE_STATE_FILE:
+        pageWorkerStateFile,
+      NEXMETA_PAGE_HEALTH_FILE:
+        pageWorkerHealthFile
       }
     });
+
+    if (pageWorkerEnabled) {
+      spawnManaged({
+        label: 'nexmeta-page-worker',
+        script: pageWorkerScript,
+        env: {
+          NEXUS_ROOT: root,
+          NEXMETA_BROWSER_DEBUG_URL:
+            `http://127.0.0.1:${browserDebugPort}`,
+          NEXMETA_PAGE_STATE_FILE:
+            pageWorkerStateFile,
+          NEXMETA_PAGE_HEALTH_FILE:
+            pageWorkerHealthFile,
+          NEXUS_COMMAND_GATEWAY_URL:
+            `http://127.0.0.1:${publicPort}/internal/nexus/events`,
+          NEXUS_COMMAND_GATEWAY_KEY:
+            bridgeKey
+        }
+      });
+    }
   }
 }
 
@@ -550,6 +604,54 @@ function safeChildStatus(label) {
   };
 }
 
+async function readPageWorkerHealth() {
+  const processState = safeChildStatus('nexmeta-page-worker');
+
+  if (!pageWorkerEnabled) {
+    return {
+      enabled: false,
+      ok: true,
+      process: processState
+    };
+  }
+
+  try {
+    const payload = JSON.parse(
+      await readFile(pageWorkerHealthFile, 'utf8')
+    );
+
+    const observedAt = Date.parse(
+      String(payload?.observedAt || '')
+    );
+
+    const fresh =
+      Number.isFinite(observedAt) &&
+      Date.now() - observedAt <= 90_000;
+
+    return {
+      enabled: true,
+      ok:
+        processState.running === true &&
+        fresh &&
+        payload?.loggedIn === true &&
+        payload?.lastCycleOk === true,
+      fresh,
+      process: processState,
+      health: payload
+    };
+  } catch (error) {
+    return {
+      enabled: true,
+      ok: false,
+      fresh: false,
+      process: processState,
+      error: String(
+        error?.message || error
+      ).slice(0, 200)
+    };
+  }
+}
+
 function bridgeAuthorized(req) {
   const authorization = String(
     req.headers.authorization || ''
@@ -645,6 +747,10 @@ const server = http.createServer(
               nexmeta:
                 safeChildStatus(
                   'nexmeta'
+                ),
+              pageWorker:
+                safeChildStatus(
+                  'nexmeta-page-worker'
                 )
             },
             adapters:
@@ -661,7 +767,8 @@ const server = http.createServer(
       if (route === 'health-all') {
         const [
           telegram,
-          nexmeta
+          nexmeta,
+          pageWorker
         ] = await Promise.all([
           fetchLocalHealth(
             telegramPort,
@@ -670,7 +777,8 @@ const server = http.createServer(
           fetchLocalHealth(
             metaPort,
             '/health'
-          )
+          ),
+          readPageWorkerHealth()
         ]);
 
         const ok =
@@ -679,7 +787,8 @@ const server = http.createServer(
             nexmetaAvailable
               ? nexmeta.ok
               : false
-          );
+          ) &&
+          pageWorker.ok;
 
         res.statusCode =
           ok ? 200 : 503;
@@ -705,6 +814,7 @@ const server = http.createServer(
             nexmetaAvailable,
             nexmetaUnavailableReason,
             nexmeta,
+            pageWorker,
             adapters:
               adapterState.status
           })
