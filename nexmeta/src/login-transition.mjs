@@ -24,6 +24,7 @@ const persistentHealthUrl = String(
 
 const interactiveServices = [
   'nexmeta-interactive-tunnel.service',
+  'nexmeta-session-tunnel.service',
   'nexmeta-interactive-proxy.service',
   'nexmeta-interactive-novnc.service',
   'nexmeta-interactive-vnc.service',
