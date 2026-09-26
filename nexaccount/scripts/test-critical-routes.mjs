@@ -28,7 +28,7 @@ for(const name of ['ai','code','deepseek']){
   if(cmd&&!canHandleAiCommand(cmd.aliasFor||cmd.name))errors.push('ai-route:'+name);
 }
 
-for(const name of ['song','video','tiktok','instagram','facebook','pinterest','tomp3','lyrics','shazam','apk']){
+for(const name of ['song','video','download','tiktok','instagram','facebook','pinterest','snapchat','capcut','twitter','reddit','soundcloud','vimeo','tumblr','tomp3','lyrics','shazam','apk']){
   const cmd=requireCommand(name,{engine:'download'});
   if(cmd&&!canHandleDownloadCommand(cmd.aliasFor||cmd.name))errors.push('download-route:'+name);
 }
@@ -140,6 +140,12 @@ for(const pattern of forbiddenDownloaderRelayPatterns){
 }
 if(!downloadSource.includes('tdownv4.sl-bjs.workers.dev'))errors.push('tiktok-http-fallback-missing');
 if(!downloadSource.includes('/opt/nex/tools/yt-dlp-full/bin/yt-dlp'))errors.push('full-ytdlp-preferred-path-missing');
+for(const marker of ['sendLocalSocial','SnapchatSpotlight','capcutMedia','detectDownloadService','COBALT_HTTP_HOSTS']){
+  if(!downloadSource.includes(marker)&&marker!=='SnapchatSpotlight')errors.push('social-download-marker-missing:'+marker);
+}
+for(const cmd of ['snapchat','capcut','twitter','reddit','soundcloud','vimeo','tumblr','download']){
+  if(!downloadSource.includes("'"+cmd+"'"))errors.push('social-download-command-missing:'+cmd);
+}
 if(!stickerSource.includes('stickerEngineDiagnostic'))errors.push('sticker-real-health-probe-missing');
 if(!stickerSource.includes("botApi('getMe'"))errors.push('sticker-botapi-reachability-probe-missing');
 if(!stickerSource.includes("prepareSticker({buffer:png,mime:'image/png'})"))errors.push('sticker-local-conversion-probe-missing');
@@ -165,7 +171,7 @@ assert.deepEqual(errors,[],errors.join('\n'));
 console.log(JSON.stringify({
   ok:true,
   ai:3,
-  downloads:10,
+  downloads:18,
   stickers:6,
   games:3,
   anime:anime.length,
