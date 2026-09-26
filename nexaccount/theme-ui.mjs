@@ -56,7 +56,7 @@ const T={
       '├ prefix {prefix}',
       '├ modules {count}',
       '└ status ACCESS_GRANTED'
-    ],cat:l=>`┌─[ ${l}://MODULE ]`,bullet:'├─ ',footer:'└─ root@{botkey}:~#'
+    ],cat:l=>`┌─[ ${l}://MODULE ]`,bullet:'├─ ',footer:'└─ root@nexai:~#'
   },
   5:{
     header:[
