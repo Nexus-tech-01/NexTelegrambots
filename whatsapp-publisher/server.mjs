@@ -96,6 +96,26 @@ async function body(req){ const chunks=[]; for await(const c of req) chunks.push
 function sourceName(v=''){ return String(v).replace(/^@/,'').toLowerCase().trim(); }
 function flatButtons(v){ const src=Array.isArray(v)?v:[]; const flat=src.flatMap(x=>Array.isArray(x)?x:[x]); return flat.map(x=>({text:String(x?.text||x?.label||'Ouvrir').trim(),url:String(x?.url||'').trim()})).filter(x=>/^https?:\/\//i.test(x.url)).slice(0,12); }
 function linksText(buttons){ return buttons.map(b=>`• ${b.text}: ${b.url}`).join('\n'); }
+
+function groupForwardContext(){
+  const newsletterJid=state.channelJid||PRESENTATION_NEWSLETTER_JID;
+  return {
+    forwardingScore:1,
+    isForwarded:true,
+    forwardedNewsletterMessageInfo:{
+      newsletterJid,
+      newsletterName:state.channelTitle||'Nextech',
+    },
+  };
+}
+
+function groupActionButtons(pub){
+  const out=[...(pub?.buttons||[])];
+  if(CHANNEL_INVITE_URL && !out.some(b=>String(b?.url||'')===CHANNEL_INVITE_URL)){
+    out.push({text:'Voir la chaîne Nextech',url:CHANNEL_INVITE_URL});
+  }
+  return out.filter(b=>b?.text&&/^https?:\/\//i.test(String(b?.url||''))).slice(0,10);
+}
 function inviteCode(url=''){ const m=String(url).match(/whatsapp\.com\/channel\/([A-Za-z0-9_-]+)/i); return m?.[1] || String(url).trim(); }
 function ext(name=''){ return path.extname(String(name).split('?')[0].toLowerCase()).replace('.',''); }
 function documentBlocked(item){ const type=String(item?.type||'').toLowerCase(); const e=ext(item?.fileName||''); return type==='document'||type==='file'||BLOCKED_DOC_EXT.has(e); }
@@ -310,38 +330,99 @@ async function requestPairingCode(phone){
   }
 }
 
-async function nativeButtons(jid,text,buttons){
+async function nativeButtons(jid,text,buttons,{forwarded=false}={}){
   if(!buttons.length) return false;
   try{
+    const contextInfo=forwarded?groupForwardContext():undefined;
     const content=proto.Message.InteractiveMessage.create({
       body:proto.Message.InteractiveMessage.Body.create({text:text||'Ouvrir'}),
       footer:proto.Message.InteractiveMessage.Footer.create({text:'Nextech'}),
-      nativeFlowMessage:proto.Message.InteractiveMessage.NativeFlowMessage.create({buttons:buttons.slice(0,3).map(b=>({name:'cta_url',buttonParamsJson:JSON.stringify({display_text:b.text,url:b.url,merchant_url:b.url})}))})
+      ...(contextInfo?{contextInfo}:{}),
+      nativeFlowMessage:proto.Message.InteractiveMessage.NativeFlowMessage.create({
+        buttons:buttons.slice(0,3).map(b=>({
+          name:'cta_url',
+          buttonParamsJson:JSON.stringify({
+            display_text:String(b.text||'Ouvrir').slice(0,40),
+            url:b.url,
+            merchant_url:b.url
+          })
+        })),
+        messageVersion:1
+      })
     });
-    const msg=generateWAMessageFromContent(jid,{interactiveMessage:content},{userJid:socket.user?.id});
-    await socket.relayMessage(jid,msg.message,{messageId:msg.key.id}); return true;
-  }catch{return false;}
+    // Native Flow URL buttons render reliably when wrapped as a view-once
+    // interactive message. Sending interactiveMessage directly is silently
+    // downgraded/ignored by many current WhatsApp clients.
+    const msg=generateWAMessageFromContent(jid,{
+      viewOnceMessage:{
+        message:{
+          messageContextInfo:{deviceListMetadata:{},deviceListMetadataVersion:2},
+          interactiveMessage:content
+        }
+      }
+    },{userJid:socket.user?.id});
+    await socket.relayMessage(jid,msg.message,{messageId:msg.key.id});
+    return true;
+  }catch(error){
+    logger.warn({error:String(error?.message||error)},'WhatsApp native URL buttons failed');
+    return false;
+  }
 }
 
-async function sendOneMedia(jid,item,caption){
+async function sendOneMedia(jid,item,caption,contextInfo){
   const url=item.url||await telegramFileUrl(item.fileId);
   if(!url) throw new Error('URL média introuvable');
   const source={url};
   const type=String(item.type||'').toLowerCase();
-  if(type==='photo'||type==='image') return socket.sendMessage(jid,{image:source,caption});
-  if(type==='video'||type==='animation') return socket.sendMessage(jid,{video:source,caption});
-  if(type==='audio'||type==='voice') return socket.sendMessage(jid,{audio:source,mimetype:item.mimetype||'audio/mpeg'});
-  return socket.sendMessage(jid,{document:source,mimetype:item.mimetype||'application/octet-stream',fileName:item.fileName||'fichier',caption});
+  const ctx=contextInfo?{contextInfo}:{};
+  if(type==='photo'||type==='image') return socket.sendMessage(jid,{image:source,caption,...ctx});
+  if(type==='video'||type==='animation') return socket.sendMessage(jid,{video:source,caption,...ctx});
+  if(type==='audio'||type==='voice') return socket.sendMessage(jid,{audio:source,mimetype:item.mimetype||'audio/mpeg',...ctx});
+  return socket.sendMessage(jid,{document:source,mimetype:item.mimetype||'application/octet-stream',fileName:item.fileName||'fichier',caption,...ctx});
 }
 
 async function sendPublication(jid,destination,pub){
   if(!socket||state.status!=='connected') throw new Error('WhatsApp non connecté');
-  const combined=[pub.text,linksText(pub.buttons)].filter(Boolean).join('\n\n');
+
+  const isGroup=destination==='group';
+  const forwardContext=isGroup?groupForwardContext():undefined;
+  const buttons=isGroup?groupActionButtons(pub):(pub.buttons||[]);
+  const channelText=[pub.text,linksText(pub.buttons||[])].filter(Boolean).join('\n\n');
+  const groupFallback=[pub.text,linksText(buttons)].filter(Boolean).join('\n\n');
+
   if(!pub.media.length){
-    if(destination==='group'&&pub.buttons.length&&await nativeButtons(jid,pub.text,pub.buttons)) return;
-    await socket.sendMessage(jid,{text:combined||'Publication Nextech'}); return;
+    if(isGroup&&buttons.length){
+      if(await nativeButtons(jid,pub.text||'Publication Nextech',buttons,{forwarded:true})){
+        // Keep every URL even when Telegram supplied more than WhatsApp's three
+        // visible CTA slots.
+        if(buttons.length>3){
+          await socket.sendMessage(jid,{text:linksText(buttons.slice(3)),contextInfo:forwardContext});
+        }
+        return;
+      }
+      await socket.sendMessage(jid,{text:groupFallback||'Publication Nextech',contextInfo:forwardContext});
+      return;
+    }
+    await socket.sendMessage(jid,{text:(isGroup?pub.text:channelText)||'Publication Nextech',...(forwardContext?{contextInfo:forwardContext}:{})});
+    return;
   }
-  for(let i=0;i<pub.media.length;i++) await sendOneMedia(jid,pub.media[i],i===0?combined:undefined);
+
+  // For groups, the actual publication carries the newsletter-forward
+  // attribution. Telegram inline URLs are then rendered as native WhatsApp CTA
+  // buttons instead of being flattened into the caption.
+  for(let i=0;i<pub.media.length;i++){
+    const caption=i===0?(isGroup?pub.text:channelText):undefined;
+    await sendOneMedia(jid,pub.media[i],caption,isGroup?forwardContext:undefined);
+  }
+
+  if(isGroup&&buttons.length){
+    const ok=await nativeButtons(jid,'Liens de la publication',buttons,{forwarded:true});
+    if(!ok){
+      await socket.sendMessage(jid,{text:linksText(buttons),contextInfo:forwardContext});
+    }else if(buttons.length>3){
+      await socket.sendMessage(jid,{text:linksText(buttons.slice(3)),contextInfo:forwardContext});
+    }
+  }
 }
 
 async function processQueue(){
