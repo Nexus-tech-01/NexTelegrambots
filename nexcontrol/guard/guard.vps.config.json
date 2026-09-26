@@ -1,0 +1,205 @@
+{
+  "intervalMs": 30000,
+  "failureThreshold": 2,
+  "repairCooldownMs": 300000,
+  "verifyDelayMs": 8000,
+  "targets": [
+    {
+      "name": "NexAccount / NexAI service",
+      "type": "systemd",
+      "service": "nex-nexaccount.service",
+      "intervalMs": 30000,
+      "repair": {
+        "type": "restartService",
+        "service": "nex-nexaccount.service"
+      }
+    },
+    {
+      "name": "NexCanal service",
+      "type": "systemd",
+      "service": "nex-nexcanal.service",
+      "intervalMs": 30000,
+      "repair": {
+        "type": "restartService",
+        "service": "nex-nexcanal.service"
+      }
+    },
+    {
+      "name": "NexDownloader service",
+      "type": "systemd",
+      "service": "nex-nexdownloader.service",
+      "intervalMs": 60000,
+      "repair": {
+        "type": "restartService",
+        "service": "nex-nexdownloader.service"
+      }
+    },
+    {
+      "name": "NexGroup service",
+      "type": "systemd",
+      "service": "nex-nexgroup.service",
+      "intervalMs": 60000,
+      "repair": {
+        "type": "restartService",
+        "service": "nex-nexgroup.service"
+      }
+    },
+    {
+      "name": "NexGame service",
+      "type": "systemd",
+      "service": "nex-nexgame.service",
+      "intervalMs": 60000,
+      "repair": {
+        "type": "restartService",
+        "service": "nex-nexgame.service"
+      }
+    },
+    {
+      "name": "NexStick service",
+      "type": "systemd",
+      "service": "nex-nexstick.service",
+      "intervalMs": 60000,
+      "repair": {
+        "type": "restartService",
+        "service": "nex-nexstick.service"
+      }
+    },
+    {
+      "name": "NexWhisper service",
+      "type": "systemd",
+      "service": "nex-nexwhisper.service",
+      "intervalMs": 60000,
+      "repair": {
+        "type": "restartService",
+        "service": "nex-nexwhisper.service"
+      }
+    },
+    {
+      "name": "Stacy service",
+      "type": "systemd",
+      "service": "nex-stacy.service",
+      "intervalMs": 60000,
+      "repair": {
+        "type": "restartService",
+        "service": "nex-stacy.service"
+      }
+    },
+    {
+      "name": "LiteAPK watcher",
+      "type": "systemd",
+      "service": "nex-liteapks-watcher.service",
+      "intervalMs": 30000,
+      "repair": {
+        "type": "restartService",
+        "service": "nex-liteapks-watcher.service"
+      }
+    },
+    {
+      "name": "NexNews delivery",
+      "type": "systemd",
+      "service": "nex-nexnews-delivery.service",
+      "intervalMs": 30000,
+      "repair": {
+        "type": "restartService",
+        "service": "nex-nexnews-delivery.service"
+      }
+    },
+    {
+      "name": "WhatsApp publisher",
+      "type": "systemd",
+      "service": "nex-whatsapp-publisher.service",
+      "intervalMs": 30000,
+      "repair": {
+        "type": "restartService",
+        "service": "nex-whatsapp-publisher.service"
+      }
+    },
+    {
+      "name": "Facebook page worker",
+      "type": "systemd",
+      "service": "nexmeta-page-worker.service",
+      "intervalMs": 60000,
+      "repair": {
+        "type": "restartService",
+        "service": "nexmeta-page-worker.service"
+      }
+    },
+    {
+      "name": "Facebook personal worker",
+      "type": "systemd",
+      "service": "nexmeta-personal-worker.service",
+      "intervalMs": 60000,
+      "repair": {
+        "type": "restartService",
+        "service": "nexmeta-personal-worker.service"
+      }
+    },
+    {
+      "name": "Anime secondary scanner",
+      "type": "systemd",
+      "service": "nex-anime-secondary.service",
+      "intervalMs": 30000,
+      "repair": {
+        "type": "restartService",
+        "service": "nex-anime-secondary.service"
+      }
+    },
+    {
+      "name": "Interroute publisher",
+      "type": "systemd",
+      "service": "nex-interroute.service",
+      "intervalMs": 30000,
+      "repair": {
+        "type": "restartService",
+        "service": "nex-interroute.service"
+      }
+    },
+    {
+      "name": "LiteAPK live heartbeat",
+      "type": "fileHeartbeat",
+      "path": "/var/lib/nex/state/internal-automation/nexcanal-watch-state-v2.json",
+      "timestampField": "updatedAt",
+      "maxAgeMs": 300000,
+      "intervalMs": 30000,
+      "repair": {
+        "type": "restartService",
+        "service": "nex-liteapks-watcher.service"
+      }
+    },
+    {
+      "name": "NexAccount full regression",
+      "type": "command",
+      "file": "/usr/bin/npm",
+      "args": [
+        "run",
+        "check"
+      ],
+      "cwd": "/opt/nex/apps/public/nexai/current",
+      "timeoutMs": 480000,
+      "intervalMs": 3600000
+    },
+    {
+      "name": "Bot fleet self-test",
+      "type": "command",
+      "file": "/usr/bin/node",
+      "args": [
+        "bot-selftest.mjs"
+      ],
+      "cwd": "/opt/nex/apps/internal/nexguard/current",
+      "timeoutMs": 600000,
+      "intervalMs": 1800000
+    },
+    {
+      "name": "NexGuard self regression",
+      "type": "command",
+      "file": "/usr/bin/npm",
+      "args": [
+        "run",
+        "check"
+      ],
+      "cwd": "/opt/nex/apps/internal/nexguard/current",
+      "timeoutMs": 120000,
+      "intervalMs": 1800000
+    }
+  ]
+}
