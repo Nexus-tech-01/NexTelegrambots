@@ -409,9 +409,9 @@ export async function stickerEngineDiagnostic({force=false}={}){
   return value;
 }
 
-export async function handleStickerCommand({runtime,event,name,args=[],progress:externalProgress=null}){
+export async function handleStickerCommand({runtime,event,name,args=[],progress:externalProgress=null,reply=null}){
   const {client,account}=runtime,peer=event.message.peerId;
-  const say=t=>client.sendMessage(peer,{message:String(t)});
+  const say=t=>typeof reply==='function'?reply(String(t)):client.sendMessage(peer,{message:String(t)});
 
   if(name==='mypacks'){
     const s=await settingsFor(account.telegramUserId),packs=Array.isArray(s.stickerPacks)?s.stickerPacks:[];
