@@ -1230,6 +1230,12 @@ export async function engineStatus(){
   return {
     ok:true,
     standalone:true,
+    architecture:{
+      version:3,
+      sessionLayer:'NexAccount',
+      engineLayer:'NexAI',
+      presentationLayer:'Inline bot'
+    },
     runtimeConnected:runtime?.client?.connected===true,
     engines:[
       {service:'ai',type:'local',configured:providers.length>0,reachable:providers.length>0,providers},
