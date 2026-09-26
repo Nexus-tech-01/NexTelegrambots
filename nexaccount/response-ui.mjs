@@ -46,12 +46,20 @@ export async function createProgress(client,peer,label='Traitement'){
       }));
     }catch{}
   };
+  const state={finished:false};
   return {
     id,
+    get finished(){return state.finished},
     update:text=>edit(String(text)),
     step:text=>edit('⏳ '+String(text)),
-    done:text=>edit('✅ '+String(text||label+' terminé')),
-    fail:text=>edit('❌ '+String(text||label+' impossible'))
+    async done(text){
+      state.finished=true;
+      await edit('✅ '+String(text||label+' terminé'));
+    },
+    async fail(text){
+      state.finished=true;
+      await edit('❌ '+String(text||label+' impossible'));
+    }
   };
 }
 
