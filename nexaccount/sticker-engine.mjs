@@ -424,7 +424,7 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
   }
 
   const source=await sourceMessage(client,peer,event);
-  if(!source)throw new Error('Réponds à une image, vidéo ou sticker avec .'+name+'.');
+  if(!source)throw new Error('Réponds à une image, vidéo ou sticker avec /'+name+'.');
 
   if(name==='stickerinfo'){
     const doc=documentOf(source),attr=stickerAttr(doc);
