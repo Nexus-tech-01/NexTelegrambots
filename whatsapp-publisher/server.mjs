@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import pino from 'pino';
-import makeWASocket, { DisconnectReason, useMultiFileAuthState, Browsers, delay } from '@whiskeysockets/baileys';
+import makeWASocket, { DisconnectReason, useMultiFileAuthState, Browsers, delay, fetchLatestWaWebVersion, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 
 const PORT = Number(process.env.PORT || 8790);
@@ -48,54 +48,163 @@ async function resolveChannel(invite=cfg().whatsappChannelInviteUrl){
   return {jid:String(jid),name:meta?.name||meta?.subject||''};
 }
 
-async function connect(){
-  if(reconnectTimer)clearTimeout(reconnectTimer);
+let waVersionCache=null;
+let waVersionFetchedAt=0;
+const WA_VERSION_TTL_MS=6*60*60*1000;
+let socketGeneration=0;
+let pairingReadyPromise=null;
+
+async function currentWaVersion(strict=false){
+  const now=Date.now();
+  if(waVersionCache&&now-waVersionFetchedAt<WA_VERSION_TTL_MS)return waVersionCache;
+  try{
+    const latest=await fetchLatestWaWebVersion({});
+    if(!Array.isArray(latest?.version)||latest.version.length!==3)throw Error(latest?.error?.message||'version WhatsApp Web invalide');
+    waVersionCache=latest.version;
+    waVersionFetchedAt=now;
+    hist({type:'wa_web_version',version:waVersionCache.join('.'),source:'web.whatsapp.com'});
+    return waVersionCache;
+  }catch(e){
+    if(strict)throw Error('Impossible de récupérer la version WhatsApp Web actuelle : '+String(e.message||e));
+    const fallback=await fetchLatestBaileysVersion();
+    waVersionCache=fallback.version;
+    waVersionFetchedAt=now;
+    hist({type:'wa_web_version_fallback',version:waVersionCache.join('.'),error:String(e.message||e)});
+    return waVersionCache;
+  }
+}
+
+async function connect({pairing=false}={}){
+  if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null}
   const {state,saveCreds}=await useMultiFileAuthState(AUTH);
-  wa.status='connecting'; wa.lastError=null;
-  sock=makeWASocket({
+
+  // Une session vierge ne doit pas rester ouverte depuis le démarrage du
+  // service : le handshake d'appairage expire avant que l'utilisateur ne
+  // demande son code. On crée le socket de pairing uniquement à la demande.
+  if(!state.creds.registered&&!pairing){
+    try{sock?.ws?.close?.()}catch{}
+    sock=null;
+    wa={status:'needs_pairing',me:null,lastError:null,connectedAt:null};
+    return null;
+  }
+
+  const generation=++socketGeneration;
+  try{sock?.ws?.close?.()}catch{}
+  sock=null;
+
+  const version=await currentWaVersion(pairing);
+  wa.status=pairing?'pairing':'connecting';
+  wa.lastError=null;
+
+  let readyResolve,readyReject;
+  pairingReadyPromise=pairing?new Promise((resolve,reject)=>{readyResolve=resolve;readyReject=reject}):null;
+  let readyTimer=null;
+  if(pairing){
+    readyTimer=setTimeout(()=>readyReject?.(Error('WhatsApp n’a pas ouvert la fenêtre d’appairage à temps')),15000);
+    readyTimer.unref?.();
+  }
+
+  const localSock=makeWASocket({
+    version,
     auth:state,
     logger:pino({level:process.env.BAILEYS_LOG_LEVEL||'silent'}),
-    browser:Browsers.ubuntu('Nex WhatsApp Publisher'),
+    // Pour requestPairingCode, garder une identité navigateur canonique.
+    // Un libellé personnalisé peut produire un code de 8 caractères que
+    // WhatsApp refuse ensuite avec "Couldn't link device".
+    browser:Browsers.ubuntu('Chrome'),
+    printQRInTerminal:false,
     markOnlineOnConnect:false,
     syncFullHistory:false,
-    generateHighQualityLinkPreview:true
+    generateHighQualityLinkPreview:true,
+    connectTimeoutMs:60000,
+    keepAliveIntervalMs:30000
   });
-  sock.ev.on('creds.update',saveCreds);
-  sock.ev.on('connection.update',async u=>{
+  sock=localSock;
+
+  localSock.ev.on('creds.update',saveCreds);
+  localSock.ev.on('connection.update',async u=>{
+    if(generation!==socketGeneration)return;
+
+    if(pairing&&u.qr){
+      if(readyTimer){clearTimeout(readyTimer);readyTimer=null}
+      readyResolve?.(true);
+    }
+
     if(u.connection==='open'){
-      wa={status:'connected',me:sock.user||null,lastError:null,connectedAt:new Date().toISOString()};
-      hist({type:'whatsapp_connected',me:sock.user?.id||null});
+      if(readyTimer){clearTimeout(readyTimer);readyTimer=null}
+      readyResolve?.(true);
+      wa={status:'connected',me:localSock.user||null,lastError:null,connectedAt:new Date().toISOString()};
+      hist({type:'whatsapp_connected',me:localSock.user?.id||null});
       if(!cfg().whatsappChannelJid){
         try{await resolveChannel()}catch(e){hist({type:'channel_resolve_failed',error:String(e.message||e)})}
       }
     }
+
     if(u.connection==='close'){
       const code=new Boom(u.lastDisconnect?.error)?.output?.statusCode;
-      wa.status='disconnected';wa.me=null;
-      wa.lastError=String(u.lastDisconnect?.error?.message||u.lastDisconnect?.error||code||'closed');
+      const err=String(u.lastDisconnect?.error?.message||u.lastDisconnect?.error||code||'closed');
+
+      if(readyTimer){clearTimeout(readyTimer);readyTimer=null}
+      if(pairing&&code!==DisconnectReason.restartRequired)readyReject?.(Error(err));
+
+      wa.status='disconnected';
+      wa.me=null;
+      wa.lastError=err;
+      hist({type:'whatsapp_disconnected',code,error:err});
+
       if(code!==DisconnectReason.loggedOut){
-        reconnectTimer=setTimeout(()=>connect().catch(()=>{}),5000);
+        const wait=code===DisconnectReason.restartRequired?750:5000;
+        reconnectTimer=setTimeout(()=>connect().catch(e=>{
+          wa.lastError=String(e.message||e);
+          hist({type:'whatsapp_reconnect_failed',error:wa.lastError});
+        }),wait);
         reconnectTimer.unref?.();
       }
     }
   });
+
+  return localSock;
 }
 
 async function requestPair(phone){
   const clean=String(phone||'').replace(/\D/g,'');
   if(clean.length<7||clean.length>15)throw Error('Numéro WhatsApp invalide');
   if(wa.status==='connected')throw Error('Un compte est déjà connecté. Réinitialise la session pour changer de compte.');
-  if(Date.now()-pairLock<7000)throw Error('Attends quelques secondes avant de demander un autre code.');
+  if(Date.now()-pairLock<10000)throw Error('Attends quelques secondes avant de demander un autre code.');
   pairLock=Date.now();
-  if(!sock)await connect();
-  await delay(1200);
-  const raw=await sock.requestPairingCode(clean);
+
+  const {state}=await useMultiFileAuthState(AUTH);
+  if(state.creds.registered){
+    await connect();
+    throw Error('Une session WhatsApp existe déjà. Si elle ne se reconnecte pas, utilise « Réinitialiser la session WhatsApp » puis génère un nouveau code.');
+  }
+
+  const pairSock=await connect({pairing:true});
+  if(!pairSock)throw Error('Socket d’appairage indisponible');
+
+  try{
+    // Attendre le QR interne signifie que le handshake de registration est
+    // réellement prêt. Cela évite les codes générés trop tôt puis refusés.
+    await pairingReadyPromise;
+  }catch(e){
+    try{pairSock?.ws?.close?.()}catch{}
+    throw e;
+  }
+
+  if(pairSock!==sock||wa.status==='disconnected')throw Error('La connexion WhatsApp a été interrompue avant la génération du code.');
+
+  const raw=await pairSock.requestPairingCode(clean);
   const code=String(raw||'').replace(/\s+/g,'');
   if(!code)throw Error('WhatsApp n’a retourné aucun code');
-  hist({type:'pairing_code_requested',phone:'+'+clean.slice(0,3)+'***'+clean.slice(-2)});
+
+  hist({
+    type:'pairing_code_requested',
+    phone:'+'+clean.slice(0,3)+'***'+clean.slice(-2),
+    version:Array.isArray(waVersionCache)?waVersionCache.join('.'):null,
+    browser:'Ubuntu/Chrome'
+  });
   return {phone:'+'+clean,code,formatted:code.match(/.{1,4}/g)?.join('-')||code};
 }
-
 async function resetSession(){
   try{sock?.ws?.close?.()}catch{}
   fs.rmSync(AUTH,{recursive:true,force:true});
