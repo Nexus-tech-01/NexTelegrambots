@@ -251,8 +251,8 @@ const PUBLIC_PLANS = {
 
 function ownerSentence(language) {
   return language === 'fr'
-    ? \`Le créateur et propriétaire de Nextech est \${OWNER_NAME}, plus connu sous le pseudonyme de \${OWNER_ALIAS}.\`
-    : \`Nextech was created and is owned by \${OWNER_NAME}, better known by the pseudonym \${OWNER_ALIAS}.\`;
+    ? `Le créateur et propriétaire de Nextech est ${OWNER_NAME}, plus connu sous le pseudonyme de ${OWNER_ALIAS}.`
+    : `Nextech was created and is owned by ${OWNER_NAME}, better known by the pseudonym ${OWNER_ALIAS}.`;
 }
 
 function productFromText(text) {
@@ -277,13 +277,13 @@ function productsSentence(language) {
   const products = PUBLIC_PRODUCTS
     .map(product => {
       const description = language === 'fr' ? product.fr : product.en;
-      return \`• \${product.name} — \${description}\\n\${product.url}\`;
+      return `• ${product.name} — ${description}\\n${product.url}`;
     })
     .join('\\n\\n');
 
   return language === 'fr'
-    ? \`Les produits publics de Nextech disponibles sur Telegram sont :\\n\\n\${products}\`
-    : \`Nextech's public Telegram products are:\\n\\n\${products}\`;
+    ? `Les produits publics de Nextech disponibles sur Telegram sont :\\n\\n${products}`
+    : `Nextech's public Telegram products are:\\n\\n${products}`;
 }
 
 function planSentence(product, language) {
