@@ -75,6 +75,20 @@ function bmffBrand(b){
   return b.length>=12&&b.toString('ascii',4,8)==='ftyp'?b.toString('ascii',8,12):'';
 }
 
+export function normalizeTransferPercent(...args){
+  const values=args.map(value=>{
+    try{return Number(value?.valueOf?.()??value)}catch{return NaN}
+  }).filter(Number.isFinite);
+  if(!values.length)return null;
+  const first=values[0],second=values[1];
+  let ratio;
+  if(Number.isFinite(second)&&second>0)ratio=first/second;
+  else if(first>=0&&first<=1)ratio=first;
+  else if(first>=0&&first<=100)ratio=first/100;
+  else return null;
+  return Math.max(0,Math.min(100,Math.round(ratio*100)));
+}
+
 export function sniffMedia(buffer){
   const b=Buffer.from(buffer||[]);
   if(starts(b,[0xff,0xd8,0xff]))return {mimeType:'image/jpeg',ext:'.jpg',kind:'image'};
@@ -169,7 +183,7 @@ export function prepareTelegramMedia(data,{fileName='media',mimeType='',kind='au
 
 export async function sendTelegramMedia(client,peer,data,{
   fileName='media',mimeType='',kind='auto',caption='',formattingEntities,
-  voiceNote=false,buttons,replyTo,silent,parseMode,workers,thumb,afterSend
+  voiceNote=false,buttons,replyTo,silent,parseMode,workers,thumb,afterSend,onUploadProgress
 }={}){
   const media=prepareTelegramMedia(data,{fileName,mimeType,kind});
   const dir=path.join(
@@ -199,7 +213,13 @@ export async function sendTelegramMedia(client,peer,data,{
       silent,
       parseMode,
       workers,
-      thumb
+      thumb,
+      progressCallback:typeof onUploadProgress==='function'
+        ?(...args)=>{
+          const pct=normalizeTransferPercent(...args);
+          if(pct!==null)Promise.resolve(onUploadProgress(pct)).catch(()=>{});
+        }
+        :undefined
     });
     if(typeof afterSend==='function'){
       try{await afterSend(sent,media)}catch(error){
