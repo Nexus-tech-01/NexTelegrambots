@@ -20,6 +20,8 @@ const LITEAPK_PUBLICATION_GAP_MS=Math.max(60_000,Number(process.env.NEXCANAL__WA
 const WHATSAPP_DATA=process.env.WHATSAPP_DATA_DIR||process.env.DATA_DIR||'/var/lib/nex/whatsapp-publisher';
 const WHATSAPP_QUEUE=path.join(WHATSAPP_DATA,'queue.json');
 const WHATSAPP_HISTORY=path.join(WHATSAPP_DATA,'history.json');
+const INTERROUTE_STATE_FILE=process.env.NEX_INTERROUTE_STATE_FILE||'/var/lib/nex/queue/interroute/state.json';
+const ROUTE_STALE_MS=Math.max(5*60_000,Number(process.env.NEX_AUTOMATION_ROUTE_STALE_MS||20*60_000));
 
 await fs.mkdir(RUNTIME,{recursive:true});
 
@@ -216,6 +218,102 @@ async function auditWhatsappRelay(){
   return {ok:!stuck.length&&!duplicates.length,configured:true,pending:pending.length,stuck:stuck.length,duplicates:duplicates.length};
 }
 
+async function auditInterroute(){
+  const st=await readJson(INTERROUTE_STATE_FILE,null);
+  if(!st)return {ok:true,configured:false,stateFile:INTERROUTE_STATE_FILE};
+
+  const events=Array.isArray(st.events)?st.events:[];
+  const history=Array.isArray(st.history)?st.history:[];
+  const now=Date.now();
+  const idemSeen=new Set(),duplicateIdempotency=[];
+  const staleRoutes=[],deadLetters=[],failuresByPlatform={};
+  let pending=0,running=0,succeeded=0,partialFailure=0;
+
+  for(const e of events){
+    const idem=String(e?.idempotencyKey||'');
+    if(idem){
+      if(idemSeen.has(idem)&&!duplicateIdempotency.includes(idem))duplicateIdempotency.push(idem);
+      idemSeen.add(idem);
+    }
+    if(e?.status==='queued')pending++;
+    else if(e?.status==='running')running++;
+    else if(e?.status==='succeeded')succeeded++;
+    else if(e?.status==='partial_failure')partialFailure++;
+
+    const eventUpdated=normalizeDate(e?.updatedAt||e?.createdAt);
+    for(const r of (Array.isArray(e?.routes)?e.routes:[])){
+      const platform=String(r?.platform||'unknown');
+      if(r?.status==='dead_letter'){
+        deadLetters.push({
+          eventId:e.id,idempotencyKey:e.idempotencyKey,source:e?.source?.name,
+          platform,destination:r.destination,pageId:r.pageId,
+          attempts:r.attempts,lastError:r.lastError,completedAt:r.completedAt
+        });
+        failuresByPlatform[platform]=(failuresByPlatform[platform]||0)+1;
+      }
+      if(['pending','running'].includes(String(r?.status||''))){
+        const routeAt=normalizeDate(r?.completedAt||e?.updatedAt||e?.createdAt);
+        if(routeAt&&now-routeAt>ROUTE_STALE_MS){
+          staleRoutes.push({
+            eventId:e.id,idempotencyKey:e.idempotencyKey,source:e?.source?.name,
+            sourceMessageId:e?.source?.messageId,platform,destination:r.destination,
+            status:r.status,attempts:r.attempts,nextAttemptAt:r.nextAttemptAt,
+            lastError:r.lastError,ageMs:now-routeAt
+          });
+        }
+      }
+    }
+  }
+
+  const recentRetries=history.filter(x=>
+    String(x?.type||'')==='route_retry' &&
+    normalizeDate(x?.at)>=now-60*60_000
+  );
+  for(const x of recentRetries){
+    const p=String(x?.platform||'unknown');
+    failuresByPlatform[p]=(failuresByPlatform[p]||0)+1;
+  }
+
+  metric('interroute.events',events.length);
+  metric('interroute.pendingEvents',pending+running);
+  metric('interroute.deadLetters',deadLetters.length);
+  metric('interroute.staleRoutes',staleRoutes.length);
+  metric('interroute.duplicateIdempotency',duplicateIdempotency.length);
+
+  if(duplicateIdempotency.length){
+    await emitIncident(
+      'interroute_duplicate_event','critical',
+      {duplicates:duplicateIdempotency.slice(0,50),eventCount:events.length},
+      'Preserve the existing idempotency key end-to-end. Inspect the upstream relay producer before resending anything; never duplicate an already accepted event.'
+    );
+  }
+  if(staleRoutes.length){
+    await emitIncident(
+      'interroute_route_stale','critical',
+      {count:staleRoutes.length,routes:staleRoutes.slice(0,40)},
+      'Inspect the destination worker for each stale platform. Restore the route worker and let Interroute retry the same idempotency key instead of creating a new publication.'
+    );
+  }
+  if(deadLetters.length){
+    await emitIncident(
+      'interroute_dead_letter','critical',
+      {count:deadLetters.length,byPlatform:failuresByPlatform,routes:deadLetters.slice(0,40)},
+      'Diagnose each dead-letter destination, repair connectivity/authentication, then explicitly requeue the existing route with the same event/idempotency identity after verification.'
+    );
+  }
+
+  return {
+    ok:!duplicateIdempotency.length&&!staleRoutes.length&&!deadLetters.length,
+    configured:true,stateFile:INTERROUTE_STATE_FILE,
+    events:events.length,pending,running,succeeded,partialFailure,
+    duplicateIdempotency:duplicateIdempotency.length,
+    staleRoutes:staleRoutes.length,
+    deadLetters:deadLetters.length,
+    failuresByPlatform,
+    recentRetries:recentRetries.length
+  };
+}
+
 async function loadAnimeDb(){
   try{
     const mod=await import(STORE_MODULE);
@@ -363,16 +461,17 @@ async function auditAnime(){
 
 async function runCycle(){
   const started=Date.now();
-  const [liteapk,anime,whatsapp,healthEndpoints]=await Promise.all([
+  const [liteapk,anime,whatsapp,interroute,healthEndpoints]=await Promise.all([
     auditLiteApk().catch(error=>({ok:false,error:String(error?.message||error)})),
     auditAnime().catch(error=>({ok:false,error:String(error?.message||error)})),
     auditWhatsappRelay().catch(error=>({ok:false,error:String(error?.message||error)})),
+    auditInterroute().catch(error=>({ok:false,error:String(error?.message||error)})),
     auditHealthEndpoints().catch(error=>[{ok:false,error:String(error?.message||error)}])
   ]);
   state.cycles=Number(state.cycles||0)+1;
   state.lastCycleAt=nowIso();
   state.lastCycleMs=Date.now()-started;
-  state.last={liteapk,anime,whatsapp,healthEndpoints};
+  state.last={liteapk,anime,whatsapp,interroute,healthEndpoints};
   state.pid=process.pid;
   await writeJsonAtomic(STATE_FILE,state);
   return state.last;
