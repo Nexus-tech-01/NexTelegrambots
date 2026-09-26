@@ -566,12 +566,17 @@ function classifyMessage(message,source={}){
       cleanedCaption,confidence:0.92
     };
   }
-  if(message?.photo && text.trim() && (PRESENTATION_RE.test(text)||(ep&&text.trim().length>=80)) && !looksPromotional(text)){
-    const presentTitle=stripNoiseTitle(text.split(/\r?\n/)[0]||'',ep?.token||'');
+  // Episode-numbered images are source context only. They are not episodes and
+  // must never become public "episode cards" in Otaku Nexus.
+  if(message?.photo && ep && !obviousNonEpisode){
+    return {kind:'ignore',reason:'episode_image_card_context_only'};
+  }
+  if(message?.photo && text.trim() && PRESENTATION_RE.test(text) && !looksPromotional(text)){
+    const presentTitle=stripNoiseTitle(text.split(/\r?\n/)[0]||'','');
     if(presentTitle.length>=2){
       return {
-        kind:'presentation',title:presentTitle,season:ep?.season??null,episode:ep?.episode??null,language:lang,quality,
-        sourcePreviousNav:hasPreviousEpisodeNav(message),
+        kind:'presentation',title:presentTitle,season:null,episode:null,language:lang,quality,
+        sourcePreviousNav:false,
         mediaKind:'photo',originalFilename:'',cleanedFilename:'',
         cleanedCaption:cleanCaption(text,source),confidence:0.82
       };
@@ -1449,51 +1454,10 @@ async function ensureGeneralPresentation(d,seriesKey){
   );
 }
 
-async function ensureLiveEpisodePresentation(d,seriesKey,episodeItem){
-  if(!episodeItem||episodeItem.mode!=='live'||episodeItem.episode==null)return;
-
-  const season=Number(episodeItem.season??1);
-  const episode=Number(episodeItem.episode);
-  const existing=await d.collection('nexanime_queue').findOne({
-    seriesKey,kind:'presentation',season,episode,
-    status:{$in:['queued','publishing','published']}
-  },{projection:{_id:1}});
-  if(existing)return;
-
-  const already=await d.collection('nexanime_publications').findOne({
-    seriesKey,kind:'presentation',season,episode,purgedAt:{$exists:false}
-  },{projection:{_id:1}});
-  if(already)return;
-
-  const meta=await animePresentationMetadata(episodeItem.title);
-  if(!meta?.ok)return;
-  const now=new Date();
-  const c={
-    kind:'presentation',
-    title:meta.canonicalTitle||episodeItem.title,
-    anilistId:meta.anilistId||episodeItem.anilistId||null,
-    season,episode,
-    language:episodeItem.language||'',
-    quality:'',
-    cleanedCaption:[
-      'Season '+season+' · Episode '+episode,
-      presentationText(meta)
-    ].filter(Boolean).join('\n\n')
-  };
-  const dedupeKey=presentationKey(c);
-  await d.collection('nexanime_queue').updateOne(
-    {dedupeKey},
-    {$setOnInsert:{
-      dedupeKey,status:'queued',kind:'presentation',seriesKey,
-      title:c.title,anilistId:c.anilistId,season,episode,
-      language:c.language,quality:'',mediaKind:'photo',
-      cleanedCaption:c.cleanedCaption,cleanedFilename:'',originalFilename:'',
-      confidence:1,destination:'@'+DESTINATION,mode:'live',
-      synthetic:true,syntheticEpisodeCard:true,sourcePreviousNav:true,
-      imageUrl:meta.coverImage||'',createdAt:now,attempts:0,ingestedAt:now
-    },$set:{updatedAt:now}},
-    {upsert:true}
-  );
+async function ensureLiveEpisodePresentation(){
+  // Kept as a compatibility shim for older callers. Per-episode presentation
+  // cards are intentionally disabled: one series synopsis is enough.
+  return null;
 }
 
 function episodeVariantScore(item){
@@ -1615,7 +1579,22 @@ async function claimNext(runtime){
   if(!seriesKey)return null;
   await ensureGeneralPresentation(d,seriesKey);
 
-  // 1) One general anime presentation first.
+  // Legacy/source "Episode N" poster cards are not episode media. Remove them
+  // from the runnable queue so a restart can never resume publishing them.
+  await d.collection('nexanime_queue').updateMany(
+    {
+      seriesKey,status:'queued',kind:'presentation',
+      episode:{$ne:null}
+    },
+    {$set:{
+      status:'superseded',
+      supersededAt:new Date(),
+      supersededReason:'episode_image_card_disabled',
+      updatedAt:new Date()
+    }}
+  );
+
+  // 1) Exactly one general anime presentation/synopsis is allowed.
   const generalPresentation=await d.collection('nexanime_queue').findOne(
     {
       seriesKey,status:'queued',kind:'presentation',
@@ -1638,12 +1617,12 @@ async function claimNext(runtime){
     return null;
   }
 
-  // 2) Find the earliest episode that still has either its synopsis or media.
+  // 2) Only real episode media can be selected after the general synopsis.
   const nextEpisode=await d.collection('nexanime_queue').findOne(
     {
       seriesKey,status:'queued',
       episode:{$ne:null},
-      kind:{$in:['presentation','episode']}
+      kind:'episode'
     },
     {sort:{season:1,episode:1,createdAt:1}}
   );
@@ -1655,20 +1634,7 @@ async function claimNext(runtime){
     return claimNext(runtime);
   }
 
-  if(nextEpisode.kind==='episode'&&nextEpisode.mode==='live'){
-    await ensureLiveEpisodePresentation(d,seriesKey,nextEpisode);
-  }
-
-  // 3) Episode-specific image/synopsis precedes that episode.
-  const episodePresentation=await d.collection('nexanime_queue').findOne(
-    {seriesKey,status:'queued',kind:'presentation',season,episode},
-    {sort:{createdAt:1}}
-  );
-  if(episodePresentation){
-    return claimExactItem(d,episodePresentation,accountId,{allowAny});
-  }
-
-  // 4) Publish one best media variant per episode. Alternate sources,
+  // 3) Publish one best media variant per episode. Alternate sources,
   // languages and qualities are superseded so the channel never receives the
   // same episode multiple times.
   const media=await preferredEpisodeVariant(d,seriesKey,season,episode);
@@ -1677,7 +1643,6 @@ async function claimNext(runtime){
   }
   return null;
 }
-
 async function alreadyPublished(dedupeKey){
   const d=await db();
   return !!(await d.collection('nexanime_publications').findOne({dedupeKey,purgedAt:{$exists:false}},{projection:{_id:1}}));
