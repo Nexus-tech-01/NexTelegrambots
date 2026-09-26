@@ -66,6 +66,33 @@ const PICKUPS=[
 
 const pick=a=>a[Math.floor(Math.random()*a.length)];
 const clean=s=>String(s??'').trim();
+
+const MENU_EMOJI_KEYS=new Set([
+  'GENERAL','ACCOUNT','AI','DOWNLOAD','GROUP','SHIELD','TOOLS','MEDIA','STICKER',
+  'GAMES','SEARCH','ANIME','PREMIUM','OWNER','NEXTECH','NEWS','DARK','BACK','STYLE'
+]);
+function menuEmojiSettingKey(value,settings){
+  let raw=clean(value).toUpperCase().replace(/^NEXAI_EMOJI_/,'').replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+  if(raw==='CURRENT'||raw==='CURRENT_STYLE')raw='STYLE_'+Math.max(1,Math.min(31,Number(settings?.style)||1));
+  if(raw==='PROTECTION')raw='SHIELD';
+  if(raw==='STICKERS')raw='STICKER';
+  if(raw==='FUN'||raw==='GAME')raw='GAMES';
+  if(/^STYLE_?(?:[1-9]|[12][0-9]|3[01])$/.test(raw)){
+    const n=Number(raw.replace(/^STYLE_?/,''));
+    raw='STYLE_'+n;
+  }else if(!MENU_EMOJI_KEYS.has(raw)){
+    return '';
+  }
+  return 'NEXAI_EMOJI_'+raw;
+}
+function customEmojiDocumentId(message){
+  for(const entity of message?.entities||[]){
+    const id=entity?.documentId??entity?.document_id;
+    const type=String(entity?.className||entity?.constructor?.name||'');
+    if(id!=null&&(/CustomEmoji/i.test(type)||String(entity?._||'').includes('customEmoji')))return String(id);
+  }
+  return '';
+}
 const html=s=>String(s??'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
 
 function replyId(message){
@@ -990,6 +1017,58 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const a=args[0]||'',b=args[1]||'';if(!a||!b){await sendText(client,peer,'Usage : .emojimix 😀 😎');return true}
     await sendText(client,peer,a+'  ×  '+b+'  →  '+a+b);return true;
   }
+  if(name==='menuemoji'){
+    const settings=await settingsFor(account.telegramUserId);
+    const action=clean(args[0]).toLowerCase();
+    const current={...(settings.customEmojiIds||{})};
+
+    if(!action||action==='list'){
+      const configured=Object.keys(current).sort();
+      await sendText(client,peer,[
+        'NexAi · emojis du menu · session '+(account.username?'@'+account.username:account.firstName||account.telegramUserId),
+        configured.length?('Configurés : '+configured.map(k=>k.replace(/^NEXAI_EMOJI_/,'')).join(', ')):'Configurés : aucun',
+        '',
+        'Réponds à un message contenant un emoji personnalisé avec :',
+        '.menuemoji current',
+        '.menuemoji anime',
+        '.menuemoji download',
+        '.menuemoji style_7',
+        '',
+        'Pour retirer : .menuemoji reset <clé> · ou .menuemoji reset all'
+      ].join('\n'));
+      return true;
+    }
+
+    if(action==='reset'){
+      const rawKey=clean(args[1]);
+      if(!rawKey||rawKey.toLowerCase()==='all'){
+        await patchSettings(account.telegramUserId,{customEmojiIds:{}});
+        await sendText(client,peer,'Emojis personnalisés du menu réinitialisés pour cette session.');
+        return true;
+      }
+      const key=menuEmojiSettingKey(rawKey,settings);
+      if(!key){await sendText(client,peer,'Clé emoji inconnue. Utilise .menuemoji list.');return true}
+      delete current[key];
+      await patchSettings(account.telegramUserId,{customEmojiIds:current});
+      await sendText(client,peer,'Emoji retiré : '+key.replace(/^NEXAI_EMOJI_/,''));
+      return true;
+    }
+
+    const key=menuEmojiSettingKey(args[0],settings);
+    if(!key){await sendText(client,peer,'Clé emoji inconnue. Utilise .menuemoji list.');return true}
+    const reply=await repliedMessage(client,peer,event.message);
+    const directId=clean(args[1]);
+    const id=customEmojiDocumentId(reply)||(/^\d{5,}$/.test(directId)?directId:'');
+    if(!id){
+      await sendText(client,peer,'Réponds à un message contenant le custom emoji Telegram à utiliser, puis relance .menuemoji '+clean(args[0])+'.');
+      return true;
+    }
+    current[key]=id;
+    await patchSettings(account.telegramUserId,{customEmojiIds:current});
+    await sendText(client,peer,'Emoji du menu enregistré pour cette session : '+key.replace(/^NEXAI_EMOJI_/,'')+' · ID '+id);
+    return true;
+  }
+
   if(name==='device'){
     await sendText(client,peer,'NexAccount · '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nTelegram ID : '+account.telegramUserId+'\nSession : active\nTelegram Premium : '+(account.premium?'oui':'non'));return true;
   }
