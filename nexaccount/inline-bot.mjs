@@ -12,7 +12,42 @@ import { listStyles, toSmallCaps } from './styles.mjs';
 const commands=commandMap();
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
 const webPairUsers=new Map();
+const photoFileIdCache=new Map();
+const photoCachePending=new Map();
 let bot;
+
+async function cachePhotoFileId(photoUrl,chatId){
+  const key=String(photoUrl||'').trim();
+  if(!key||!chatId)return '';
+  const cached=photoFileIdCache.get(key);
+  if(cached)return cached;
+  if(photoCachePending.has(key))return photoCachePending.get(key);
+
+  const pending=(async()=>{
+    let sent=null;
+    try{
+      sent=await bot.api.sendPhoto(chatId,key,{disable_notification:true});
+      const photos=Array.isArray(sent?.photo)?sent.photo:[];
+      const fileId=String(photos.at(-1)?.file_id||'');
+      if(fileId){
+        if(photoFileIdCache.size>=256){
+          const first=photoFileIdCache.keys().next().value;
+          if(first)photoFileIdCache.delete(first);
+        }
+        photoFileIdCache.set(key,fileId);
+      }
+      return fileId;
+    }catch(error){
+      console.warn('[NexAI artwork cache]',String(error?.description||error?.message||error).slice(0,350));
+      return '';
+    }finally{
+      if(sent?.message_id)await bot.api.deleteMessage(chatId,sent.message_id).catch(()=>{});
+      photoCachePending.delete(key);
+    }
+  })();
+  photoCachePending.set(key,pending);
+  return pending;
+}
 
 function rememberWebPair(userId){
   webPairUsers.set(String(userId),Date.now()+10*60*1000);
@@ -74,6 +109,19 @@ function portableMarkup(markup){
 
 function portableEntities(entities,maxLength){
   return (entities||[]).filter(e=>e.type==='bot_command'&&e.offset+e.length<=maxLength);
+}
+
+function inlineCachedPhotoResult(model,accountId,id,fileId,portable=false){
+  const stamped=stampMarkup(model.reply_markup,accountId);
+  const reply_markup=portable?portableMarkup(stamped):stamped;
+  return {
+    type:'photo',
+    id,
+    photo_file_id:fileId,
+    caption:model.text.slice(0,1024),
+    caption_entities:portable?portableEntities(model.entities,1024):model.entities.filter(e=>e.offset+e.length<=1024),
+    reply_markup
+  };
 }
 
 function inlineResult(model,accountId,id='menu',forceArticle=false,portable=false){
@@ -405,7 +453,11 @@ export async function startInlineBot(){
     }
     const model=await modelFor(account,ctx.inlineQuery.query);
     const resultId='nex-'+Date.now();
+    const cachedPhotoId=model.photoUrl
+      ?await cachePhotoFileId(model.photoUrl,account.telegramUserId)
+      :'';
     const attempts=[
+      ...(cachedPhotoId?[['cached-photo-rich',inlineCachedPhotoResult(model,account.telegramUserId,resultId,cachedPhotoId,false)]]:[]),
       ['photo-rich',inlineResult(model,account.telegramUserId,resultId,false,false)],
       ['article-rich',inlineResult(model,account.telegramUserId,resultId,true,false)],
       ['article-portable',inlineResult(model,account.telegramUserId,resultId,true,true)]
@@ -413,6 +465,7 @@ export async function startInlineBot(){
     const errors=[];
     for(const [kind,result] of attempts){
       if(kind==='photo-rich'&&!model.photoUrl)continue;
+      if(kind==='cached-photo-rich'&&!cachedPhotoId)continue;
       try{
         await ctx.answerInlineQuery([result],{cache_time:0,is_personal:true});
         if(errors.length)console.warn('[NexAI inline] recovered with',kind,'after',errors.join(' | '));
@@ -491,4 +544,4 @@ export async function stopInlineBot(){
 }
 
 
-export const __test={stampMarkup,portableMarkup,inlineResult,telegramCommandMenu};
+export const __test={stampMarkup,portableMarkup,inlineResult,inlineCachedPhotoResult,telegramCommandMenu};
