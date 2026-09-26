@@ -58,6 +58,9 @@ assert.match(inlineSource,/action\.startsWith\('style:set:'\)/,'style selection 
 assert.match(inlineSource,/patchSettings\(accountId,\{style:styleId\}\)/,'style callback must persist selection');
 assert.ok(!inlineSource.includes('for(const cmd of commands.values())'),'native slash menu must not advertise NexAccount commands');
 assert.ok(!runtimeSource.includes('Le menu inline est temporairement indisponible'),'legacy alarming fallback must be removed');
+assert.match(runtimeSource,/import \{ menuModel, stylesModel \} from '\.\/menu\.mjs';/,'runtime must import styles fallback model');
+assert.match(runtimeSource,/\[NexAccount styles\].*inline:failed/s,'style selector must log inline failures');
+assert.match(runtimeSource,/stylesModel\(\{account,settings\}\)/,'style selector must fall back to a direct styles model');
 assert.match(menuSource,/commandText\(visibleCommands,style,settings\.prefix\|\|'\.'\)/,'menu commands must use configured NexAccount prefix');
 assert.ok(!menuSource.includes("type:'bot_command'"),'NexAccount commands must not be emitted as Bot API slash-command entities');
 assert.match(menuSource,/menu:styles/,'home menu must expose styles callback');
