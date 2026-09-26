@@ -44,6 +44,8 @@ jobs:
         run: node nexaccount/scripts/test-media-send.mjs
       - name: WhatsApp sticker package regression
         run: node nexaccount/scripts/test-wastickers.mjs
+      - name: TGS decoder regression
+        run: node nexaccount/scripts/test-tgs-renderer.mjs
       - name: Menu resilience regression
         run: node nexaccount/scripts/test-menu-resilience.mjs
       - name: Critical public routes regression
