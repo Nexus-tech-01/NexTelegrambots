@@ -391,36 +391,62 @@ async function sendPublication(jid,destination,pub){
   const groupFallback=[pub.text,linksText(buttons)].filter(Boolean).join('\n\n');
 
   if(!pub.media.length){
-    if(isGroup&&buttons.length){
-      if(await nativeButtons(jid,pub.text||'Publication Nextech',buttons,{forwarded:true})){
-        // Keep every URL even when Telegram supplied more than WhatsApp's three
-        // visible CTA slots.
+    if(buttons.length){
+      const ok=await nativeButtons(
+        jid,
+        pub.text||'Publication Nextech',
+        buttons,
+        {forwarded:isGroup}
+      );
+      if(ok){
         if(buttons.length>3){
-          await socket.sendMessage(jid,{text:linksText(buttons.slice(3)),contextInfo:forwardContext});
+          await socket.sendMessage(
+            jid,
+            {text:linksText(buttons.slice(3)),...(forwardContext?{contextInfo:forwardContext}:{})}
+          );
         }
         return;
       }
-      await socket.sendMessage(jid,{text:groupFallback||'Publication Nextech',contextInfo:forwardContext});
+      await socket.sendMessage(
+        jid,
+        {text:(isGroup?groupFallback:channelText)||'Publication Nextech',...(forwardContext?{contextInfo:forwardContext}:{})}
+      );
       return;
     }
-    await socket.sendMessage(jid,{text:(isGroup?pub.text:channelText)||'Publication Nextech',...(forwardContext?{contextInfo:forwardContext}:{})});
+
+    await socket.sendMessage(
+      jid,
+      {text:(isGroup?pub.text:channelText)||'Publication Nextech',...(forwardContext?{contextInfo:forwardContext}:{})}
+    );
     return;
   }
 
-  // For groups, the actual publication carries the newsletter-forward
-  // attribution. Telegram inline URLs are then rendered as native WhatsApp CTA
-  // buttons instead of being flattened into the caption.
+  // The publication media is sent first. URL actions are then rendered as
+  // native CTA buttons on both groups and newsletters. In groups we also add
+  // the newsletter-forward attribution; on the newsletter itself that
+  // attribution would be redundant.
   for(let i=0;i<pub.media.length;i++){
-    const caption=i===0?(isGroup?pub.text:channelText):undefined;
+    const caption=i===0?pub.text:undefined;
     await sendOneMedia(jid,pub.media[i],caption,isGroup?forwardContext:undefined);
   }
 
-  if(isGroup&&buttons.length){
-    const ok=await nativeButtons(jid,'Liens de la publication',buttons,{forwarded:true});
+  if(buttons.length){
+    const ok=await nativeButtons(
+      jid,
+      'Liens de la publication',
+      buttons,
+      {forwarded:isGroup}
+    );
     if(!ok){
-      await socket.sendMessage(jid,{text:linksText(buttons),contextInfo:forwardContext});
+      await socket.sendMessage(
+        jid,
+        {text:linksText(buttons),...(forwardContext?{contextInfo:forwardContext}:{})}
+      );
     }else if(buttons.length>3){
-      await socket.sendMessage(jid,{text:linksText(buttons.slice(3)),contextInfo:forwardContext});
+      await socket.sendMessage(
+        jid,
+        {text:linksText(buttons.slice(3)),...(forwardContext?{contextInfo:forwardContext}:{})}
+      );
     }
   }
 }
