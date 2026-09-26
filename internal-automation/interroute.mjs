@@ -192,6 +192,35 @@ const server=http.createServer(async(req,res)=>{
     if(!authorized(req))return json(res,401,{error:'unauthorized'});
     if(req.method==='GET'&&url.pathname==='/stats'){const routes={};for(const e of state.events)for(const r of e.routes){const k=r.platform+':'+r.status;routes[k]=(routes[k]||0)+1;}return json(res,200,{ok:true,events:state.events.length,routes,history:state.history.slice(0,50)});}
     if(req.method==='GET'&&url.pathname.startsWith('/events/')){const id=decodeURIComponent(url.pathname.slice('/events/'.length)),e=state.events.find(x=>x.id===id||x.idempotencyKey===id);return e?json(res,200,{ok:true,event:e}):json(res,404,{error:'not_found'});}
+    if(req.method==='POST'&&url.pathname.startsWith('/events/')&&url.pathname.endsWith('/requeue')){
+      const raw=url.pathname.slice('/events/'.length,-'/requeue'.length).replace(/\/$/,'');
+      const id=decodeURIComponent(raw);
+      const e=state.events.find(x=>x.id===id||x.idempotencyKey===id);
+      if(!e)return json(res,404,{error:'not_found'});
+      const q=await body(req);
+      const wanted=new Set((Array.isArray(q?.platforms)?q.platforms:(q?.platform?[q.platform]:[])).map(x=>String(x||'').toLowerCase()).filter(Boolean));
+      const requeued=[];
+      for(const r of e.routes){
+        if(r.status!=='dead_letter')continue;
+        if(wanted.size&&!wanted.has(String(r.platform||'').toLowerCase()))continue;
+        const previousError=r.lastError;
+        const previousAttempts=Number(r.attempts||0);
+        r.status='pending';
+        r.attempts=0;
+        r.nextAttemptAt=0;
+        r.lastError=null;
+        r.result=null;
+        r.completedAt=null;
+        requeued.push({routeId:r.id,platform:r.platform,destination:r.destination,previousAttempts,previousError});
+        history({type:'route_requeued',eventId:e.id,routeId:r.id,platform:r.platform,destination:r.destination,previousAttempts,previousError});
+      }
+      if(!requeued.length)return json(res,200,{ok:true,eventId:e.id,requeued:0,status:e.status});
+      e.status=eventStatus(e);
+      e.updatedAt=iso();
+      await persist();
+      tick().catch(()=>{});
+      return json(res,202,{ok:true,eventId:e.id,idempotencyKey:e.idempotencyKey,requeued:requeued.length,routes:requeued,status:e.status});
+    }
     if(req.method==='POST'&&url.pathname==='/events'){const incoming=normalizeEvent(await body(req)),existing=state.events.find(e=>e.idempotencyKey===incoming.idempotencyKey);if(existing)return json(res,200,{ok:true,duplicate:true,eventId:existing.id,status:existing.status});state.events.push(incoming);history({type:'event_queued',eventId:incoming.id,idempotencyKey:incoming.idempotencyKey,routes:incoming.routes.map(r=>r.platform)});await persist();tick().catch(()=>{});return json(res,202,{ok:true,duplicate:false,eventId:incoming.id,status:incoming.status});}
     return json(res,404,{error:'not_found'});
   }catch(err){return json(res,400,{error:String(err?.message||err).slice(0,500)});}
