@@ -143,7 +143,7 @@ export async function menuModel({account,settings,commands,view='home',category=
         return button((id?'':(FALLBACK_EMOJI[cat]||'')+' ')+label,'cat:'+cat,'primary',CATEGORY_ICONS[cat]);
       }));
     }
-    buttons.push([button('🎨 '+toSmallCaps(localized(settings,'Styles','Styles')),'menu:styles','primary','style')]);
+    buttons.push([button((emojiId('style')?'':'🎨 ')+toSmallCaps(localized(settings,'Styles','Styles')),'menu:styles','primary','style')]);
 
     const primaryLinks=[];
     if(cfg.nextechUrl)primaryLinks.push(urlButton('ɴᴇxᴛᴇᴄʜ',cfg.nextechUrl,'success','nextech'));
@@ -151,7 +151,7 @@ export async function menuModel({account,settings,commands,view='home',category=
     if(primaryLinks.length)buttons.push(primaryLinks);
     if(cfg.darkUniverseUrl)buttons.push([urlButton('ᴅᴀʀᴋ ᴜɴɪᴠᴇʀѕᴇ',cfg.darkUniverseUrl,'success','dark')]);
   }else{
-    buttons.push([button('↩ '+toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back')]);
+    buttons.push([button((emojiId('back')?'':'↩ ')+toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back')]);
   }
 
   const text=body.trim();
@@ -185,7 +185,7 @@ export async function stylesModel({account,settings}){
       return button((active?'✓ ':'')+String(s.id)+' · '+toSmallCaps(s.name),'style:set:'+s.id,active?'success':'primary','style');
     }));
   }
-  keyboard.push([button('↩ '+toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back')]);
+  keyboard.push([button((emojiId('back')?'':'↩ ')+toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back')]);
 
   return {
     text,
