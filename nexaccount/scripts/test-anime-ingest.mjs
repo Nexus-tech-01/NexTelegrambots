@@ -254,3 +254,17 @@ console.log('NexAnime ingest regression tests: OK');
   ],{title:'K - Drama 🇫🇷',username:'Kdrama_French'});
   assert.equal(stats.classification,'blocked');
 }
+
+
+// numeric storage filenames are not anime titles and must not conflict with
+// a valid anime title/episode supplied by the caption
+{
+  const c=__test.classifyMessage(
+    fileMessage('5423777.mp4','Blue Lock S02 EP06 VF'),
+    {username:'MANGAS_VFF',title:'ANIME VF'}
+  );
+  assert.equal(c.kind,'episode');
+  assert.equal(c.title,'Blue Lock');
+  assert.equal(c.season,2);
+  assert.equal(c.episode,6);
+}
