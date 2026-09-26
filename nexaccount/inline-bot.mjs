@@ -586,4 +586,4 @@ export async function stopInlineBot(){
 }
 
 
-export const __test={stampMarkup,portableMarkup,inlineResult,inlineCachedPhotoResult,telegramCommandMenu};
+export const __test={stampMarkup,portableMarkup,inlineResult,inlineCachedPhotoResult,inlineReplyModel,telegramCommandMenu};
