@@ -72,6 +72,7 @@ assert.match(menuSource,/style:set:/,'styles must be selectable with callbacks')
 assert.match(menuSource,/menuImageStyle/,'custom artwork must be bound to a style');
 assert.match(menuSource,/Number\(settings\?\.menuImageStyle\|\|0\)===Number\(styleId\)/,'style binding guard missing');
 assert.match(menuSource,/resolveInlinePhoto/,'custom artwork must be validated before inline use');
+assert.match(menuSource,/Historical Dipper styles 11–20 have no dedicated artwork/,'image-less styles must have a menu artwork fallback');
 assert.ok(Object.keys(generatedStyles.themes||{}).length>=31,'all 31 public Dipper styles must be bundled');
 assert.equal(Number(generatedStyles.themes?.['20']?.id),20,'style20 must be present in the bundled catalog');
 assert.match(styleSource,/for\(let start=0;start<urls\.length;start\+=4\)/,'artwork resolver must scan beyond the first broken URL batch');
