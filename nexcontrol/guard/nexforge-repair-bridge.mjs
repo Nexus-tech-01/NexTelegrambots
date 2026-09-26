@@ -107,25 +107,31 @@ async function postRow(source,row){
 async function readNewLines(source){
   const st=state.sources[source.name]||{offset:0};
   let raw;
-  try{raw=await fs.readFile(source.file,'utf8')}catch(error){
+  try{raw=await fs.readFile(source.file)}catch(error){
     if(error?.code==='ENOENT')return [];
     throw error;
   }
-  if(st.offset>raw.length)st.offset=0;
-  const chunk=raw.slice(st.offset);
-  if(!chunk)return [];
-  const hasFinalNewline=chunk.endsWith('\n');
-  const parts=chunk.split('\n');
-  if(!hasFinalNewline)parts.pop();
-  const consumed=hasFinalNewline?chunk.length:chunk.lastIndexOf('\n')+1;
+  let offset=Math.max(0,Number(st.offset||0));
+  if(offset>raw.length)offset=0;
   const rows=[];
-  for(const line of parts){
-    const s=line.trim();
-    if(!s)continue;
-    try{rows.push(JSON.parse(s))}catch{}
+  let cursor=offset;
+  while(cursor<raw.length){
+    const nl=raw.indexOf(10,cursor);
+    if(nl<0)break; // keep an incomplete trailing JSONL record for the next cycle
+    const line=raw.subarray(cursor,nl).toString('utf8').trim();
+    const nextOffset=nl+1;
+    if(line){
+      try{rows.push({row:JSON.parse(line),nextOffset})}
+      catch(error){
+        // Malformed complete lines are consumed so one bad record cannot block the bridge forever.
+        rows.push({row:null,nextOffset,parseError:String(error?.message||error),rawPreview:line.slice(0,500)});
+      }
+    }else{
+      rows.push({row:null,nextOffset});
+    }
+    cursor=nextOffset;
   }
-  st.offset+=Math.max(0,consumed);
-  state.sources[source.name]=st;
+  state.sources[source.name]={...st,offset};
   return rows;
 }
 
@@ -136,15 +142,28 @@ while(!stopping){
       console.warn('[NexForgeRepairBridge] NEXFORGE_MCP_URL is not configured');
     }else{
       for(const source of SOURCES){
-        const rows=await readNewLines(source);
-        for(const row of rows){
-          try{await postRow(source.name,row)}
-          catch(error){
-            console.error('[NexForgeRepairBridge] post failed',source.name,String(error?.message||error));
-            // Rewind the source offset to retry the current batch on the next cycle.
-            const st=state.sources[source.name]||{};
-            st.offset=Math.max(0,Number(st.offset||0)-Buffer.byteLength(JSON.stringify(row)+'\n'));
+        const records=await readNewLines(source);
+        for(const record of records){
+          const st=state.sources[source.name]||{offset:0};
+          if(record.parseError){
+            console.error('[NexForgeRepairBridge] malformed JSONL record',source.name,record.parseError,record.rawPreview||'');
+            st.offset=record.nextOffset;
             state.sources[source.name]=st;
+            continue;
+          }
+          if(!record.row){
+            st.offset=record.nextOffset;
+            state.sources[source.name]=st;
+            continue;
+          }
+          try{
+            await postRow(source.name,record.row);
+            // Advance only after this exact record was accepted or deduplicated.
+            st.offset=record.nextOffset;
+            state.sources[source.name]=st;
+          }catch(error){
+            console.error('[NexForgeRepairBridge] post failed',source.name,String(error?.message||error));
+            // Keep the offset on the failed record so it is retried next cycle.
             break;
           }
         }
