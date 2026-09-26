@@ -32,6 +32,8 @@ const MAX_SELECTED_SOURCES=Math.min(25,Math.max(3,Number(process.env.NEXANIME_MA
 const MEDIA_POLICY_DEFAULT=String(process.env.NEXANIME_MEDIA_POLICY||'authorized_only').toLowerCase();
 let MEDIA_POLICY_CACHE={value:MEDIA_POLICY_DEFAULT,expires:0};
 const TMP_ROOT=process.env.NEXANIME_TMP_DIR||path.join(os.tmpdir(),'nexanime');
+const TMP_RETENTION_MS=Math.max(60*60*1000,Number(process.env.NEXANIME_TMP_RETENTION_MS||24*60*60*1000));
+const TMP_CLEANUP_MS=Math.max(60*1000,Number(process.env.NEXANIME_TMP_CLEANUP_MS||15*60*1000));
 const SOURCE_CACHE=new Map();
 const SERIES_CACHE=new Map();
 let ANI_CHAIN=Promise.resolve();
@@ -591,16 +593,50 @@ function classifyMessage(message,source={}){
   return {kind:'ignore',reason:obviousNonEpisode?'non_episode_anime_content':'not_anime_release'};
 }
 
-async function cleanupTmpFiles(){
+async function cleanupTmpFiles(maxAgeMs=TMP_RETENTION_MS){
   await fs.mkdir(TMP_ROOT,{recursive:true});
   const now=Date.now();
   for(const name of await fs.readdir(TMP_ROOT).catch(()=>[])){
     const p=path.join(TMP_ROOT,name);
     try{
       const st=await fs.stat(p);
-      if(st.isFile()&&now-st.mtimeMs>6*60*60*1000)await fs.rm(p,{force:true});
+      if(st.isFile()&&now-st.mtimeMs>maxAgeMs)await fs.rm(p,{force:true});
     }catch{}
   }
+}
+function retainedTmpPath(prefix,item,ext='.bin'){
+  const key=String(item?.dedupeKey||item?._id||item?.sourceMessageId||'media');
+  const tag=crypto.createHash('sha256').update(key).digest('hex').slice(0,24);
+  return path.join(TMP_ROOT,`${prefix}-${tag}${ext}`);
+}
+async function retainedMediaFile(client,message,target){
+  await fs.mkdir(TMP_ROOT,{recursive:true});
+  try{
+    const existing=await fs.stat(target);
+    if(existing.isFile()&&existing.size>0){
+      const now=new Date();
+      await fs.utimes(target,now,now).catch(()=>{});
+      return target;
+    }
+  }catch{}
+  const partial=target+`.part-${process.pid}-${Date.now()}`;
+  try{
+    const out=await client.downloadMedia(message.media,{outputFile:partial,workers:1});
+    const file=typeof out==='string'&&out?out:partial;
+    const st=await fs.stat(file);
+    if(!st.isFile()||st.size<=0)throw new Error('anime_media_download_empty');
+    if(file!==target){
+      await fs.rm(target,{force:true}).catch(()=>{});
+      await fs.rename(file,target);
+    }
+    return target;
+  }catch(error){
+    await fs.rm(partial,{force:true}).catch(()=>{});
+    throw error;
+  }
+}
+async function removeTmpFile(file){
+  if(file)await fs.rm(file,{force:true}).catch(()=>{});
 }
 
 async function currentMediaPolicy(){
@@ -1221,27 +1257,23 @@ async function publishEpisode(runtime,item,resolved,destination){
     }
   }
 
-  await fs.mkdir(TMP_ROOT,{recursive:true});
   const finalName=item.cleanedFilename||safeFilename(item.title,item.season,item.episode,item.language,item.quality,filename(message));
   const ext=path.extname(finalName)||'.bin';
-  const tmp=path.join(TMP_ROOT,'episode-'+crypto.randomUUID()+ext);
+  const tmp=retainedTmpPath('episode-direct',item,ext);
   const thumb=await destinationThumb(runtime,destination);
-  try{
-    const out=await runtime.client.downloadMedia(message.media,{outputFile:tmp,workers:1});
-    const file=typeof out==='string'?out:tmp;
-    const data=await fs.readFile(file);
-    return await sendTelegramMedia(runtime.client,destination,data,{
-      fileName:finalName,
-      mimeType:String(message?.document?.mimeType||''),
-      kind:item.mediaKind==='document'?'document':'auto',
-      caption,
-      parseMode:'html',
-      workers:1,
-      thumb
-    });
-  }finally{
-    await fs.rm(tmp,{force:true}).catch(()=>{});
-  }
+  const file=await retainedMediaFile(runtime.client,message,tmp);
+  const data=await fs.readFile(file);
+  const sent=await sendTelegramMedia(runtime.client,destination,data,{
+    fileName:finalName,
+    mimeType:String(message?.document?.mimeType||''),
+    kind:item.mediaKind==='document'?'document':'auto',
+    caption,
+    parseMode:'html',
+    workers:1,
+    thumb
+  });
+  await removeTmpFile(file);
+  return sent;
 }
 async function markPublication(item,sent,runtime){
   const d=await db(),now=new Date();
@@ -1842,6 +1874,7 @@ async function publishViaNexCanal(runtime,item,resolved){
   const stage=await nexCanalStageEntity(runtime);
   const marker=nexCanalStageMarker(item);
   let staged=null;
+  let retainedTmp='';
 
   // For copy handoffs the Bot API message id is not guaranteed to match the
   // MTProto id seen by the user session. Create the handoff *before* staging
@@ -1907,20 +1940,16 @@ async function publishViaNexCanal(runtime,item,resolved){
           const err=new Error('telegram_stage_copy_failed: '+String(directError?.message||directError));
           err.code='DIRECT_COPY';throw err;
         }
-        await fs.mkdir(TMP_ROOT,{recursive:true});
         const finalName=item.cleanedFilename||safeFilename(item.title,item.season,item.episode,item.language,item.quality,filename(message));
         const ext=path.extname(finalName)||'.bin';
-        const tmp=path.join(TMP_ROOT,'episode-stage-'+crypto.randomUUID()+ext);
-        try{
-          const out=await runtime.client.downloadMedia(message.media,{outputFile:tmp,workers:1});
-          const file=typeof out==='string'?out:tmp;
-          const data=await fs.readFile(file);
-          staged=await sendTelegramMedia(runtime.client,stage,data,{
-            fileName:finalName,mimeType:String(message?.document?.mimeType||''),
-            kind:item.mediaKind==='document'?'document':'auto',
-            caption:marker,workers:1
-          });
-        }finally{await fs.rm(tmp,{force:true}).catch(()=>{})}
+        retainedTmp=retainedTmpPath('episode-stage',item,ext);
+        const file=await retainedMediaFile(runtime.client,message,retainedTmp);
+        const data=await fs.readFile(file);
+        staged=await sendTelegramMedia(runtime.client,stage,data,{
+          fileName:finalName,mimeType:String(message?.document?.mimeType||''),
+          kind:item.mediaKind==='document'?'document':'auto',
+          caption:marker,workers:1
+        });
       }
     }
     const stagedMtprotoMessageId=Number(staged?.id||staged?.messageId||0);
@@ -1931,7 +1960,13 @@ async function publishViaNexCanal(runtime,item,resolved){
       {dedupeKey:item.dedupeKey,status:'staging'},
       {$set:{stagedMtprotoMessageId,stagedAt:new Date(),updatedAt:new Date()}}
     );
-    return await waitNexCanalHandoff(item);
+    const result=await waitNexCanalHandoff(item);
+    // Public NexCanal handoff is confirmed: the local episode copy is now disposable.
+    if(retainedTmp){
+      await removeTmpFile(retainedTmp);
+      retainedTmp='';
+    }
+    return result;
   }finally{
     const sourceMessageId=Number(staged?.id||staged?.messageId||0);
     if(sourceMessageId){
@@ -2127,6 +2162,8 @@ export async function startAnimeIngest(runtime){
   };
   await ensureIndexes();
   queueMicrotask(()=>cleanupTmpFiles().catch(()=>{}));
+  runtime.animeIngest.cleanupTimer=setInterval(()=>cleanupTmpFiles().catch(()=>{}),TMP_CLEANUP_MS);
+  runtime.animeIngest.cleanupTimer.unref?.();
   if(listener){
     queueMicrotask(()=>discoverSources(runtime).catch(e=>console.error('[NexAnime discovery]',String(e?.message||e))));
     runtime.animeIngest.discoveryTimer=setInterval(
@@ -2152,6 +2189,7 @@ export async function stopAnimeIngest(runtime){
   if(runtime.animeIngest.discoveryTimer)clearInterval(runtime.animeIngest.discoveryTimer);
   if(runtime.animeIngest.publishTimer)clearInterval(runtime.animeIngest.publishTimer);
   if(runtime.animeIngest.pollTimer)clearInterval(runtime.animeIngest.pollTimer);
+  if(runtime.animeIngest.cleanupTimer)clearInterval(runtime.animeIngest.cleanupTimer);
   runtime.animeIngest.enabled=false;
 }
 export function animeIngestStatus(runtime){
