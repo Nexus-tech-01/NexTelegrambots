@@ -52,7 +52,7 @@ const PROMO_RE=[
 const NON_EPISODE_RE=/\b(?:trailer|teaser|opening|ending|ost|amv|clip|preview|pv\b|scan(?:s)?|manga|manhwa|manhua|news|actualit[ée]|annonce|announcement|birthday|cosplay|wallpaper)\b/i;
 const PRESENTATION_RE=/\b(?:synopsis|genre(?:s)?|studio|type\s*:|status|statut|episodes?\s*:|titre alternatif|alternative title|diffusion|aired|premiere)\b/i;
 const VIDEO_EXT_RE=/\.(?:mp4|mkv|avi|mov|webm|m4v|ts)$/i;
-const SOURCE_BLOCK_RE=/\b(?:hentai\w*|porn\w*|adult\w*|nsfw\w*|xxx\w*|prono\w*|bet(?:ting)?\w*|casino\w*|1xbet\w*|melbet\w*|stake\w*)\b/i;
+const SOURCE_BLOCK_RE=/\b(?:hentai\w*|porn\w*|adult\w*|nsfw\w*|xxx\w*|prono\w*|bet(?:ting)?\w*|casino\w*|1xbet\w*|melbet\w*|stake\w*|k[-_ ]?drama\w*|drama\w*|live[-_ ]?action\w*)\b/i;
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const safeDecode=value=>{
@@ -95,6 +95,12 @@ function parseEpisode(raw=''){
   if(m)return {season:Number(m[1]),episode:Number(m[2])+(m[3]?Number('0.'+m[3]):0),token:m[0]};
   m=text.match(/\b(?:Season|Saison)\s*0*(\d{1,2})\s*(?:Episode|Épisode|Ep)\s*0*(\d{1,4})(?:\.(\d))?\b/i);
   if(m)return {season:Number(m[1]),episode:Number(m[2])+(m[3]?Number('0.'+m[3]):0),token:m[0]};
+  // Several anime sources use the reversed form "E02 S2". Preserve the
+  // season instead of silently defaulting the item to season 1.
+  m=text.match(/\bE(?:P(?:ISODE)?)?\s*[-_.:# ]*0*(\d{1,4})(?:\.(\d))?\s*[-_.•·:|/ ]*S(?:eason|aison)?\s*0*(\d{1,2})\b/i);
+  if(m)return {season:Number(m[3]),episode:Number(m[1])+(m[2]?Number('0.'+m[2]):0),token:m[0]};
+  m=text.match(/\b(?:Episode|Épisode|Ep)\s*0*(\d{1,4})(?:\.(\d))?\s*(?:Season|Saison)\s*0*(\d{1,2})\b/i);
+  if(m)return {season:Number(m[3]),episode:Number(m[1])+(m[2]?Number('0.'+m[2]):0),token:m[0]};
   m=text.match(/\b(?:Episode|Épisode|Ep)\s*[-_.:# ]*0*(\d{1,4})(?:\.(\d))?\b/i);
   if(m)return {season:null,episode:Number(m[1])+(m[2]?Number('0.'+m[2]):0),token:m[0]};
   m=text.match(/\bE\s*[-_. ]*0*(\d{1,4})(?:\.(\d))?\b/i);
