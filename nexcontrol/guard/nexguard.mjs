@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync=promisify(execFile);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const BOOT_MS=Date.now();
 const ROOT=path.resolve(process.env.NEX_ROOT||'/opt/nex/current');
 const CONFIG=path.resolve(process.env.NEXGUARD_CONFIG||path.join(ROOT,'nexcontrol/guard/guard.config.json'));
 const RUNTIME=path.resolve(process.env.NEXGUARD_RUNTIME||path.join(ROOT,'.nexcontrol/runtime/nexguard'));
@@ -182,8 +183,11 @@ async function registerIncident(t,result,entry){
 
 async function processTarget(t){
   const key=String(t.name||t.service||t.url||t.path||crypto.createHash('sha1').update(JSON.stringify(t)).digest('hex'));
-  const entry=state.targets[key]||{failures:0,successes:0,lastRepairAt:0,lastIncidentAt:0,lastCheckedMs:0};
+  const existing=state.targets[key];
+  const entry=existing||{failures:0,successes:0,lastRepairAt:0,lastIncidentAt:0,lastCheckedMs:0};
   const targetIntervalMs=Math.max(settings.intervalMs,Number(t.intervalMs||settings.intervalMs));
+  const initialDelayMs=Math.max(0,Number(t.initialDelayMs||0));
+  if(!existing&&initialDelayMs>0&&Date.now()-BOOT_MS<initialDelayMs)return;
   if(Date.now()-Number(entry.lastCheckedMs||0)<targetIntervalMs)return;
   entry.lastCheckedMs=Date.now();
   const result=await runCheck(t);
