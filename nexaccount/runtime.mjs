@@ -11,7 +11,7 @@ import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { recordEvent } from './analytics.mjs';
 import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
 import { handleCompatCommand } from './compat.mjs';
-import { menuModel } from './menu.mjs';
+import { menuModel, stylesModel } from './menu.mjs';
 import { canHandleAnimeCommand, handleAnimeCommand } from './anime-engine.mjs';
 import { canHandleDownloadCommand, handleDownloadCommand } from './dipper-fallback.mjs';
 import { aiProviderStatus, canHandleAiCommand, generateAiReply, handleAiCommand } from './ai-engine.mjs';
@@ -237,7 +237,17 @@ async function premiumDenied(client,peer,name){
 async function handleStyle(runtime,peer,args,inlineName=''){
   const {account,client}=runtime;
   let n=Number(args?.[0]||inlineName.replace(/^style/i,''));
-  if(!n){await sendInline(client,peer,'styles');return}
+  if(!n){
+    try{
+      await sendInline(client,peer,'styles');
+      return true;
+    }catch(error){
+      console.error('[NexAccount styles]',String(account.telegramUserId),'inline:failed',String(error?.errorMessage||error?.message||error).slice(0,350));
+      const settings=await settingsFor(account.telegramUserId);
+      const model=await stylesModel({account,settings});
+      return sendText(client,peer,String(model.text||'NexAI · Styles'));
+    }
+  }
   const styles=await listStyles();
   if(!styles.some(s=>s.id===n)||n===0){
     await sendText(client,peer,'Style invalide. Utilise .style pour afficher les styles disponibles.');
