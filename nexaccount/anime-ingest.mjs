@@ -1056,6 +1056,13 @@ async function resolveSource(runtime,item){
   ];
   let lastIdentityError=null;
   for(const source of ordered){
+    const sourceIdentity=norm([source?.channelTitle,source?.channelUsername].filter(Boolean).join(' '));
+    if(SOURCE_BLOCK_RE.test(sourceIdentity)){
+      const error=new Error('source_identity_mismatch: blocked non-anime/live-action source');
+      error.code='SOURCE_IDENTITY_MISMATCH';
+      lastIdentityError=error;
+      continue;
+    }
     let entity=null;
     const username=String(source?.channelUsername||'').replace(/^@/,'');
     if(username){
