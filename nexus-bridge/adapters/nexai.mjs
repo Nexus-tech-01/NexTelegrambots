@@ -89,8 +89,12 @@ function resetHistory(envelope) {
 }
 
 function commandPrompt(text) {
-  if (!/^\/?(?:ai|ask|nexai|stacy)\b/i.test(text)) return text;
-  return stripCommand(text).join(' ').trim();
+  const value = clean(text);
+  if (/^\/stacy\b/i.test(value)) {
+    return stripCommand(value).join(' ').trim();
+  }
+  if (!/^\/?(?:ai|ask|nexai)\b/i.test(value)) return value;
+  return stripCommand(value).join(' ').trim();
 }
 
 const OWNER_NAME = 'Trésor HONTONNOU';
@@ -209,14 +213,12 @@ const PUBLIC_PLANS = {
     fr: [
       'Premium 1 mois — 99 Telegram Stars / 30 jours.',
       'Premium 3 mois — 249 Telegram Stars / 90 jours.',
-      'Premium 12 mois — 799 Telegram Stars / 365 jours.',
-      'Ne promets pas un avantage Premium précis qui n’est pas présent dans ces faits canoniques.'
+      'Premium 12 mois — 799 Telegram Stars / 365 jours.'
     ],
     en: [
       'Premium 1 month — 99 Telegram Stars / 30 days.',
       'Premium 3 months — 249 Telegram Stars / 90 days.',
-      'Premium 12 months — 799 Telegram Stars / 365 days.',
-      'Do not promise a specific Premium benefit that is not present in these canonical facts.'
+      'Premium 12 months — 799 Telegram Stars / 365 days.'
     ]
   },
   nexstick: {
