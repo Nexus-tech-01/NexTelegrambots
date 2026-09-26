@@ -408,6 +408,12 @@ async function enqueueCrossPlatformMirror(body){
 function mirrorButtons(u){
   return u?[{text:'Download Fast',url:u}]:[];
 }
+function packageMime(name='',reported=''){
+  const n=String(name).toLowerCase();
+  if(n.endsWith('.apk')) return 'application/vnd.android.package-archive';
+  if(n.endsWith('.xapk')||n.endsWith('.apks')||n.endsWith('.apkm')) return 'application/zip';
+  return String(reported||'application/octet-stream');
+}
 async function mirrorDescriptor(m,sourceKind,sent){
   const u=chooseUrl(m),text=clean(m,sourceKind,u);
   const photos=Array.isArray(sent?.photo)?sent.photo:[];
@@ -426,7 +432,7 @@ async function mirrorApk(m,sourceKind,sent,linked,mirrorVersion='v1'){
   const text=linked?name:clean(m,sourceKind,u);
   const fileId=String(sent?.document?.file_id||'');
   const localPath=String(sent?.__nexLocalPath||'');
-  const media=(fileId||localPath)?[{type:'document',fileId,localPath,fileName:name,mimetype:m.document?.mimeType||'application/vnd.android.package-archive'}]:[];
+  const media=(fileId||localPath)?[{type:'document',fileId,localPath,fileName:name,mimetype:packageMime(name,m.document?.mimeType)}]:[];
   if(!media.length)throw new Error('APK mirror media reference missing; refusing filename-only publication');
   return enqueueCrossPlatformMirror({
     ownerDomain:'system',
