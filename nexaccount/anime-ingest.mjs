@@ -143,6 +143,17 @@ function strongTitleCandidate(value=''){
   const tokens=norm(t).split(' ').filter(Boolean);
   return tokens.length>=2 || norm(t).length>=5;
 }
+const TITLE_STOP_WORDS=new Set([
+  'a','an','and','as','at','by','for','from','in','into','no','of','on','or','the','to','with',
+  'de','des','du','en','et','la','le','les','un','une'
+]);
+function meaningfulTitleSimilarity(a,b){
+  const aa=new Set(norm(a).split(' ').filter(x=>x.length>1&&!TITLE_STOP_WORDS.has(x)));
+  const bb=new Set(norm(b).split(' ').filter(x=>x.length>1&&!TITLE_STOP_WORDS.has(x)));
+  if(!aa.size||!bb.size)return 0;
+  let hit=0; for(const x of aa)if(bb.has(x))hit++;
+  return hit/Math.max(aa.size,bb.size);
+}
 function titlesClearlyConflict(a,b){
   const aa=cleanSeriesTitle(a),bb=cleanSeriesTitle(b);
   if(!strongTitleCandidate(aa)||!strongTitleCandidate(bb))return false;
@@ -150,12 +161,30 @@ function titlesClearlyConflict(a,b){
   if(an===bn)return false;
   if(an.length>=5&&bn.length>=5&&(an.includes(bn)||bn.includes(an)))return false;
   if(prefixTokens(aa,bb).length>=2)return false;
-  return titleSimilarity(aa,bb)<0.34;
+  return meaningfulTitleSimilarity(aa,bb)<0.34;
+}
+function episodeEvidenceFromMessage(message){
+  const captionEp=parseEpisode(String(message?.message||''));
+  const fileEp=parseEpisode(filename(message));
+  const conflict=Boolean(
+    captionEp&&fileEp&&(
+      Number(captionEp.episode)!==Number(fileEp.episode)||
+      (captionEp.season!=null&&fileEp.season!=null&&Number(captionEp.season)!==Number(fileEp.season))
+    )
+  );
+  const episode=captionEp||fileEp||null;
+  const merged=episode?{
+    ...episode,
+    season:captionEp?.season??fileEp?.season??episode.season??null,
+    episode:captionEp?.episode??fileEp?.episode??episode.episode
+  }:null;
+  return {captionEp,fileEp,conflict,episode:merged};
 }
 function titleEvidenceFromMessage(message,ep){
-  const token=ep?.token||'';
-  const captionTitle=stripNoiseTitle(String(message?.message||''),token);
-  const fileTitle=stripNoiseTitle(filename(message),token);
+  const captionEp=parseEpisode(String(message?.message||''))||ep;
+  const fileEp=parseEpisode(filename(message))||ep;
+  const captionTitle=stripNoiseTitle(String(message?.message||''),captionEp?.token||'');
+  const fileTitle=stripNoiseTitle(filename(message),fileEp?.token||'');
   const captionUsable=usableTitleCandidate(captionTitle);
   const fileUsable=usableTitleCandidate(fileTitle);
   return {
@@ -511,15 +540,17 @@ function classifyMessage(message,source={}){
   const text=String(message?.message||'');
   const blocked=hasBlocked(raw);
   if(blocked)return {kind:'blocked',reason:'adult_betting_or_spam'};
-  const ep=parseEpisode(raw);
+  const episodeEvidence=episodeEvidenceFromMessage(message);
+  const ep=episodeEvidence.episode||parseEpisode(raw);
   const mk=mediaKind(message);
   const lang=detectLanguage(raw),quality=detectQuality(raw);
   const titleEvidence=titleEvidenceFromMessage(message,ep);
   const title=titleFromMessage(message,ep);
   const obviousNonEpisode=NON_EPISODE_RE.test(raw);
-  if(ep && titleEvidence.conflict && !obviousNonEpisode && (mk==='video'||mk==='document')){
+  if(ep && (titleEvidence.conflict||episodeEvidence.conflict) && !obviousNonEpisode && (mk==='video'||mk==='document')){
     return {
-      kind:'conflict',reason:'caption_filename_title_conflict',
+      kind:'conflict',
+      reason:episodeEvidence.conflict?'caption_filename_episode_conflict':'caption_filename_title_conflict',
       title,season:ep.season??1,episode:ep.episode,language:lang,quality,
       mediaKind:mk,originalFilename:filename(message),confidence:0
     };
@@ -1870,7 +1901,7 @@ export const __test={
   classifyMessage,sourceStats,titleSimilarity,releaseKey,presentationKey,
   cleanSeriesTitle,sourceTitleCandidate,deriveRawAnchors,commonPrefixTitle,verifyAnimeTitle,
   standardizedCaption,quotedCaption,titleFromMessage,titleEvidenceFromMessage,titlesClearlyConflict,
-  bestAnchor,episodeVariantScore,episodeIdentityCompatible
+  episodeEvidenceFromMessage,meaningfulTitleSimilarity,bestAnchor,episodeVariantScore,episodeIdentityCompatible
 };
 
 
