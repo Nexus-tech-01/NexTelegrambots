@@ -7,6 +7,7 @@ on:
       - '.github/workflows/deploy-nexcanal-nexgroup-v61-12-1.yml'
       - '.deploy/v61121-relay.manifest.b64'
       - 'nexcanal/**'
+      - 'whatsapp-publisher/**'
       - 'watchers/liteapks-relay.mjs'
 
 permissions:
@@ -90,20 +91,89 @@ jobs:
                   if "BLOCKED_RELAY_CHANNELS" not in c or 'inconnuboysensei' not in c:
                       raise RuntimeError(f'{root}: explicit block guard missing')
 
+              # Visual lifestyle feed: media-first posts to @tresor_universe.
+              social_src=Path('nexcanal/social-feed.mjs')
+              if not social_src.exists():
+                  raise RuntimeError('missing nexcanal/social-feed.mjs')
+              social_text=social_src.read_text(encoding='utf-8')
+              for required in ('createSocialFeed','Pinterest','sendPhoto','tresor_universe','WHATSAPP_BRIDGE'):
+                  if required not in social_text:
+                      raise RuntimeError('social feed missing '+required)
+              sr=job('fs.write',{'root':'nexcanal','path':'social-feed.mjs','content':social_text})
+              backups.append(('nexcanal','social-feed.mjs',sr.get('backupId'),sr.get('created',False)))
+              ck=job('check.run',{'check':'node-check','root':'nexcanal','file':'social-feed.mjs','timeoutMs':60000})
+              if not ck.get('ok'):
+                  raise RuntimeError('node-check failed nexcanal/social-feed.mjs: '+str(ck))
+
+              # WhatsApp publisher: accept @tresor_universe and route those
+              # lifestyle posts to the Otaku Nexus newsletter (channel only).
+              wa_src=Path('whatsapp-publisher/server.mjs')
+              wa_text=wa_src.read_text(encoding='utf-8')
+              for required in ("'tresor_universe'","publication lifestyle -> chaîne Otaku Nexus",'Nex WhatsApp Publisher bridge ready'):
+                  if required not in wa_text:
+                      raise RuntimeError('WhatsApp publisher missing '+required)
+
+              wa_search=job('fs.search',{
+                  'root':'nexus','path':'.',
+                  'query':'Nex WhatsApp Publisher bridge ready',
+                  'maxResults':40
+              })
+              wa_matches=[m for m in wa_search.get('matches',[]) if str(m.get('path','')).endswith('server.mjs') and 'whatsapp' in str(m.get('path','')).lower()]
+              if not wa_matches:
+                  # Print running processes so a missing deployment root is diagnosable
+                  # from the Actions log rather than silently skipping WhatsApp.
+                  procs=job('process.list',{'limit':500})
+                  candidates=[p for p in procs.get('items',[]) if 'whatsapp' in str(p.get('cmdline','')).lower()]
+                  print('WHATSAPP_PROCESS_CANDIDATES',json.dumps(candidates[-20:],ensure_ascii=False),flush=True)
+                  raise RuntimeError('live WhatsApp publisher path not found inside NexControl nexus root')
+              wa_path=str(wa_matches[0]['path'])
+              print('WHATSAPP_PUBLISHER_PATH',wa_path,flush=True)
+              wr_wa=job('fs.write',{'root':'nexus','path':wa_path,'content':wa_text})
+              backups.append(('nexus',wa_path,wr_wa.get('backupId'),wr_wa.get('created',False)))
+              ck=job('check.run',{'check':'node-check','root':'nexus','file':wa_path,'timeoutMs':60000})
+              if not ck.get('ok'):
+                  raise RuntimeError('node-check failed WhatsApp publisher: '+str(ck))
+
+              # Restart the registered WhatsApp service when available.
+              # If it is supervised outside the registry, SIGTERM the exact
+              # publisher process; its supervisor/systemd owner must respawn it.
+              services=job('service.list',{'includeHealth':False})
+              wa_services=[s for s in services.get('items',[]) if 'whatsapp' in (str(s.get('name',''))+' '+str(s.get('unit',''))+' '+str(s.get('description',''))).lower()]
+              if wa_services:
+                  chosen=wa_services[0]
+                  rr=job('service.action',{'name':chosen['name'],'action':'restart'})
+                  if not rr.get('ok'):
+                      raise RuntimeError('WhatsApp service restart failed: '+str(rr))
+                  print('WHATSAPP_SERVICE_RESTARTED',chosen['name'],flush=True)
+              else:
+                  procs=job('process.list',{'limit':500})
+                  candidates=[p for p in procs.get('items',[]) if wa_path in str(p.get('cmdline','')) or ('whatsapp-publisher' in str(p.get('cmdline','')).lower() and 'server.mjs' in str(p.get('cmdline','')))]
+                  if not candidates:
+                      raise RuntimeError('WhatsApp publisher process not found for restart')
+                  target=sorted(candidates,key=lambda x:int(x.get('pid',0)))[-1]
+                  job('runtime.signal',{'pid':int(target['pid']),'signal':'SIGTERM'})
+                  print('WHATSAPP_PROCESS_SIGTERM',target['pid'],flush=True)
+                  time.sleep(5)
+
+              wh=job('http.check',{'url':'http://127.0.0.1:18787/healthz','timeoutMs':10000,'previewBytes':500})
+              if not wh.get('ok'):
+                  raise RuntimeError('WhatsApp bridge health failed after restart: '+str(wh))
+              print('WHATSAPP_BRIDGE_OK',wh.get('status'),flush=True)
+
               # Canonical APK watcher. @tresor20009 only scans; NexCanal bot publishes.
               watcher_src=Path('nexcanal/liteapks-relay.mjs')
               if not watcher_src.exists():
                   raise RuntimeError('missing canonical nexcanal/liteapks-relay.mjs')
               watcher_text=watcher_src.read_text(encoding='utf-8')
-              for required in ('tresor20009','NEXCANAL__BOT_TOKEN','publisher.start','thenexusorigin'):
+              for required in ('tresor20009','NEXCANAL__BOT_TOKEN','publisher.start','thenexusorigin','createSocialFeed','socialFeed.tick'):
                   if required not in watcher_text:
-                      raise RuntimeError('APK watcher missing '+required)
+                      raise RuntimeError('NexCanal watcher missing '+required)
               wr=job('fs.write',{'root':'nexcanal','path':'liteapks-relay.mjs','content':watcher_text})
               backups.append(('nexcanal','liteapks-relay.mjs',wr.get('backupId'),wr.get('created',False)))
               ck=job('check.run',{'check':'node-check','root':'nexcanal','file':'liteapks-relay.mjs','timeoutMs':60000})
               if not ck.get('ok'):
                   raise RuntimeError('node-check failed nexcanal/liteapks-relay.mjs: '+str(ck))
-              job('runtime.restart',{'target':'nexcanal','reason':'Deploy parallel channel routing + APK scanner/NexCanal publisher separation'})
+              job('runtime.restart',{'target':'nexcanal','reason':'Deploy frequent visual Luxury/Otaku social feed + WhatsApp Otaku Nexus mirror'})
               job('runtime.restart',{'target':'nexgroup','reason':'Deploy v61.12.1 NexNews + tresor_universe relay mapping'})
               time.sleep(12)
               try:
@@ -119,7 +189,7 @@ jobs:
                       raise RuntimeError('NexCanal watcher runtime verification failed; missing: '+', '.join(missing))
               except Exception as e:
                   raise RuntimeError('post-restart NexCanal verification failed: '+str(e))
-              print('DEPLOYMENT_OK parallel NexCanal routing + scanners',flush=True)
+              print('DEPLOYMENT_OK NexSocial visual feed + Telegram + WhatsApp Otaku Nexus mirror',flush=True)
           except Exception:
               traceback.print_exc()
               for root,path,bid,created in reversed(backups):
