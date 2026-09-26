@@ -76,7 +76,14 @@ const secondaryAnimeSource=fs.readFileSync(path.join(ROOT,'anime-secondary-reade
 const daemonSource=fs.readFileSync(path.join(ROOT,'daemon.mjs'),'utf8');
 const downloadSource=fs.readFileSync(path.join(ROOT,'dipper-fallback.mjs'),'utf8');
 const stickerSource=fs.readFileSync(path.join(ROOT,'sticker-engine.mjs'),'utf8');
-const controlSource=fs.readFileSync(path.join(ROOT,'..','nexcontrol','api','index.mjs'),'utf8');
+const controlCandidates=[
+  process.env.NEXCONTROL_API_FILE,
+  path.join(process.env.NEX_ROOT||'/opt/nex/current','nexcontrol','api','index.mjs'),
+  path.join(ROOT,'..','nexcontrol','api','index.mjs')
+].filter(Boolean);
+const controlFile=controlCandidates.find(file=>fs.existsSync(file));
+if(!controlFile)errors.push('nexcontrol-api-source-missing:'+controlCandidates.join(','));
+const controlSource=controlFile?fs.readFileSync(controlFile,'utf8'):'';
 
 for(const marker of [
   "if(parsed.name==='menu')return sendMenu(runtime,peer)",
