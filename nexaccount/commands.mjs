@@ -38,6 +38,7 @@ export const CORE_COMMANDS=[
   C('autotyping','ACCOUNT',{...P,description:'Indicateur de saisie automatique'}),
   C('botname','ACCOUNT',{...P,description:'Nom affiché dans le menu',handler:'apparence_systeme'}),
   C('menuimage','ACCOUNT',{...P,description:'Illustration du menu',handler:'illustration_grimoire'}),
+  C('menuemoji','ACCOUNT',{...P,description:'Configurer les emojis personnalisés du menu'}),
 
   // AI.
   C('ai','AI',{engine:'ai',description:'Assistant IA',}),
@@ -296,6 +297,7 @@ export const LEGACY_ALIASES={
   purification:'clean',debannissement:'unban',bannir:'ban',
   aveu:'truth',epreuve:'dare',bouffon:'joke',charme:'compliment',
   premiumemoji:'emoji_status',
+  emojiui:'menuemoji',uemoji:'menuemoji',setmenuemoji:'menuemoji',
   viewonce:'vv',tovv:'vv',
 
   // Short, human-friendly aliases. They remain hidden from category menus and
