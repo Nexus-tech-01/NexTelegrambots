@@ -1,0 +1,11 @@
+[Unit]
+Description=Check NEX LiteAPK publication watcher every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=nex-liteapks-watchdog.service
+
+[Install]
+WantedBy=timers.target
