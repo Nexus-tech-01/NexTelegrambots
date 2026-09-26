@@ -317,6 +317,14 @@ function runFfmpeg(args,timeout=120000){
 const DEFAULT_YTDLP=fs.existsSync('/opt/nex/tools/yt-dlp-full/bin/yt-dlp')?'/opt/nex/tools/yt-dlp-full/bin/yt-dlp':'/opt/nex/tools/yt-dlp/yt-dlp';
 const YTDLP=String(process.env.YTDLP_PATH||DEFAULT_YTDLP);
 
+export function parseYtDlpProgressLine(line){
+  const match=String(line||'').match(/NEXAI_PROGRESS:\s*([0-9]+(?:\.[0-9]+)?)%/i);
+  if(!match)return null;
+  const value=Number(match[1]);
+  if(!Number.isFinite(value))return null;
+  return Math.max(0,Math.min(100,Math.round(value)));
+}
+
 function runYtDlp(args,timeout=180000,onProgress=null){
   if(typeof onProgress!=='function'){
     return new Promise((resolve,reject)=>{
@@ -350,9 +358,8 @@ function runYtDlp(args,timeout=180000,onProgress=null){
       buffer=lines.pop()||'';
       if(isErr)errBuf=buffer;else outBuf=buffer;
       for(const line of lines){
-        const marker=line.match(/NEXAI_PROGRESS:\s*([0-9]+(?:\.[0-9]+)?)%/i);
-        if(marker){
-          const pct=Math.max(0,Math.min(100,Math.round(Number(marker[1]))));
+        const pct=parseYtDlpProgressLine(line);
+        if(pct!==null){
           Promise.resolve(onProgress(pct)).catch(()=>{});
           continue;
         }
