@@ -131,14 +131,19 @@ async function telegramFileUrl(fileId){
 
 function normalizeMedia(input){
   const arr = Array.isArray(input) ? input : (input ? [input] : []);
-  return arr.map((m,i)=>({
-    type:String(m?.type||m?.media_type||'document').toLowerCase(),
-    fileId:String(m?.fileId||m?.telegram_file_id||m?.telegramFileId||''),
-    url:String(m?.url||''),
-    fileName:String(m?.fileName||m?.original_name||m?.filename||`media-${i+1}`),
-    mimetype:String(m?.mimetype||m?.mime_type||''),
-    position:Number(m?.position??i),
-  })).filter(m=>m.fileId||m.url).sort((a,b)=>a.position-b.position);
+  return arr.map((m,i)=>{
+    const rawLocal=String(m?.localPath||m?.local_path||'');
+    const localPath=rawLocal&&path.resolve(rawLocal).startsWith('/var/lib/nex/tmp/internal-automation/')?path.resolve(rawLocal):'';
+    return {
+      type:String(m?.type||m?.media_type||'document').toLowerCase(),
+      fileId:String(m?.fileId||m?.telegram_file_id||m?.telegramFileId||''),
+      url:String(m?.url||''),
+      localPath,
+      fileName:String(m?.fileName||m?.original_name||m?.filename||`media-${i+1}`),
+      mimetype:String(m?.mimetype||m?.mime_type||''),
+      position:Number(m?.position??i),
+    };
+  }).filter(m=>m.fileId||m.url||m.localPath).sort((a,b)=>a.position-b.position);
 }
 
 function normalizePublication(raw={}){
@@ -370,15 +375,23 @@ async function nativeButtons(jid,text,buttons,{forwarded=false}={}){
 }
 
 async function sendOneMedia(jid,item,caption,contextInfo){
-  const url=item.url||await telegramFileUrl(item.fileId);
-  if(!url) throw new Error('URL média introuvable');
-  const source={url};
+  let source;
+  if(item.localPath){
+    let st;
+    try{st=fs.statSync(item.localPath);}catch{throw new Error('Fichier APK local introuvable: '+item.fileName);}
+    if(!st.isFile()||st.size<=0)throw new Error('Fichier APK local invalide: '+item.fileName);
+    source={stream:fs.createReadStream(item.localPath)};
+  }else{
+    const url=item.url||await telegramFileUrl(item.fileId);
+    if(!url) throw new Error('URL média introuvable');
+    source={url};
+  }
   const type=String(item.type||'').toLowerCase();
   const ctx=contextInfo?{contextInfo}:{};
   if(type==='photo'||type==='image') return socket.sendMessage(jid,{image:source,caption,...ctx});
   if(type==='video'||type==='animation') return socket.sendMessage(jid,{video:source,caption,...ctx});
   if(type==='audio'||type==='voice') return socket.sendMessage(jid,{audio:source,mimetype:item.mimetype||'audio/mpeg',...ctx});
-  return socket.sendMessage(jid,{document:source,mimetype:item.mimetype||'application/octet-stream',fileName:item.fileName||'fichier',caption,...ctx});
+  return socket.sendMessage(jid,{document:source,mimetype:item.mimetype||'application/vnd.android.package-archive',fileName:item.fileName||'fichier',caption,...ctx});
 }
 
 async function sendPublication(jid,destination,pub){
@@ -483,6 +496,8 @@ setInterval(()=>processQueue().catch(()=>{}),3000).unref();
 function plan(raw){
   const pub=normalizePublication(raw);
   if(!SOURCES.has(pub.source)) throw new Error(`source non autorisée: ${pub.source||'vide'}`);
+  const bareApk=!pub.media.length&&/\.(?:apk|xapk|apks|apkm)(?:\s|$)/i.test(pub.text.trim());
+  if(bareApk) throw new Error('APK sans fichier média: publication refusée pour éviter un nom de fichier vide');
   if(dedupeSeen(pub)) return {duplicate:true,pub,route:routePublication(pub)};
   const route=routePublication(pub);
   if(route.group) enqueue('group',GROUP_JID,pub);
