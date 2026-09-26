@@ -61,6 +61,7 @@ assert.throws(
 );
 
 let usedPath='';
+let afterSendCalled=false;
 const fakeClient={
   async sendFile(peer,options){
     usedPath=options.file;
@@ -73,7 +74,8 @@ const fakeClient={
     return {ok:true,file:options.file};
   }
 };
-await sendTelegramMedia(fakeClient,'peer',png,{fileName:'photo.jpg',mimeType:'image/jpeg',kind:'image'});
+await sendTelegramMedia(fakeClient,'peer',png,{fileName:'photo.jpg',mimeType:'image/jpeg',kind:'image',afterSend:()=>{afterSendCalled=true;}});
+assert.equal(afterSendCalled,true,'media afterSend CTA hook must run after a successful upload');
 await assert.rejects(access(usedPath));
 
 console.log('media-send regression tests: ok');
