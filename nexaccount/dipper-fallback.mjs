@@ -146,6 +146,11 @@ async function youtubeVideo(input){
   const target=await resolveYoutube(input);
   const u=encodeURIComponent(target.url);
   const result=await cascade('vidéo YouTube',[
+    ['Cobalt local',async()=>{
+      const d=await postJson('http://127.0.0.1:9000/',{url:target.url,downloadMode:'auto',videoQuality:'720',allowH265:false});
+      const v=cobaltUrl(d);
+      return v?{url:v,title:target.title||'YouTube'}:null;
+    }],
     ['EliteProTech',async()=>{
       const d=await json('https://eliteprotech-apis.zone.id/ytdown?url='+u+'&format=mp4');
       return d?.success&&d?.downloadURL?{url:d.downloadURL,title:d.title||target.title}:null;
@@ -201,7 +206,7 @@ async function tiktokMedia(client,peer,url){
         return {sent:true,title};
       }],
       ['Cobalt',async()=>{
-        const d=await postJson('https://api.cobalt.tools/',{url,downloadMode:'auto',videoQuality:'max',allowH265:false});
+        const d=await postJson('http://127.0.0.1:9000/',{url,downloadMode:'auto',videoQuality:'max',allowH265:false});
         const v=cobaltUrl(d);
         if(!v)return null;
         await sendRemote(client,peer,v,{caption:'NexAi · Download\nTikTok\nSource : Cobalt',fileName:'tiktok.mp4'});
@@ -220,6 +225,10 @@ async function tiktokMedia(client,peer,url){
 async function instagramMedia(url){
   if(!/instagram\.com\//i.test(url)&&!/instagr\.am\//i.test(url))throw new Error('lien Instagram invalide');
   return cascade('Instagram',[
+    ['Cobalt local',async()=>{
+      const r=await cobaltMedia(url,'Instagram');
+      return r?.urls?.length?{urls:r.urls,title:r.title||'Instagram'}:null;
+    }],
     ['Siputzx',async()=>{
       const d=await json('https://api.siputzx.my.id/api/d/igdl?url='+encodeURIComponent(url));
       const arr=Array.isArray(d?.data)?d.data:Array.isArray(d?.result)?d.result:[];
@@ -227,41 +236,46 @@ async function instagramMedia(url){
       const generic=firstUrl(d,u=>!/thumbnail|profile/i.test(u));
       const all=[...new Set([...urls,generic].filter(Boolean))];
       return all.length?{urls:all,title:'Instagram'}:null;
-    }],
-    ['Cobalt',async()=>{
-      const d=await postJson('https://api.cobalt.tools/',{url,downloadMode:'auto',videoQuality:'max'});
-      if(d?.status==='picker'&&Array.isArray(d.picker)){
-        const urls=d.picker.map(x=>x?.url).filter(isHttp);
-        return urls.length?{urls,title:'Instagram'}:null;
-      }
-      const v=cobaltUrl(d);
-      return v?{urls:[v],title:'Instagram'}:null;
     }]
   ]);
 }
 async function facebookMedia(url){
   if(!/(?:facebook\.com|fb\.watch)\//i.test(url))throw new Error('lien Facebook invalide');
-  const cobaltHosts=['https://api.cobalt.tools/','https://cobalt.drgns.space/','https://cobalt.api.timelessnesses.me/'];
-  const attempts=cobaltHosts.map(host=>['Cobalt '+new URL(host).hostname,async()=>{
-    const d=await postJson(host,{url,downloadMode:'auto',videoQuality:'max'});
-    const v=cobaltUrl(d);
-    return v?{url:v,title:'Facebook'}:null;
-  }]);
-  attempts.push(['SaveFrom',async()=>{
-    const d=await json('https://savefrom.net/api/convert?url='+encodeURIComponent(url)+'&lang=fr',{},35000);
-    const v=firstUrl(d,u=>/\.mp4(?:[?#]|$)|video/i.test(u));
-    return v?{url:v,title:d?.meta?.title||d?.title||'Facebook'}:null;
-  }]);
-  return cascade('Facebook',attempts);
+  return cascade('Facebook',[
+    ['Cobalt local',async()=>{
+      const r=await cobaltMedia(url,'Facebook');
+      const v=r?.urls?.[0];
+      return isHttp(v)?{url:v,title:r.title||'Facebook'}:null;
+    }],
+    ['Nexray',async()=>{
+      const d=await json('https://api.nexray.web.id/downloader/facebook?url='+encodeURIComponent(url),{},35000);
+      const p=d?.result||d?.data||d;
+      const v=p?.video_hd||p?.video_sd||p?.video||p?.url||firstUrl(p,u=>!/thumbnail|cover|avatar|profile/i.test(u));
+      return isHttp(v)?{url:v,title:p?.title||'Facebook'}:null;
+    }],
+    ['Siputzx',async()=>{
+      const d=await json('https://api.siputzx.my.id/api/d/facebook?url='+encodeURIComponent(url),{},35000);
+      const v=firstUrl(d,u=>!/thumbnail|cover|avatar|profile/i.test(u));
+      return v?{url:v,title:d?.data?.title||d?.title||'Facebook'}:null;
+    }]
+  ]);
 }
 async function pinterestMedia(url){
   if(!/(?:pinterest\.|pin\.it\/)/i.test(url))throw new Error('lien Pinterest invalide');
-  const d=await json('https://api.nexray.web.id/downloader/pinterest?url='+encodeURIComponent(url),{},35000);
-  if(!d?.status||!d?.result)throw new Error('Pinterest API sans résultat');
-  const p=d.result;
-  const media=p.video||p.image||p.url;
-  if(!isHttp(media))throw new Error('aucun média Pinterest');
-  return {url:media,title:p.title||'Pinterest',author:p.author||'',video:!!p.video,source:'Nexray'};
+  return cascade('Pinterest',[
+    ['Cobalt local',async()=>{
+      const r=await cobaltMedia(url,'Pinterest');
+      const v=r?.urls?.[0];
+      return isHttp(v)?{url:v,title:r.title||'Pinterest',author:'',video:true}:null;
+    }],
+    ['Nexray',async()=>{
+      const d=await json('https://api.nexray.web.id/downloader/pinterest?url='+encodeURIComponent(url),{},35000);
+      if(!d?.status||!d?.result)return null;
+      const p=d.result;
+      const media=p.video||p.image||p.url;
+      return isHttp(media)?{url:media,title:p.title||'Pinterest',author:p.author||'',video:!!p.video}:null;
+    }]
+  ]);
 }
 async function lyricsSearch(raw){
   const value=clean(raw);
@@ -528,9 +542,7 @@ async function sendLocalSocial(client,peer,url,label='Media'){
 }
 
 const COBALT_HTTP_HOSTS=[
-  'https://api.cobalt.tools/',
-  'https://cobalt.drgns.space/',
-  'https://cobalt.api.timelessnesses.me/'
+  'http://127.0.0.1:9000/'
 ];
 
 async function cobaltMedia(url,label){
