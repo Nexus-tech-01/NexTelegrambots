@@ -6,8 +6,10 @@ function fill(lines,data){
   const prefix=clean(data.prefix)||'.';
   const count=Number(data.count)||0;
   const bot=(clean(data.botName)||'NEXAI').slice(0,32);
+  const botkey=bot.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9_]+/g,'_').replace(/^_+|_+$/g,'').slice(0,24)||'nexai';
   return lines.map(line=>line
     .replaceAll('{bot}',bot)
+    .replaceAll('{botkey}',botkey)
     .replaceAll('{user}',user)
     .replaceAll('{rank}',rank.toUpperCase())
     .replaceAll('{prefix}',prefix)
@@ -18,7 +20,7 @@ function fill(lines,data){
 const T={
   1:{
     header:[
-      '♰〔 𝗡𝗘𝗫𝗔𝗜 • 𝗗𝗔𝗥𝗞 𝗗𝗜𝗣𝗣𝗘𝗥 〕',
+      '♰〔 {bot} • DARK DIPPER 〕',
       '┃ 👤 {user}',
       '┃ ♛ ʀᴀɴɢ • {rank}',
       '┃ ⌁ ᴘʀᴇғɪx • [ {prefix} ]',
@@ -54,7 +56,7 @@ const T={
       '├ prefix {prefix}',
       '├ modules {count}',
       '└ status ACCESS_GRANTED'
-    ],cat:l=>`┌─[ ${l}://MODULE ]`,bullet:'├─ ',footer:'└─ root@nexai:~#'
+    ],cat:l=>`┌─[ ${l}://MODULE ]`,bullet:'├─ ',footer:'└─ root@{botkey}:~#'
   },
   5:{
     header:[
@@ -98,7 +100,7 @@ const T={
   },
   9:{
     header:[
-      'nexai / oreki',
+      '{bot} / oreki',
       '› {user}',
       '› access : {rank}',
       '› prefix : {prefix}',
