@@ -32,6 +32,9 @@ const model={
 };
 const photo=__test.inlineResult(model,'999','x',false,false);
 assert.equal(photo.type,'photo');
+assert.equal(photo.input_message_content.message_text,'NexAI menu');
+assert.equal(photo.input_message_content.link_preview_options.url,'https://example.com/menu.jpg');
+assert.equal(photo.caption,undefined,'menu photo result must send editable text content, not a 1024-char caption');
 assert.equal(photo.reply_markup.inline_keyboard[0][0].callback_data,'menu:home|999');
 
 const article=__test.inlineResult(model,'999','x',true,true);
@@ -42,6 +45,7 @@ assert.equal(article.reply_markup.inline_keyboard[0][0].callback_data,'menu:home
 const cachedPhoto=__test.inlineCachedPhotoResult(model,'999','cached-x','telegram-file-id',false);
 assert.equal(cachedPhoto.type,'photo');
 assert.equal(cachedPhoto.photo_file_id,'telegram-file-id');
+assert.equal(cachedPhoto.input_message_content.message_text,'NexAI menu');
 assert.equal(cachedPhoto.reply_markup.inline_keyboard[0][0].callback_data,'menu:home|999');
 
 assert.deepEqual(
@@ -63,6 +67,8 @@ assert.match(inlineSource,/ctx\.callbackQuery\.inline_message_id\|\|ctx\.callbac
 assert.match(inlineSource,/article-portable/,'inline fallback must preserve an interactive article result');
 assert.match(inlineSource,/cachePhotoFileId/,'inline artwork must be cached as a Telegram file_id');
 assert.match(inlineSource,/photo_file_id/,'cached inline photo result must use Telegram media');
+assert.match(inlineSource,/prefer_large_media:true,show_above_text:true/,'menu artwork must render as a stable large link preview above text');
+assert.match(inlineSource,/Never truncate a long category/,'legacy media callbacks must not truncate long categories');
 assert.match(inlineSource,/function portableEntities/,'portable menu fallback must preserve clickable slash-command entities');
 assert.match(inlineSource,/action==='menu:styles'/,'styles menu callback must be handled');
 assert.match(inlineSource,/action\.startsWith\('style:set:'\)/,'style selection callback must be handled');
