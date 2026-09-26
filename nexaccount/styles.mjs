@@ -187,7 +187,16 @@ async function directImage(url){
     }catch{candidate=''}
   }
 
-  return cacheImage(url,await jpegUrl(candidate));
+  const verified=await jpegUrl(candidate);
+  if(verified)return cacheImage(url,verified);
+
+  // Some CDNs (notably Imgur) reject this server's validation request while
+  // Telegram can still fetch the public JPEG itself. For an explicit direct
+  // JPEG URL, let Telegram attempt it; inline-bot.mjs already falls back to
+  // the article result if Telegram rejects the photo.
+  if(/\.jpe?g(?:[?#].*)?$/i.test(candidate))return cacheImage(url,candidate);
+
+  return cacheImage(url,'');
 }
 
 export async function resolveInlinePhoto(url){
