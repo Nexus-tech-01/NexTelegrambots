@@ -3,402 +3,420 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import pino from 'pino';
-import makeWASocket, { DisconnectReason, useMultiFileAuthState, Browsers, delay, fetchLatestWaWebVersion, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
+import makeWASocket, {
+  Browsers,
+  DisconnectReason,
+  generateWAMessageFromContent,
+  proto,
+  useMultiFileAuthState,
+  fetchLatestBaileysVersion,
+  fetchLatestWaWebVersion,
+} from '@whiskeysockets/baileys';
 
-const PORT = Number(process.env.PORT || 8790);
-const DATA = process.env.DATA_DIR || '/var/lib/nex/whatsapp-publisher';
-const AUTH = path.join(DATA, 'wa-auth');
-const CFG = path.join(DATA, 'config.json');
-const HISTORY = path.join(DATA, 'history.json');
-const QUEUE = path.join(DATA, 'queue.json');
-const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || '';
-const DASHBOARD_SECRET = process.env.DASHBOARD_SECRET || '';
-const WEBHOOK_TOKEN = process.env.NEXCANAL_WEBHOOK_TOKEN || '';
-const DEFAULT_GROUP = process.env.WHATSAPP_GROUP_JID || '120363426961054070@g.us';
-const DEFAULT_INVITE = process.env.WHATSAPP_CHANNEL_INVITE_URL || 'https://whatsapp.com/channel/0029VbCKhnq7j6gEhuUKMP1V';
-const BLOCKED_EXT = new Set((process.env.CHANNEL_BLOCKED_EXTENSIONS || 'apk,zip,rar,7z,exe,dmg,deb,rpm,xapk,apks').split(',').map(x=>x.trim().toLowerCase()).filter(Boolean));
-const SOURCE_NAMES = new Set(['thenexusorigin','thenexnews']);
+const PORT = Number(process.env.WA_PUBLISHER_PORT || 8787);
+const BRIDGE_PORT = Number(process.env.WA_PUBLISHER_BRIDGE_PORT || 18787);
+const HOST = process.env.WA_PUBLISHER_HOST || '127.0.0.1';
+const DATA_DIR = process.env.WA_PUBLISHER_DATA_DIR || '/var/lib/nex/data/internal/whatsapp-publisher';
+const AUTH_DIR = path.join(DATA_DIR, 'wa-auth');
+const GROUP_JID = process.env.WHATSAPP_GROUP_JID || '120363426961054070@g.us';
+const CHANNEL_INVITE_URL = process.env.WHATSAPP_CHANNEL_INVITE_URL || 'https://whatsapp.com/channel/0029VbCKhnq7j6gEhuUKMP1V';
+const PRESENTATION_NEWSLETTER_JID = process.env.PRESENTATION_NEWSLETTER_JID || '120363411005383995@newsletter';
+const WEBHOOK_TOKEN = process.env.NEX_WHATSAPP_PUBLISHER_TOKEN || process.env.NEXCANAL__WEBHOOK_SECRET || '';
+const DASHBOARD_PASSWORD = process.env.NEX_WHATSAPP_DASHBOARD_PASSWORD || '';
+const SESSION_SECRET = process.env.NEX_WHATSAPP_SESSION_SECRET || '';
+const TELEGRAM_BOT_TOKEN = process.env.NEXCANAL__BOT_TOKEN || '';
+const SOURCES = new Set(['thenexusorigin', 'thenexnews']);
+const BLOCKED_DOC_EXT = new Set(['apk','xapk','apks','zip','rar','7z','exe','dmg','deb','rpm']);
+const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
-fs.mkdirSync(AUTH, { recursive:true });
-const readJson=(f,fb)=>{try{return JSON.parse(fs.readFileSync(f,'utf8'))}catch{return fb}};
-const writeJson=(f,v)=>fs.writeFileSync(f,JSON.stringify(v,null,2));
-const cfg=()=>({ whatsappGroupJid:DEFAULT_GROUP, whatsappChannelJid:'', whatsappChannelInviteUrl:DEFAULT_INVITE, ...readJson(CFG,{}) });
-const saveCfg=(patch)=>{ const n={...readJson(CFG,{}),...patch}; writeJson(CFG,n); return cfg(); };
-const hist=(e)=>{const a=readJson(HISTORY,[]);a.unshift({id:crypto.randomUUID(),at:new Date().toISOString(),...e});a.length=Math.min(a.length,500);writeJson(HISTORY,a)};
-const safeEq=(a,b)=>{const A=Buffer.from(String(a||'')),B=Buffer.from(String(b||''));return A.length===B.length&&crypto.timingSafeEqual(A,B)};
-const sess=()=>crypto.createHmac('sha256',DASHBOARD_SECRET||'unsafe').update('owner').digest('hex');
-const cookies=(req)=>Object.fromEntries(String(req.headers.cookie||'').split(';').map(x=>x.trim()).filter(Boolean).map(x=>{const i=x.indexOf('=');return [x.slice(0,i),decodeURIComponent(x.slice(i+1))]}));
-const authorized=(req)=>safeEq(cookies(req).nex_owner,sess());
-const body=async req=>{let s='';for await(const c of req){s+=c;if(s.length>5_000_000)throw Error('payload_too_large')}return s?JSON.parse(s):{}};
-const json=(res,code,obj)=>{res.writeHead(code,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify(obj))};
+fs.mkdirSync(AUTH_DIR, { recursive: true });
 
-let sock=null;
-let wa={status:'disconnected',me:null,lastError:null,connectedAt:null};
-let reconnectTimer=null;
-let pairLock=0;
+const state = {
+  status: 'disconnected',
+  connectedAt: null,
+  me: null,
+  lastError: null,
+  qr: null,
+  channelJid: null,
+  channelTitle: null,
+  lastPublishAt: null,
+};
+let socket = null;
+let socketGeneration = 0;
+let reconnectTimer = null;
+let processing = false;
+let lastPairRequestAt = 0;
+let pairingResetInProgress = false;
 
-function inviteCode(v=''){const m=String(v).trim().match(/whatsapp\.com\/channel\/([A-Za-z0-9_-]+)/i);return m?m[1]:String(v).trim()}
-async function resolveChannel(invite=cfg().whatsappChannelInviteUrl){
-  if(!sock||wa.status!=='connected')throw Error('WhatsApp non connecté');
-  const meta=await sock.newsletterMetadata('invite',inviteCode(invite));
-  const jid=meta?.id||meta?.jid;
-  if(!jid||!String(jid).endsWith('@newsletter'))throw Error('JID newsletter introuvable');
-  saveCfg({whatsappChannelJid:String(jid),whatsappChannelInviteUrl:invite});
-  return {jid:String(jid),name:meta?.name||meta?.subject||''};
-}
-
-let waVersionCache=null;
-let waVersionFetchedAt=0;
-const WA_VERSION_TTL_MS=6*60*60*1000;
-let socketGeneration=0;
-let pairingReadyPromise=null;
-
-async function currentWaVersion(strict=false){
-  const now=Date.now();
-  if(waVersionCache&&now-waVersionFetchedAt<WA_VERSION_TTL_MS)return waVersionCache;
+async function resetAuthForPairing(){
+  if(pairingResetInProgress) throw new Error('Une préparation de connexion WhatsApp est déjà en cours.');
+  pairingResetInProgress=true;
   try{
-    const latest=await fetchLatestWaWebVersion({});
-    if(!Array.isArray(latest?.version)||latest.version.length!==3)throw Error(latest?.error?.message||'version WhatsApp Web invalide');
-    waVersionCache=latest.version;
-    waVersionFetchedAt=now;
-    hist({type:'wa_web_version',version:waVersionCache.join('.'),source:'web.whatsapp.com'});
-    return waVersionCache;
-  }catch(e){
-    if(strict)throw Error('Impossible de récupérer la version WhatsApp Web actuelle : '+String(e.message||e));
-    const fallback=await fetchLatestBaileysVersion();
-    waVersionCache=fallback.version;
-    waVersionFetchedAt=now;
-    hist({type:'wa_web_version_fallback',version:waVersionCache.join('.'),error:String(e.message||e)});
-    return waVersionCache;
+    clearTimeout(reconnectTimer);
+    reconnectTimer=null;
+    socketGeneration++;
+    const old=socket;
+    socket=null;
+    try{old?.end?.(new Error('fresh pairing requested'));}catch{}
+    try{old?.ws?.close?.();}catch{}
+    await new Promise(r=>setTimeout(r,400));
+    fs.rmSync(AUTH_DIR,{recursive:true,force:true});
+    fs.mkdirSync(AUTH_DIR,{recursive:true});
+    state.status='preparing_pairing';
+    state.connectedAt=null;
+    state.me=null;
+    state.lastError=null;
+    state.qr=null;
+  }finally{
+    pairingResetInProgress=false;
   }
 }
 
-async function connect({pairing=false}={}){
-  if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null}
-  const {state,saveCreds}=await useMultiFileAuthState(AUTH);
-
-  // Une session vierge ne doit pas rester ouverte depuis le démarrage du
-  // service : le handshake d'appairage expire avant que l'utilisateur ne
-  // demande son code. On crée le socket de pairing uniquement à la demande.
-  if(!state.creds.registered&&!pairing){
-    try{sock?.ws?.close?.()}catch{}
-    sock=null;
-    wa={status:'needs_pairing',me:null,lastError:null,connectedAt:null};
-    return null;
+async function waitForQr(timeoutMs=15000){
+  const deadline=Date.now()+timeoutMs;
+  while(Date.now()<deadline){
+    if(state.qr) return state.qr;
+    if(state.status==='connected') throw new Error('Le compte est déjà connecté.');
+    if(state.status==='needs_pairing'&&state.lastError) throw new Error(state.lastError);
+    await new Promise(r=>setTimeout(r,200));
   }
+  throw new Error('WhatsApp n’a pas ouvert la fenêtre de connexion à temps. Réessaie.');
+}
 
+const f = name => path.join(DATA_DIR, name);
+function readJson(name, fallback) { try { return JSON.parse(fs.readFileSync(f(name), 'utf8')); } catch { return fallback; } }
+function writeJson(name, value) { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(f(name), JSON.stringify(value, null, 2)); }
+function safeEq(a,b){ const aa=Buffer.from(String(a||'')),bb=Buffer.from(String(b||'')); return aa.length===bb.length && crypto.timingSafeEqual(aa,bb); }
+function sessionToken(){ return crypto.createHmac('sha256', SESSION_SECRET || 'unsafe').update('nex-whatsapp-owner').digest('hex'); }
+function cookies(req){ return Object.fromEntries(String(req.headers.cookie||'').split(';').map(x=>x.trim().split('=').map(decodeURIComponent)).filter(x=>x.length===2)); }
+function authed(req){ return Boolean(SESSION_SECRET && safeEq(cookies(req).nwp_owner, sessionToken())); }
+function json(res, status, obj, headers={}) { res.writeHead(status, {'content-type':'application/json; charset=utf-8','cache-control':'no-store',...headers}); res.end(JSON.stringify(obj)); }
+async function body(req){ const chunks=[]; for await(const c of req) chunks.push(c); if(!chunks.length)return{}; try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{return{};} }
+function sourceName(v=''){ return String(v).replace(/^@/,'').toLowerCase().trim(); }
+function flatButtons(v){ const src=Array.isArray(v)?v:[]; const flat=src.flatMap(x=>Array.isArray(x)?x:[x]); return flat.map(x=>({text:String(x?.text||x?.label||'Ouvrir').trim(),url:String(x?.url||'').trim()})).filter(x=>/^https?:\/\//i.test(x.url)).slice(0,12); }
+function linksText(buttons){ return buttons.map(b=>`• ${b.text}: ${b.url}`).join('\n'); }
+function inviteCode(url=''){ const m=String(url).match(/whatsapp\.com\/channel\/([A-Za-z0-9_-]+)/i); return m?.[1] || String(url).trim(); }
+function ext(name=''){ return path.extname(String(name).split('?')[0].toLowerCase()).replace('.',''); }
+function documentBlocked(item){ const type=String(item?.type||'').toLowerCase(); const e=ext(item?.fileName||''); return type==='document'||type==='file'||BLOCKED_DOC_EXT.has(e); }
+
+async function telegramFileUrl(fileId){
+  if(!fileId) return null;
+  if(!TELEGRAM_BOT_TOKEN) throw new Error('NEXCANAL__BOT_TOKEN absent');
+  const r=await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getFile?file_id=${encodeURIComponent(fileId)}`,{signal:AbortSignal.timeout(20000)});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok||!j?.ok||!j?.result?.file_path) throw new Error(`Telegram getFile failed: ${j?.description||r.status}`);
+  return `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${j.result.file_path}`;
+}
+
+function normalizeMedia(input){
+  const arr = Array.isArray(input) ? input : (input ? [input] : []);
+  return arr.map((m,i)=>({
+    type:String(m?.type||m?.media_type||'document').toLowerCase(),
+    fileId:String(m?.fileId||m?.telegram_file_id||m?.telegramFileId||''),
+    url:String(m?.url||''),
+    fileName:String(m?.fileName||m?.original_name||m?.filename||`media-${i+1}`),
+    mimetype:String(m?.mimetype||m?.mime_type||''),
+    position:Number(m?.position??i),
+  })).filter(m=>m.fileId||m.url).sort((a,b)=>a.position-b.position);
+}
+
+function normalizePublication(raw={}){
+  const source=sourceName(raw.source||raw.channelUsername||raw.telegram_username);
+  const id=String(raw.id||`${source}:${raw.sourceMessageId||raw.telegramMessageId||crypto.randomUUID()}`);
+  const buttons=flatButtons(raw.buttons||raw.inlineButtons||raw.inline_buttons||[]);
+  const media=normalizeMedia(raw.mediaItems||raw.media||[]);
+  return {
+    id, source,
+    sourceMessageId: raw.sourceMessageId ?? raw.telegramMessageId ?? null,
+    text:String(raw.text||raw.caption||'').trim(),
+    buttons, media,
+    createdAt:raw.createdAt||new Date().toISOString(),
+  };
+}
+
+function routePublication(pub){
+  const channelBlocked=pub.media.some(documentBlocked);
+  return {
+    group:Boolean(GROUP_JID),
+    channel:!channelBlocked,
+    channelBlocked,
+    reason:channelBlocked?'fichier/document réservé au groupe':'compatible chaîne + groupe',
+  };
+}
+
+function addHistory(entry){ const h=readJson('history.json',[]); h.unshift({at:new Date().toISOString(),...entry}); if(h.length>500)h.length=500; writeJson('history.json',h); }
+function enqueue(destination,jid,pub){ const q=readJson('queue.json',[]); q.push({id:crypto.randomUUID(),destination,jid,pub,status:'pending',attempts:0,nextAttemptAt:Date.now(),createdAt:new Date().toISOString()}); writeJson('queue.json',q); }
+function dedupeSeen(pub){ const h=readJson('history.json',[]); return h.some(x=>x.type==='planned'&&x.publicationId===pub.id); }
+
+async function resolveChannel(){
+  if(!socket||state.status!=='connected') return null;
+  const persisted=readJson('channel.json',{});
+  if(persisted?.jid?.endsWith('@newsletter')){ state.channelJid=persisted.jid; state.channelTitle=persisted.title||null; return persisted.jid; }
+  const code=inviteCode(CHANNEL_INVITE_URL); if(!code) return null;
+  const meta=await socket.newsletterMetadata('invite',code);
+  const jid=String(meta?.id||meta?.jid||'');
+  if(!jid.endsWith('@newsletter')) throw new Error('JID newsletter introuvable');
+  state.channelJid=jid; state.channelTitle=meta?.name||meta?.subject||null;
+  writeJson('channel.json',{jid,title:state.channelTitle,invite:CHANNEL_INVITE_URL,resolvedAt:new Date().toISOString()});
+  return jid;
+}
+
+async function connectWhatsApp({freshPairing=false}={}){
   const generation=++socketGeneration;
-  try{sock?.ws?.close?.()}catch{}
-  sock=null;
+  clearTimeout(reconnectTimer);
 
-  const version=await currentWaVersion(pairing);
-  wa.status=pairing?'pairing':'connecting';
-  wa.lastError=null;
-
-  let readyResolve,readyReject;
-  pairingReadyPromise=pairing?new Promise((resolve,reject)=>{readyResolve=resolve;readyReject=reject}):null;
-  let readyTimer=null;
-  if(pairing){
-    readyTimer=setTimeout(()=>readyReject?.(Error('WhatsApp n’a pas ouvert la fenêtre d’appairage à temps')),15000);
-    readyTimer.unref?.();
+  if(freshPairing&&socket){
+    try{socket.end?.(new Error('pairing socket refresh'));}catch{}
+    socket=null;
+    await new Promise(r=>setTimeout(r,250));
   }
 
-  const localSock=makeWASocket({
-    version,
-    auth:state,
+  const {state:auth,saveCreds}=await useMultiFileAuthState(AUTH_DIR);
+  const registered=Boolean(auth.creds.registered);
+  state.status=registered?'connecting':'waiting_pairing';
+  state.lastError=null;
+
+  let version;
+  try{
+    const latest=await fetchLatestWaWebVersion();
+    version=latest?.version;
+    logger.info({version},'Using current WhatsApp Web version');
+  }catch(e){
+    logger.warn({err:e},'Unable to fetch latest WhatsApp version; using Baileys default');
+  }
+
+  const sock=makeWASocket({
+    ...(version?{version}:{}),
+    auth,
     logger:pino({level:process.env.BAILEYS_LOG_LEVEL||'silent'}),
-    // Pour requestPairingCode, garder une identité navigateur canonique.
-    // Un libellé personnalisé peut produire un code de 8 caractères que
-    // WhatsApp refuse ensuite avec "Couldn't link device".
     browser:Browsers.ubuntu('Chrome'),
-    printQRInTerminal:false,
     markOnlineOnConnect:false,
     syncFullHistory:false,
     generateHighQualityLinkPreview:true,
-    connectTimeoutMs:60000,
-    keepAliveIntervalMs:30000
+    keepAliveIntervalMs:30000,
+    retryRequestDelayMs:2000
   });
-  sock=localSock;
+  socket=sock;
 
-  localSock.ev.on('creds.update',saveCreds);
-  localSock.ev.on('connection.update',async u=>{
+  sock.ev.on('creds.update',saveCreds);
+  sock.ev.on('connection.update',async u=>{
     if(generation!==socketGeneration)return;
 
-    if(pairing&&u.qr){
-      if(readyTimer){clearTimeout(readyTimer);readyTimer=null}
-      readyResolve?.(true);
+    if(u.qr){
+      state.qr=u.qr;
+      if(!auth.creds.registered) state.status='waiting_pairing';
     }
 
     if(u.connection==='open'){
-      if(readyTimer){clearTimeout(readyTimer);readyTimer=null}
-      readyResolve?.(true);
-      wa={status:'connected',me:localSock.user||null,lastError:null,connectedAt:new Date().toISOString()};
-      hist({type:'whatsapp_connected',me:localSock.user?.id||null});
-      if(!cfg().whatsappChannelJid){
-        try{await resolveChannel()}catch(e){hist({type:'channel_resolve_failed',error:String(e.message||e)})}
-      }
+      state.status='connected';
+      state.connectedAt=new Date().toISOString();
+      state.me=sock.user||null;
+      state.lastError=null;
+      state.qr=null;
+      try{await resolveChannel();}catch(e){state.lastError=`channel: ${e?.message||e}`;}
+      processQueue().catch(()=>{});
     }
 
     if(u.connection==='close'){
+      state.me=null;
       const code=new Boom(u.lastDisconnect?.error)?.output?.statusCode;
-      const err=String(u.lastDisconnect?.error?.message||u.lastDisconnect?.error||code||'closed');
+      const message=String(u.lastDisconnect?.error?.message||u.lastDisconnect?.error||`closed:${code||'unknown'}`);
+      state.lastError=message;
 
-      if(readyTimer){clearTimeout(readyTimer);readyTimer=null}
-      if(pairing&&code!==DisconnectReason.restartRequired)readyReject?.(Error(err));
+      const nowRegistered=Boolean(auth.creds.registered);
+      logger.warn({code,message,registered:nowRegistered},'WhatsApp connection closed');
 
-      wa.status='disconnected';
-      wa.me=null;
-      wa.lastError=err;
-      hist({type:'whatsapp_disconnected',code,error:err});
+      if(code===DisconnectReason.loggedOut || code===401){
+        clearTimeout(reconnectTimer);
+        reconnectTimer=null;
+        state.status='needs_pairing';
+        state.connectedAt=null;
+        state.qr=null;
+        state.lastError='Session WhatsApp refusée ou expirée. Génère une nouvelle connexion.';
+        logger.warn({code},'Terminal WhatsApp auth failure; automatic reconnect stopped');
+        return;
+      }
 
-      if(code!==DisconnectReason.loggedOut){
-        const wait=code===DisconnectReason.restartRequired?750:5000;
-        reconnectTimer=setTimeout(()=>connect().catch(e=>{
-          wa.lastError=String(e.message||e);
-          hist({type:'whatsapp_reconnect_failed',error:wa.lastError});
-        }),wait);
+      if(code===DisconnectReason.restartRequired){
+        state.status='restarting_after_pair';
+        clearTimeout(reconnectTimer);
+        reconnectTimer=setTimeout(()=>connectWhatsApp().catch(e=>logger.error({err:e},'WhatsApp reconnect failed')),900);
         reconnectTimer.unref?.();
+        return;
       }
+
+      if(nowRegistered){
+        state.status='reconnecting';
+        clearTimeout(reconnectTimer);
+        reconnectTimer=setTimeout(()=>connectWhatsApp().catch(e=>logger.error({err:e},'WhatsApp reconnect failed')),5000);
+        reconnectTimer.unref?.();
+        return;
+      }
+
+      state.status='waiting_pairing';
     }
   });
 
-  return localSock;
+  return sock;
 }
 
-async function requestPair(phone){
+async function requestPairingCode(phone){
   const clean=String(phone||'').replace(/\D/g,'');
-  if(clean.length<7||clean.length>15)throw Error('Numéro WhatsApp invalide');
-  if(wa.status==='connected')throw Error('Un compte est déjà connecté. Réinitialise la session pour changer de compte.');
-  if(Date.now()-pairLock<10000)throw Error('Attends quelques secondes avant de demander un autre code.');
-  pairLock=Date.now();
+  if(clean.length<7||clean.length>15) throw new Error('Numéro WhatsApp invalide');
+  if(state.status==='connected') throw new Error('Un compte WhatsApp est déjà connecté');
 
-  const {state}=await useMultiFileAuthState(AUTH);
-  if(state.creds.registered){
-    await connect();
-    throw Error('Une session WhatsApp existe déjà. Si elle ne se reconnecte pas, utilise « Réinitialiser la session WhatsApp » puis génère un nouveau code.');
-  }
-
-  const pairSock=await connect({pairing:true});
-  if(!pairSock)throw Error('Socket d’appairage indisponible');
+  const now=Date.now();
+  if(now-lastPairRequestAt<30000) throw new Error('Patiente quelques secondes avant de demander un nouveau code.');
+  // Lock before touching Baileys state: a second request can overwrite the
+  // pairing secret and make the first code impossible to validate.
+  lastPairRequestAt=now;
 
   try{
-    // Attendre le QR interne signifie que le handshake de registration est
-    // réellement prêt. Cela évite les codes générés trop tôt puis refusés.
-    await pairingReadyPromise;
-  }catch(e){
-    try{pairSock?.ws?.close?.()}catch{}
-    throw e;
-  }
-
-  if(pairSock!==sock||wa.status==='disconnected')throw Error('La connexion WhatsApp a été interrompue avant la génération du code.');
-
-  const raw=await pairSock.requestPairingCode(clean);
-  const code=String(raw||'').replace(/\s+/g,'');
-  if(!code)throw Error('WhatsApp n’a retourné aucun code');
-
-  hist({
-    type:'pairing_code_requested',
-    phone:'+'+clean.slice(0,3)+'***'+clean.slice(-2),
-    version:Array.isArray(waVersionCache)?waVersionCache.join('.'):null,
-    browser:'Ubuntu/Chrome'
-  });
-  return {phone:'+'+clean,code,formatted:code.match(/.{1,4}/g)?.join('-')||code};
-}
-async function resetSession(){
-  try{sock?.ws?.close?.()}catch{}
-  fs.rmSync(AUTH,{recursive:true,force:true});
-  fs.mkdirSync(AUTH,{recursive:true});
-  sock=null;
-  wa={status:'disconnected',me:null,lastError:null,connectedAt:null};
-  await connect();
-}
-
-function ext(pub){
-  const n=pub.media?.fileName||pub.media?.url||'';
-  const m=String(n).toLowerCase().match(/\.([a-z0-9]+)(?:[?#]|$)/);
-  return m?.[1]||'';
-}
-function normalize(input={}){
-  const buttons=(Array.isArray(input.buttons)?input.buttons:[])
-    .map(b=>({text:String(b?.text||b?.label||'Ouvrir').trim(),url:String(b?.url||'').trim()}))
-    .filter(b=>/^https?:\/\//i.test(b.url)).slice(0,10);
-  const m=input.media&&input.media.url?{
-    type:String(input.media.type||'document').toLowerCase(),
-    url:String(input.media.url),
-    fileName:String(input.media.fileName||input.media.filename||''),
-    mimetype:String(input.media.mimetype||'')
-  }:null;
-  const source=String(input.source||'manual');
-  const sourceMessageId=input.sourceMessageId||null;
-  const deterministicId=sourceMessageId!=null
-    ? crypto.createHash('sha256').update(source+':'+String(sourceMessageId)).digest('hex').slice(0,32)
-    : crypto.randomUUID();
-  return {
-    id:input.id||deterministicId,
-    source,
-    sourceMessageId,
-    text:String(input.text||input.caption||'').trim(),
-    media:m,
-    buttons,
-    createdAt:input.createdAt||new Date().toISOString()
-  };
-}
-function route(pub){
-  const c=cfg(),x=ext(pub);
-  const document=pub.media&&['document','file'].includes(pub.media.type);
-  const blocked=BLOCKED_EXT.has(x);
-  const channelBlocked=blocked||document;
-  return {
-    extension:x,channelBlocked,
-    reason:channelBlocked?(blocked?'.'+x+' réservé au groupe':'fichier réservé au groupe'):'compatible chaîne + groupe',
-    destinations:{group:Boolean(c.whatsappGroupJid),channel:Boolean(c.whatsappChannelJid)&&!channelBlocked}
-  };
-}
-function textWithLinks(pub){
-  const links=pub.buttons.map(b=>'• '+b.text+': '+b.url).join('\n');
-  return [pub.text,links].filter(Boolean).join('\n\n');
-}
-async function send(jid,pub){
-  if(!sock||wa.status!=='connected')throw Error('WhatsApp non connecté');
-  const text=textWithLinks(pub);
-  if(!pub.media)return sock.sendMessage(jid,{text});
-  const source={url:pub.media.url},t=pub.media.type;
-  if(t==='image'||t==='photo')return sock.sendMessage(jid,{image:source,caption:text});
-  if(t==='video')return sock.sendMessage(jid,{video:source,caption:text});
-  if(t==='audio')return sock.sendMessage(jid,{audio:source,mimetype:pub.media.mimetype||'audio/mpeg'});
-  return sock.sendMessage(jid,{
-    document:source,
-    mimetype:pub.media.mimetype||'application/octet-stream',
-    fileName:pub.media.fileName||'fichier',
-    caption:text
-  });
-}
-
-let queueRunning=false;
-function enqueue(publication,destination,jid){
-  const q=readJson(QUEUE,[]);
-  const existing=q.find(x=>
-    String(x?.publication?.id||'')===String(publication?.id||'') &&
-    String(x?.destination||'')===String(destination||'') &&
-    ['pending','done'].includes(String(x?.status||''))
-  );
-  if(existing)return {...existing,deduplicated:true};
-  const item={
-    id:crypto.randomUUID(),
-    status:'pending',
-    attempts:0,
-    nextAttemptAt:Date.now(),
-    createdAt:new Date().toISOString(),
-    publication,destination,jid
-  };
-  q.push(item);writeJson(QUEUE,q);processQueue();return item;
-}
-async function processQueue(){
-  if(queueRunning)return;
-  queueRunning=true;
-  try{
-    const q=readJson(QUEUE,[]);
-    for(const item of q){
-      if(item.status!=='pending'||item.nextAttemptAt>Date.now())continue;
-      try{
-        item.attempts++;
-        await send(item.jid,item.publication);
-        item.status='done';
-        item.completedAt=new Date().toISOString();
-        hist({type:'published',source:item.publication.source,destination:item.destination,publicationId:item.publication.id});
-      }catch(e){
-        item.lastError=String(e.message||e);
-        if(item.attempts>=5){
-          item.status='failed';
-          item.failedAt=new Date().toISOString();
-          hist({type:'publish_failed',destination:item.destination,error:item.lastError});
-        }else{
-          item.nextAttemptAt=Date.now()+5000*(2**(item.attempts-1));
-        }
-      }
-      writeJson(QUEUE,q);
+    // Explicit new pairing = discard any disconnected/401 auth state first.
+    await resetAuthForPairing();
+    const pairSocket=await connectWhatsApp({freshPairing:true});
+    if(typeof pairSocket?.requestPairingCode!=='function'){
+      throw new Error('Pairing par numéro indisponible');
     }
-  }finally{queueRunning=false}
-}
-setInterval(()=>processQueue().catch(()=>{}),5000).unref();
 
-function plan(input){
-  const pub=normalize(input),r=route(pub),c=cfg(),jobs=[];
-  if(r.destinations.group)jobs.push(enqueue(pub,'group',c.whatsappGroupJid));
-  if(r.destinations.channel)jobs.push(enqueue(pub,'channel',c.whatsappChannelJid));
-  hist({type:'publication_planned',source:pub.source,publicationId:pub.id,route:r,textPreview:pub.text.slice(0,160)});
-  return {publication:pub,route,jobs:jobs.map(x=>({id:x.id,destination:x.destination}))};
+    // Baileys recommends requesting the code only once the QR/connecting
+    // phase is reached. This avoids issuing a code from a half-open socket.
+    await waitForQr(15000);
+
+    const raw=String(await Promise.race([
+      pairSocket.requestPairingCode(clean),
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error('La génération du code WhatsApp a expiré. Réessaie.')),20000))
+    ]));
+    if(!raw) throw new Error('Aucun code retourné par WhatsApp');
+
+    state.status='pairing_code_ready';
+    state.lastError=null;
+    return {phone:`+${clean}`,raw,formatted:raw.match(/.{1,4}/g)?.join('-')||raw};
+  }catch(error){
+    state.status=state.qr?'waiting_pairing':'needs_pairing';
+    state.lastError=String(error?.message||error);
+    throw error;
+  }
 }
 
-const page=fs.readFileSync(new URL('./public/index.html',import.meta.url),'utf8');
-const loginHits=new Map();
-function loginAllowed(ip){
-  const now=Date.now(),a=(loginHits.get(ip)||[]).filter(t=>now-t<60000);
-  if(a.length>=10)return false;
-  a.push(now);loginHits.set(ip,a);return true;
+async function nativeButtons(jid,text,buttons){
+  if(!buttons.length) return false;
+  try{
+    const content=proto.Message.InteractiveMessage.create({
+      body:proto.Message.InteractiveMessage.Body.create({text:text||'Ouvrir'}),
+      footer:proto.Message.InteractiveMessage.Footer.create({text:'Nextech'}),
+      nativeFlowMessage:proto.Message.InteractiveMessage.NativeFlowMessage.create({buttons:buttons.slice(0,3).map(b=>({name:'cta_url',buttonParamsJson:JSON.stringify({display_text:b.text,url:b.url,merchant_url:b.url})}))})
+    });
+    const msg=generateWAMessageFromContent(jid,{interactiveMessage:content},{userJid:socket.user?.id});
+    await socket.relayMessage(jid,msg.message,{messageId:msg.key.id}); return true;
+  }catch{return false;}
 }
+
+async function sendOneMedia(jid,item,caption){
+  const url=item.url||await telegramFileUrl(item.fileId);
+  if(!url) throw new Error('URL média introuvable');
+  const source={url};
+  const type=String(item.type||'').toLowerCase();
+  if(type==='photo'||type==='image') return socket.sendMessage(jid,{image:source,caption});
+  if(type==='video'||type==='animation') return socket.sendMessage(jid,{video:source,caption});
+  if(type==='audio'||type==='voice') return socket.sendMessage(jid,{audio:source,mimetype:item.mimetype||'audio/mpeg'});
+  return socket.sendMessage(jid,{document:source,mimetype:item.mimetype||'application/octet-stream',fileName:item.fileName||'fichier',caption});
+}
+
+async function sendPublication(jid,destination,pub){
+  if(!socket||state.status!=='connected') throw new Error('WhatsApp non connecté');
+  const combined=[pub.text,linksText(pub.buttons)].filter(Boolean).join('\n\n');
+  if(!pub.media.length){
+    if(destination==='group'&&pub.buttons.length&&await nativeButtons(jid,pub.text,pub.buttons)) return;
+    await socket.sendMessage(jid,{text:combined||'Publication Nextech'}); return;
+  }
+  for(let i=0;i<pub.media.length;i++) await sendOneMedia(jid,pub.media[i],i===0?combined:undefined);
+}
+
+async function processQueue(){
+  if(processing||state.status!=='connected') return;
+  processing=true;
+  try{
+    const q=readJson('queue.json',[]);
+    for(const job of q){
+      if(job.status!=='pending'||Number(job.nextAttemptAt||0)>Date.now()) continue;
+      try{
+        job.attempts=Number(job.attempts||0)+1;
+        if(job.destination==='channel'&&(!job.jid||job.jid==='__CHANNEL__')){
+          const resolved=await resolveChannel();
+          if(!resolved) throw new Error('Chaîne WhatsApp non résolue');
+          job.jid=resolved;
+        }
+        await sendPublication(job.jid,job.destination,job.pub);
+        job.status='done'; job.completedAt=new Date().toISOString(); state.lastPublishAt=job.completedAt;
+        addHistory({type:'published',publicationId:job.pub.id,source:job.pub.source,destination:job.destination,attempts:job.attempts});
+      }catch(e){
+        job.lastError=String(e?.message||e);
+        const delay=Math.min(300000,5000*(2**Math.min(6,job.attempts-1)));
+        job.nextAttemptAt=Date.now()+delay;
+        if(job.attempts>=50){ job.status='failed'; addHistory({type:'failed',publicationId:job.pub.id,destination:job.destination,error:job.lastError}); }
+      }
+      writeJson('queue.json',q);
+    }
+  }finally{processing=false;}
+}
+setInterval(()=>processQueue().catch(()=>{}),3000).unref();
+
+function plan(raw){
+  const pub=normalizePublication(raw);
+  if(!SOURCES.has(pub.source)) throw new Error(`source non autorisée: ${pub.source||'vide'}`);
+  if(dedupeSeen(pub)) return {duplicate:true,pub,route:routePublication(pub)};
+  const route=routePublication(pub);
+  if(route.group) enqueue('group',GROUP_JID,pub);
+  if(route.channel) enqueue('channel',state.channelJid||'__CHANNEL__',pub);
+  addHistory({type:'planned',publicationId:pub.id,source:pub.source,route,textPreview:pub.text.slice(0,180)});
+  processQueue().catch(()=>{});
+  return {duplicate:false,pub,route};
+}
+
+const html=`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#071015"><title>Nex WhatsApp Publisher</title><style>
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 20% 0,#12352d,transparent 35%),#071015;color:#eef7f3;font-family:Inter,system-ui,-apple-system,sans-serif;min-height:100vh}.wrap{max-width:1040px;margin:auto;padding:28px}.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:30px}.brand{font-weight:900;letter-spacing:.03em}.badge{padding:8px 12px;border-radius:999px;border:1px solid #29414b;color:#9fb2bb;background:#0e1a20}.grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px}.card{background:#0f1a20e8;border:1px solid #20323c;border-radius:24px;padding:22px;box-shadow:0 22px 60px #0004}.hero h1{font-size:clamp(36px,8vw,72px);line-height:.92;margin:12px 0 18px;letter-spacing:-.05em}.muted{color:#93a5ae;line-height:1.6}.eyebrow{font-size:11px;letter-spacing:.18em;color:#25d366;font-weight:900}.row{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:14px}input,button{font:inherit;border-radius:14px;padding:14px}input{width:100%;border:1px solid #29414b;background:#091319;color:white;outline:none}button{border:0;background:#25d366;color:#05120c;font-weight:850;cursor:pointer}.ghost{background:#122129;color:#d9e6e0;border:1px solid #29414b}.code{display:none;margin-top:18px;border:1px solid #2a6e51;background:#0a281b;border-radius:18px;padding:18px}.code.show{display:block}.code strong{font-size:34px;letter-spacing:.12em;display:block;margin:8px 0 14px}.steps{font-size:14px;color:#c2d2cb;line-height:1.7}.metric{padding:14px 0;border-bottom:1px solid #20323c}.metric:last-child{border:0}.metric span{display:block;color:#82949e;font-size:12px;text-transform:uppercase;letter-spacing:.08em}.metric b{display:block;font-size:20px;margin-top:5px;word-break:break-word}.login{position:fixed;inset:0;display:grid;place-items:center;background:#071015;padding:20px;z-index:5}.login.hide{display:none}.login .card{width:min(400px,100%)}.login h2{margin:8px 0 4px}.login p{margin:0 0 14px}.log{margin-top:18px;max-height:260px;overflow:auto}.item{border-top:1px solid #20323c;padding:10px 0;font-size:13px}.item b{color:#baf5ce}.warn{color:#ffcf8b}@media(max-width:760px){.grid{grid-template-columns:1fr}.wrap{padding:18px}.row{grid-template-columns:1fr}.code strong{font-size:28px}.hero h1{font-size:48px}}
+</style></head><body><div id="login" class="login hide"><form id="lf" class="card"><div class="eyebrow">NEXTECH · PRIVÉ</div><h2>Nex Publisher</h2><p class="muted">Console WhatsApp privée.</p><input id="pw" type="password" placeholder="Mot de passe" required><button style="width:100%;margin-top:10px">Connexion</button><p id="le" class="warn"></p></form></div><main class="wrap"><div class="top"><div class="brand">NEX / WHATSAPP PUBLISHER</div><div id="badge" class="badge">Chargement…</div></div><div class="grid"><section class="card hero"><div class="eyebrow">CONNEXION PAR NUMÉRO</div><h1>Pair.<br>Publish.</h1><p class="muted">Entre le numéro du compte qui administrera ta chaîne et ton groupe WhatsApp. Le serveur génère un code à coller directement dans WhatsApp.</p><div class="row"><input id="phone" type="tel" placeholder="+229…"><button id="pair">Recevoir le code</button></div><div id="codeBox" class="code"><span class="muted">CODE DE CONNEXION</span><strong id="code">—</strong><button id="copy" class="ghost">Copier</button><ol class="steps"><li>Ouvre WhatsApp.</li><li>Paramètres → Appareils connectés.</li><li>Choisis « Connecter avec un numéro de téléphone ».</li><li>Colle le code.</li></ol></div></section><aside class="card"><div class="eyebrow">ÉTAT</div><div class="metric"><span>WhatsApp</span><b id="wa">—</b></div><div class="metric"><span>Groupe</span><b>${GROUP_JID}</b></div><div class="metric"><span>Chaîne</span><b id="channel">Résolution après connexion</b></div><div class="metric"><span>Sources</span><b>Nextech + NexNews</b></div><button id="resolve" class="ghost" style="width:100%;margin-top:14px">Résoudre la chaîne</button></aside></div><section class="card log"><div class="eyebrow">ACTIVITÉ RÉCENTE</div><div id="history"></div></section></main><script>
+const $=s=>document.querySelector(s);async function api(u,o={}){const r=await fetch(u,{headers:{'content-type':'application/json',...(o.headers||{})},...o});const j=await r.json().catch(()=>({}));if(!r.ok)throw Object.assign(new Error(j.error||('HTTP '+r.status)),{status:r.status});return j}async function refresh(){try{const d=await api('/api/status');$('#login').classList.add('hide');$('#wa').textContent=d.whatsapp.status;$('#badge').textContent='WhatsApp · '+d.whatsapp.status;$('#channel').textContent=d.whatsapp.channelJid||'À résoudre';$('#history').innerHTML=(d.history||[]).slice(0,20).map(x=>'<div class="item"><b>'+String(x.type||'event')+'</b> · '+String(x.destination||x.source||'')+'<br><span class="muted">'+String(x.at||'')+'</span></div>').join('')||'<p class="muted">Aucune activité.</p>'}catch(e){if(e.status===401)$('#login').classList.remove('hide')}}$('#lf').onsubmit=async e=>{e.preventDefault();try{await api('/api/login',{method:'POST',body:JSON.stringify({password:$('#pw').value})});$('#le').textContent='';refresh()}catch(e){$('#le').textContent=e.message}};$('#pair').onclick=async()=>{try{$('#pair').disabled=true;const d=await api('/api/pair',{method:'POST',body:JSON.stringify({phone:$('#phone').value})});$('#code').textContent=d.formatted;$('#codeBox').classList.add('show')}catch(e){alert(e.message)}finally{$('#pair').disabled=false}};$('#copy').onclick=async()=>{await navigator.clipboard.writeText($('#code').textContent.replace(/-/g,''));$('#copy').textContent='Copié';setTimeout(()=>$('#copy').textContent='Copier',1200)};$('#resolve').onclick=async()=>{try{const d=await api('/api/resolve-channel',{method:'POST'});alert('Chaîne: '+d.jid);refresh()}catch(e){alert(e.message)}};const reset=$('#reset');if(reset)reset.onclick=async()=>{if(!confirm('Réinitialiser la session WhatsApp ?'))return;try{await api('/api/reset',{method:'POST'});location.reload()}catch(e){alert(e.message)}};refresh();setInterval(refresh,8000);
+</script></body></html>`;
 
 const server=http.createServer(async(req,res)=>{
   try{
-    const u=new URL(req.url,'http://localhost');
-    if(req.method==='GET'&&u.pathname==='/healthz')return json(res,200,{ok:true,whatsapp:wa.status});
-    if(req.method==='GET'&&u.pathname==='/'){
-      res.writeHead(200,{'content-type':'text/html; charset=utf-8'});
-      return res.end(page);
+    const url=new URL(req.url,'http://localhost');
+    if(req.method==='GET'&&url.pathname==='/healthz') return json(res,200,{ok:true,status:state.status,channelJid:state.channelJid});
+    if(req.method==='GET'&&url.pathname==='/') { res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}); return res.end(html); }
+    if(req.method==='POST'&&url.pathname==='/api/login'){
+      const q=await body(req); if(!DASHBOARD_PASSWORD||!safeEq(q.password,DASHBOARD_PASSWORD)) return json(res,401,{error:'Mot de passe incorrect'});
+      return json(res,200,{ok:true},{'set-cookie':`nwp_owner=${sessionToken()}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=604800`});
     }
-    if(req.method==='POST'&&u.pathname==='/api/login'){
-      const ip=req.socket.remoteAddress||'';
-      if(!loginAllowed(ip))return json(res,429,{error:'Trop de tentatives'});
-      const b=await body(req);
-      if(!DASHBOARD_PASSWORD||!safeEq(b.password,DASHBOARD_PASSWORD))return json(res,401,{error:'Mot de passe incorrect'});
-      res.setHeader('set-cookie','nex_owner='+encodeURIComponent(sess())+'; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800');
-      return json(res,200,{ok:true});
+    if(req.method==='POST'&&url.pathname==='/api/nexcanal/publish'){
+      const token=String(req.headers.authorization||'').replace(/^Bearer\s+/i,''); if(!WEBHOOK_TOKEN||!safeEq(token,WEBHOOK_TOKEN)) return json(res,401,{error:'unauthorized'});
+      const q=await body(req); const out=plan(q); return json(res,202,{ok:true,duplicate:out.duplicate,route:out.route});
     }
-    if(req.method==='POST'&&u.pathname==='/api/logout'){
-      res.setHeader('set-cookie','nex_owner=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
-      return json(res,200,{ok:true});
+    if(req.method==='GET'&&url.pathname==='/api/status') return json(res,200,{whatsapp:{status:state.status,connectedAt:state.connectedAt,channelJid:state.channelJid,channelTitle:state.channelTitle,lastError:state.lastError,presentationNewsletterJid:PRESENTATION_NEWSLETTER_JID},history:[]});
+    if(req.method==='POST'&&url.pathname==='/api/pair'){ const q=await body(req); return json(res,200,{ok:true,...await requestPairingCode(q.phone)}); }
+    if(req.method==='POST'&&url.pathname==='/api/resolve-channel'){ const jid=await resolveChannel(); return json(res,200,{ok:true,jid,title:state.channelTitle}); }
+    if(!authed(req)) return json(res,401,{error:'unauthorized'});
+    if(req.method==='POST'&&url.pathname==='/api/reset'){
+      await resetAuthForPairing(); state.channelJid=null;state.channelTitle=null;fs.rmSync(f('channel.json'),{force:true}); await connectWhatsApp(); return json(res,200,{ok:true});
     }
-    if(req.method==='POST'&&u.pathname==='/api/nexcanal/publish'){
-      const got=String(req.headers.authorization||'').replace(/^Bearer\s+/i,'');
-      if(!WEBHOOK_TOKEN||!safeEq(got,WEBHOOK_TOKEN))return json(res,401,{error:'token invalide'});
-      const b=await body(req),src=String(b.source||'').replace(/^@/,'').toLowerCase();
-      if(!SOURCE_NAMES.has(src))return json(res,400,{error:'source non autorisée'});
-      return json(res,202,{ok:true,...plan({...b,source:'nexcanal:@'+src})});
-    }
-    if(!authorized(req))return json(res,401,{error:'unauthorized'});
-    if(req.method==='GET'&&u.pathname==='/api/status'){
-      return json(res,200,{whatsapp:wa,config:cfg(),queue:readJson(QUEUE,[]).slice(-50),history:readJson(HISTORY,[]).slice(0,100)});
-    }
-    if(req.method==='POST'&&u.pathname==='/api/wa/pair-code'){
-      return json(res,200,{ok:true,...await requestPair((await body(req)).phone)});
-    }
-    if(req.method==='POST'&&u.pathname==='/api/wa/reset'){
-      await resetSession();return json(res,200,{ok:true});
-    }
-    if(req.method==='POST'&&u.pathname==='/api/wa/resolve-channel'){
-      const b=await body(req);
-      return json(res,200,{ok:true,...await resolveChannel(b.invite||cfg().whatsappChannelInviteUrl),config:cfg()});
-    }
-    if(req.method==='POST'&&u.pathname==='/api/config'){
-      const b=await body(req);
-      return json(res,200,{ok:true,config:saveCfg({
-        whatsappGroupJid:String(b.whatsappGroupJid||DEFAULT_GROUP),
-        whatsappChannelJid:String(b.whatsappChannelJid||''),
-        whatsappChannelInviteUrl:String(b.whatsappChannelInviteUrl||DEFAULT_INVITE)
-      })});
-    }
-    if(req.method==='POST'&&u.pathname==='/api/publish'){
-      return json(res,200,{ok:true,...plan({...await body(req),source:'dashboard'})});
-    }
-    if(req.method==='GET'&&u.pathname==='/api/history')return json(res,200,{items:readJson(HISTORY,[]).slice(0,150)});
-    if(req.method==='GET'&&u.pathname==='/api/queue')return json(res,200,{items:readJson(QUEUE,[])});
     return json(res,404,{error:'not_found'});
-  }catch(e){
-    console.error(e);
-    return json(res,400,{error:String(e.message||e)});
-  }
+  }catch(e){ logger.error({err:e},'request failed'); return json(res,500,{error:String(e?.message||e)}); }
 });
 
-server.listen(PORT,'127.0.0.1',()=>console.log('[nex-whatsapp-publisher] 127.0.0.1:'+PORT));
-connect().catch(e=>{wa.lastError=String(e.message||e);console.error(e)});
+const bridgeServer=http.createServer(async(req,res)=>{
+  try{
+    const url=new URL(req.url,'http://localhost');
+    if(req.method==='GET'&&url.pathname==='/healthz') return json(res,200,{ok:true});
+    if(req.method==='POST'&&url.pathname==='/publish'){
+      const q=await body(req);
+      const out=plan(q);
+      return json(res,202,{ok:true,duplicate:out.duplicate,route:out.route});
+    }
+    return json(res,404,{error:'not_found'});
+  }catch(e){ logger.error({err:e},'bridge request failed'); return json(res,500,{error:String(e?.message||e)}); }
+});
+bridgeServer.listen(BRIDGE_PORT,'127.0.0.1',()=>logger.info({port:BRIDGE_PORT},'Nex WhatsApp Publisher bridge ready'));
+
+server.listen(PORT,HOST,async()=>{ logger.info({host:HOST,port:PORT},'Nex WhatsApp Publisher ready'); try{await connectWhatsApp();}catch(e){state.lastError=String(e?.message||e);logger.error({err:e},'WhatsApp startup failed');} });
