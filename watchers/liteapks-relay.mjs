@@ -417,6 +417,25 @@ function markBatchStart(st,{source,descriptorId=null}={}){
 function closeOpenBatch(st){
   publicationState(st).openBatch=null;
 }
+function publicationLedger(st){
+  const ps=publicationState(st);
+  ps.ledger=Array.isArray(ps.ledger)?ps.ledger:[];
+  return ps.ledger;
+}
+function recordPublicationLedger(st,item,result){
+  const reason=String(result?.reason||'');
+  if(!['apk-linked','apk-standalone','descriptor-batch-start'].includes(reason))return;
+  const ledger=publicationLedger(st);
+  ledger.push({
+    key:String(item?.key||queueKey(item?.source,item?.id)),
+    source:String(item?.source||''),
+    sourceMessageId:Number(item?.id||0),
+    reason,
+    batchId:String(result?.batchId||item?.key||''),
+    at:Date.now()
+  });
+  if(ledger.length>500)ledger.splice(0,ledger.length-500);
+}
 
 function isTlDecodeError(error){
   return /Constructor ID|TLObject/i.test(String(error?.message||error||''));
@@ -535,7 +554,7 @@ async function processItem(c,publisher,destination,st,sources,item){
     if(companion)closeOpenBatch(st);
     else markBatchStart(st,{source:item.source});
 
-    return {done:true,reason:linked?'apk-linked':'apk-standalone'};
+    return {done:true,reason:linked?'apk-linked':'apk-standalone',batchId:linked?(item.source+':descriptor:'+Number(linked.id)):item.key};
   }
 
   if(isDescriptor(m)){
@@ -552,7 +571,7 @@ async function processItem(c,publisher,destination,st,sources,item){
     });
     pruneDescriptors(ss);
     markBatchStart(st,{source:item.source,descriptorId:Number(m.id)});
-    return {done:true,reason:'descriptor-batch-start'};
+    return {done:true,reason:'descriptor-batch-start',batchId:item.source+':descriptor:'+Number(m.id)};
   }
 
   return {done:true,reason:'ignored'};
@@ -574,6 +593,7 @@ async function handleQueueItem(c,publisher,destination,st,sources,item){
       log('deferred',item.key,result.reason,'until',new Date(item.nextRetryAt).toISOString());
       return;
     }
+    recordPublicationLedger(st,item,result);
     st.queue=st.queue.filter(x=>x.key!==item.key);
     await save(st);
     log('processed',item.key,result.reason,'queue',st.queue.length,'active',processing.size);
