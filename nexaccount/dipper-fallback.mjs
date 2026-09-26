@@ -89,7 +89,7 @@ async function cascade(label,attempts){
   }
   throw new Error(label+' indisponible · '+errors.slice(-4).join(' | '));
 }
-async function responseBuffer(r,maxBytes,onProgress=null){
+export async function responseBuffer(r,maxBytes,onProgress=null){
   const declared=Number(r.headers.get('content-length')||0);
   if(declared&&declared>maxBytes)throw new Error('fichier trop volumineux ('+Math.round(declared/1024/1024)+' Mo)');
   const reader=r.body?.getReader?.();
