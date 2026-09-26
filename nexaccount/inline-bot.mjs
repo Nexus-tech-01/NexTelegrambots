@@ -113,11 +113,11 @@ function portableEntities(entities,maxLength){
   return (entities||[]).filter(e=>safe.has(e.type)&&e.offset+e.length<=maxLength);
 }
 
-function textInputContent(model,entities){
+function textInputContent(model,entities,disableArtwork=false){
   return {
     message_text:model.text.slice(0,4096),
     entities,
-    link_preview_options:model.photoUrl
+    link_preview_options:!disableArtwork&&model.photoUrl
       ?{url:model.photoUrl,prefer_large_media:true,show_above_text:true}
       :{is_disabled:true}
   };
@@ -136,11 +136,11 @@ function inlineCachedPhotoResult(model,accountId,id,fileId,portable=false){
   };
 }
 
-function inlineResult(model,accountId,id='menu',forceArticle=false,portable=false){
+function inlineResult(model,accountId,id='menu',forceArticle=false,portable=false,disableArtwork=false){
   const stamped=stampMarkup(model.reply_markup,accountId);
   const reply_markup=portable?portableMarkup(stamped):stamped;
   const textEntities=portable?portableEntities(model.entities,4096):model.entities.filter(e=>e.offset+e.length<=4096);
-  const input_message_content=textInputContent(model,textEntities);
+  const input_message_content=textInputContent(model,textEntities,disableArtwork);
 
   // A photo result keeps a visual thumbnail in the inline picker, but
   // input_message_content makes Telegram send an editable TEXT message with
@@ -228,25 +228,22 @@ async function sendModelMessage(ctx,model,accountId){
   const preview=model.photoUrl
     ?{url:model.photoUrl,prefer_large_media:true,show_above_text:true}
     :{is_disabled:true};
+  const attempts=[
+    ['text-rich',model.entities.filter(e=>e.offset+e.length<=4096),preview,rich],
+    ['text-portable',portableEntities(model.entities,4096),preview,plain],
+    ['text-no-artwork',portableEntities(model.entities,4096),{is_disabled:true},plain]
+  ];
 
-  try{
-    return await ctx.reply(model.text.slice(0,4096),{
-      entities:model.entities.filter(e=>e.offset+e.length<=4096),
-      link_preview_options:preview,
-      reply_markup:rich
-    });
-  }catch(error){
-    errors.push('text-rich:'+String(error?.description||error?.message||error).slice(0,350));
-  }
-
-  try{
-    return await ctx.reply(model.text.slice(0,4096),{
-      entities:portableEntities(model.entities,4096),
-      link_preview_options:preview,
-      reply_markup:plain
-    });
-  }catch(error){
-    errors.push('text-portable:'+String(error?.description||error?.message||error).slice(0,350));
+  for(const [kind,entities,link_preview_options,reply_markup] of attempts){
+    try{
+      return await ctx.reply(model.text.slice(0,4096),{
+        entities,
+        link_preview_options,
+        reply_markup
+      });
+    }catch(error){
+      errors.push(kind+':'+String(error?.description||error?.message||error).slice(0,350));
+    }
   }
   throw new Error('menu_send_failed '+errors.join(' | '));
 }
@@ -266,13 +263,18 @@ async function editInline(ctx,model,accountId,{replaceMedia=false}={}){
     ?{url:model.photoUrl,prefer_large_media:true,show_above_text:true}
     :{is_disabled:true};
 
-  // New menus are always editable text messages. Artwork is rendered as a
-  // large link preview above the quoted header instead of a photo caption.
-  for(const [kind,reply_markup] of markups){
+  // New menus are always editable text messages. Artwork is optional:
+  // a dead/unsupported preview must never prevent categories or styles from loading.
+  const textAttempts=[
+    ['rich',rich,model.entities.filter(e=>e.offset+e.length<=4096),preview],
+    ['portable',portableMarkup(rich),portableEntities(model.entities,4096),preview],
+    ['no-artwork',portableMarkup(rich),portableEntities(model.entities,4096),{is_disabled:true}]
+  ];
+  for(const [kind,reply_markup,entities,link_preview_options] of textAttempts){
     try{
       await ctx.editMessageText(model.text.slice(0,4096),{
-        entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=4096):portableEntities(model.entities,4096),
-        link_preview_options:preview,
+        entities,
+        link_preview_options,
         reply_markup
       });
       return 'text-'+kind;
@@ -502,7 +504,8 @@ export async function startInlineBot(){
       ...(cachedPhotoId?[['cached-photo-rich',inlineCachedPhotoResult(model,account.telegramUserId,resultId,cachedPhotoId,false)]]:[]),
       ['photo-rich',inlineResult(model,account.telegramUserId,resultId,false,false)],
       ['article-rich',inlineResult(model,account.telegramUserId,resultId,true,false)],
-      ['article-portable',inlineResult(model,account.telegramUserId,resultId,true,true)]
+      ['article-portable',inlineResult(model,account.telegramUserId,resultId,true,true)],
+      ['article-no-artwork',inlineResult(model,account.telegramUserId,resultId,true,true,true)]
     ];
     const errors=[];
     for(const [kind,result] of attempts){
@@ -568,7 +571,7 @@ export async function startInlineBot(){
     }catch(error){
       const reason=String(error?.description||error?.message||error).slice(0,700);
       console.error('[NexAI callback] failed',action,reason);
-      await ctx.answerCallbackQuery({text:'Impossible de mettre à jour ce menu. Réessaie avec .menu',show_alert:false}).catch(()=>{});
+      await ctx.answerCallbackQuery({text:'Impossible de mettre à jour ce menu. Réessaie avec /Menu',show_alert:false}).catch(()=>{});
     }
   });
 
