@@ -20,7 +20,9 @@
       "name": "Anime ingest regression",
       "type": "command",
       "file": "/usr/bin/node",
-      "args": ["scripts/test-anime-ingest.mjs"],
+      "args": [
+        "scripts/test-anime-ingest.mjs"
+      ],
       "cwd": "/opt/nex/current/nexaccount",
       "timeoutMs": 120000,
       "intervalMs": 600000
@@ -29,7 +31,10 @@
       "name": "NexAccount full regression",
       "type": "command",
       "file": "/usr/bin/npm",
-      "args": ["run", "check"],
+      "args": [
+        "run",
+        "check"
+      ],
       "cwd": "/opt/nex/current/nexaccount",
       "timeoutMs": 300000,
       "intervalMs": 3600000
@@ -38,7 +43,10 @@
       "name": "LiteAPK watcher syntax",
       "type": "command",
       "file": "/usr/bin/node",
-      "args": ["--check", "liteapks-relay.mjs"],
+      "args": [
+        "--check",
+        "liteapks-relay.mjs"
+      ],
       "cwd": "/opt/nex/current/watchers",
       "timeoutMs": 30000,
       "intervalMs": 1800000
@@ -47,9 +55,35 @@
       "name": "WhatsApp publisher syntax",
       "type": "command",
       "file": "/usr/bin/node",
-      "args": ["--check", "server.mjs"],
+      "args": [
+        "--check",
+        "server.mjs"
+      ],
       "cwd": "/opt/nex/current/whatsapp-publisher",
       "timeoutMs": 30000,
+      "intervalMs": 1800000
+    },
+    {
+      "name": "Bot fleet self-test",
+      "type": "command",
+      "file": "/usr/bin/node",
+      "args": [
+        "bot-selftest.mjs"
+      ],
+      "cwd": "/opt/nex/current/nexcontrol/guard",
+      "timeoutMs": 600000,
+      "intervalMs": 1800000
+    },
+    {
+      "name": "NexGuard self regression",
+      "type": "command",
+      "file": "/usr/bin/npm",
+      "args": [
+        "run",
+        "check"
+      ],
+      "cwd": "/opt/nex/current/nexcontrol/guard",
+      "timeoutMs": 120000,
       "intervalMs": 1800000
     }
   ]
