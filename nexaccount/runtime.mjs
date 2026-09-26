@@ -851,6 +851,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
       account.premium=me.premium===true;
       account.username=me.username||account.username;
       account.firstName=me.firstName||account.firstName;
+      account.lastName=me.lastName||account.lastName;
     }
   }catch(error){
     console.warn('[NexAccount identity]',id,'getMe_failed',String(error?.errorMessage||error?.message||error).slice(0,300));
@@ -1007,6 +1008,7 @@ async function connectSavedAccount(publicAccount){
     account.premium=me.premium===true;
     account.username=me.username||account.username;
     account.firstName=me.firstName||account.firstName;
+      account.lastName=me.lastName||account.lastName;
     const runtime=await attachConnectedClient(client,account,{leaseOwned:true});
     return runtime?id:null;
   }catch(error){
