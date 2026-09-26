@@ -258,6 +258,37 @@ async function handleNexAccount(req,res,u){
   let result;
   if(req.method==='GET'&&u.pathname==='/api/nexaccount/health')result=await runAgentCli(req,['health'],20000);
   else if(req.method==='GET'&&u.pathname==='/api/nexaccount/accounts')result=await runAgentCli(req,['accounts'],20000);
+  else if(req.method==='GET'&&u.pathname==='/api/nexaccount/engines')result=await runAgentCli(req,['engines'],30000);
+  else if(req.method==='POST'&&u.pathname==='/api/nexaccount/diagnostics/menu'){
+    if(!await adminSessionOk(req))result={status:401,json:{error:'unauthorized'}};
+    else{
+      const telegramUserId=String(q.telegramUserId||'').replace(/\D/g,'').slice(0,32);
+      const peer=String(q.peer||'me').trim().slice(0,120)||'me';
+      result=telegramUserId
+        ?await runAgentCli(req,['menu-probe',telegramUserId,peer],45000)
+        :{status:400,json:{error:'telegramUserId required'}};
+    }
+  }
+  else if(req.method==='POST'&&u.pathname==='/api/nexaccount/diagnostics/command'){
+    if(!await adminSessionOk(req))result={status:401,json:{error:'unauthorized'}};
+    else{
+      const telegramUserId=String(q.telegramUserId||'').replace(/\D/g,'').slice(0,32);
+      const command=String(q.text||'').trim().slice(0,1000);
+      const peer=String(q.peer||'me').trim().slice(0,120)||'me';
+      result=telegramUserId&&command
+        ?await runAgentCli(req,['command-test',telegramUserId,command,peer],60000)
+        :{status:400,json:{error:'telegramUserId and text required'}};
+    }
+  }
+  else if(req.method==='POST'&&u.pathname==='/api/nexaccount/diagnostics/group'){
+    if(!await adminSessionOk(req))result={status:401,json:{error:'unauthorized'}};
+    else{
+      const telegramUserId=String(q.telegramUserId||'').replace(/\D/g,'').slice(0,32);
+      result=telegramUserId
+        ?await runAgentCli(req,['group-smoke',telegramUserId],150000)
+        :{status:400,json:{error:'telegramUserId required'}};
+    }
+  }
   else if(req.method==='GET'&&u.pathname==='/api/nexaccount/anime/status')result=await runAgentCli(req,['anime-status'],30000);
   else if(req.method==='POST'&&u.pathname==='/api/nexaccount/anime/discover'){
     const target=String(q.username||q.telegramUserId||'').replace(/[^A-Za-z0-9_@-]/g,'').slice(0,80);
