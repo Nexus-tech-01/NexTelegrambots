@@ -550,7 +550,7 @@ function classifyMessage(message,source={}){
   if(ep && (titleEvidence.conflict||episodeEvidence.conflict) && !obviousNonEpisode && (mk==='video'||mk==='document')){
     return {
       kind:'conflict',
-      reason:episodeEvidence.conflict?'caption_filename_episode_conflict':'caption_filename_title_conflict',
+      reason:titleEvidence.conflict?'caption_filename_title_conflict':'caption_filename_episode_conflict',
       title,season:ep.season??1,episode:ep.episode,language:lang,quality,
       mediaKind:mk,originalFilename:filename(message),confidence:0
     };
