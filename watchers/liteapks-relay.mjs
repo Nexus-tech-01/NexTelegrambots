@@ -303,30 +303,88 @@ async function mediaToFile(c,m,name,cacheKey=''){
   const safe=String(name||`package-${m.id}.apk`).replace(/[^A-Za-z0-9._ -]+/g,'_').slice(-160)||`package-${m.id}.apk`;
   const tag=String(cacheKey||m.id||'apk').replace(/[^A-Za-z0-9._-]+/g,'_').slice(-80)||String(m.id||'apk');
   const target=path.join(mediaTmpDir,`${tag}-${safe}`);
+  const partial=target+'.part';
+  const expected=Number(m?.document?.size||0);
+
+  // A completed cached package can be reused by the WhatsApp mirror.
   try{
     const existing=await fs.stat(target);
-    if(existing.isFile()&&existing.size>0){
+    if(existing.isFile()&&existing.size>0&&(!expected||existing.size===expected)){
       const now=new Date();
       await fs.utimes(target,now,now).catch(()=>{});
       return {file:target,size:existing.size,cleanup:async()=>{await fs.rm(target,{force:true}).catch(()=>{});}};
     }
-  }catch{}
-  const partial=target+`.part-${process.pid}-${Date.now()}`;
-  try{
-    const out=m?.document
-      ? await downloadDocument(c,m,partial)
-      : await c.downloadMedia(m.media,{outputFile:partial,workers:1});
-    const file=typeof out==='string'&&out?out:partial;
-    const st=await fs.stat(file);
-    if(!st.isFile()||st.size<=0)throw new Error('media download produced an empty file');
-    if(file!==target){
+    // Never treat a truncated APK as complete.
+    if(existing.isFile()&&expected&&existing.size<expected){
+      await fs.rm(partial,{force:true}).catch(()=>{});
+      await fs.rename(target,partial);
+    }else if(existing.isFile()&&expected&&existing.size>expected){
       await fs.rm(target,{force:true}).catch(()=>{});
-      await fs.rename(file,target);
     }
+  }catch{}
+
+  try{
+    if(m?.document){
+      const location=documentLocation(m);
+      if(!location)throw new Error('document location unavailable');
+
+      let offset=0;
+      try{
+        const ps=await fs.stat(partial);
+        if(ps.isFile())offset=ps.size;
+      }catch{}
+      if(expected&&offset>expected){
+        await fs.rm(partial,{force:true});
+        offset=0;
+      }
+
+      // Resume interrupted large downloads instead of restarting multi-GB APKs.
+      if(!expected||offset<expected){
+        const fh=await fs.open(partial,'a');
+        try{
+          const remaining=expected?expected-offset:undefined;
+          let appended=0;
+          for await(const chunk of c.iterDownload(location,{
+            offset,
+            ...(remaining?{limit:remaining}:{}),
+            requestSize:1024*1024,
+            dcId:Number(m.document?.dcId||0)||undefined,
+            requestTimeout:120000
+          })){
+            let data=chunk;
+            if(remaining){
+              const left=remaining-appended;
+              if(left<=0)break;
+              if(data.length>left)data=data.subarray(0,left);
+            }
+            if(data.length){
+              await fh.write(data);
+              appended+=data.length;
+            }
+            if(remaining&&appended>=remaining)break;
+          }
+        }finally{
+          await fh.close();
+        }
+      }
+    }else{
+      await fs.rm(partial,{force:true}).catch(()=>{});
+      const out=await c.downloadMedia(m.media,{outputFile:partial,workers:1});
+      if(typeof out==='string'&&out&&out!==partial){
+        await fs.rm(partial,{force:true}).catch(()=>{});
+        await fs.rename(out,partial);
+      }
+    }
+
+    const st=await fs.stat(partial);
+    if(!st.isFile()||st.size<=0)throw new Error('media download produced an empty file');
+    if(expected&&st.size!==expected)throw new Error(`APK download incomplete: ${st.size}/${expected}`);
+    await fs.rm(target,{force:true}).catch(()=>{});
+    await fs.rename(partial,target);
     const ready=await fs.stat(target);
     return {file:target,size:ready.size,cleanup:async()=>{await fs.rm(target,{force:true}).catch(()=>{});}};
   }catch(error){
-    await fs.rm(partial,{force:true}).catch(()=>{});
+    // Keep a valid partial file so the next retry can continue where it stopped.
     throw error;
   }
 }
@@ -363,7 +421,7 @@ async function mirrorDescriptor(m,sourceKind,sent){
     routes:[{platform:'facebook',pageId:nexusTechFacebookPageId},{platform:'whatsapp'}]
   });
 }
-async function mirrorApk(m,sourceKind,sent,linked){
+async function mirrorApk(m,sourceKind,sent,linked,mirrorVersion='v1'){
   const u=chooseUrl(m),name=filename(m)||('package-'+String(m.id)+'.apk');
   const text=linked?name:clean(m,sourceKind,u);
   const fileId=String(sent?.document?.file_id||'');
@@ -372,7 +430,7 @@ async function mirrorApk(m,sourceKind,sent,linked){
   if(!media.length)throw new Error('APK mirror media reference missing; refusing filename-only publication');
   return enqueueCrossPlatformMirror({
     ownerDomain:'system',
-    idempotencyKey:'nextech-mirror:apk:'+sourceKind+':'+String(m.id)+':v1',
+    idempotencyKey:'nextech-mirror:apk:'+sourceKind+':'+String(m.id)+':'+mirrorVersion,
     source:{platform:'telegram',name:'thenexusorigin',messageId:String(sent?.message_id||m.id),accountRole:'system-apk-worker'},
     content:{text,media,buttons:mirrorButtons(u)},
     routes:[{platform:'whatsapp'}]
@@ -641,6 +699,27 @@ async function processItem(c,publisher,destination,st,sources,item){
 
   if(isApk(m)){
     const linked=bestDescriptor(ss,m);
+
+    // Recovery-only jobs repair a WhatsApp mirror without duplicating the APK
+    // in the Telegram Nextech channel. They reuse/resume the local package and
+    // enqueue a fresh mirror idempotency version.
+    if(item.whatsappRecoveryOnly){
+      const name=filename(m)||`package-${m.id}.apk`;
+      const tmp=await withTimeout(
+        mediaToFile(c,m,name,item.key||String(m.id||'')),
+        largeDownloadTimeoutMs,
+        'WhatsApp APK recovery download'
+      );
+      await mirrorApk(
+        m,
+        source.kind,
+        {__nexLocalPath:tmp.file,__nexLocalSize:tmp.size},
+        Boolean(linked),
+        String(item.mirrorVersion||'v2')
+      );
+      return {done:true,reason:'whatsapp-apk-recovery'};
+    }
+
     const companion=isOpenBatchCompanion(st,item,linked);
     if(!companion){
       const nextAt=nextPublicationAt(st);
