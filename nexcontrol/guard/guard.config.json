@@ -1,0 +1,56 @@
+{
+  "intervalMs": 30000,
+  "failureThreshold": 2,
+  "repairCooldownMs": 300000,
+  "verifyDelayMs": 8000,
+  "targets": [
+    {
+      "name": "LiteAPK live heartbeat",
+      "type": "fileHeartbeat",
+      "path": "/var/lib/nex/state/internal-automation/nexcanal-watch-state-v2.json",
+      "timestampField": "updatedAt",
+      "maxAgeMs": 300000,
+      "intervalMs": 30000,
+      "repair": {
+        "type": "restartService",
+        "service": "nex-liteapks-watcher.service"
+      }
+    },
+    {
+      "name": "Anime ingest regression",
+      "type": "command",
+      "file": "/usr/bin/node",
+      "args": ["scripts/test-anime-ingest.mjs"],
+      "cwd": "/opt/nex/current/nexaccount",
+      "timeoutMs": 120000,
+      "intervalMs": 600000
+    },
+    {
+      "name": "NexAccount full regression",
+      "type": "command",
+      "file": "/usr/bin/npm",
+      "args": ["run", "check"],
+      "cwd": "/opt/nex/current/nexaccount",
+      "timeoutMs": 300000,
+      "intervalMs": 3600000
+    },
+    {
+      "name": "LiteAPK watcher syntax",
+      "type": "command",
+      "file": "/usr/bin/node",
+      "args": ["--check", "liteapks-relay.mjs"],
+      "cwd": "/opt/nex/current/watchers",
+      "timeoutMs": 30000,
+      "intervalMs": 1800000
+    },
+    {
+      "name": "WhatsApp publisher syntax",
+      "type": "command",
+      "file": "/usr/bin/node",
+      "args": ["--check", "server.mjs"],
+      "cwd": "/opt/nex/current/whatsapp-publisher",
+      "timeoutMs": 30000,
+      "intervalMs": 1800000
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+[Unit]
+Description=NexGuard to NexForge shared AI repair bridge
+After=network-online.target nexguard.service nex-automation-supervisor.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/nex/current
+Environment=NEX_ROOT=/opt/nex/current
+EnvironmentFile=-/etc/nex/nexguard-ai.env
+ExecStart=/usr/bin/node /opt/nex/current/nexcontrol/guard/nexforge-repair-bridge.mjs
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
