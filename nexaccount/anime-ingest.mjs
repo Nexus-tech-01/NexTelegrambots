@@ -1446,7 +1446,8 @@ async function claimExactItem(d,item,accountId,{allowAny=false}={}){
 }
 
 async function ensureGeneralPresentation(d,seriesKey){
-  const existingQueue=await d.collection('nexanime_queue').findOne({
+  const queue=d.collection('nexanime_queue');
+  const existingQueue=await queue.findOne({
     seriesKey,kind:'presentation',
     $or:[{episode:null},{episode:{$exists:false}}],
     status:{$in:['queued','publishing']}
@@ -1460,7 +1461,7 @@ async function ensureGeneralPresentation(d,seriesKey){
   },{projection:{_id:1}});
   if(existingPublished)return;
 
-  const episode=await d.collection('nexanime_queue').findOne(
+  const episode=await queue.findOne(
     {seriesKey,kind:'episode',status:'queued'},
     {sort:{season:1,episode:1,createdAt:1}}
   );
@@ -1468,29 +1469,41 @@ async function ensureGeneralPresentation(d,seriesKey){
   const meta=await animePresentationMetadata(episode.title);
   if(!meta?.ok||!String(meta.description||'').trim())return;
   const now=new Date();
-  const c={
+  const presentation={
     kind:'presentation',
     title:meta.canonicalTitle||episode.title,
     anilistId:meta.anilistId||episode.anilistId||null,
     season:null,episode:null,language:'',quality:'',
     cleanedCaption:presentationText(meta)
   };
-  const dedupeKey=presentationKey(c);
-  await d.collection('nexanime_queue').updateOne(
-    {dedupeKey},
-    {
-      $setOnInsert:{
-        dedupeKey,status:'queued',kind:'presentation',seriesKey,
-        title:c.title,anilistId:c.anilistId,season:null,episode:null,
-        language:'',quality:'',mediaKind:'photo',cleanedCaption:c.cleanedCaption,
-        cleanedFilename:'',originalFilename:'',confidence:1,
-        destination:'@'+DESTINATION,mode:'synthetic',synthetic:true,
-        imageUrl:meta.coverImage||'',createdAt:now,attempts:0,ingestedAt:new Date(0)
-      },
-      $set:{updatedAt:now}
-    },
-    {upsert:true}
-  );
+  const dedupeKey=presentationKey(presentation);
+  const existingAny=await queue.findOne({dedupeKey});
+
+  const payload={
+    dedupeKey,status:'queued',kind:'presentation',seriesKey,
+    title:presentation.title,anilistId:presentation.anilistId,season:null,episode:null,
+    language:'',quality:'',mediaKind:'photo',cleanedCaption:presentation.cleanedCaption,
+    cleanedFilename:'',originalFilename:'',confidence:1,
+    destination:'@'+DESTINATION,mode:'synthetic',synthetic:true,
+    imageUrl:meta.coverImage||'',attempts:0,ingestedAt:new Date(0),
+    repairedPresentation:true,repairedPresentationAt:now,updatedAt:now
+  };
+
+  if(existingAny){
+    // A failed source synopsis with the same dedupe key must not permanently
+    // block the series. Recycle it into a clean synthetic presentation.
+    if(existingAny.status==='published')return;
+    await queue.updateOne(
+      {_id:existingAny._id},
+      {$set:payload,$unset:{
+        claimAt:'',claimBy:'',lastError:'',quarantineReason:'',
+        supersededAt:'',supersededReason:'',recoveredAt:'',recoveredReason:''
+      }}
+    );
+    return;
+  }
+
+  await queue.insertOne({...payload,createdAt:now});
 }
 
 async function ensureLiveEpisodePresentation(){
@@ -1746,7 +1759,7 @@ async function enqueueNexCanalHandoff(runtime,item,{type,sourceMessageId=0,capti
   if(existing?.status==='done'&&Number(existing?.resultMessageId)>0){
     return {id:Number(existing.resultMessageId),messageId:Number(existing.resultMessageId),via:'nexcanal'};
   }
-  if(!existing||existing.status==='failed'){
+  if(!existing||existing.status==='failed'||(String(type)==='text'&&existing.status==='staging')){
     await c.updateOne(
       {dedupeKey:item.dedupeKey},
       {
@@ -1783,14 +1796,19 @@ async function publishViaNexCanal(runtime,item,resolved){
       if(!item.imageUrl){
         return enqueueNexCanalHandoff(runtime,item,{type:'text',caption});
       }
-      const response=await fetch(String(item.imageUrl),{signal:AbortSignal.timeout(15000)});
-      if(!response.ok)throw new Error('presentation_image_http_'+response.status);
-      const data=Buffer.from(await response.arrayBuffer());
-      if(data.length>10*1024*1024)throw new Error('presentation_image_too_large');
-      staged=await sendTelegramMedia(runtime.client,stage,data,{
-        fileName:'anime-presentation',mimeType:response.headers.get('content-type')||'',
-        kind:'image',caption:marker,workers:1
-      });
+      try{
+        const response=await fetch(String(item.imageUrl),{signal:AbortSignal.timeout(15000)});
+        if(!response.ok)throw new Error('presentation_image_http_'+response.status);
+        const data=Buffer.from(await response.arrayBuffer());
+        if(data.length>10*1024*1024)throw new Error('presentation_image_too_large');
+        staged=await sendTelegramMedia(runtime.client,stage,data,{
+          fileName:'anime-presentation',mimeType:response.headers.get('content-type')||'',
+          kind:'image',caption:marker,workers:1
+        });
+      }catch(error){
+        console.warn('[NexAnime presentation fallback]',String(item.title||item.seriesKey||'?'),String(error?.message||error).slice(0,240));
+        return enqueueNexCanalHandoff(runtime,item,{type:'text',caption});
+      }
     }else if(item.kind==='presentation'){
       const message=resolved?.message;
       if(!message?.photo){
@@ -1798,13 +1816,16 @@ async function publishViaNexCanal(runtime,item,resolved){
       }
       try{
         staged=await runtime.client.sendFile(stage,{file:message.media,caption:marker,workers:1});
-      }catch{
+      }catch(firstError){
         const tmp=path.join(TMP_ROOT,'presentation-stage-'+crypto.randomUUID()+'.jpg');
         await fs.mkdir(TMP_ROOT,{recursive:true});
         try{
           const out=await runtime.client.downloadMedia(message.media,{outputFile:tmp,workers:1});
           const file=typeof out==='string'?out:tmp;
           staged=await runtime.client.sendFile(stage,{file,caption:marker,workers:1});
+        }catch(secondError){
+          console.warn('[NexAnime presentation fallback]',String(item.title||item.seriesKey||'?'),String(secondError?.message||firstError?.message||secondError).slice(0,240));
+          return enqueueNexCanalHandoff(runtime,item,{type:'text',caption});
         }finally{await fs.rm(tmp,{force:true}).catch(()=>{})}
       }
     }else{
