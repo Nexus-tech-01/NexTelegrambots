@@ -90,7 +90,7 @@ assert.match(menuSource,/resolveInlinePhoto/,'custom artwork must be validated b
 assert.ok(!menuSource.includes("resolveStyleImage(1,''"),'a missing theme image must not silently reuse Dark artwork');
 assert.ok(!menuSource.includes('const perPage=16'),'category pagination must be removed');
 assert.ok(!menuSource.includes("localized(settings,'Suivant','Next')"),'category next/previous navigation must be removed');
-assert.match(menuSource,/photoUrl:view==='category'\?'':/,'long categories must stay one full Telegram text message');
+assert.ok(!menuSource.includes("photoUrl:view==='category'?'':"),'category artwork must no longer be dropped just to avoid caption limits');
 assert.match(themeSource,/THEME_UI_IDS/,'new theme UI registry must be present');
 assert.match(themeSource,/31:/,'all 31 theme layouts must be defined');
 assert.ok(Object.keys(generatedStyles.themes||{}).length>=31,'all 31 public Dipper styles must be bundled');
@@ -109,7 +109,6 @@ for(let style=1;style<=31;style++){
   const settings={style,prefix:style%2===0?'!':'.',language:'fr'};
   const modelA=await menuModel({account:accountA,settings,commands:registry,view:'category',category:'ANIME'});
   const modelB=await menuModel({account:accountB,settings,commands:registry,view:'category',category:'ANIME'});
-  assert.equal(modelA.photoUrl,'','long categories must be full text messages, not truncated photo captions');
   assert.ok(modelA.text.length<=4096,'style '+style+' Anime menu exceeds Telegram text limit');
   assert.ok(modelA.text.includes('@alpha_'+style),'style '+style+' must render active session username');
   assert.ok(modelB.text.includes('@beta_'+style),'style '+style+' must not reuse another session username');
@@ -130,8 +129,9 @@ const emojiModel=await menuModel({
   settings:{style:2,prefix:'.',language:'fr'},
   commands:registry,
   view:'category',
-  category:'ANIME'
-});
+  category:'ANIME',
+    includeArtwork:false
+  });
 assert.ok(emojiModel.entities.filter(x=>x.type==='custom_emoji').length>=2,'style/category custom emoji entities must activate when IDs are configured');
 delete process.env.NEXAI_EMOJI_STYLE_2;
 delete process.env.NEXAI_EMOJI_ANIME;
@@ -143,8 +143,9 @@ const overlapModel=await menuModel({
   settings:{style:7,prefix:'.',language:'fr'},
   commands:registry,
   view:'category',
-  category:'ANIME'
-});
+  category:'ANIME',
+    includeArtwork:false
+  });
 const emojiRanges=overlapModel.entities
   .filter(x=>x.type==='custom_emoji')
   .map(x=>x.offset+':'+x.length);
@@ -156,7 +157,7 @@ const brandedA=await menuModel({
   account:{telegramUserId:'5511',username:'brand_a',firstName:'A',premium:false},
   settings:{style:1,prefix:'.',language:'fr',botDisplayName:'NexAi Alpha'},
   commands:registry,
-  view:'category',category:'GENERAL'
+  view:'category',category:'GENERAL',includeArtwork:false
 });
 const brandedB=await menuModel({
   account:{telegramUserId:'5522',username:'brand_b',firstName:'B',premium:false},
