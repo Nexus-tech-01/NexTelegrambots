@@ -201,6 +201,7 @@ export async function menuModel({account,settings,commands,view='home',category=
     if(cfg.darkUniverseUrl)buttons.push([urlButton('ᴅᴀʀᴋ ᴜɴɪᴠᴇʀѕᴇ',cfg.darkUniverseUrl,'success','dark',settings)]);
   }else{
     buttons.push([button((emojiId('back',settings)?'':'↩ ')+toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back',settings)]);
+    if(cfg.nextechUrl)buttons.push([urlButton('ɴᴇxᴛᴇᴄʜ',cfg.nextechUrl,'success','nextech',settings)]);
   }
 
   const text=body.trim();
@@ -239,6 +240,7 @@ export async function stylesModel({account,settings}){
     }));
   }
   keyboard.push([button((emojiId('back',settings)?'':'↩ ')+toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back',settings)]);
+  if(cfg.nextechUrl)keyboard.push([urlButton('ɴᴇxᴛᴇᴄʜ',cfg.nextechUrl,'success','nextech',settings)]);
 
   return {
     text,
