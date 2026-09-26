@@ -166,8 +166,9 @@ function accountDisplayName(account){
   const full=[clean(account?.firstName),clean(account?.lastName)].filter(Boolean).join(' ').trim();
   return full||'Telegram User';
 }
-function automaticPackTitle(account){
-  return ('NexAi · '+accountDisplayName(account)).slice(0,64);
+function automaticPackTitle(account,settings=null){
+  const bot=clean(settings?.botDisplayName)||'NexAi';
+  return (bot+' · '+accountDisplayName(account)).slice(0,64);
 }
 async function startProgress(client,peer,text){
   const sent=await client.sendMessage(peer,{message:String(text)});
@@ -293,13 +294,13 @@ async function waitTelegramSet(client,name){
 }
 function packLink(name){return 'https://t.me/addstickers/'+name}
 
-async function ensureDefaultPack(runtime,prepared){
+async function ensureDefaultPack(runtime,prepared,settings=null){
   const {account}=runtime;
   const name=defaultPackName(account.telegramUserId);
   const existing=await packExists(name);
   if(existing)await addToSet(account,name,prepared);
-  else await createSet(account,automaticPackTitle(account),name,prepared);
-  await rememberPack(account.telegramUserId,{name,title:'NexAi Stickers',link:packLink(name),updatedAt:Date.now()});
+  else await createSet(account,automaticPackTitle(account,settings),name,prepared);
+  await rememberPack(account.telegramUserId,{name,title:automaticPackTitle(account,settings),link:packLink(name),updatedAt:Date.now()});
   return name;
 }
 
@@ -413,10 +414,11 @@ export async function stickerEngineDiagnostic({force=false}={}){
 
 export async function handleStickerCommand({runtime,event,name,args=[],progress:externalProgress=null,reply=null}){
   const {client,account}=runtime,peer=event.message.peerId;
+  const sessionSettings=await settingsFor(account.telegramUserId);
   const say=t=>typeof reply==='function'?reply(String(t)):client.sendMessage(peer,{message:String(t)});
 
   if(name==='mypacks'){
-    const s=await settingsFor(account.telegramUserId),packs=Array.isArray(s.stickerPacks)?s.stickerPacks:[];
+    const s=sessionSettings,packs=Array.isArray(s.stickerPacks)?s.stickerPacks:[];
     await say(packs.length?'Mes packs NexAi\n\n'+packs.map((p,i)=>(i+1)+'. '+(p.title||p.name)+'\n'+(p.link||packLink(p.name))).join('\n\n'):'Aucun pack NexAi enregistré pour ce compte.');
     return true;
   }
@@ -465,7 +467,7 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
     while(stickers.length<3)stickers.push({buffer:Buffer.from(stickers[0].buffer),animated:stickers[0].animated===true});
     const tray=await whatsappTray(stickers[0].buffer);
 
-    const title=clean(set?.set?.title)||automaticPackTitle(account);
+    const title=clean(set?.set?.title)||automaticPackTitle(account,sessionSettings);
     const author=accountDisplayName(account);
     const pack=buildWastickersArchive({
       title,
@@ -490,7 +492,7 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
   if(name==='clonepack'){
     const set=await sourceSet(client,source);
     if(!set?.documents?.length)throw new Error('Réponds à un sticker appartenant à un pack.');
-    const title=clean(args.join(' '))||automaticPackTitle(account);
+    const title=clean(args.join(' '))||automaticPackTitle(account,sessionSettings);
     const newName=packName(account.telegramUserId,title);
     const docs=set.documents.slice(0,MAX_CLONE);
     const progress=externalProgress||await startProgress(client,peer,'⏳ Clone pack · 0/'+docs.length+'…');
@@ -519,7 +521,7 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
   const prepared=await prepareSticker(raw);
 
   if(name==='createpack'){
-    const title=clean(args.join(' '))||automaticPackTitle(account);
+    const title=clean(args.join(' '))||automaticPackTitle(account,sessionSettings);
     const newName=packName(account.telegramUserId,title);
     await createSet(account,title,newName,prepared,raw.sticker?.alt||'✨');
     await rememberPack(account.telegramUserId,{name:newName,title,link:packLink(newName),count:1,updatedAt:Date.now()});
@@ -528,7 +530,7 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
   }
 
   if(name==='sticker'){
-    const pack=await ensureDefaultPack(runtime,prepared);
+    const pack=await ensureDefaultPack(runtime,prepared,sessionSettings);
     const set=await waitTelegramSet(client,pack);
     const doc=set.documents?.[set.documents.length-1];
     if(doc){
