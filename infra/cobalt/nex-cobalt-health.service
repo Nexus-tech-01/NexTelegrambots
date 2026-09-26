@@ -1,0 +1,8 @@
+[Unit]
+Description=NEX private Cobalt health check
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/nex-cobalt-health
