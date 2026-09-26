@@ -97,6 +97,7 @@ async function sendRemote(client,peer,url,{caption='',fileName='media.bin',maxBy
   if(!buf.length)throw new Error('média vide');
   if(buf.length>maxBytes)throw new Error('fichier trop volumineux ('+Math.round(buf.length/1024/1024)+' Mo)');
   const type=r.headers.get('content-type')||'';
+  if(/(?:text\/html|application\/json)/i.test(type))throw new Error('la source a renvoyé une page/API au lieu du média');
   const ext=extFromType(type,url);
   const finalName=fileName.includes('.')?fileName:(fileName+'.'+ext);
   return sendTelegramMedia(client,peer,buf,{fileName:finalName,caption,mimeType:type,kind:'auto'});
@@ -440,6 +441,179 @@ async function sendLocalYoutube(client,peer,input,mode='audio'){
   });
   return true;
 }
+
+function mimeFromExt(ext=''){
+  const e=String(ext).toLowerCase();
+  if(['mp4','m4v','mov'].includes(e))return 'video/mp4';
+  if(['mp3'].includes(e))return 'audio/mpeg';
+  if(['m4a','aac'].includes(e))return 'audio/mp4';
+  if(['webm'].includes(e))return 'video/webm';
+  if(['jpg','jpeg'].includes(e))return 'image/jpeg';
+  if(e==='png')return 'image/png';
+  if(e==='webp')return 'image/webp';
+  return 'application/octet-stream';
+}
+
+async function localSocialFiles(url,label='Media'){
+  if(!fs.existsSync(YTDLP))throw new Error('yt-dlp local absent');
+  const target=clean(url);
+  if(!isHttp(target))throw new Error('lien '+label+' invalide');
+
+  const base='nexai-social-'+process.pid+'-'+Date.now()+'-'+crypto.randomBytes(4).toString('hex');
+  const template=path.join(os.tmpdir(),base+'-%(id)s.%(ext)s');
+  const common=[
+    '--no-progress','--quiet','--no-warnings',
+    '--restrict-filenames','--max-filesize',String(MAX_MEDIA_BYTES),
+    '--print','after_move:filepath','-o',template
+  ];
+  const variants=[
+    [...common,'--impersonate','Chrome-133:Macos-15','--merge-output-format','mp4',target],
+    [...common,'--impersonate','Chrome-99:Android-12','--merge-output-format','mp4',target],
+    [...common,'--merge-output-format','mp4',target]
+  ];
+
+  let paths=[],lastError=null;
+  try{
+    for(const args of variants){
+      try{
+        const out=await runYtDlp(args);
+        const printed=out.stdout.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+        paths=[...new Set(printed.filter(p=>fs.existsSync(p)))];
+        if(!paths.length){
+          paths=fs.readdirSync(os.tmpdir())
+            .filter(name=>name.startsWith(base+'-'))
+            .map(name=>path.join(os.tmpdir(),name))
+            .filter(p=>fs.existsSync(p));
+        }
+        if(paths.length)break;
+        lastError=new Error('yt-dlp n’a produit aucun fichier');
+      }catch(error){lastError=error}
+    }
+    if(!paths.length)throw lastError||new Error('yt-dlp n’a produit aucun fichier');
+    const files=[];
+    for(const file of paths.slice(0,10)){
+      const buffer=fs.readFileSync(file);
+      if(!buffer.length)continue;
+      if(buffer.length>MAX_MEDIA_BYTES)continue;
+      const ext=path.extname(file).replace(/^\./,'').toLowerCase()||'bin';
+      files.push({
+        buffer,
+        fileName:safeName(label.toLowerCase())+'-'+(files.length+1)+'.'+ext,
+        mimeType:mimeFromExt(ext)
+      });
+    }
+    if(!files.length)throw new Error('aucun média '+label+' exploitable');
+    return files;
+  }finally{
+    try{
+      for(const name of fs.readdirSync(os.tmpdir())){
+        if(name.startsWith(base+'-'))try{fs.unlinkSync(path.join(os.tmpdir(),name))}catch{}
+      }
+    }catch{}
+  }
+}
+
+async function sendLocalSocial(client,peer,url,label='Media'){
+  const files=await localSocialFiles(url,label);
+  for(let i=0;i<files.length;i++){
+    const media=files[i];
+    await sendTelegramMedia(client,peer,media.buffer,{
+      fileName:media.fileName,
+      caption:i===0?'NexAi · Download\n'+label+'\nSource : yt-dlp local':'',
+      mimeType:media.mimeType,
+      kind:'auto'
+    });
+  }
+  return true;
+}
+
+const COBALT_HTTP_HOSTS=[
+  'https://api.cobalt.tools/',
+  'https://cobalt.drgns.space/',
+  'https://cobalt.api.timelessnesses.me/'
+];
+
+async function cobaltMedia(url,label){
+  const attempts=COBALT_HTTP_HOSTS.map(host=>['Cobalt '+new URL(host).hostname,async()=>{
+    const d=await postJson(host,{url,downloadMode:'auto',videoQuality:'max',allowH265:false});
+    if(d?.status==='picker'&&Array.isArray(d.picker)){
+      const urls=d.picker.map(x=>x?.url).filter(isHttp);
+      if(urls.length)return {urls,title:label};
+    }
+    const v=cobaltUrl(d);
+    return v?{urls:[v],title:label}:null;
+  }]);
+  return cascade(label,attempts);
+}
+
+function normalizeEmbeddedUrl(value=''){
+  return String(value||'')
+    .replace(/\\\\u002F/gi,'/')
+    .replace(/\\u002F/gi,'/')
+    .replace(/\\\\\//g,'/')
+    .replace(/&amp;/gi,'&')
+    .replace(/&#x26;/gi,'&')
+    .trim();
+}
+
+async function capcutMedia(url){
+  if(!/(?:capcut\.com|capcut\.net)\//i.test(url))throw new Error('lien CapCut invalide');
+  return cascade('CapCut',[
+    ['Page CapCut',async()=>{
+      const html=await text(url,{headers:{accept:'text/html,application/xhtml+xml'}},25000);
+      const candidates=[];
+      const meta=[...html.matchAll(/<meta[^>]+(?:property|name)=["'](?:og:video(?::url)?|twitter:player:stream)["'][^>]+content=["']([^"']+)["']/gi)];
+      for(const m of meta)candidates.push(normalizeEmbeddedUrl(m[1]));
+      for(const re of [
+        /"contentUrl"\s*:\s*"([^"]+)"/gi,
+        /"videoUrl"\s*:\s*"([^"]+)"/gi,
+        /"downloadUrl"\s*:\s*"([^"]+)"/gi,
+        /"(https?:\\?\/\\?\/[^"]+?\.mp4(?:\?[^"]*)?)"/gi
+      ]){
+        for(const m of html.matchAll(re))candidates.push(normalizeEmbeddedUrl(m[1]));
+      }
+      const v=[...new Set(candidates)].find(isHttp);
+      return v?{urls:[v],title:'CapCut'}:null;
+    }],
+    ['Siputzx',async()=>{
+      const d=await json('https://api.siputzx.my.id/api/d/capcut?url='+encodeURIComponent(url),{},30000);
+      const v=firstUrl(d,u=>!/thumbnail|cover|avatar|profile/i.test(u));
+      return v?{urls:[v],title:d?.data?.title||d?.title||'CapCut'}:null;
+    }],
+    ['Nexray',async()=>{
+      const d=await json('https://api.nexray.web.id/downloader/capcut?url='+encodeURIComponent(url),{},30000);
+      const v=firstUrl(d,u=>!/thumbnail|cover|avatar|profile/i.test(u));
+      return v?{urls:[v],title:d?.result?.title||d?.title||'CapCut'}:null;
+    }]
+  ]);
+}
+
+async function snapchatMedia(url){
+  if(!/(?:snapchat\.com|snap\.com)\//i.test(url))throw new Error('lien Snapchat invalide');
+  return cobaltMedia(url,'Snapchat');
+}
+
+async function genericSocialMedia(url,label){
+  return cobaltMedia(url,label);
+}
+
+function detectDownloadService(url){
+  const u=clean(url).toLowerCase();
+  if(/(?:youtube\.com|youtu\.be)\//.test(u))return 'video';
+  if(/tiktok\.com\//.test(u))return 'tiktok';
+  if(/(?:instagram\.com|instagr\.am)\//.test(u))return 'instagram';
+  if(/(?:facebook\.com|fb\.watch)\//.test(u))return 'facebook';
+  if(/(?:pinterest\.|pin\.it\/)/.test(u))return 'pinterest';
+  if(/(?:snapchat\.com|snap\.com)\//.test(u))return 'snapchat';
+  if(/(?:capcut\.com|capcut\.net)\//.test(u))return 'capcut';
+  if(/(?:twitter\.com|x\.com)\//.test(u))return 'twitter';
+  if(/reddit\.com\//.test(u))return 'reddit';
+  if(/soundcloud\.com\//.test(u))return 'soundcloud';
+  if(/vimeo\.com\//.test(u))return 'vimeo';
+  if(/tumblr\.com\//.test(u))return 'tumblr';
+  return '';
+}
+
 async function localToMp3(client,peer,message){
   const source=await repliedOrCurrentMedia(client,peer,message);
   if(!source?.media)throw new Error('Réponds à un audio ou une vidéo, ou donne un lien/titre après .tomp3.');
@@ -496,7 +670,7 @@ async function apkSearch(raw){
 }
 
 export const DOWNLOAD_ENGINE_COMMANDS=new Set([
-  'song','video','tiktok','instagram','facebook','pinterest','tomp3','lyrics','shazam','apk'
+  'song','video','download','tiktok','instagram','facebook','pinterest','snapchat','capcut','twitter','reddit','soundcloud','vimeo','tumblr','tomp3','lyrics','shazam','apk'
 ]);
 export const DIPPER_FALLBACK_COMMANDS=DOWNLOAD_ENGINE_COMMANDS;
 
@@ -531,7 +705,15 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
     await tiktokMedia(client,peer,input);
     return true;
   }
+  if(command==='download'){
+    if(!isHttp(input))throw new Error('usage : .download <lien>');
+    const detected=detectDownloadService(input);
+    if(detected)return executeDipperFallback({client,peer,name:detected,args:[input],event});
+    return sendLocalSocial(client,peer,input,'Media');
+  }
   if(command==='instagram'){
+    try{return await sendLocalSocial(client,peer,input,'Instagram')}
+    catch(localError){console.warn('[NexAi download Instagram local]',String(localError?.message||localError).slice(0,500))}
     const r=await instagramMedia(input);
     const urls=(r.urls||[]).slice(0,10);
     if(!urls.length)throw new Error('aucun média Instagram');
@@ -541,15 +723,55 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
     return true;
   }
   if(command==='facebook'){
+    try{return await sendLocalSocial(client,peer,input,'Facebook')}
+    catch(localError){console.warn('[NexAi download Facebook local]',String(localError?.message||localError).slice(0,500))}
     const r=await facebookMedia(input);
     await sendRemote(client,peer,r.url,{caption:'NexAi · Download\nFacebook · '+r.source,fileName:'facebook.mp4'});
     return true;
   }
   if(command==='pinterest'){
+    try{return await sendLocalSocial(client,peer,input,'Pinterest')}
+    catch(localError){console.warn('[NexAi download Pinterest local]',String(localError?.message||localError).slice(0,500))}
     const r=await pinterestMedia(input);
     await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+(r.author?'\nAuteur : '+r.author:'')+'\nSource : '+r.source,fileName:'pinterest'});
     return true;
   }
+
+  if(command==='snapchat'){
+    try{return await sendLocalSocial(client,peer,input,'Snapchat')}
+    catch(localError){console.warn('[NexAi download Snapchat local]',String(localError?.message||localError).slice(0,500))}
+    const r=await snapchatMedia(input);
+    const urls=(r.urls||[]).slice(0,10);
+    if(!urls.length)throw new Error('aucun média Snapchat');
+    for(let i=0;i<urls.length;i++){
+      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\nSnapchat · '+r.source:'',fileName:'snapchat-'+(i+1)});
+    }
+    return true;
+  }
+  if(command==='capcut'){
+    try{return await sendLocalSocial(client,peer,input,'CapCut')}
+    catch(localError){console.warn('[NexAi download CapCut local]',String(localError?.message||localError).slice(0,500))}
+    const r=await capcutMedia(input);
+    const urls=(r.urls||[]).slice(0,5);
+    if(!urls.length)throw new Error('aucun média CapCut');
+    for(let i=0;i<urls.length;i++){
+      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\nCapCut · '+r.source:'',fileName:'capcut-'+(i+1)+'.mp4'});
+    }
+    return true;
+  }
+  if(['twitter','reddit','soundcloud','vimeo','tumblr'].includes(command)){
+    const label={twitter:'X / Twitter',reddit:'Reddit',soundcloud:'SoundCloud',vimeo:'Vimeo',tumblr:'Tumblr'}[command]||command;
+    try{return await sendLocalSocial(client,peer,input,label)}
+    catch(localError){console.warn('[NexAi download '+label+' local]',String(localError?.message||localError).slice(0,500))}
+    const r=await genericSocialMedia(input,label);
+    const urls=(r.urls||[]).slice(0,10);
+    if(!urls.length)throw new Error('aucun média '+label);
+    for(let i=0;i<urls.length;i++){
+      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\n'+label+' · '+r.source:'',fileName:command+'-'+(i+1)});
+    }
+    return true;
+  }
+
   if(command==='tomp3'){
     if(input){
       try{return await sendLocalYoutube(client,peer,input,'audio')}
