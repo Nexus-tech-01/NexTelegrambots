@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { access, readFile } from 'node:fs/promises';
-import { prepareTelegramMedia, sendTelegramMedia } from '../media-send.mjs';
+import { normalizeTransferPercent, prepareTelegramMedia, sendTelegramMedia } from '../media-send.mjs';
 
 const png=Buffer.from([
   0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a,
@@ -62,8 +62,16 @@ assert.throws(
 
 let usedPath='';
 let afterSendCalled=false;
+assert.equal(normalizeTransferPercent(0.42),42);
+assert.equal(normalizeTransferPercent(42),42);
+assert.equal(normalizeTransferPercent(42,100),42);
+assert.equal(normalizeTransferPercent(512,1024),50);
+assert.equal(normalizeTransferPercent('bad'),null);
+
+let uploadedPercent=-1;
 const fakeClient={
   async sendFile(peer,options){
+    if(typeof options.progressCallback==='function')await options.progressCallback(512,1024);
     usedPath=options.file;
     const body=await readFile(options.file);
     assert.equal(peer,'peer');
