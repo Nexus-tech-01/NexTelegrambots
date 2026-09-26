@@ -10,6 +10,8 @@ const INCIDENTS_FILE=path.join(RUNTIME,'incidents.jsonl');
 const REPAIR_QUEUE=path.join(RUNTIME,'repair-requests.jsonl');
 const LOCK_FILE=path.join(RUNTIME,'automation-supervisor.lock.json');
 const LITEAPK_STATE=process.env.NEX_LITEAPKS_STATE_FILE||'/var/lib/nex/state/internal-automation/nexcanal-watch-state-v2.json';
+const STORE_MODULE=String(process.env.NEX_AUTOMATION_STORE_MODULE||'../../nexaccount/store.mjs');
+const ANIME_MODULE=String(process.env.NEX_AUTOMATION_ANIME_MODULE||'../../nexaccount/anime-ingest.mjs');
 const INTERVAL_MS=Math.max(15000,Number(process.env.NEX_AUTOMATION_SUPERVISOR_INTERVAL_MS||60000));
 const ANIME_STALE_MS=Math.max(2*60*1000,Number(process.env.NEX_AUTOMATION_ANIME_STALE_MS||15*60*1000));
 const LITEAPK_STALE_MS=Math.max(60_000,Number(process.env.NEX_AUTOMATION_LITEAPK_STALE_MS||5*60*1000));
@@ -216,7 +218,7 @@ async function auditWhatsappRelay(){
 
 async function loadAnimeDb(){
   try{
-    const mod=await import('../../nexaccount/store.mjs');
+    const mod=await import(STORE_MODULE);
     return await mod.db();
   }catch(error){
     await emitIncident('anime_database_unavailable','critical',{error:String(error?.message||error)},'Verify NexAccount MongoDB configuration/connectivity and the anime runtime. Do not change publication state until the database connection is healthy.');
@@ -230,7 +232,7 @@ async function auditAnime(){
 
   let engineAudit=null;
   try{
-    const animeMod=await import('../../nexaccount/anime-ingest.mjs');
+    const animeMod=await import(ANIME_MODULE);
     if(typeof animeMod.animeSupervisorAudit==='function'){
       engineAudit=await animeMod.animeSupervisorAudit({repair:true,source:'nexcontrol-guard'});
       for(const issue of (engineAudit?.incidents||[]).slice(0,50)){
