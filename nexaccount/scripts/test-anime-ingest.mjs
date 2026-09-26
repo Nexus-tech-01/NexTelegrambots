@@ -236,3 +236,21 @@ console.log('NexAnime ingest regression tests: OK');
   assert.equal(wrongEpisode,false);
   assert.equal(wrongAnime,false);
 }
+
+
+// reversed episode/season tokens used by several anime sources must keep season
+{
+  const x=__test.parseEpisode('Oshi no Ko E02 S2 VOSTFR');
+  assert.equal(x.season,2);
+  assert.equal(x.episode,2);
+}
+
+// live-action/K-drama channels must never become anime sources just because
+// their files share a title with an anime adaptation
+{
+  const stats=__test.sourceStats([
+    fileMessage('Oshi no Ko 2024 S01E01 VOSTFR 1080p.mkv'),
+    fileMessage('Oshi no Ko 2024 S01E02 VOSTFR 1080p.mkv')
+  ],{title:'K - Drama 🇫🇷',username:'Kdrama_French'});
+  assert.equal(stats.classification,'blocked');
+}
