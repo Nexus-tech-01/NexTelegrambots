@@ -48,6 +48,8 @@ jobs:
         run: node nexaccount/scripts/test-tgs-renderer.mjs
       - name: Alias parser regression
         run: node nexaccount/scripts/test-alias-parser.mjs
+      - name: Download progress parser regression
+        run: node nexaccount/scripts/test-download-progress.mjs
       - name: Menu resilience regression
         run: node nexaccount/scripts/test-menu-resilience.mjs
       - name: Critical public routes regression
