@@ -158,6 +158,68 @@ function defaultPackName(accountId){
   const maxPrefix=Math.max(4,64-suffix.length);
   return ('nexai_'+safeBase(String(accountId).slice(-16),16)).slice(0,maxPrefix)+suffix;
 }
+
+function accountDisplayName(account){
+  const username=clean(account?.username).replace(/^@/,'');
+  if(username)return '@'+username;
+  const full=[clean(account?.firstName),clean(account?.lastName)].filter(Boolean).join(' ').trim();
+  return full||'Telegram User';
+}
+function automaticPackTitle(account){
+  return ('NexAi · '+accountDisplayName(account)).slice(0,64);
+}
+async function startProgress(client,peer,text){
+  const sent=await client.sendMessage(peer,{message:String(text)});
+  const id=Number(sent?.id||sent?.message?.id||0);
+  let inputPeer=null;
+  try{inputPeer=await client.getInputEntity(peer)}catch{}
+  return {
+    id,
+    async update(next){
+      if(!id||!inputPeer)return;
+      try{
+        await client.invoke(new Api.messages.EditMessage({
+          peer:inputPeer,id,message:String(next)
+        }));
+      }catch{}
+    }
+  };
+}
+async function whatsappStaticWebp(source){
+  const mime=String(source?.mime||'').toLowerCase();
+  if(mime.includes('tgsticker')||mime.includes('x-tgsticker')){
+    throw new Error('sticker TGS non convertible sans moteur Lottie');
+  }
+  const input=tmp(mime.includes('webm')?'webm':mime.includes('video')?'mp4':mime.includes('png')?'png':mime.includes('webp')?'webp':'jpg');
+  const output=tmp('webp');
+  fs.writeFileSync(input,source.buffer);
+  try{
+    for(const quality of [72,58,44,30,20]){
+      await exec(FFMPEG,[
+        '-hide_banner','-loglevel','error','-y','-i',input,
+        '-vf',"scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba",
+        '-frames:v','1','-c:v','libwebp','-lossless','0','-compression_level','6','-q:v',String(quality),output
+      ]);
+      const b=fs.readFileSync(output);
+      if(b.length<=100*1024)return b;
+    }
+    throw new Error('sticker WhatsApp > 100 Ko après optimisation');
+  }finally{cleanup(input,output)}
+}
+async function whatsappTray(webp){
+  const input=tmp('webp'),output=tmp('png');
+  fs.writeFileSync(input,webp);
+  try{
+    await exec(FFMPEG,[
+      '-hide_banner','-loglevel','error','-y','-i',input,
+      '-vf',"scale=96:96:force_original_aspect_ratio=decrease,pad=96:96:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba",
+      '-frames:v','1','-compression_level','9',output
+    ]);
+    const b=fs.readFileSync(output);
+    if(!b.length||b.length>50*1024)throw new Error('icône WhatsApp invalide');
+    return b;
+  }finally{cleanup(input,output)}
+}
 async function packExists(name){
   try{return await botApi('getStickerSet',{name})}catch{return null}
 }
@@ -217,7 +279,7 @@ async function ensureDefaultPack(runtime,prepared){
   const name=defaultPackName(account.telegramUserId);
   const existing=await packExists(name);
   if(existing)await addToSet(account,name,prepared);
-  else await createSet(account,'NexAi · '+(account.username?'@'+account.username:account.firstName||'Stickers'),name,prepared);
+  else await createSet(account,automaticPackTitle(account),name,prepared);
   await rememberPack(account.telegramUserId,{name,title:'NexAi Stickers',link:packLink(name),updatedAt:Date.now()});
   return name;
 }
@@ -329,28 +391,61 @@ export async function handleStickerCommand({runtime,event,name,args=[]}){
   }
 
   if(name==='exportwhatsapp'){
-    let set=await sourceSet(client,source).catch(()=>null);
-    const docs=(set?.documents?.length?set.documents:[documentOf(source)]).filter(Boolean).slice(0,MAX_EXPORT);
+    const progress=await startProgress(client,peer,'⏳ WhatsApp stickers · préparation du pack…');
+    const set=await sourceSet(client,source).catch(()=>null);
+    const docs=(set?.documents?.length?set.documents:[documentOf(source)]).filter(Boolean).slice(0,Math.min(MAX_EXPORT,30));
     if(!docs.length)throw new Error('Aucun sticker à exporter.');
-    const files=[];
+
+    const stickers=[];
+    let skipped=0;
     for(let i=0;i<docs.length;i++){
-      const raw=await downloadDocument(client,docs[i]);
-      let prepared;
-      try{prepared=await prepareSticker({...raw,mime:raw.mime.includes('webm')?'video/webm':raw.mime})}
-      catch{prepared={buffer:raw.buffer,format:'static',filename:'sticker.webp',mime:raw.mime}}
-      files.push({name:'sticker-'+String(i+1).padStart(3,'0')+'.'+(prepared.format==='video'?'webm':prepared.format==='animated'?'tgs':'webp'),data:prepared.buffer});
+      try{
+        const raw=await downloadDocument(client,docs[i]);
+        const webp=await whatsappStaticWebp(raw);
+        stickers.push(webp);
+      }catch(error){
+        skipped++;
+        console.warn('[NexAi wastickers]',String(error?.message||error));
+      }
+      if(i===0||i===docs.length-1||(i+1)%3===0){
+        await progress.update('⏳ WhatsApp stickers · '+(i+1)+'/'+docs.length+' traité(s)…');
+      }
     }
-    const zip=makeZip(files);
-    await sendTelegramMedia(client,peer,zip,{fileName:'nexai-whatsapp-stickers.zip',mimeType:'application/zip',kind:'document',caption:'NexAi · export stickers · '+files.length+' fichier(s)'});
+    if(!stickers.length)throw new Error('Aucun sticker du pack n’a pu être converti pour WhatsApp.');
+    while(stickers.length<3)stickers.push(Buffer.from(stickers[0]));
+    const tray=await whatsappTray(stickers[0]);
+
+    const title=clean(set?.set?.title)||automaticPackTitle(account);
+    const author=accountDisplayName(account);
+    const files=[
+      {name:'title.txt',data:Buffer.from(title,'utf8')},
+      {name:'author.txt',data:Buffer.from(author,'utf8')},
+      {name:'tray.png',data:tray}
+    ];
+    stickers.slice(0,30).forEach((data,i)=>files.push({
+      name:'sticker_'+String(i+1).padStart(2,'0')+'.webp',
+      data
+    }));
+    const pack=makeZip(files);
+    const safe=safeBase(title,48)||'nexai-pack';
+    await progress.update('⬆️ WhatsApp stickers · envoi du fichier…');
+    await sendTelegramMedia(client,peer,pack,{
+      fileName:safe+'.wastickers',
+      mimeType:'application/zip',
+      kind:'document',
+      caption:'NexAi · WhatsApp stickers · '+Math.min(stickers.length,30)+' sticker(s)'+(skipped?' · '+skipped+' ignoré(s)':'')
+    });
+    await progress.update('✅ WhatsApp stickers · pack prêt.');
     return true;
   }
 
   if(name==='clonepack'){
     const set=await sourceSet(client,source);
     if(!set?.documents?.length)throw new Error('Réponds à un sticker appartenant à un pack.');
-    const title=clean(args.join(' '))||((set.set?.title||'Pack')+' · NexAi');
+    const title=clean(args.join(' '))||automaticPackTitle(account);
     const newName=packName(account.telegramUserId,title);
     const docs=set.documents.slice(0,MAX_CLONE);
+    const progress=await startProgress(client,peer,'⏳ Clone pack · 0/'+docs.length+'…');
     let added=0;
     for(let i=0;i<docs.length;i++){
       try{
@@ -359,13 +454,14 @@ export async function handleStickerCommand({runtime,event,name,args=[]}){
         if(i===0)await createSet(account,title,newName,prepared,stickerAttr(docs[i])?.alt||'✨');
         else await addToSet(account,newName,prepared,stickerAttr(docs[i])?.alt||'✨');
         added++;
+        if(i===0||i===docs.length-1||(i+1)%3===0)await progress.update('⏳ Clone pack · '+(i+1)+'/'+docs.length+'…');
       }catch(e){
         console.warn('[NexAi sticker clone]',String(e?.message||e));
       }
     }
     if(!added)throw new Error('Aucun sticker du pack n’a pu être cloné.');
     await rememberPack(account.telegramUserId,{name:newName,title,link:packLink(newName),count:added,updatedAt:Date.now()});
-    await say('Pack cloné : '+added+' sticker(s)\n'+packLink(newName));
+    await progress.update('✅ Pack cloné · '+added+' sticker(s)\n'+packLink(newName));
     return true;
   }
 
@@ -373,7 +469,7 @@ export async function handleStickerCommand({runtime,event,name,args=[]}){
   const prepared=await prepareSticker(raw);
 
   if(name==='createpack'){
-    const title=clean(args.join(' '))||'NexAi Pack';
+    const title=clean(args.join(' '))||automaticPackTitle(account);
     const newName=packName(account.telegramUserId,title);
     await createSet(account,title,newName,prepared,raw.sticker?.alt||'✨');
     await rememberPack(account.telegramUserId,{name:newName,title,link:packLink(newName),count:1,updatedAt:Date.now()});
