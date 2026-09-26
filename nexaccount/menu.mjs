@@ -67,12 +67,29 @@ function localized(settings,fr,en){
   return String(settings?.language||'fr').toLowerCase().startsWith('en')?en:fr;
 }
 
-function themeCustomEmojiSpans(text,styleId){
-  const glyph=STYLE_EMOJI_FALLBACK[Number(styleId)];
-  const id=emojiId('style_'+Number(styleId));
+function emojiEntitySpans(text,glyph,id){
   if(!glyph||!id)return [];
-  const start=String(text).indexOf(glyph);
-  return start>=0?[{start,text:glyph,custom_emoji_id:id}]:[];
+  const value=String(text);
+  const out=[];
+  let from=0;
+  while(true){
+    const start=value.indexOf(glyph,from);
+    if(start<0)break;
+    out.push({start,text:glyph,custom_emoji_id:id});
+    from=start+glyph.length;
+  }
+  return out;
+}
+
+function themeCustomEmojiSpans(text,styleId,category=null){
+  const out=[];
+  const glyph=STYLE_EMOJI_FALLBACK[Number(styleId)];
+  out.push(...emojiEntitySpans(text,glyph,emojiId('style_'+Number(styleId))));
+  if(category){
+    const catGlyph=FALLBACK_EMOJI[category];
+    out.push(...emojiEntitySpans(text,catGlyph,emojiId(CATEGORY_ICONS[category])));
+  }
+  return out;
 }
 
 async function menuArtwork(settings,styleId){
@@ -111,7 +128,8 @@ export async function menuModel({account,settings,commands,view='home',category=
   if(view==='category'&&category){
     const list=(groups[category]||[]).filter(visible);
     const label=toSmallCaps(CATEGORY_LABELS[category]||category);
-    const themed=renderThemeCategory(style.id,label);
+    const themedLabel=(FALLBACK_EMOJI[category]||'')+(FALLBACK_EMOJI[category]?' ':'')+label;
+    const themed=renderThemeCategory(style.id,themedLabel);
     body=header+'\n\n'+themed.title+'\n';
     body+=toSmallCaps(localized(settings,'Commandes','Commands'))+' • '+list.length+'\n\n';
 
@@ -157,7 +175,7 @@ export async function menuModel({account,settings,commands,view='home',category=
   const text=body.trim();
   return {
     text,
-    entities:expandableEntities(text,spans,quoteRange,themeCustomEmojiSpans(text,style.id)),
+    entities:expandableEntities(text,spans,quoteRange,themeCustomEmojiSpans(text,style.id,view==='category'?category:null)),
     reply_markup:{inline_keyboard:buttons},
     // Long category lists cannot fit in a Telegram photo caption. Keep artwork
     // attached to home/styles and use a single full text message for categories.
