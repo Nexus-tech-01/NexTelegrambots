@@ -1,0 +1,536 @@
+{
+  "generatedAt": "2026-09-26T18:59:30Z",
+  "source": {
+    "styleCatalogSha": "98256cc38bc6ed2d93984cbd0ca5fac48a87de2b",
+    "menuSha": "b3f150c0a1aa3b0e32ed4f43f12f99bc26520cb9"
+  },
+  "themes": {
+    "1": {
+      "id": 1,
+      "name": "Dark",
+      "botName": "♰ DARK DIPPER",
+      "mark": "♰",
+      "accent": "🌑",
+      "separator": "♰ ─────── ♰",
+      "signature": "♰ DIPPER",
+      "tagline": "l'ombre incarnée"
+    },
+    "2": {
+      "id": 2,
+      "name": "Naruto",
+      "botName": "🍃 DIPPER × NARUTO",
+      "mark": "🍃",
+      "accent": "🌀",
+      "separator": "🍃 ───── 🌀",
+      "signature": "🍃 Dattebayo",
+      "tagline": "la volonté du feu"
+    },
+    "3": {
+      "id": 3,
+      "name": "Cid Kagenou / Shadow",
+      "botName": "◈ DIPPER // SHADOW",
+      "mark": "◈",
+      "accent": "🕶️",
+      "separator": "◈ ─────── ◈",
+      "signature": "◈ The Shadow",
+      "tagline": "I am atomic"
+    },
+    "4": {
+      "id": 4,
+      "name": "Hacker",
+      "botName": "[ DIPPER://ROOT ]",
+      "mark": ">",
+      "accent": "💻",
+      "separator": "[========]",
+      "signature": "[ DIPPER ]",
+      "tagline": "access granted"
+    },
+    "5": {
+      "id": 5,
+      "name": "Manhwa",
+      "botName": "⚔️ DIPPER // LEVEL UP",
+      "mark": "⚔️",
+      "accent": "⬆️",
+      "separator": "⚔️ ───── ⬆️",
+      "signature": "⚔️ LEVEL UP",
+      "tagline": "rise through every level"
+    },
+    "6": {
+      "id": 6,
+      "name": "Ai Oshino",
+      "botName": "⭐ DIPPER × AI",
+      "mark": "⭐",
+      "accent": "✨",
+      "separator": "⭐ ───── ✨",
+      "signature": "⭐ DIPPER × Ai",
+      "tagline": "true idol"
+    },
+    "7": {
+      "id": 7,
+      "name": "Ruby Oshino",
+      "botName": "🌸 DIPPER × RUBY",
+      "mark": "🌸",
+      "accent": "💗",
+      "separator": "🌸 ───── 💗",
+      "signature": "🌸 DIPPER × Ruby",
+      "tagline": "shine brighter"
+    },
+    "8": {
+      "id": 8,
+      "name": "Satoru Gojo",
+      "botName": "♾️ DIPPER × GOJO",
+      "mark": "♾️",
+      "accent": "👁️",
+      "separator": "♾️ ───── 👁️",
+      "signature": "♾️ Infinity",
+      "tagline": "limitless interface"
+    },
+    "9": {
+      "id": 9,
+      "name": "Oreki Houtarou",
+      "botName": "🌿 DIPPER // OREKI",
+      "mark": "·",
+      "accent": "🌿",
+      "separator": "· ─────── ·",
+      "signature": "· DIPPER",
+      "tagline": "energy saving mode"
+    },
+    "10": {
+      "id": 10,
+      "name": "Marin Kitagawa",
+      "botName": "🎀 DIPPER × MARIN",
+      "mark": "🎀",
+      "accent": "🌸",
+      "separator": "🎀 ───── 🌸",
+      "signature": "🎀 DIPPER × Marin",
+      "tagline": "cosplay mode"
+    },
+    "11": {
+      "id": 11,
+      "name": "Sung Jin-Woo",
+      "botName": "🩸 SYSTEM // DIPPER",
+      "mark": "🩸",
+      "accent": "🗡️",
+      "separator": "🩸 ───── 🗡️",
+      "signature": "🩸 ARISE",
+      "tagline": "shadow monarch system"
+    },
+    "12": {
+      "id": 12,
+      "name": "Madara Uchiha",
+      "botName": "🌑 DIPPER × MADARA",
+      "mark": "🌑",
+      "accent": "♟️",
+      "separator": "🌑 ───── ♟️",
+      "signature": "🌑 Uchiha",
+      "tagline": "wake from illusion"
+    },
+    "13": {
+      "id": 13,
+      "name": "Aizen Sosuke",
+      "botName": "🪷 DIPPER × AIZEN",
+      "mark": "🪷",
+      "accent": "🕶️",
+      "separator": "🪷 ───── ·",
+      "signature": "🪷 Aizen",
+      "tagline": "all according to plan"
+    },
+    "14": {
+      "id": 14,
+      "name": "Lelouch Lamperouge",
+      "botName": "♔ DIPPER // ZERO",
+      "mark": "♔",
+      "accent": "👁️",
+      "separator": "♔ ───── 👁️",
+      "signature": "♔ ZERO",
+      "tagline": "the command is absolute"
+    },
+    "15": {
+      "id": 15,
+      "name": "Eren Yeager",
+      "botName": "⚡ DIPPER × EREN",
+      "mark": "⚡",
+      "accent": "⛓️",
+      "separator": "⚡ ───── ⛓️",
+      "signature": "⚡ Continue d'avancer",
+      "tagline": "keep moving forward"
+    },
+    "16": {
+      "id": 16,
+      "name": "Itachi Uchiha",
+      "botName": "☾ DIPPER × ITACHI",
+      "mark": "☾",
+      "accent": "👁️",
+      "separator": "☾ ───── 👁️",
+      "signature": "☾ Itachi",
+      "tagline": "silent mission"
+    },
+    "17": {
+      "id": 17,
+      "name": "Yhwach",
+      "botName": "☩ DIPPER // ALMIGHTY",
+      "mark": "☩",
+      "accent": "👑",
+      "separator": "☩ ───── 👑",
+      "signature": "☩ Almighty",
+      "tagline": "the future is visible"
+    },
+    "18": {
+      "id": 18,
+      "name": "Business Pro",
+      "botName": "DIPPER • BUSINESS",
+      "mark": "•",
+      "accent": "📊",
+      "separator": "• ─────── •",
+      "signature": "DIPPER • Business",
+      "tagline": "efficacité sans compromis"
+    },
+    "19": {
+      "id": 19,
+      "name": "Shadow Merchant",
+      "botName": "🌒 DIPPER // MERCHANT",
+      "mark": "🌒",
+      "accent": "🕯️",
+      "separator": "🌒 ───── 🕯️",
+      "signature": "🌒 Marché nocturne",
+      "tagline": "tout se négocie dans l’ombre"
+    },
+    "20": {
+      "id": 20,
+      "name": "Purgeur Suprême",
+      "botName": "🔥 DIPPER // PURGE",
+      "mark": "🔥",
+      "accent": "☄️",
+      "separator": "🔥 ───── ☄️",
+      "signature": "🔥 PURGE COMPLETE",
+      "tagline": "purification protocol"
+    },
+    "21": {
+      "id": 21,
+      "name": "Mio Haimiya",
+      "botName": "🖤 DIPPER × MIO",
+      "mark": "🖤",
+      "accent": "🌙",
+      "separator": "🖤 ───── 🌙",
+      "signature": "🖤 MIO // DIPPER",
+      "tagline": "quiet midnight"
+    },
+    "22": {
+      "id": 22,
+      "name": "Nazuna Nanakusa",
+      "botName": "🌙 NAZUNA DIPPER",
+      "mark": "☾",
+      "accent": "🦇",
+      "separator": "☾ ───── 🦇",
+      "signature": "☾ NAZUNA NIGHT",
+      "tagline": "night vampire • neon • tokyo"
+    },
+    "23": {
+      "id": 23,
+      "name": "Kaoruko Waguri",
+      "botName": "୨ৎ WAGURI × DIPPER",
+      "mark": "୨ৎ",
+      "accent": "🌸",
+      "separator": "୨ৎ ───── 🌸",
+      "signature": "୨ৎ WAGURI",
+      "tagline": "fragrant flower"
+    },
+    "24": {
+      "id": 24,
+      "name": "Alya",
+      "botName": "❄️ ALYA × DIPPER",
+      "mark": "❄️",
+      "accent": "🩵",
+      "separator": "❄️ ───── 🩵",
+      "signature": "❄️ ALYA",
+      "tagline": "ice • elegance • secret words"
+    },
+    "25": {
+      "id": 25,
+      "name": "Anna Yamada",
+      "botName": "🍫 DIPPER × ANNA",
+      "mark": "🍫",
+      "accent": "🖤",
+      "separator": "🍫 ───── 🖤",
+      "signature": "🍫 ANNA",
+      "tagline": "sweet • quiet • cinema"
+    },
+    "26": {
+      "id": 26,
+      "name": "Subaru Hoshina",
+      "botName": "⚔️ DIPPER × HOSHINA",
+      "mark": "⚔️",
+      "accent": "🟣",
+      "separator": "⚔️ ───── 🟣",
+      "signature": "⚔️ HOSHINA",
+      "tagline": "vice-captain combat mode"
+    },
+    "27": {
+      "id": 27,
+      "name": "Meguru Bachira",
+      "botName": "⚽ DIPPER // MONSTER",
+      "mark": "⚽",
+      "accent": "⚡",
+      "separator": "⚽ ───── ⚡",
+      "signature": "⚽ BACHIRA // EGO",
+      "tagline": "monster • ego • football"
+    },
+    "28": {
+      "id": 28,
+      "name": "Rin Itoshi",
+      "botName": "🎯 DIPPER × RIN",
+      "mark": "🎯",
+      "accent": "💚",
+      "separator": "🎯 ───── 💚",
+      "signature": "🎯 RIN // EGO",
+      "tagline": "precision • cold ego"
+    },
+    "29": {
+      "id": 29,
+      "name": "Power",
+      "botName": "🩸 DIPPER × POWER",
+      "mark": "🩸",
+      "accent": "😈",
+      "separator": "🩸 ───── 😈",
+      "signature": "🩸 POWER!",
+      "tagline": "blood fiend chaos"
+    },
+    "30": {
+      "id": 30,
+      "name": "Shinobu Kocho",
+      "botName": "🦋 DIPPER × SHINOBU",
+      "mark": "🦋",
+      "accent": "💜",
+      "separator": "🦋 ───── 💜",
+      "signature": "🦋 SHINOBU",
+      "tagline": "wisteria • poison • elegance"
+    },
+    "31": {
+      "id": 31,
+      "name": "Benimaru Shinmon",
+      "botName": "🔥 DIPPER × BENIMARU",
+      "mark": "🔥",
+      "accent": "⛩️",
+      "separator": "🔥 ───── ⛩️",
+      "signature": "🔥 BENIMARU",
+      "tagline": "asakusa • fire force"
+    }
+  },
+  "images": {
+    "1": [
+      "https://i.imgur.com/6F2V6eD.jpeg",
+      "https://i.imgur.com/nX1WVHH.jpeg",
+      "https://i.imgur.com/3z2ABPN.jpeg",
+      "https://files.catbox.moe/km94ug.png",
+      "https://files.catbox.moe/mffape.png",
+      "https://files.catbox.moe/7xbk4p.png"
+    ],
+    "2": [
+      "https://i.imgur.com/UlDSoMy.jpeg",
+      "https://i.imgur.com/Q8jbvKo.jpeg",
+      "https://i.imgur.com/YK2BKBZ.jpeg",
+      "https://files.catbox.moe/muab4m.jpg",
+      "https://files.catbox.moe/5b351a.jpg",
+      "https://files.catbox.moe/cnglhu.jpg",
+      "https://files.catbox.moe/07lfop.jpg",
+      "https://files.catbox.moe/211w67.jpg",
+      "https://files.catbox.moe/dtj3s9.jpg",
+      "https://files.catbox.moe/t4v076.jpg",
+      "https://files.catbox.moe/5yjazr.jpg"
+    ],
+    "3": [
+      "https://i.imgur.com/2v3YMYW.jpeg",
+      "https://i.imgur.com/YaFRkON.jpeg",
+      "https://i.imgur.com/wMqFGHH.jpeg",
+      "https://files.catbox.moe/mwcq4j.jpg",
+      "https://files.catbox.moe/3ii420.jpg",
+      "https://files.catbox.moe/ak3hnu.jpg",
+      "https://files.catbox.moe/vrz54q.jpg",
+      "https://files.catbox.moe/87aqe4.jpg",
+      "https://files.catbox.moe/h960vp.jpg",
+      "https://files.catbox.moe/uaglet.jpg",
+      "https://files.catbox.moe/vpfs80.jpg",
+      "https://files.catbox.moe/9we55g.jpg",
+      "https://files.catbox.moe/s2epgj.jpg"
+    ],
+    "4": [
+      "https://i.imgur.com/OhY9sTe.jpeg",
+      "https://i.imgur.com/dvGCVmo.jpeg",
+      "https://i.imgur.com/qS3c5dh.jpeg",
+      "https://files.catbox.moe/xfb193.jpg",
+      "https://files.catbox.moe/6amjh9.jpg",
+      "https://files.catbox.moe/oouy96.jpg",
+      "https://files.catbox.moe/vki01s.jpg",
+      "https://files.catbox.moe/11t5wk.jpg",
+      "https://files.catbox.moe/16vuqn.jpg",
+      "https://files.catbox.moe/6p9lbk.jpg",
+      "https://files.catbox.moe/ir0g61.jpg",
+      "https://files.catbox.moe/lwcmlg.jpg",
+      "https://files.catbox.moe/4tytog.jpg",
+      "https://files.catbox.moe/s2epgj.jpg"
+    ],
+    "5": [
+      "https://i.imgur.com/BJHbV2X.jpeg",
+      "https://i.imgur.com/YDGmsDN.jpeg",
+      "https://i.imgur.com/4jJukHR.jpeg",
+      "https://files.catbox.moe/yp09dh.jpg",
+      "https://files.catbox.moe/qlv9rl.jpg",
+      "https://files.catbox.moe/7ewuua.jpg",
+      "https://files.catbox.moe/awrwem.jpg",
+      "https://files.catbox.moe/sfvi8b.jpg",
+      "https://files.catbox.moe/eony8h.jpg",
+      "https://files.catbox.moe/zbvq7j.jpg"
+    ],
+    "6": [
+      "https://i.imgur.com/Rb0ZWOH.jpeg",
+      "https://i.imgur.com/7b4iuDP.jpeg",
+      "https://i.imgur.com/pHqnFmC.jpeg",
+      "https://files.catbox.moe/5nddcl.jpg",
+      "https://files.catbox.moe/ndvf4k.jpg",
+      "https://files.catbox.moe/u7178f.jpg",
+      "https://files.catbox.moe/gkek17.jpg",
+      "https://files.catbox.moe/9drm3j.jpg",
+      "https://files.catbox.moe/g3qybv.jpg",
+      "https://files.catbox.moe/em2859.jpg"
+    ],
+    "7": [
+      "https://i.imgur.com/zLaT5KT.jpeg",
+      "https://i.imgur.com/A5cMbwA.jpeg",
+      "https://i.imgur.com/mkrmEQf.jpeg",
+      "https://files.catbox.moe/gqf5ba.jpg",
+      "https://files.catbox.moe/jfzlre.jpg",
+      "https://files.catbox.moe/whmaf8.jpg",
+      "https://files.catbox.moe/rgbyxa.jpg",
+      "https://files.catbox.moe/61axnd.jpg"
+    ],
+    "8": [
+      "https://i.imgur.com/VgmhBaZ.jpeg",
+      "https://i.imgur.com/GwnNj7R.jpeg",
+      "https://i.imgur.com/wXsUEab.jpeg",
+      "https://files.catbox.moe/xp5ypp.jpg",
+      "https://files.catbox.moe/pbzdh3.jpeg",
+      "https://files.catbox.moe/tf954v.jpg",
+      "https://files.catbox.moe/eb9tg6.jpg",
+      "https://files.catbox.moe/rgbyxa.jpg"
+    ],
+    "9": [
+      "https://i.imgur.com/hIiPCsY.jpeg",
+      "https://i.imgur.com/mJqzPJl.jpeg",
+      "https://i.imgur.com/wXrNGFp.jpeg",
+      "https://files.catbox.moe/brtvxo.jpg",
+      "https://files.catbox.moe/jtvqys.jpg",
+      "https://files.catbox.moe/8vh1vn.jpg",
+      "https://files.catbox.moe/qddrjg.jpg",
+      "https://files.catbox.moe/zsmflt.jpg"
+    ],
+    "10": [
+      "https://i.imgur.com/4sMVZaB.jpeg",
+      "https://i.imgur.com/9t2i4VK.jpeg",
+      "https://i.imgur.com/v8BByTt.jpeg",
+      "https://files.catbox.moe/xxgh2f.jpg",
+      "https://files.catbox.moe/w4kcey.jpg",
+      "https://files.catbox.moe/a7rh4y.jpg",
+      "https://files.catbox.moe/oe68x7.jpg",
+      "https://files.catbox.moe/fabbon.jpg"
+    ],
+    "11": [],
+    "12": [],
+    "13": [],
+    "14": [],
+    "15": [],
+    "16": [],
+    "17": [],
+    "18": [],
+    "19": [],
+    "20": [],
+    "21": [
+      "https://ibb.co/2YNc3Yry",
+      "https://ibb.co/Jwn3nnZR",
+      "https://ibb.co/fwwTZBj",
+      "https://ibb.co/Fb5SbwcB",
+      "https://ibb.co/Q3mFcV7z"
+    ],
+    "22": [
+      "https://ibb.co/fd5DPdvH",
+      "https://ibb.co/11NHy34",
+      "https://ibb.co/LzqL5Nys",
+      "https://ibb.co/7xs4qhXd",
+      "https://ibb.co/YTJYhGM0",
+      "https://ibb.co/FkWMDVJv"
+    ],
+    "23": [
+      "https://ibb.co/V0WNDzCg",
+      "https://ibb.co/hxWkf2fx",
+      "https://ibb.co/hJLFNv6n",
+      "https://ibb.co/9HF5z9wX",
+      "https://ibb.co/Vc53DCy1",
+      "https://ibb.co/JDrYXH5"
+    ],
+    "24": [
+      "https://ibb.co/f7tSjD5",
+      "https://ibb.co/LWgcwkn",
+      "https://ibb.co/CR3qBbS",
+      "https://ibb.co/9LDSKFJ",
+      "https://ibb.co/xtjTYzRn",
+      "https://ibb.co/M5kTP29p"
+    ],
+    "25": [
+      "https://ibb.co/qGHDyT7",
+      "https://ibb.co/5XDCzj48",
+      "https://ibb.co/wFXBXRTB",
+      "https://ibb.co/gFJZBnLH",
+      "https://ibb.co/v64Twhkf",
+      "https://ibb.co/SwwjbJjY"
+    ],
+    "26": [
+      "https://ibb.co/BH4JJ2Bq",
+      "https://ibb.co/Rk4LBTVH",
+      "https://ibb.co/1Y2wjdb7",
+      "https://ibb.co/ccGNftBx",
+      "https://ibb.co/DHTRhTpB",
+      "https://ibb.co/V0xpt9PP"
+    ],
+    "27": [
+      "https://ibb.co/FqhvgPTY",
+      "https://ibb.co/9H1rTg3Z",
+      "https://ibb.co/xqBcmgVL",
+      "https://ibb.co/5Qx2TYx",
+      "https://ibb.co/qYMvzZF6",
+      "https://ibb.co/vCKYR8SP"
+    ],
+    "28": [
+      "https://ibb.co/mCxNxnX4",
+      "https://ibb.co/Wvm36zRT",
+      "https://ibb.co/9kVJ4Nd5",
+      "https://ibb.co/9HJJqdLX",
+      "https://ibb.co/60mrZ5Wy",
+      "https://ibb.co/8gRxHJgZ"
+    ],
+    "29": [
+      "https://ibb.co/9f1Nnhn",
+      "https://ibb.co/C5zR5S7B",
+      "https://ibb.co/wFyh5zXQ",
+      "https://ibb.co/mrcDL4Bt",
+      "https://ibb.co/LD51ngvn",
+      "https://ibb.co/nMTRtMRT"
+    ],
+    "30": [
+      "https://ibb.co/Zz6p3JWN",
+      "https://ibb.co/4gPg2SGc",
+      "https://ibb.co/gbPd8DL3",
+      "https://ibb.co/fVc9jT54",
+      "https://ibb.co/V0LdW28B",
+      "https://ibb.co/1GQQfHVj"
+    ],
+    "31": [
+      "https://ibb.co/99n53Jz1",
+      "https://ibb.co/QGrRY9b",
+      "https://ibb.co/9jtzrL2",
+      "https://ibb.co/whS0L2yk",
+      "https://ibb.co/sdkBxMvr",
+      "https://ibb.co/7dwZSdKk",
+      "https://ibb.co/8D8VB8WS",
+      "https://ibb.co/Xk3sjGNX"
+    ]
+  }
+}
