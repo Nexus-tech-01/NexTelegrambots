@@ -85,6 +85,7 @@ for(const marker of [
 ]){
   if(!runtime.includes(marker))errors.push('runtime-marker:'+marker);
 }
+if(!compat.includes("name==='menuemoji'"))errors.push('menuemoji-session-handler-missing');
 if(compat.includes('250 Stars/mois')||compat.includes('NexAi Premium ·'))errors.push('unimplemented-nexai-stars-subscription-advertised');
 for(const name of ['waifuhd','cosplayvip','amvhd','openingvip']){
   const cmd=commands.get(name);
