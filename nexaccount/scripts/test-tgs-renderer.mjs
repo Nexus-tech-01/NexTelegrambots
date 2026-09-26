@@ -25,4 +25,19 @@ assert.equal(JSON.parse(decoded.json).nm,'NexAi TGS test');
 assert.throws(()=>decodeTgs(Buffer.from('not-gzip')),/gzip attendu/);
 assert.throws(()=>decodeTgs(gzipSync(Buffer.from('{bad json'))),/JSON Lottie illisible/);
 
+// Verify that the native Skottie runtime expected by TGS export is actually
+// loadable and can render a Telegram-sized Lottie frame.
+const { createCanvas, LottieAnimation }=await import('@napi-rs/canvas');
+const animation=LottieAnimation.loadFromData(JSON.stringify(lottie),{});
+assert.equal(Math.round(animation.fps),30);
+assert.equal(Math.round(animation.frames),90);
+const canvas=createCanvas(512,512);
+const ctx=canvas.getContext('2d');
+animation.seekFrame(0);
+animation.render(ctx,{x:0,y:0,width:512,height:512});
+const png=await canvas.encode('png');
+assert.ok(png.length>8);
+assert.equal(png[0],0x89);
+assert.equal(png.toString('ascii',1,4),'PNG');
+
 console.log('TGS decode regression tests: ok');
