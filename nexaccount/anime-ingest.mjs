@@ -1706,6 +1706,39 @@ async function waitNexCanalHandoff(item){
   }
   throw new Error('nexcanal_handoff_timeout');
 }
+async function prepareNexCanalCopyHandoff(runtime,item,{caption='',stageMarker=''}) {
+  await ensureIndexes();
+  const d=await db(),c=d.collection(NEXCANAL_HANDOFF_COLLECTION),now=new Date();
+  const existing=await c.findOne({dedupeKey:item.dedupeKey});
+  if(existing?.status==='done'&&Number(existing?.resultMessageId)>0){
+    return {done:true,result:{id:Number(existing.resultMessageId),messageId:Number(existing.resultMessageId),via:'nexcanal'}};
+  }
+  await c.updateOne(
+    {dedupeKey:item.dedupeKey},
+    {
+      $set:{
+        status:'staging',
+        type:'copy',
+        fromChatId:String(runtime.account.telegramUserId),
+        sourceMessageId:0,
+        stageBotUsername:NEXCANAL_STAGE_BOT,
+        stageMarker:String(stageMarker||''),
+        destination:'@'+DESTINATION,
+        caption:String(caption||''),
+        parseMode:'HTML',
+        itemId:String(item._id),
+        seriesKey:item.seriesKey||'',
+        stagePreparedAt:now,
+        updatedAt:now,
+        nextAttemptAt:now,
+        lastError:null
+      },
+      $setOnInsert:{createdAt:now,attempts:0}
+    },
+    {upsert:true}
+  );
+  return {done:false,result:null};
+}
 async function enqueueNexCanalHandoff(runtime,item,{type,sourceMessageId=0,caption=''}) {
   await ensureIndexes();
   const d=await db(),c=d.collection(NEXCANAL_HANDOFF_COLLECTION),now=new Date();
@@ -1735,6 +1768,16 @@ async function publishViaNexCanal(runtime,item,resolved){
   const stage=await nexCanalStageEntity(runtime);
   const marker=nexCanalStageMarker(item);
   let staged=null;
+
+  // For copy handoffs the Bot API message id is not guaranteed to match the
+  // MTProto id seen by the user session. Create the handoff *before* staging
+  // the media so NexCanal can correlate the marker from its own incoming
+  // update and store the correct Bot API message_id/from_chat_id.
+  if(!(item.synthetic===true&&!item.imageUrl) && !(item.kind==='presentation'&&resolved?.message&&!resolved.message.photo)){
+    const prepared=await prepareNexCanalCopyHandoff(runtime,item,{caption,stageMarker:marker});
+    if(prepared.done)return prepared.result;
+  }
+
   try{
     if(item.synthetic===true){
       if(!item.imageUrl){
@@ -1798,9 +1841,15 @@ async function publishViaNexCanal(runtime,item,resolved){
         }finally{await fs.rm(tmp,{force:true}).catch(()=>{})}
       }
     }
-    const sourceMessageId=Number(staged?.id||staged?.messageId||0);
-    if(!sourceMessageId)throw new Error('nexcanal_stage_message_missing');
-    return await enqueueNexCanalHandoff(runtime,item,{type:'copy',sourceMessageId,caption});
+    const stagedMtprotoMessageId=Number(staged?.id||staged?.messageId||0);
+    if(!stagedMtprotoMessageId)throw new Error('nexcanal_stage_message_missing');
+    // Never overwrite sourceMessageId here: NexCanal's update processor owns
+    // that field and writes the Bot API id after matching stageMarker.
+    await (await db()).collection(NEXCANAL_HANDOFF_COLLECTION).updateOne(
+      {dedupeKey:item.dedupeKey,status:'staging'},
+      {$set:{stagedMtprotoMessageId,stagedAt:new Date(),updatedAt:new Date()}}
+    );
+    return await waitNexCanalHandoff(item);
   }finally{
     const sourceMessageId=Number(staged?.id||staged?.messageId||0);
     if(sourceMessageId){
