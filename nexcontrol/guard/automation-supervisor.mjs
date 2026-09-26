@@ -14,6 +14,10 @@ const INTERVAL_MS=Math.max(15000,Number(process.env.NEX_AUTOMATION_SUPERVISOR_IN
 const ANIME_STALE_MS=Math.max(2*60*1000,Number(process.env.NEX_AUTOMATION_ANIME_STALE_MS||15*60*1000));
 const LITEAPK_STALE_MS=Math.max(60_000,Number(process.env.NEX_AUTOMATION_LITEAPK_STALE_MS||5*60*1000));
 const PUBLICATION_OVERDUE_GRACE_MS=Math.max(60_000,Number(process.env.NEX_AUTOMATION_OVERDUE_GRACE_MS||20*60*1000));
+const LITEAPK_PUBLICATION_GAP_MS=Math.max(60_000,Number(process.env.NEXCANAL__WATCHER_PUBLICATION_GAP_MS||2*60*60*1000));
+const WHATSAPP_DATA=process.env.WHATSAPP_DATA_DIR||process.env.DATA_DIR||'/var/lib/nex/whatsapp-publisher';
+const WHATSAPP_QUEUE=path.join(WHATSAPP_DATA,'queue.json');
+const WHATSAPP_HISTORY=path.join(WHATSAPP_DATA,'history.json');
 
 await fs.mkdir(RUNTIME,{recursive:true});
 
@@ -137,16 +141,77 @@ async function auditLiteApk(){
     if(keys.has(k))duplicateKeys.push(k); else keys.set(k,true);
   }
 
+  const ledger=Array.isArray(st?.publication?.ledger)?st.publication.ledger:[];
+  metric('liteapk.publicationLedgerSize',ledger.length);
+  const ledgerSeen=new Set();
+  const duplicatePublishedKeys=[];
+  const orderedLedger=[...ledger].filter(x=>Number(x?.at||0)>0).sort((a,b)=>Number(a.at)-Number(b.at));
+  for(const row of orderedLedger){
+    const k=String(row?.key||'');
+    if(!k)continue;
+    if(ledgerSeen.has(k))duplicatePublishedKeys.push(k);
+    else ledgerSeen.add(k);
+  }
+  const gapViolations=[];
+  for(let i=1;i<orderedLedger.length;i++){
+    const prev=orderedLedger[i-1],cur=orderedLedger[i];
+    const sameBatch=Boolean(prev?.batchId&&cur?.batchId&&String(prev.batchId)===String(cur.batchId));
+    const gapMs=Number(cur.at)-Number(prev.at);
+    if(!sameBatch&&gapMs>=0&&gapMs<LITEAPK_PUBLICATION_GAP_MS-5000){
+      gapViolations.push({previous:prev.key,current:cur.key,gapMs,previousBatch:prev.batchId||null,currentBatch:cur.batchId||null});
+    }
+  }
+
   if(ageMs>LITEAPK_STALE_MS){
     await emitIncident('liteapk_heartbeat_stale','critical',{ageMs,updatedAt:st.updatedAt,queueLength:queue.length,processing},'Restart the LiteAPK watcher through NexControl, verify its heartbeat advances, then verify the next publication batch.');
   }
   if(duplicateKeys.length){
     await emitIncident('liteapk_queue_duplicates','high',{duplicates:[...new Set(duplicateKeys)].slice(0,50),queueLength:queue.length},'Inspect queue-generation/dedupe logic. Do not rewrite the live state file while the watcher is running; fix the producer and let the owner process reconcile safely.');
   }
+  if(duplicatePublishedKeys.length){
+    await emitIncident('liteapk_publication_ledger_duplicates','critical',{duplicates:[...new Set(duplicatePublishedKeys)].slice(0,50),ledgerSize:ledger.length},'The same source publication key was recorded more than once. Inspect the publisher retry/save boundary and prevent a retry from publishing media twice.');
+  }
+  if(gapViolations.length){
+    await emitIncident('liteapk_publication_gap_violation','high',{requiredGapMs:LITEAPK_PUBLICATION_GAP_MS,violations:gapViolations.slice(-30)},'Keep scanning continuously, but enforce the configured gap between unrelated public batches. Descriptor + matching APK may share one batch and remain back-to-back.');
+  }
   if(ready.length&&nextPublicationAt>0&&Date.now()>nextPublicationAt+PUBLICATION_OVERDUE_GRACE_MS&&processing===0){
     await emitIncident('liteapk_publication_overdue','critical',{ready:ready.length,queueLength:queue.length,nextPublicationAt,overdueMs:Date.now()-nextPublicationAt},'Inspect publication lease/batch state, Telegram publisher health and flood/rate-limit errors. Repair the blocked worker and verify one complete APK batch publishes together.');
   }
-  return {ok:ageMs<=LITEAPK_STALE_MS&&!duplicateKeys.length,ageMs,queueLength:queue.length,ready:ready.length,processing,nextPublicationAt,duplicateKeys:duplicateKeys.length};
+  return {ok:ageMs<=LITEAPK_STALE_MS&&!duplicateKeys.length&&!duplicatePublishedKeys.length&&!gapViolations.length,ageMs,queueLength:queue.length,ready:ready.length,processing,nextPublicationAt,duplicateKeys:duplicateKeys.length,duplicatePublishedKeys:duplicatePublishedKeys.length,gapViolations:gapViolations.length,ledgerSize:ledger.length};
+}
+
+async function auditWhatsappRelay(){
+  const [queueDoc,historyDoc]=await Promise.all([
+    readJson(WHATSAPP_QUEUE,null),
+    readJson(WHATSAPP_HISTORY,null)
+  ]);
+  if(queueDoc==null&&historyDoc==null)return {ok:true,configured:false};
+
+  const queue=Array.isArray(queueDoc)?queueDoc:[];
+  const history=Array.isArray(historyDoc)?historyDoc:[];
+  const now=Date.now();
+  const pending=queue.filter(x=>String(x?.status||'')==='pending');
+  const stuck=pending.filter(x=>Number(x?.nextAttemptAt||0)>0&&Number(x.nextAttemptAt)<now-15*60*1000);
+  const recentPublished=history.filter(x=>String(x?.type||'')==='published'&&normalizeDate(x?.at)>=now-24*60*60*1000);
+  const seen=new Set(),duplicates=[];
+  for(const row of recentPublished){
+    const publicationId=String(row?.publicationId||'');
+    if(!publicationId)continue;
+    const key=publicationId+'|'+String(row?.destination||'');
+    if(seen.has(key))duplicates.push(key); else seen.add(key);
+  }
+
+  metric('whatsapp.pendingQueue',pending.length);
+  metric('whatsapp.stuckQueue',stuck.length);
+  metric('whatsapp.recentDuplicates',duplicates.length);
+
+  if(stuck.length){
+    await emitIncident('whatsapp_relay_stuck','critical',{count:stuck.length,items:stuck.slice(0,30).map(x=>({id:x.id,publicationId:x?.publication?.id,destination:x.destination,attempts:x.attempts,nextAttemptAt:x.nextAttemptAt,lastError:x.lastError}))},'Inspect WhatsApp connection state and queue errors. Restore connectivity, then let the existing retry queue continue; do not manually resend already completed publication IDs.');
+  }
+  if(duplicates.length){
+    await emitIncident('whatsapp_relay_duplicates','high',{duplicates:[...new Set(duplicates)].slice(0,50)},'The producer now deduplicates publicationId + destination. Inspect any remaining duplicate path and ensure upstream relays preserve a deterministic source publication ID.');
+  }
+  return {ok:!stuck.length&&!duplicates.length,configured:true,pending:pending.length,stuck:stuck.length,duplicates:duplicates.length};
 }
 
 async function loadAnimeDb(){
@@ -162,6 +227,26 @@ async function loadAnimeDb(){
 async function auditAnime(){
   const d=await loadAnimeDb();
   if(!d)return {ok:false,error:'db_unavailable'};
+
+  let engineAudit=null;
+  try{
+    const animeMod=await import('../../nexaccount/anime-ingest.mjs');
+    if(typeof animeMod.animeSupervisorAudit==='function'){
+      engineAudit=await animeMod.animeSupervisorAudit({repair:true,source:'nexcontrol-guard'});
+      for(const issue of (engineAudit?.incidents||[]).slice(0,50)){
+        if(!['missing-synopsis','concurrent-series','already-published-queued'].includes(String(issue?.kind||'')))continue;
+        await emitIncident(
+          'anime_engine_'+String(issue.kind).replace(/[^a-z0-9]+/gi,'_').toLowerCase(),
+          issue.severity==='critical'?'critical':'high',
+          issue,
+          'A deterministic anime repair rule detected this condition. Verify the queue/scheduler after the repair; if it recurs, diagnose the producer and add a regression test before changing production code.'
+        );
+      }
+    }
+  }catch(error){
+    await emitIncident('anime_engine_audit_failed','high',{error:String(error?.message||error)},'Verify the anime supervisor audit module and MongoDB runtime configuration. Keep the normal hard publication gates enabled while diagnosing.');
+  }
+
   const now=new Date();
   const cutoff=new Date(Date.now()-ANIME_STALE_MS);
   const queue=d.collection('nexanime_queue');
@@ -269,21 +354,23 @@ async function auditAnime(){
     synopsisViolations:synopsisViolations.length,
     orderViolations:orderViolations.length,
     suppressedQueuedDuplicates:suppressed,
-    gapDetected:scheduler?.gapDetected||null
+    gapDetected:scheduler?.gapDetected||null,
+    engineAudit
   };
 }
 
 async function runCycle(){
   const started=Date.now();
-  const [liteapk,anime,healthEndpoints]=await Promise.all([
+  const [liteapk,anime,whatsapp,healthEndpoints]=await Promise.all([
     auditLiteApk().catch(error=>({ok:false,error:String(error?.message||error)})),
     auditAnime().catch(error=>({ok:false,error:String(error?.message||error)})),
+    auditWhatsappRelay().catch(error=>({ok:false,error:String(error?.message||error)})),
     auditHealthEndpoints().catch(error=>[{ok:false,error:String(error?.message||error)}])
   ]);
   state.cycles=Number(state.cycles||0)+1;
   state.lastCycleAt=nowIso();
   state.lastCycleMs=Date.now()-started;
-  state.last={liteapk,anime,healthEndpoints};
+  state.last={liteapk,anime,whatsapp,healthEndpoints};
   state.pid=process.pid;
   await writeJsonAtomic(STATE_FILE,state);
   return state.last;
