@@ -131,7 +131,13 @@ for(let style=1;style<=31;style++){
 assert.match(styleSource,/INLINE_PHOTO_MAX_BYTES=5\*1024\*1024/,'inline photo size guard missing');
 assert.match(styleSource,/image\/jpeg/,'inline artwork must validate JPEG content');
 assert.match(styleSource,/CHARACTER_ARTWORK/,'missing character artwork fallback map');
+assert.match(styleSource,/2:'Naruto Uzumaki'/,'Naruto artwork fallback missing');
+assert.match(styleSource,/31:'Benimaru Shinmon'/,'late character artwork fallbacks must cover style 31');
+assert.match(styleSource,/for\(let start=0;start<urls\.length;start\+=4\)[\s\S]*const character=await characterArtwork\(key\)/,'character fallback must run after bundled/configured artwork is exhausted');
 assert.match(styleSource,/NEXAI_STYLE_.*_IMAGE_URLS/,'per-style artwork environment overrides missing');
+assert.equal(generatedStyles.themes?.['6']?.name,'Ai Hoshino','style 6 character name must be correct');
+assert.equal(generatedStyles.themes?.['7']?.name,'Ruby Hoshino','style 7 character name must be correct');
+assert.equal(generatedStyles.themes?.['26']?.name,'Soshiro Hoshina','style 26 character name must be correct');
 
 process.env.NEXAI_EMOJI_STYLE_2='5368324170671202286';
 process.env.NEXAI_EMOJI_ANIME='5368324170671202287';
