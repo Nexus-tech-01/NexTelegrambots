@@ -121,6 +121,16 @@ export async function renderDipperHeader(styleId,{botName='NEXAI',ownerName='Uti
 
 const directImageCache=new Map();
 const lastStyleImage=new Map();
+const characterImageCache=new Map();
+const CHARACTER_ARTWORK={
+  11:'Sung Jin-Woo',
+  12:'Madara Uchiha',
+  13:'Sosuke Aizen',
+  14:'Lelouch Lamperouge',
+  15:'Eren Yeager',
+  16:'Itachi Uchiha',
+  17:'Yhwach'
+};
 const INLINE_PHOTO_MAX_BYTES=5*1024*1024;
 const IMAGE_CACHE_OK_MS=60*60*1000;
 const IMAGE_CACHE_FAIL_MS=5*60*1000;
@@ -212,10 +222,52 @@ export async function resolveInlinePhoto(url){
   return directImage(String(url||'').trim());
 }
 
+function envStyleImages(styleId){
+  const id=Number(styleId)||1;
+  const raw=[
+    process.env['NEXAI_STYLE_'+id+'_IMAGE_URL']||'',
+    process.env['NEXAI_STYLE_'+id+'_IMAGE_URLS']||''
+  ].filter(Boolean).join('|');
+  return raw.split(/[|,\n]+/).map(v=>v.trim()).filter(v=>/^https?:\/\//i.test(v));
+}
+
+async function characterArtwork(styleId){
+  const id=Number(styleId)||0;
+  const name=CHARACTER_ARTWORK[id];
+  if(!name)return '';
+  const cached=characterImageCache.get(id);
+  if(cached&&cached.expiresAt>Date.now())return cached.value;
+  let value='';
+  try{
+    const response=await fetch('https://graphql.anilist.co',{
+      method:'POST',
+      headers:{'content-type':'application/json','accept':'application/json'},
+      body:JSON.stringify({
+        query:'query($search:String){Character(search:$search){image{large}}}',
+        variables:{search:name}
+      }),
+      signal:AbortSignal.timeout(4500)
+    });
+    if(response.ok){
+      const data=await response.json();
+      value=String(data?.data?.Character?.image?.large||'').trim();
+    }
+  }catch{}
+  characterImageCache.set(id,{
+    value,
+    expiresAt:Date.now()+(value?6*60*60*1000:10*60*1000)
+  });
+  return value;
+}
+
 export async function resolveStyleImage(styleId,fallback=''){
   const s=await getStyle(styleId);
   const key=Number(s.id)||1;
-  let urls=randomOrder([...(s.images||[])]);
+  let urls=randomOrder([...envStyleImages(key),...(s.images||[])]);
+  if(!urls.length){
+    const character=await characterArtwork(key);
+    if(character)urls.push(character);
+  }
   const last=lastStyleImage.get(key);
   if(urls.length>1&&urls[0]===last){
     const swap=1+Math.floor(Math.random()*(urls.length-1));
