@@ -24,10 +24,10 @@ async function guarded({label,name,sendText,client,peer,run}){
   }catch{}
   try{
     await run(progress);
-    if(progress)await progress.done(label+' · '+name+' terminé');
+    if(progress&&!progress.finished)await progress.done(label+' · '+name+' terminé');
   }catch(error){
     const reason=String(error?.message||error).replace(/\s+/g,' ').slice(0,500);
-    if(progress)await progress.fail(label+' · '+reason);
+    if(progress&&!progress.finished)await progress.fail(label+' · '+reason);
     else await sendText(peer,label+' · '+name+' : '+reason);
   }
   return true;
