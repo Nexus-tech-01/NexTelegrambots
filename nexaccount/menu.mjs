@@ -9,19 +9,35 @@ const FALLBACK_EMOJI={
   SEARCH:'🔎',PREMIUM:'👑',OWNER:'🔮'
 };
 
-export function expandableEntities(text,commandSpans=[]){
-  // NexAccount commands use the user's configured prefix (normally ".") and
-  // are not Bot API slash commands. Marking them as bot_command made Telegram
-  // route clicks to @NexAi01_bot instead of the connected account. Keep the
-  // themed expandable quote, but never advertise a false clickable slash route.
-  return [{type:'expandable_blockquote',offset:0,length:utf16len(text)}];
+export function expandableEntities(text,commandSpans=[],quoteRange=null){
+  const entities=[];
+  if(quoteRange&&Number(quoteRange.length)>0){
+    entities.push({
+      type:'expandable_blockquote',
+      offset:utf16len(text.slice(0,quoteRange.start)),
+      length:utf16len(text.slice(quoteRange.start,quoteRange.start+quoteRange.length))
+    });
+  }
+  for(const span of commandSpans){
+    entities.push({
+      type:'bot_command',
+      offset:utf16len(text.slice(0,span.start)),
+      length:utf16len(span.text)
+    });
+  }
+  return entities;
 }
 
-function commandText(lines,style,prefix='.'){
+function slashCommand(name){
+  const raw=String(name||'').trim().replace(/^[./]+/,'');
+  return '/'+(raw?raw[0].toUpperCase()+raw.slice(1):'');
+}
+
+function commandText(lines,style){
   let text='',spans=[];
   const marker='98765432101234567890';
   for(const line of lines){
-    const command=String(prefix||'.')+line.name;
+    const command=slashCommand(line.name);
     let before=style.id===1?'┃➻ ':'• ',after='\n';
     if(style.exactCatCmd){
       try{
@@ -30,9 +46,7 @@ function commandText(lines,style,prefix='.'){
         if(at>=0){
           before=rendered.slice(0,at);
           after=rendered.slice(at+marker.length);
-          // Historical Dipper category templates may prepend "/" themselves.
-          // NexAccount commands use the configured prefix, so never render "/.cmd".
-          if(!command.startsWith('/')&&before.endsWith('/'))before=before.slice(0,-1);
+          if(before.endsWith('/')&&command.startsWith('/'))before=before.slice(0,-1);
           if(!after.endsWith('\n'))after+='\n';
         }
       }catch{}
@@ -76,7 +90,7 @@ export async function menuModel({account,settings,commands,view='home',category=
     prefix:settings.prefix||'.',
     count:commandStats(commands).tokens
   });
-  let body=header,spans=[];
+  let body=header,spans=[],quoteRange=null;
 
   if(view==='category'&&category){
     const list=(groups[category]||[]).filter(visible);
@@ -102,10 +116,11 @@ export async function menuModel({account,settings,commands,view='home',category=
         c.premium&&!account.premium?'  · 👑 '+toSmallCaps('Premium'):''
       ].join('')
     }));
-    const ct=commandText(visibleCommands,style,settings.prefix||'.');
+    const ct=commandText(visibleCommands,style);
     const shift=body.length;
     body+=ct.text;
     spans.push(...ct.spans.map(x=>({...x,start:x.start+shift})));
+    quoteRange={start:shift,length:ct.text.length};
 
     if(style.exactCatClose){
       try{body+=telegramizeDipperText(style.exactCatClose())}catch{}
@@ -115,13 +130,15 @@ export async function menuModel({account,settings,commands,view='home',category=
     }
     body+='\n'+toSmallCaps('Powered by Nextech');
   }else{
-    body=header.trimEnd();
+    const visibleHeader=header.trimEnd();
+    body=visibleHeader;
     if(style.exactFooter){
       try{body+='\n\n'+telegramizeDipperText(style.exactFooter())}catch{}
     }else if(style.tagline){
       body+='\n\n'+toSmallCaps(style.tagline);
     }
     body+='\n'+toSmallCaps('Powered by Nextech');
+    if(body.length>visibleHeader.length)quoteRange={start:visibleHeader.length,length:body.length-visibleHeader.length};
   }
 
   const buttons=[];
@@ -155,7 +172,7 @@ export async function menuModel({account,settings,commands,view='home',category=
   const text=body.trim();
   return {
     text,
-    entities:expandableEntities(text,spans),
+    entities:expandableEntities(text,spans,quoteRange),
     reply_markup:{inline_keyboard:buttons},
     photoUrl:await menuArtwork(settings,style.id)
   };
@@ -163,16 +180,15 @@ export async function menuModel({account,settings,commands,view='home',category=
 
 export async function stylesModel({account,settings}){
   const styles=(await listStyles()).filter(s=>s.id>0);
-  const prefix=String(settings.prefix||'.');
   let text='🔮 ɴᴇxᴀɪ • ᴅɪᴘᴘᴇʀ • ѕᴛʏʟᴇѕ\n\n',spans=[];
   for(const s of styles){
-    const command=prefix+'style'+s.id;
+    const command='/Style'+s.id;
     const start=text.length;
     text+=command;
     spans.push({start,text:command});
     text+=' • '+toSmallCaps(s.name)+(Number(settings.style)===s.id?' • '+toSmallCaps(localized(settings,'Actif','Active')):'')+'\n';
   }
-  text+='\n'+toSmallCaps(localized(settings,'Choisis un style ci-dessous ou utilise '+prefix+'style <numéro>.','Choose a style below or use '+prefix+'style <number>.'))+
+  text+='\n'+toSmallCaps(localized(settings,'Choisis un style ci-dessous ou utilise /Style<numéro>.','Choose a style below or use /Style<number>.'))+
     '\n♛ ɴᴇxᴀɪ • ᴅɪᴘᴘᴇʀ × ɴᴇxᴛᴇᴄʜ ♛';
 
   const keyboard=[];
