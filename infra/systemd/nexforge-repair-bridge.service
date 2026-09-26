@@ -10,6 +10,7 @@ Environment=NEX_ROOT=/opt/nex/current
 Environment=NEXGUARD_RUNTIME=/var/lib/nex/runtime/nexguard
 Environment=NEX_AUTOMATION_RUNTIME=/var/lib/nex/runtime/automation-supervisor
 Environment=NEXFORGE_REPAIR_BRIDGE_RUNTIME=/var/lib/nex/runtime/nexforge-repair-bridge
+EnvironmentFile=-/etc/nexforge-host-agent.env
 EnvironmentFile=-/etc/nex/secrets/legacy-root.env
 EnvironmentFile=-/etc/nex/nexguard-ai.env
 ExecStart=/usr/bin/node /opt/nex/apps/internal/nexguard/current/nexforge-repair-bridge.mjs
