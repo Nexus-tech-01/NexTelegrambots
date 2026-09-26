@@ -20,6 +20,7 @@ import { createRuntimeContext, clearRuntimeTimers } from './core/runtime-context
 import { routeEngineCommand } from './core/engine-router.mjs';
 import { animeBeginRebuild, animeDedupePublishedEpisodeVariants, animeDiscoverNow, animeIngestStatus, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
+import { sendBrandedText } from './response-ui.mjs';
 
 const commands=commandMap();
 const runtimes=new Map();
@@ -81,7 +82,7 @@ function claimCommand(telegramUserId,message){
 }
 
 async function sendText(client,peer,text){
-  return client.sendMessage(peer,{message:String(text)});
+  return sendBrandedText(client,peer,String(text));
 }
 
 function ownerFormattingEntities(text){
