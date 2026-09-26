@@ -55,17 +55,17 @@ for(const ref of forbiddenSiblingRefs){
   if(runtime.includes(ref))errors.push('runtime-sibling-ref:'+ref);
 }
 
-const perPage=16;
-let maxEstimatedCaption=0;
+let maxEstimatedMessage=0;
 for(const [category,list] of Object.entries(groups)){
-  for(let i=0;i<list.length;i+=perPage){
-    const names=list.slice(i,i+perPage).map(c=>'/'+c.name+(c.premium?' · Premium':''));
-    const estimate=360+names.join('\n').length;
-    maxEstimatedCaption=Math.max(maxEstimatedCaption,estimate);
-    if(estimate>1000)errors.push('caption-risk:'+category+':'+(i/perPage+1)+':'+estimate);
-  }
+  const names=list
+    .filter(c=>!c.hidden)
+    .map(c=>'/'+c.name+(c.premium?' · Premium':''));
+  // Menus are editable Telegram text messages (4096 chars), not photo captions.
+  // Reserve a generous budget for the quoted themed header/category/footer.
+  const estimate=900+names.join('\n').length;
+  maxEstimatedMessage=Math.max(maxEstimatedMessage,estimate);
+  if(estimate>4096)errors.push('message-risk:'+category+':'+estimate);
 }
-
 const report={
   ok:errors.length===0,
   standalone:true,
@@ -74,7 +74,7 @@ const report={
   categories:Object.fromEntries(Object.entries(groups).map(([k,v])=>[k,v.length])),
   groupAdminUnified:!groups.ADMIN?.length,
   publicPrivateMode:Boolean(mode),
-  maxEstimatedCaption,
+  maxEstimatedMessage,
   errors
 };
 console.log(JSON.stringify(report,null,2));
