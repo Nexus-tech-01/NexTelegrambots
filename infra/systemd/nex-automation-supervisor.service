@@ -1,14 +1,20 @@
 [Unit]
 Description=Nexus strict cross-platform automation supervisor
-After=network-online.target
+After=network-online.target nexforge-host-agent.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/nex/current
+User=root
+WorkingDirectory=/opt/nex/apps/internal/nexguard/current
 Environment=NEX_ROOT=/opt/nex/current
-EnvironmentFile=-/etc/nex/nexautomation.env
-ExecStart=/usr/bin/node /opt/nex/current/nexcontrol/guard/automation-supervisor.mjs
+Environment=NEX_AUTOMATION_RUNTIME=/var/lib/nex/runtime/automation-supervisor
+Environment=NEX_LITEAPKS_STATE_FILE=/var/lib/nex/state/internal-automation/nexcanal-watch-state-v2.json
+Environment=WHATSAPP_DATA_DIR=/var/lib/nex/data/internal/whatsapp-publisher
+Environment=NEX_AUTOMATION_STORE_MODULE=/opt/nex/current/nexaccount/store.mjs
+Environment=NEX_AUTOMATION_ANIME_MODULE=/opt/nex/current/nexaccount/anime-ingest.mjs
+EnvironmentFile=-/etc/nex/secrets/legacy-root.env
+ExecStart=/usr/bin/node /opt/nex/apps/internal/nexguard/current/automation-supervisor.mjs
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM
