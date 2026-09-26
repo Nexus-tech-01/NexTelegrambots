@@ -253,8 +253,8 @@ const PUBLIC_PLANS = {
 
 function ownerSentence(language) {
   return language === 'fr'
-    ? `Le créateur et propriétaire de Nextech est ${OWNER_NAME}, plus connu sous le pseudonyme de ${OWNER_ALIAS}.`
-    : `Nextech was created and is owned by ${OWNER_NAME}, better known by the pseudonym ${OWNER_ALIAS}.`;
+    ? 'Le créateur et propriétaire de Nextech est ' + OWNER_NAME + ', plus connu sous le pseudonyme de ' + OWNER_ALIAS + '.'
+    : 'Nextech was created and is owned by ' + OWNER_NAME + ', better known by the pseudonym ' + OWNER_ALIAS + '.';
 }
 
 function productFromText(text) {
@@ -279,13 +279,13 @@ function productsSentence(language) {
   const products = PUBLIC_PRODUCTS
     .map(product => {
       const description = language === 'fr' ? product.fr : product.en;
-      return `• ${product.name} — ${description}\\n${product.url}`;
+      return '• ' + product.name + ' — ' + description + '\n' + product.url;
     })
-    .join('\\n\\n');
+    .join('\n\n');
 
   return language === 'fr'
-    ? `Les produits publics de Nextech disponibles sur Telegram sont :\\n\\n${products}`
-    : `Nextech's public Telegram products are:\\n\\n${products}`;
+    ? 'Les produits publics de Nextech disponibles sur Telegram sont :\n\n' + products
+    : 'Nextech\'s public Telegram products are:\n\n' + products;
 }
 
 function planSentence(product, language) {
@@ -302,7 +302,7 @@ function planSentence(product, language) {
     ...lines.map(line => '• ' + line),
     '',
     product.url
-  ].join('\\n');
+  ].join('\n');
 }
 
 function canonicalReply(text, language) {
@@ -313,21 +313,21 @@ function canonicalReply(text, language) {
   }
 
   const ownerIntent =
-    /(?:qui\\s+(?:est|a\\s+créé|a\\s+cree|dirige|possède|possede).*?(?:nextech|nexus\\s*tech|fondateur|créateur|createur|propriétaire|proprietaire)|(?:fondateur|créateur|createur|propriétaire|proprietaire|owner).*?(?:nextech|nexus\\s*tech)|who\\s+(?:owns|created|founded|runs).*?(?:nextech|nexus\\s*tech)|(?:ton|votre)\\s+(?:créateur|createur|propriétaire|proprietaire)|your\\s+(?:creator|owner)|tr[eé]sor\\s+hontonnou|pseudonyme?|pseudo)/i;
+    /(?:qui\s+(?:est|a\s+créé|a\s+cree|dirige|possède|possede).*?(?:nextech|nexus\s*tech|fondateur|créateur|createur|propriétaire|proprietaire)|(?:fondateur|créateur|createur|propriétaire|proprietaire|owner).*?(?:nextech|nexus\s*tech)|who\s+(?:owns|created|founded|runs).*?(?:nextech|nexus\s*tech)|(?:ton|votre)\s+(?:créateur|createur|propriétaire|proprietaire)|your\s+(?:creator|owner)|tr[eé]sor\s+hontonnou|pseudonyme?|pseudo)/i;
 
   if (ownerIntent.test(value)) {
     return ownerSentence(language);
   }
 
   const planIntent =
-    /(?:premium|pro\\b|plus\\b|business|agency|payant|payante|prix|tarif|co[uû]t|combien|stars?|abonnement|subscription|pricing|price|paid|cost|plan)/i;
+    /(?:premium|pro\b|plus\b|business|agency|payant|payante|prix|tarif|co[uû]t|combien|stars?|abonnement|subscription|pricing|price|paid|cost|plans?)/i;
 
   if (planIntent.test(value)) {
     return planSentence(productFromText(value), language);
   }
 
   const productIntent =
-    /(?:quels?\\s+(?:sont\\s+)?(?:les\\s+)?(?:produits?|services?|offres?|solutions?|projets?|bots?)|que\\s+(?:fait|propose|développe|developpe)\\s+(?:nextech|nexus\\s*tech)|(?:produits?|services?|offres?|solutions?|projets?|bots?).*?(?:nextech|nexus\\s*tech)|what\\s+(?:products?|services?|solutions?|projects?|bots?)|what\\s+does\\s+(?:nextech|nexus\\s*tech)\\s+(?:do|offer|make)|tell\\s+me\\s+about\\s+(?:nextech|nexus\\s*tech))/i;
+    /(?:quels?\s+(?:sont\s+)?(?:(?:les|vos|nos)\s+)?(?:produits?|services?|offres?|solutions?|projets?|bots?)|(?:présente|presente|montre|liste)\s+(?:moi\s+)?(?:(?:les|vos|nos)\s+)?(?:produits?|services?|bots?)|que\s+(?:fait|propose|développe|developpe)\s+(?:nextech|nexus\s*tech)|(?:produits?|services?|offres?|solutions?|projets?|bots?).*?(?:nextech|nexus\s*tech)|what\s+(?:products?|services?|solutions?|projects?|bots?)|what\s+does\s+(?:nextech|nexus\s*tech)\s+(?:do|offer|make)|tell\s+me\s+about\s+(?:nextech|nexus\s*tech))/i;
 
   if (productIntent.test(value)) {
     return productsSentence(language);
@@ -406,7 +406,7 @@ function systemPrompt(language) {
   const canonical = language === 'fr' ? identityFr : identityEn;
 
   return custom
-    ? canonical + '\\n\\nInstructions complémentaires configurées : ' + custom
+    ? canonical + '\n\nInstructions complémentaires configurées : ' + custom
     : canonical;
 }
 
