@@ -1008,7 +1008,7 @@ async function connectSavedAccount(publicAccount){
     account.premium=me.premium===true;
     account.username=me.username||account.username;
     account.firstName=me.firstName||account.firstName;
-      account.lastName=me.lastName||account.lastName;
+    account.lastName=me.lastName||account.lastName;
     const runtime=await attachConnectedClient(client,account,{leaseOwned:true});
     return runtime?id:null;
   }catch(error){
