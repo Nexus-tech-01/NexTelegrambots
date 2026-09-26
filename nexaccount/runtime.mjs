@@ -20,6 +20,8 @@ import { createRuntimeContext, clearRuntimeTimers } from './core/runtime-context
 import { routeEngineCommand } from './core/engine-router.mjs';
 import { animeBeginRebuild, animeDedupePublishedEpisodeVariants, animeDiscoverNow, animeIngestStatus, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
+import { sendBrandedText } from './response-ui.mjs';
+import { putInlineResponse } from './inline-response-store.mjs';
 
 const commands=commandMap();
 const runtimes=new Map();
@@ -29,10 +31,10 @@ const aiAutoWindows=new Map();
 let reconcilingRuntimes=false;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const ANIME_PRIMARY_PUBLISHER_ENABLED=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXANIME_PRIMARY_PUBLISHER_ENABLED||'').trim());
-const ANIME_PRIMARY_PUBLISHER_USERNAME=String(process.env.NEXANIME_PRIMARY_PUBLISHER_USERNAME||'tresor20001').trim().replace(/^@/,'').toLowerCase();
+const ANIME_PRIMARY_PUBLISHER_USERNAME=String(process.env.NEXANIME_PRIMARY_PUBLISHER_USERNAME||'').trim().replace(/^@/,'').toLowerCase();
 
 function isPrimaryAnimePublisher(account){
-  if(!ANIME_PRIMARY_PUBLISHER_ENABLED)return false;
+  if(!ANIME_PRIMARY_PUBLISHER_ENABLED||!ANIME_PRIMARY_PUBLISHER_USERNAME)return false;
   const username=String(account?.username||'').trim().replace(/^@/,'').toLowerCase();
   return Boolean(username&&username===ANIME_PRIMARY_PUBLISHER_USERNAME);
 }
@@ -81,7 +83,17 @@ function claimCommand(telegramUserId,message){
 }
 
 async function sendText(client,peer,text){
-  return client.sendMessage(peer,{message:String(text)});
+  const value=String(text);
+  const accountId=[...runtimes.entries()].find(([,runtime])=>runtime?.client===client)?.[0]||'';
+  if(cfg.botUsername&&accountId){
+    try{
+      const token=await putInlineResponse(value,{accountId});
+      return await sendInline(client,peer,'reply:'+token);
+    }catch(error){
+      console.warn('[NexAccount inline reply fallback]',String(error?.message||error).slice(0,250));
+    }
+  }
+  return sendBrandedText(client,peer,value);
 }
 
 function ownerFormattingEntities(text){
@@ -105,6 +117,34 @@ function creatorFormattingEntities(model){
   return model.entities.map(e=>{
     if(e.type==='expandable_blockquote'){
       return new Api.MessageEntityBlockquote({offset:e.offset,length:e.length,collapsed:true});
+    }
+    if(e.type==='text_link'){
+      return new Api.MessageEntityTextUrl({offset:e.offset,length:e.length,url:e.url});
+    }
+    if(e.type==='custom_emoji'&&e.custom_emoji_id){
+      try{
+        return new Api.MessageEntityCustomEmoji({
+          offset:e.offset,
+          length:e.length,
+          documentId:BigInt(String(e.custom_emoji_id))
+        });
+      }catch{return null}
+    }
+    return null;
+  }).filter(Boolean);
+}
+
+function menuFormattingEntities(model,maxLength=4096){
+  return (model?.entities||[]).map(e=>{
+    if(e.offset+e.length>maxLength)return null;
+    if(e.type==='blockquote'){
+      return new Api.MessageEntityBlockquote({offset:e.offset,length:e.length,collapsed:false});
+    }
+    if(e.type==='expandable_blockquote'){
+      return new Api.MessageEntityBlockquote({offset:e.offset,length:e.length,collapsed:true});
+    }
+    if(e.type==='bot_command'){
+      return new Api.MessageEntityBotCommand({offset:e.offset,length:e.length});
     }
     if(e.type==='text_link'){
       return new Api.MessageEntityTextUrl({offset:e.offset,length:e.length,url:e.url});
@@ -170,21 +210,19 @@ async function sendMenu(runtime,peer){
     const settings=await settingsFor(account.telegramUserId);
     const model=await menuModel({account,settings,commands,view:'home'});
 
-    // Last-resort degradation: keep the real menu content and the artwork of
-    // the active style. Do not display the old alarming "temporarily unavailable"
-    // banner; users can still run every listed command while the inline layer
-    // recovers on the next .menu.
-    if(model.photoUrl){
-      try{
-        return await client.sendFile(peer,{
-          file:model.photoUrl,
-          caption:String(model.text||'NexAI').slice(0,1024)
-        });
-      }catch(photoError){
-        console.error('[NexAccount menu]',String(account.telegramUserId),'fallback-photo:failed',String(photoError?.message||photoError).slice(0,350));
-      }
+    // Last-resort degradation stays TEXT-only. A media fallback would force
+    // the menu into Telegram's 1024-char caption limit and recreate the old
+    // image/header shifting problem. The next .menu attempt can recover the
+    // full artwork + inline keyboard path.
+    const fallback=String(model.text||'NexAI').slice(0,4096);
+    try{
+      return await client.sendMessage(peer,{
+        message:fallback,
+        formattingEntities:menuFormattingEntities(model,4096)
+      });
+    }catch{
+      return sendBrandedText(client,peer,fallback);
     }
-    return sendText(client,peer,String(model.text||'NexAI'));
   }
 }
 
@@ -813,6 +851,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
       account.premium=me.premium===true;
       account.username=me.username||account.username;
       account.firstName=me.firstName||account.firstName;
+      account.lastName=me.lastName||account.lastName;
     }
   }catch(error){
     console.warn('[NexAccount identity]',id,'getMe_failed',String(error?.errorMessage||error?.message||error).slice(0,300));
@@ -969,6 +1008,7 @@ async function connectSavedAccount(publicAccount){
     account.premium=me.premium===true;
     account.username=me.username||account.username;
     account.firstName=me.firstName||account.firstName;
+    account.lastName=me.lastName||account.lastName;
     const runtime=await attachConnectedClient(client,account,{leaseOwned:true});
     return runtime?id:null;
   }catch(error){

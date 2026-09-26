@@ -121,6 +121,10 @@ export async function saveAccount({me,session,phone}){
       style:cfg.defaultStyle,
       prefix:'.',
       accessMode:'private',
+      botDisplayName:'NexAi',
+      menuImageUrl:'',
+      menuImageStyle:0,
+      customEmojiIds:{},
       autoReact:{enabled:cfg.autoReact,mode:'smart',targets:[...cfg.autoReactTargets],reactions:['🔥','❤️','👍']},
       autoJoin:{enabled:cfg.autoJoin,targets:[...cfg.autoJoinTargets]},
       welcome:{enabled:true,text:preferredLanguage==='fr'?'Bienvenue {name} dans {group}.':'Welcome {name} to {group}.'},
@@ -220,6 +224,7 @@ export async function settingsFor(telegramUserId){
   if(row)return {...row,accessMode:row.accessMode==='public'?'public':'private'};
   return {
     telegramUserId:String(telegramUserId),language:'fr',style:cfg.defaultStyle,prefix:'.',accessMode:'private',
+    botDisplayName:'NexAi',menuImageUrl:'',menuImageStyle:0,customEmojiIds:{},
     autoReact:{enabled:cfg.autoReact,mode:'smart',targets:[...cfg.autoReactTargets],reactions:['🔥','❤️','👍']},
     autoJoin:{enabled:cfg.autoJoin,targets:[...cfg.autoJoinTargets]},
     welcome:{enabled:true,text:'Bienvenue {name} dans {group}.'},
@@ -233,6 +238,23 @@ export async function patchSettings(telegramUserId,patch){
   const safe={...patch};
   if(safe.language!==undefined)safe.language=String(safe.language).toLowerCase().startsWith('en')?'en':'fr';
   if(safe.accessMode!==undefined)safe.accessMode=String(safe.accessMode).toLowerCase()==='public'?'public':'private';
+  if(safe.prefix!==undefined)safe.prefix=String(safe.prefix||'.').trim().slice(0,4)||'.';
+  if(safe.botDisplayName!==undefined)safe.botDisplayName=String(safe.botDisplayName||'NexAi').trim().slice(0,32)||'NexAi';
+  if(safe.menuImageUrl!==undefined){
+    const url=String(safe.menuImageUrl||'').trim();
+    safe.menuImageUrl=/^https?:\/\//i.test(url)?url.slice(0,1000):'';
+  }
+  if(safe.menuImageStyle!==undefined)safe.menuImageStyle=Math.max(0,Math.min(31,Number(safe.menuImageStyle)||0));
+  if(safe.customEmojiIds!==undefined){
+    const normalized={};
+    for(const [key,value] of Object.entries(safe.customEmojiIds&&typeof safe.customEmojiIds==='object'?safe.customEmojiIds:{})){
+      const k=String(key||'').toUpperCase().replace(/[^A-Z0-9_]+/g,'').slice(0,64);
+      const v=String(value||'').trim();
+      if(/^NEXAI_EMOJI_[A-Z0-9_]+$/.test(k)&&/^\d{5,30}$/.test(v))normalized[k]=v;
+      if(Object.keys(normalized).length>=64)break;
+    }
+    safe.customEmojiIds=normalized;
+  }
   await d.collection('nexaccount_settings').updateOne(
     {telegramUserId:String(telegramUserId)},
     {$set:{...safe,updatedAt:now},$setOnInsert:{telegramUserId:String(telegramUserId),createdAt:now}},
@@ -256,6 +278,7 @@ export async function savePairingState(state){
     telegramUserId:String(state.account.telegramUserId||''),
     username:String(state.account.username||''),
     firstName:String(state.account.firstName||''),
+    lastName:String(state.account.lastName||''),
     premium:state.account.premium===true,
     phoneMasked:String(state.account.phoneMasked||'')
   }:null;

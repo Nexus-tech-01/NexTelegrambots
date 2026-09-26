@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { brandedText } from './response-ui.mjs';
 
 const MIME_BY_EXT={
   '.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp','.gif':'image/gif',
@@ -72,6 +73,20 @@ function replaceExt(fileName,wantedExt){
 }
 function bmffBrand(b){
   return b.length>=12&&b.toString('ascii',4,8)==='ftyp'?b.toString('ascii',8,12):'';
+}
+
+export function normalizeTransferPercent(...args){
+  const values=args.map(value=>{
+    try{return Number(value?.valueOf?.()??value)}catch{return NaN}
+  }).filter(Number.isFinite);
+  if(!values.length)return null;
+  const first=values[0],second=values[1];
+  let ratio;
+  if(Number.isFinite(second)&&second>0)ratio=first/second;
+  else if(first>=0&&first<=1)ratio=first;
+  else if(first>=0&&first<=100)ratio=first/100;
+  else return null;
+  return Math.max(0,Math.min(100,Math.round(ratio*100)));
 }
 
 export function sniffMedia(buffer){
@@ -168,7 +183,7 @@ export function prepareTelegramMedia(data,{fileName='media',mimeType='',kind='au
 
 export async function sendTelegramMedia(client,peer,data,{
   fileName='media',mimeType='',kind='auto',caption='',formattingEntities,
-  voiceNote=false,buttons,replyTo,silent,parseMode,workers,thumb
+  voiceNote=false,buttons,replyTo,silent,parseMode,workers,thumb,afterSend,onUploadProgress
 }={}){
   const media=prepareTelegramMedia(data,{fileName,mimeType,kind});
   const dir=path.join(
@@ -180,21 +195,38 @@ export async function sendTelegramMedia(client,peer,data,{
   await writeFile(filePath,media.buffer);
 
   try{
-    return await client.sendFile(peer,{
+    const branded=String(caption||'').length<=980?brandedText(caption||''):{text:String(caption||'').slice(0,1024),entities:[]};
+    const mergedEntities=[
+      ...(Array.isArray(formattingEntities)?formattingEntities:[]),
+      ...branded.entities
+    ];
+    const sent=await client.sendFile(peer,{
       file:filePath,
       fileName:media.fileName,
-      caption,
+      caption:branded.text,
       forceDocument:media.kind==='document',
       supportsStreaming:media.kind==='video'&&(media.mimeType==='video/mp4'||media.mimeType==='video/quicktime'),
       voiceNote:voiceNote===true&&media.kind==='audio',
-      formattingEntities,
+      formattingEntities:mergedEntities,
       buttons,
       replyTo,
       silent,
       parseMode,
       workers,
-      thumb
+      thumb,
+      progressCallback:typeof onUploadProgress==='function'
+        ?(...args)=>{
+          const pct=normalizeTransferPercent(...args);
+          if(pct!==null)Promise.resolve(onUploadProgress(pct)).catch(()=>{});
+        }
+        :undefined
     });
+    if(typeof afterSend==='function'){
+      try{await afterSend(sent,media)}catch(error){
+        console.warn('[NexAi media CTA]',String(error?.message||error).slice(0,250));
+      }
+    }
+    return sent;
   }finally{
     await rm(dir,{recursive:true,force:true}).catch(()=>{});
   }

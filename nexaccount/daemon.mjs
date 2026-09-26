@@ -190,7 +190,7 @@ async function route(req,res){
       const q=await body(req);
       if(!q.telegramUserId)return json(res,400,{ok:false,error:'telegramUserId required'});
       const allowed={};
-      for(const key of ['language','style','prefix','autoReact','autoJoin','welcome','goodbye','antilink']){
+      for(const key of ['language','style','prefix','accessMode','menuImageUrl','menuImageStyle','botDisplayName','customEmojiIds','autoReact','autoJoin','welcome','goodbye','antilink']){
         if(q[key]!==undefined)allowed[key]=q[key];
       }
       const settings=await patchSettings(q.telegramUserId,allowed);

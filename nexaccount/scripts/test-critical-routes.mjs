@@ -49,7 +49,7 @@ for(const cmd of anime){
   if(!canHandleAnimeCommand(cmd.aliasFor||cmd.name))errors.push('anime-route:'+cmd.name);
 }
 
-for(const name of ['account','pair','sessions','settings','prefix','mode','language']){
+for(const name of ['account','pair','sessions','settings','prefix','mode','language','menuemoji']){
   requireCommand(name,{privateOnly:true,selfOnly:true});
 }
 
@@ -85,6 +85,7 @@ for(const marker of [
 ]){
   if(!runtime.includes(marker))errors.push('runtime-marker:'+marker);
 }
+if(!compat.includes("name==='menuemoji'"))errors.push('menuemoji-session-handler-missing');
 if(compat.includes('250 Stars/mois')||compat.includes('NexAi Premium ·'))errors.push('unimplemented-nexai-stars-subscription-advertised');
 for(const name of ['waifuhd','cosplayvip','amvhd','openingvip']){
   const cmd=commands.get(name);
@@ -179,6 +180,6 @@ console.log(JSON.stringify({
   games:3,
   anime:anime.length,
   protections:8,
-  accountControls:7,
+  accountControls:8,
   noSilentUnknown:true
 },null,2));

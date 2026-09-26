@@ -10,6 +10,8 @@ import { canHandleStickerCommand, handleStickerCommand } from './sticker-engine.
 import { canHandleAiCommand, handleAiCommand } from './ai-engine.mjs';
 import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
+import { commandMap } from './commands.mjs';
+import { createProgress } from './response-ui.mjs';
 
 const DL_MAP={
   cobalt:'facebook',facebook:'facebook',
@@ -66,6 +68,33 @@ const PICKUPS=[
 
 const pick=a=>a[Math.floor(Math.random()*a.length)];
 const clean=s=>String(s??'').trim();
+
+const MENU_EMOJI_KEYS=new Set([
+  'GENERAL','ACCOUNT','AI','DOWNLOAD','GROUP','SHIELD','TOOLS','MEDIA','STICKER',
+  'GAMES','SEARCH','ANIME','PREMIUM','OWNER','NEXTECH','NEWS','DARK','BACK','STYLE'
+]);
+function menuEmojiSettingKey(value,settings){
+  let raw=clean(value).toUpperCase().replace(/^NEXAI_EMOJI_/,'').replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+  if(raw==='CURRENT'||raw==='CURRENT_STYLE')raw='STYLE_'+Math.max(1,Math.min(31,Number(settings?.style)||1));
+  if(raw==='PROTECTION')raw='SHIELD';
+  if(raw==='STICKERS')raw='STICKER';
+  if(raw==='FUN'||raw==='GAME')raw='GAMES';
+  if(/^STYLE_?(?:[1-9]|[12][0-9]|3[01])$/.test(raw)){
+    const n=Number(raw.replace(/^STYLE_?/,''));
+    raw='STYLE_'+n;
+  }else if(!MENU_EMOJI_KEYS.has(raw)){
+    return '';
+  }
+  return 'NEXAI_EMOJI_'+raw;
+}
+function customEmojiDocumentId(message){
+  for(const entity of message?.entities||[]){
+    const id=entity?.documentId??entity?.document_id;
+    const type=String(entity?.className||entity?.constructor?.name||'');
+    if(id!=null&&(/CustomEmoji/i.test(type)||String(entity?._||'').includes('customEmoji')))return String(id);
+  }
+  return '';
+}
 const html=s=>String(s??'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
 
 function replyId(message){
@@ -112,9 +141,9 @@ function recoveredMediaName(source){
   if(mime.startsWith('audio/'))return 'vv-audio.ogg';
   return 'vv-media.bin';
 }
-async function recoverOwnViewOnce(client,peer,commandMessage,account){
+async function recoverOwnViewOnce(client,peer,commandMessage,account,afterSend=null){
   const source=await repliedMessage(client,peer,commandMessage);
-  if(!source?.media)throw new Error('Réponds à ton média vue unique avec .vv.');
+  if(!source?.media)throw new Error('Réponds à ton média vue unique avec /Vv.');
   if(mediaTtlSeconds(source)<=0)throw new Error('Le média répondu n’est pas éphémère/vue unique.');
   if(!sourceBelongsToConnectedAccount(source,account)){
     throw new Error('VV ne récupère que les médias éphémères envoyés par le compte connecté.');
@@ -127,7 +156,8 @@ async function recoverOwnViewOnce(client,peer,commandMessage,account){
     fileName:recoveredMediaName(source),
     caption:'VV · média récupéré',
     mimeType:String(source?.media?.document?.mimeType||''),
-    kind:'auto'
+    kind:'auto',
+    afterSend
   });
 }
 
@@ -244,7 +274,7 @@ async function fetchJson(url,options={},timeout=12000){
   if(!r.ok)throw new Error('HTTP '+r.status);
   return r.json();
 }
-async function sendRemoteFile(client,peer,url,{caption='',name}={}){
+async function sendRemoteFile(client,peer,url,{caption='',name,afterSend=null}={}){
   const r=await fetch(url,{headers:{'user-agent':'Mozilla/5.0'},signal:AbortSignal.timeout(20000)});
   if(!r.ok)throw new Error('Téléchargement impossible ('+r.status+').');
   const buf=Buffer.from(await r.arrayBuffer());
@@ -252,7 +282,8 @@ async function sendRemoteFile(client,peer,url,{caption='',name}={}){
     fileName:name||'media',
     caption,
     mimeType:r.headers.get('content-type')||'',
-    kind:'auto'
+    kind:'auto',
+    afterSend
   });
 }
 function xmlEscape(s){return String(s).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&apos;'}[c]))}
@@ -367,8 +398,13 @@ async function doModeration(client,peer,message,name,args){
 }
 
 export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,sendInline}){
+  const progressFor=async label=>{
+    try{return await createProgress(runtime.client,event.message.peerId,label)}catch{return null}
+  };
   const {client,account}=runtime;
   const peer=event.message.peerId;
+  const reply=text=>sendText(client,peer,String(text??''));
+  const mediaCta=()=>reply('');
   const requestedName=name;
   if(cmd?.engine==='group'&&cmd?.sourceCommand)name=cmd.sourceCommand;
   name=GROUP_ALIAS[name]||name;
@@ -379,18 +415,18 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
 
   if(DL_MAP[name]&&canHandleDownloadCommand(DL_MAP[name])){
-    await handleDownloadCommand({client,peer,name:DL_MAP[name],args,event});
+    await handleDownloadCommand({client,peer,name:DL_MAP[name],args,event,reply});
     return true;
   }
   if(STICKER_MAP[name]&&canHandleStickerCommand(STICKER_MAP[name])){
-    await handleStickerCommand({runtime,event,name:STICKER_MAP[name],args});
+    await handleStickerCommand({runtime,event,name:STICKER_MAP[name],args,reply});
     return true;
   }
   if(['oracle','ai','code','deepseek'].includes(name)){
     if(!argText){await sendText(client,peer,'Écris ta demande après la commande.');return true}
     const mode=name==='oracle'?'ai':name;
     const prefix=mode==='code'?'Aide-moi avec ce code ou cette tâche de programmation : ':mode==='deepseek'?'Raisonne soigneusement sur ceci : ':'';
-    await handleAiCommand({runtime,event,name:canHandleAiCommand(mode)?mode:'ai',args:[prefix+argText]});
+    await handleAiCommand({runtime,event,name:canHandleAiCommand(mode)?mode:'ai',args:[prefix+argText],reply});
     return true;
   }
 
@@ -410,15 +446,47 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
   if(name==='stylelist'){await sendInline(client,peer,'styles');return true}
   if(name==='ping')return false;
-  if(name==='help'){await sendText(client,peer,'Utilise .menu pour parcourir toutes les catégories et commandes.');return true}
+  if(name==='help'){
+    const query=clean(args[0]).replace(/^\//,'').toLowerCase();
+    if(!query){
+      await sendText(client,peer,'Utilise /Menu pour parcourir les catégories. Pour les alias : /Help <commande>, par exemple /Help Clonepack.');
+      return true;
+    }
+    const registry=commandMap();
+    const found=registry.get(query);
+    if(!found){
+      await sendText(client,peer,'Commande inconnue : /'+query);
+      return true;
+    }
+    const canonical=found.aliasFor||found.name;
+    const base=registry.get(canonical)||found;
+    const aliases=[...registry.values()]
+      .filter(x=>x.hidden===true&&x.aliasFor===canonical)
+      .map(x=>'/'+x.name)
+      .sort((a,b)=>a.length-b.length||a.localeCompare(b))
+      .slice(0,24);
+    await sendText(client,peer,[
+      '/'+canonical,
+      base.description||'Commande NexAi',
+      'Catégorie : '+String(base.category||'MAIN'),
+      aliases.length?'Alias : '+aliases.join(' · '):'Alias : aucun'
+    ].join('\n'));
+    return true;
+  }
   if(name==='support'){await sendText(client,peer,'Support : https://t.me/tresor20001');return true}
   if(name==='repo'){await sendText(client,peer,'Nextech : https://github.com/Nexus-tech-01');return true}
 
   if(name==='vv'){
+    const progress=await progressFor('Récupération du média');
     try{
-      await recoverOwnViewOnce(client,peer,event.message,account);
+      if(progress)await progress.step('Média éphémère · récupération…');
+      await recoverOwnViewOnce(client,peer,event.message,account,mediaCta);
       try{await client.deleteMessages(peer,[event.message.id],{revoke:true})}catch{}
-    }catch(e){await sendText(client,peer,'VV · '+String(e?.message||e))}
+      if(progress)await progress.done('Média récupéré');
+    }catch(e){
+      if(progress)await progress.fail('VV · '+String(e?.message||e).slice(0,180));
+      else await sendText(client,peer,'VV · '+String(e?.message||e));
+    }
     return true;
   }
 
@@ -428,12 +496,12 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(name==='calc'){try{await sendText(client,peer,String(safeCalc(argText)))}catch(e){await sendText(client,peer,'Calcul : '+e.message)}return true}
 
   if(name==='tinyurl'){
-    if(!/^https?:\/\//i.test(argText)){await sendText(client,peer,'Usage : .tinyurl https://...');return true}
+    if(!/^https?:\/\//i.test(argText)){await sendText(client,peer,'Usage : /Tinyurl https://...');return true}
     try{await sendText(client,peer,await fetchText('https://tinyurl.com/api-create.php?url='+encodeURIComponent(argText)))}catch(e){await sendText(client,peer,'TinyURL indisponible : '+e.message)}
     return true;
   }
   if(name==='translate'||name==='traduction'){
-    if(!argText){await sendText(client,peer,'Usage : .translate [langue] texte');return true}
+    if(!argText){await sendText(client,peer,'Usage : /Translate [langue] texte');return true}
     let target='fr',text=argText;
     if(/^[a-z]{2,3}$/i.test(args[0])&&args.length>1){target=args[0].toLowerCase();text=args.slice(1).join(' ')}
     try{
@@ -454,7 +522,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
   if(name==='define'){
     const word=args[0];
-    if(!word){await sendText(client,peer,'Usage : .define mot');return true}
+    if(!word){await sendText(client,peer,'Usage : /Define mot');return true}
     try{
       const j=await fetchJson('https://api.dictionaryapi.dev/api/v2/entries/en/'+encodeURIComponent(word));
       const e=Array.isArray(j)?j[0]:null;
@@ -464,7 +532,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return true;
   }
   if(name==='animeinfo'||name==='anime'){
-    if(!argText){await sendText(client,peer,'Usage : .animeinfo titre');return true}
+    if(!argText){await sendText(client,peer,'Usage : /Animeinfo titre');return true}
     try{
       const j=await fetchJson('https://api.jikan.moe/v4/anime?q='+encodeURIComponent(argText)+'&limit=1');
       const a=j?.data?.[0];
@@ -484,27 +552,27 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return true;
   }
   if(name==='qr'){
-    if(!argText){await sendText(client,peer,'Usage : .qr texte ou URL');return true}
+    if(!argText){await sendText(client,peer,'Usage : /Qr texte ou URL');return true}
     const u='https://api.qrserver.com/v1/create-qr-code/?size=512x512&data='+encodeURIComponent(argText);
     try{await sendRemoteFile(client,peer,u,{caption:'NexAi · QR',name:'qr.png'})}catch(e){await sendText(client,peer,'QR indisponible : '+e.message)}
     return true;
   }
   if(name==='tts'){
-    if(!argText){await sendText(client,peer,'Usage : .tts texte');return true}
+    if(!argText){await sendText(client,peer,'Usage : /Tts texte');return true}
     const text=argText.slice(0,180),lang=(await settingsFor(account.telegramUserId)).language||'fr';
     const u='https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl='+encodeURIComponent(lang)+'&q='+encodeURIComponent(text);
     try{await sendRemoteFile(client,peer,u,{caption:'NexAi · TTS',name:'tts.mp3'})}catch(e){await sendText(client,peer,'TTS indisponible : '+e.message)}
     return true;
   }
   if(name==='ssweb'||name==='sswebpc'){
-    if(!/^https?:\/\//i.test(argText)){await sendText(client,peer,'Usage : .'+name+' https://...');return true}
+    if(!/^https?:\/\//i.test(argText)){await sendText(client,peer,'Usage : /'+name+' https://...');return true}
     const width=name==='sswebpc'?'1440':'390';
     const u='https://image.thum.io/get/width/'+width+'/crop/900/noanimate/'+argText;
     try{await sendRemoteFile(client,peer,u,{caption:'NexAi · Screenshot',name:'screenshot.png'})}catch(e){await sendText(client,peer,'Capture indisponible : '+e.message)}
     return true;
   }
   if(name==='browse'){
-    if(!/^https?:\/\//i.test(argText)){await sendText(client,peer,'Usage : .browse https://...');return true}
+    if(!/^https?:\/\//i.test(argText)){await sendText(client,peer,'Usage : /Browse https://...');return true}
     try{
       const t=await fetchText(argText,{headers:{'user-agent':'Mozilla/5.0'}},10000);
       const title=html(t.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'');
@@ -514,7 +582,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return true;
   }
   if(name==='downloadinfo'){
-    if(!/^https?:\/\//i.test(argText)){await sendText(client,peer,'Usage : .downloadinfo URL');return true}
+    if(!/^https?:\/\//i.test(argText)){await sendText(client,peer,'Usage : /Downloadinfo URL');return true}
     try{
       const r=await fetch(argText,{method:'HEAD',redirect:'follow',signal:AbortSignal.timeout(10000)});
       await sendText(client,peer,'URL : '+r.url+'\nType : '+(r.headers.get('content-type')||'?')+'\nTaille : '+(r.headers.get('content-length')||'?')+' octets\nHTTP : '+r.status);
@@ -522,7 +590,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return true;
   }
   if(name==='imdb'){
-    if(!argText){await sendText(client,peer,'Usage : .imdb titre');return true}
+    if(!argText){await sendText(client,peer,'Usage : /Imdb titre');return true}
     try{
       const j=await fetchJson('https://api.tvmaze.com/search/shows?q='+encodeURIComponent(argText));
       const s=j?.[0]?.show;
@@ -533,7 +601,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return true;
   }
   if(name==='gsmarena'){
-    if(!argText){await sendText(client,peer,'Usage : .gsmarena téléphone');return true}
+    if(!argText){await sendText(client,peer,'Usage : /Gsmarena téléphone');return true}
     try{
       const t=await fetchText('https://www.gsmarena.com/results.php3?sQuickSearch=yes&sName='+encodeURIComponent(argText),{headers:{'user-agent':'Mozilla/5.0'}},10000);
       const names=[...t.matchAll(/<span>([^<]{2,80})<\/span>/g)].map(m=>html(m[1])).filter(Boolean).slice(0,10);
@@ -572,7 +640,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
         text=argText||'Je te mentionne ici.';
       }else{
         const target=clean(args[0]);
-        if(!target){await sendText(client,peer,'Usage : réponds à un membre avec .tag [message], ou .tag @username [message].');return true}
+        if(!target){await sendText(client,peer,'Usage : réponds à un membre avec /Tag [message], ou .tag @username [message].');return true}
         const ref=/^\d+$/.test(target)?BigInt(target):target;
         user=await client.getEntity(ref);
         text=args.slice(1).join(' ').trim()||'Je te mentionne ici.';
@@ -604,7 +672,8 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
               caption:built.message,
               mimeType:String(source?.media?.document?.mimeType||''),
               kind:'auto',
-              formattingEntities:built.entities
+              formattingEntities:built.entities,
+              afterSend:mediaCta
             });
             return true;
           }
@@ -646,7 +715,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return true;
   }
   if(name==='add'){
-    if(!args[0]){await sendText(client,peer,'Usage : .add @username');return true}
+    if(!args[0]){await sendText(client,peer,'Usage : /Add @username');return true}
     try{
       const channel=getInputChannel(await client.getInputEntity(peer)),user=getInputUser(await client.getInputEntity(args[0]));
       await client.invoke(new Api.channels.InviteToChannel({channel,users:[user]}));
@@ -708,11 +777,11 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const current=s.accessMode==='public'?'public':'private';
     const value=clean(args[0]).toLowerCase();
     if(!value){
-      await sendText(client,peer,'Mode d’accès : '+current.toUpperCase()+'\nUsage : .mode private | .mode public');
+      await sendText(client,peer,'Mode d’accès : '+current.toUpperCase()+'\nUsage : /Mode private | .mode public');
       return true;
     }
     if(!['private','privé','prive','public'].includes(value)){
-      await sendText(client,peer,'Usage : .mode private | .mode public');
+      await sendText(client,peer,'Usage : /Mode private | .mode public');
       return true;
     }
     const accessMode=value==='public'?'public':'private';
@@ -731,7 +800,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
   if(name==='language'){
     const v=clean(args[0]).toLowerCase();
-    if(!['fr','en'].includes(v)){await sendText(client,peer,'Usage : .language fr|en');return true}
+    if(!['fr','en'].includes(v)){await sendText(client,peer,'Usage : /Language fr|en');return true}
     await patchSettings(account.telegramUserId,{language:v});await sendText(client,peer,'Langue : '+v.toUpperCase());return true;
   }
   if(name==='reflexe_systeme'){
@@ -819,7 +888,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       const entity=await client.getEntity(target);
       if(name==='getpp'){
         const b=await client.downloadProfilePhoto(entity,{isBig:true});
-        if(b)await sendTelegramMedia(client,peer,b,{fileName:'profile.jpg',caption:'NexAi · Profile',mimeType:'image/jpeg',kind:'image'});else await sendText(client,peer,'Aucune photo publique.');
+        if(b)await sendTelegramMedia(client,peer,b,{fileName:'profile.jpg',caption:'NexAi · Profile',mimeType:'image/jpeg',kind:'image',afterSend:mediaCta});else await sendText(client,peer,'Aucune photo publique.');
       }else{
         let about='';
         try{const full=await client.invoke(new Api.users.GetFullUser({id:target}));about=full?.fullUser?.about||''}catch{}
@@ -853,14 +922,14 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       const c=await currentChat(client,peer);const ps=await participants(client,peer,500);
       const snapshot={createdAt:new Date().toISOString(),chatId:chat,title:c?.title||'',username:c?.username||'',memberCount:ps.length,policy};
       const backups={...(s.groupBackups||{}),[chat]:snapshot};await patchSettings(account.telegramUserId,{groupBackups:backups});
-      await sendTelegramMedia(client,peer,Buffer.from(JSON.stringify(snapshot,null,2)),{fileName:'nexai-group-backup.json',caption:'NexAi · Backup',mimeType:'application/json',kind:'document'});return true;
+      await sendTelegramMedia(client,peer,Buffer.from(JSON.stringify(snapshot,null,2)),{fileName:'nexai-group-backup.json',caption:'NexAi · Backup',mimeType:'application/json',kind:'document',afterSend:mediaCta});return true;
     }
     if(name==='restore'){
       const snap=s.groupBackups?.[chat];if(!snap){await sendText(client,peer,'Aucune sauvegarde NexAi pour ce groupe.');return true}
       await patchGroupPolicy(account.telegramUserId,chat,snap.policy||{});await sendText(client,peer,'Configuration NexAi restaurée.');return true;
     }
     if(name==='copyconfig'){
-      const target=clean(args[0]);if(!target){await sendText(client,peer,'Usage : .copyconfig <chatId source>');return true}
+      const target=clean(args[0]);if(!target){await sendText(client,peer,'Usage : /Copyconfig <chatId source>');return true}
       const src=s.groupPolicies?.[target];if(!src){await sendText(client,peer,'Configuration source introuvable.');return true}
       await patchGroupPolicy(account.telegramUserId,chat,src);await sendText(client,peer,'Configuration copiée.');return true;
     }
@@ -872,7 +941,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       await sendText(client,peer,toSmallCaps(key)+' : '+next.length+' entrée(s).');return true;
     }
     if(name==='broadcast'){
-      if(!argText){await sendText(client,peer,'Usage : .broadcast message');return true}await sendText(client,peer,argText);return true;
+      if(!argText){await sendText(client,peer,'Usage : /Broadcast message');return true}await sendText(client,peer,argText);return true;
     }
     if(name==='cancel'){await sendText(client,peer,'Aucun flux NexAi actif à annuler dans ce chat.');return true}
     if(name==='clearwarns'){
@@ -898,7 +967,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       await sendText(client,peer,name==='notes'?(policy.notes||'Aucune note.'):(policy.rules||'Aucune règle enregistrée.'));return true;
     }
     if(name==='setcommand'){
-      const first=clean(args[0]).toLowerCase();const body=args.slice(1).join(' ').trim();if(!first||!body){await sendText(client,peer,'Usage : .setcommand nom réponse');return true}
+      const first=clean(args[0]).toLowerCase();const body=args.slice(1).join(' ').trim();if(!first||!body){await sendText(client,peer,'Usage : /Setcommand nom réponse');return true}
       const custom={...(policy.customCommands||{}),[first]:body};await patchGroupPolicy(account.telegramUserId,chat,{customCommands:custom});await sendText(client,peer,'Commande .'+first+' enregistrée.');return true;
     }
     if(name==='warnings'){
@@ -931,42 +1000,52 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
 
   if(name==='tourl'||name==='pixupload'){
-    const reply=await repliedMessage(client,peer,event.message);
-    if(!reply?.media){await sendText(client,peer,'Réponds à un média.');return true}
+    const source=await repliedMessage(client,peer,event.message);
+    if(!source?.media){await sendText(client,peer,'Réponds à un média.');return true}
+    const progress=await progressFor('Upload média');
     try{
-      const buffer=await client.downloadMedia(reply);
+      if(progress)await progress.step('Upload média · téléchargement Telegram…');
+      const buffer=await client.downloadMedia(source);
       if(!buffer)throw new Error('média vide');
+      if(progress)await progress.step('Upload média · envoi vers l’hébergeur…');
       const url=await uploadCatbox(Buffer.from(buffer),'nexai-'+Date.now()+'.bin');
       await sendText(client,peer,url);
-    }catch(e){await sendText(client,peer,'Upload impossible : '+e.message)}
+      if(progress)await progress.done('Upload média terminé');
+    }catch(e){
+      if(progress)await progress.fail('Upload impossible · '+String(e?.message||e).slice(0,180));
+      else await sendText(client,peer,'Upload impossible : '+e.message);
+    }
     return true;
   }
   if(name==='vcf'){
     const values=args.filter(Boolean);
-    if(!values.length){await sendText(client,peer,'Usage : .vcf +229... +33...');return true}
+    if(!values.length){await sendText(client,peer,'Usage : /Vcf +229... +33...');return true}
     const cards=values.map((v,i)=>'BEGIN:VCARD\nVERSION:3.0\nFN:Contact '+(i+1)+'\nTEL;TYPE=CELL:'+v+'\nEND:VCARD').join('\n');
-    await sendTelegramMedia(client,peer,Buffer.from(cards),{fileName:'contacts.vcf',caption:'NexAi · VCF',mimeType:'text/vcard',kind:'document'});return true;
+    await sendTelegramMedia(client,peer,Buffer.from(cards),{fileName:'contacts.vcf',caption:'NexAi · VCF',mimeType:'text/vcard',kind:'document',afterSend:mediaCta});return true;
   }
   if(name==='filtervcf'){
     await sendText(client,peer,'Réponds à un fichier .vcf avec les critères à conserver. Cette commande est reconnue ; le moteur Telegram ne modifie jamais silencieusement un carnet de contacts.');return true;
   }
   if(name==='texttopdf'){
-    if(!argText){await sendText(client,peer,'Usage : .texttopdf ton texte');return true}
-    try{await sendTelegramMedia(client,peer,simplePdf(argText),{fileName:'nexai-text.pdf',caption:'NexAi · PDF',mimeType:'application/pdf',kind:'document'})}catch(e){await sendText(client,peer,'PDF impossible : '+e.message)}
+    if(!argText){await sendText(client,peer,'Usage : /Texttopdf ton texte');return true}
+    try{await sendTelegramMedia(client,peer,simplePdf(argText),{fileName:'nexai-text.pdf',caption:'NexAi · PDF',mimeType:'application/pdf',kind:'document',afterSend:mediaCta})}catch(e){await sendText(client,peer,'PDF impossible : '+e.message)}
     return true;
   }
   if(name==='toimage'){
-    if(!argText){await sendText(client,peer,'Usage : .toimage ton texte');return true}
+    if(!argText){await sendText(client,peer,'Usage : /Toimage ton texte');return true}
     const lines=argText.match(/.{1,44}(?:\s|$)/g)||[argText];
     const tspans=lines.slice(0,12).map((l,i)=>'<tspan x="60" dy="'+(i?54:0)+'">'+xmlEscape(l.trim())+'</tspan>').join('');
     const svg='<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080"><rect width="1080" height="1080" rx="64" fill="#17130d"/><text x="60" y="130" fill="#ffe39a" font-family="sans-serif" font-size="42" font-weight="700">'+tspans+'</text><text x="60" y="1010" fill="#aa9162" font-family="sans-serif" font-size="24">NexAi · Nextech</text></svg>';
-    await sendTelegramMedia(client,peer,Buffer.from(svg),{fileName:'nexai-text.svg',caption:'NexAi · Image SVG',mimeType:'image/svg+xml',kind:'document'});return true;
+    await sendTelegramMedia(client,peer,Buffer.from(svg),{fileName:'nexai-text.svg',caption:'NexAi · Image SVG',mimeType:'image/svg+xml',kind:'document',afterSend:mediaCta});return true;
   }
   if(name==='crop'||name==='resize'){
-    const reply=await repliedMessage(client,peer,event.message);
-    if(!reply?.media){await sendText(client,peer,'Réponds à une image avec .'+name+(name==='resize'?' 800x800':''));return true}
+    const source=await repliedMessage(client,peer,event.message);
+    if(!source?.media){await sendText(client,peer,'Réponds à une image avec /'+name+(name==='resize'?' 800x800':''));return true}
+    const progress=await progressFor(name==='crop'?'Recadrage image':'Redimensionnement image');
     try{
-      const buffer=await client.downloadMedia(reply);if(!buffer)throw new Error('média vide');
+      if(progress)await progress.step('Image · téléchargement Telegram…');
+      const buffer=await client.downloadMedia(source);if(!buffer)throw new Error('média vide');
+      if(progress)await progress.step('Image · préparation…');
       const src=await uploadCatbox(Buffer.from(buffer),'image.jpg');
       let width=800,height=800;
       if(name==='resize'){
@@ -974,8 +1053,13 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       }
       const mode=name==='crop'?'fit=cover&a=attention&':'fit=contain&';
       const u='https://images.weserv.nl/?url='+encodeURIComponent(src)+'&w='+width+'&h='+height+'&'+mode+'output=jpg';
-      await sendRemoteFile(client,peer,u,{caption:'NexAi · '+name,name:name+'.jpg'});
-    }catch(e){await sendText(client,peer,'Traitement image impossible : '+e.message)}
+      if(progress)await progress.step('Image · récupération du résultat…');
+      await sendRemoteFile(client,peer,u,{caption:'NexAi · '+name,name:name+'.jpg',afterSend:mediaCta});
+      if(progress)await progress.done('Traitement image terminé');
+    }catch(e){
+      if(progress)await progress.fail('Traitement image impossible · '+String(e?.message||e).slice(0,180));
+      else await sendText(client,peer,'Traitement image impossible : '+e.message);
+    }
     return true;
   }
   if(name==='analyzesound'){
@@ -987,9 +1071,61 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
   if(name==='pausequeue'){await sendText(client,peer,'La file média NexAi n’a pas de lecture locale active dans ce chat.');return true}
   if(name==='emojimix'){
-    const a=args[0]||'',b=args[1]||'';if(!a||!b){await sendText(client,peer,'Usage : .emojimix 😀 😎');return true}
+    const a=args[0]||'',b=args[1]||'';if(!a||!b){await sendText(client,peer,'Usage : /Emojimix 😀 😎');return true}
     await sendText(client,peer,a+'  ×  '+b+'  →  '+a+b);return true;
   }
+  if(name==='menuemoji'){
+    const settings=await settingsFor(account.telegramUserId);
+    const action=clean(args[0]).toLowerCase();
+    const current={...(settings.customEmojiIds||{})};
+
+    if(!action||action==='list'){
+      const configured=Object.keys(current).sort();
+      await sendText(client,peer,[
+        'NexAi · emojis du menu · session '+(account.username?'@'+account.username:account.firstName||account.telegramUserId),
+        configured.length?('Configurés : '+configured.map(k=>k.replace(/^NEXAI_EMOJI_/,'')).join(', ')):'Configurés : aucun',
+        '',
+        'Réponds à un message contenant un emoji personnalisé avec :',
+        '/Menuemoji current',
+        '/Menuemoji anime',
+        '/Menuemoji download',
+        '/Menuemoji style_7',
+        '',
+        'Pour retirer : /Menuemoji reset <clé> · ou /Menuemoji reset all'
+      ].join('\n'));
+      return true;
+    }
+
+    if(action==='reset'){
+      const rawKey=clean(args[1]);
+      if(!rawKey||rawKey.toLowerCase()==='all'){
+        await patchSettings(account.telegramUserId,{customEmojiIds:{}});
+        await sendText(client,peer,'Emojis personnalisés du menu réinitialisés pour cette session.');
+        return true;
+      }
+      const key=menuEmojiSettingKey(rawKey,settings);
+      if(!key){await sendText(client,peer,'Clé emoji inconnue. Utilise /Menuemoji list.');return true}
+      delete current[key];
+      await patchSettings(account.telegramUserId,{customEmojiIds:current});
+      await sendText(client,peer,'Emoji retiré : '+key.replace(/^NEXAI_EMOJI_/,''));
+      return true;
+    }
+
+    const key=menuEmojiSettingKey(args[0],settings);
+    if(!key){await sendText(client,peer,'Clé emoji inconnue. Utilise /Menuemoji list.');return true}
+    const reply=await repliedMessage(client,peer,event.message);
+    const directId=clean(args[1]);
+    const id=customEmojiDocumentId(reply)||(/^\d{5,}$/.test(directId)?directId:'');
+    if(!id){
+      await sendText(client,peer,'Réponds à un message contenant le custom emoji Telegram à utiliser, puis relance /Menuemoji '+clean(args[0])+'.');
+      return true;
+    }
+    current[key]=id;
+    await patchSettings(account.telegramUserId,{customEmojiIds:current});
+    await sendText(client,peer,'Emoji du menu enregistré pour cette session : '+key.replace(/^NEXAI_EMOJI_/,'')+' · ID '+id);
+    return true;
+  }
+
   if(name==='device'){
     await sendText(client,peer,'NexAccount · '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nTelegram ID : '+account.telegramUserId+'\nSession : active\nTelegram Premium : '+(account.premium?'oui':'non'));return true;
   }
@@ -1039,7 +1175,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     }
     const reply=await repliedMessage(client,peer,event.message);
     if(!reply?.media){
-      await sendText(client,peer,'Réponds à une image, un audio ou une vidéo avec .reponseauto [délai_secondes].');
+      await sendText(client,peer,'Réponds à une image, un audio ou une vidéo avec /Reponseauto [délai_secondes].');
       return true;
     }
     try{
@@ -1063,7 +1199,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       if(raw){
         const username=raw.replace(/^https?:\/\/(?:t\.me|telegram\.me)\//i,'').replace(/^@/,'').split(/[/?#]/)[0];
         if(!username||/^\+/.test(username)){
-          await sendText(client,peer,'Pour un canal privé, rejoins-le d’abord avec .join puis relance .infos_canal.');
+          await sendText(client,peer,'Pour un canal privé, rejoins-le d’abord avec /Join puis relance .infos_canal.');
           return true;
         }
         target=await client.getInputEntity('@'+username);
@@ -1107,7 +1243,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
 
   if(name==='illustration_grimoire'){
     const reply=await repliedMessage(client,peer,event.message);
-    if(!reply?.media){await sendText(client,peer,'Réponds à une image avec .illustration_grimoire.');return true}
+    if(!reply?.media){await sendText(client,peer,'Réponds à une image avec /Menuimage.');return true}
     try{
       const buffer=await client.downloadMedia(reply);
       if(!buffer?.length)throw new Error('image vide');

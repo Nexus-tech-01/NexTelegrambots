@@ -121,6 +121,34 @@ export async function renderDipperHeader(styleId,{botName='NEXAI',ownerName='Uti
 
 const directImageCache=new Map();
 const lastStyleImage=new Map();
+const characterImageCache=new Map();
+const CHARACTER_ARTWORK={
+  2:'Naruto Uzumaki',
+  3:'Cid Kagenou',
+  6:'Ai Hoshino',
+  7:'Ruby Hoshino',
+  8:'Satoru Gojo',
+  9:'Houtarou Oreki',
+  10:'Marin Kitagawa',
+  11:'Sung Jinwoo',
+  12:'Madara Uchiha',
+  13:'Sousuke Aizen',
+  14:'Lelouch Lamperouge',
+  15:'Eren Yeager',
+  16:'Itachi Uchiha',
+  17:'Yhwach',
+  21:'Mio Haimiya',
+  22:'Nazuna Nanakusa',
+  23:'Kaoruko Waguri',
+  24:'Alisa Mikhailovna Kujou',
+  25:'Anna Yamada',
+  26:'Soshiro Hoshina',
+  27:'Meguru Bachira',
+  28:'Rin Itoshi',
+  29:'Power',
+  30:'Shinobu Kocho',
+  31:'Benimaru Shinmon'
+};
 const INLINE_PHOTO_MAX_BYTES=5*1024*1024;
 const IMAGE_CACHE_OK_MS=60*60*1000;
 const IMAGE_CACHE_FAIL_MS=5*60*1000;
@@ -212,10 +240,48 @@ export async function resolveInlinePhoto(url){
   return directImage(String(url||'').trim());
 }
 
+function envStyleImages(styleId){
+  const id=Number(styleId)||1;
+  const raw=[
+    process.env['NEXAI_STYLE_'+id+'_IMAGE_URL']||'',
+    process.env['NEXAI_STYLE_'+id+'_IMAGE_URLS']||''
+  ].filter(Boolean).join('|');
+  return raw.split(/[|,\n]+/).map(v=>v.trim()).filter(v=>/^https?:\/\//i.test(v));
+}
+
+async function characterArtwork(styleId){
+  const id=Number(styleId)||0;
+  const name=CHARACTER_ARTWORK[id];
+  if(!name)return '';
+  const cached=characterImageCache.get(id);
+  if(cached&&cached.expiresAt>Date.now())return cached.value;
+  let value='';
+  try{
+    const response=await fetch('https://graphql.anilist.co',{
+      method:'POST',
+      headers:{'content-type':'application/json','accept':'application/json'},
+      body:JSON.stringify({
+        query:'query($search:String){Character(search:$search){image{large}}}',
+        variables:{search:name}
+      }),
+      signal:AbortSignal.timeout(4500)
+    });
+    if(response.ok){
+      const data=await response.json();
+      value=String(data?.data?.Character?.image?.large||'').trim();
+    }
+  }catch{}
+  characterImageCache.set(id,{
+    value,
+    expiresAt:Date.now()+(value?6*60*60*1000:10*60*1000)
+  });
+  return value;
+}
+
 export async function resolveStyleImage(styleId,fallback=''){
   const s=await getStyle(styleId);
   const key=Number(s.id)||1;
-  let urls=randomOrder([...(s.images||[])]);
+  const urls=randomOrder([...envStyleImages(key),...(s.images||[])]);
   const last=lastStyleImage.get(key);
   if(urls.length>1&&urls[0]===last){
     const swap=1+Math.floor(Math.random()*(urls.length-1));
@@ -223,9 +289,8 @@ export async function resolveStyleImage(styleId,fallback=''){
   }
   if(fallback)urls.push(fallback);
 
-  // Probe in small parallel batches instead of stopping after the first four.
-  // Several historical Dipper URLs are dead, so a valid image later in the
-  // style list must still be reachable without making the query serial/slow.
+  // Probe configured/historical artwork first. Several Dipper URLs are old,
+  // so scan the full list instead of treating "has URLs" as "has a valid image".
   for(let start=0;start<urls.length;start+=4){
     const candidates=urls.slice(start,start+4);
     const resolved=await Promise.all(candidates.map(url=>directImage(url)));
@@ -234,6 +299,15 @@ export async function resolveStyleImage(styleId,fallback=''){
       if((s.images||[]).includes(candidates[i]))lastStyleImage.set(key,candidates[i]);
       return resolved[i];
     }
+  }
+
+  // Character themes get a live AniList fallback only after every configured
+  // and bundled artwork failed. This fixes styles whose legacy URLs still
+  // exist in the catalog but are no longer reachable.
+  const character=await characterArtwork(key);
+  if(character){
+    const resolved=await directImage(character);
+    if(resolved)return resolved;
   }
   return '';
 }

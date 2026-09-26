@@ -72,15 +72,15 @@ async function anilist(query,variables={}){
   return d?.data;
 }
 async function sendText(client,peer,text){return client.sendMessage(peer,{message:String(text)})}
-async function sendImage(client,peer,url,caption=''){
+async function sendImage(client,peer,url,caption='',afterSend=null){
   if(!url)return sendText(client,peer,caption);
   const r=await res(url,{headers:{accept:'image/*'}},25000);
   const b=Buffer.from(await r.arrayBuffer());
   if(b.length>15*1024*1024)throw new Error('image trop volumineuse');
-  return sendTelegramMedia(client,peer,b,{fileName:'nexai-anime',mimeType:r.headers.get('content-type')||'',kind:'image',caption});
+  return sendTelegramMedia(client,peer,b,{fileName:'nexai-anime',mimeType:r.headers.get('content-type')||'',kind:'image',caption,afterSend});
 }
-async function sendAudio(client,peer,buffer,name='anime-voice.wav'){
-  return sendTelegramMedia(client,peer,Buffer.from(buffer),{fileName:name,kind:'audio',voiceNote:true});
+async function sendAudio(client,peer,buffer,name='anime-voice.wav',afterSend=null){
+  return sendTelegramMedia(client,peer,Buffer.from(buffer),{fileName:name,kind:'audio',voiceNote:true,afterSend});
 }
 async function remember(accountId,type,query){
   if(!query)return;
@@ -257,22 +257,22 @@ async function googleTts(textValue,lang='ja'){
   const r=await res(u,{headers:{accept:'audio/mpeg'}},20000);
   return Buffer.from(await r.arrayBuffer());
 }
-async function animeTts(client,peer,args){
+async function animeTts(client,peer,args,afterSend=null){
   const first=clean(args[0]||'');
   if(!first||first==='voices'){
     const vv=await voicevox('', 'voices').catch(()=>null);
-    const base=['Usage : .anitts <voix> <texte>','Exemples : .anitts kawaii Bonjour · .anitts villain Tu es en retard'];
+    const base=['Usage : /Anitts <voix> <texte>','Exemples : /Anitts kawaii Bonjour · /Anitts villain Tu es en retard'];
     if(vv?.voices?.length)base.push('', 'Voix VOICEVOX disponibles :',...vv.voices.map(v=>v.id+' · '+v.name));
     else base.push('', 'VOICEVOX local non configuré : TTS standard de secours actif.');
     await sendText(client,peer,base.join('\n'));return true;
   }
   const textValue=args.slice(1).join(' ').trim();
-  if(!textValue){await sendText(client,peer,'Usage : .anitts <voix> <texte>');return true}
+  if(!textValue){await sendText(client,peer,'Usage : /Anitts <voix> <texte>');return true}
   const vv=await voicevox(textValue,first).catch(()=>null);
-  if(vv?.buffer){await sendAudio(client,peer,vv.buffer,'anime-voice.wav');return true}
+  if(vv?.buffer){await sendAudio(client,peer,vv.buffer,'anime-voice.wav',afterSend);return true}
   const lang=/^[\u3040-\u30ff\u3400-\u9fff]/u.test(textValue)?'ja':'fr';
   const audio=await googleTts(textValue,lang);
-  await sendAudio(client,peer,audio,'anime-voice.mp3');
+  await sendAudio(client,peer,audio,'anime-voice.mp3',afterSend);
   return true;
 }
 
@@ -288,13 +288,16 @@ export const ANIME_ENGINE_COMMANDS=new Set([
 
 export function canHandleAnimeCommand(name){return ANIME_ENGINE_COMMANDS.has(String(name||'').toLowerCase())}
 
-export async function handleAnimeCommand({runtime,event,name,args=[]}){
+export async function handleAnimeCommand({runtime,event,name,args=[],reply=null,progress=null}){
   const {client,account}=runtime,peer=event.message.peerId,raw=args.join(' ').trim();
-  const say=t=>sendText(client,peer,t);
-  const image=(u,c)=>sendImage(client,peer,u,c);
-  const need=()=>{if(!raw)throw new Error('argument manquant pour .'+name)};
+  const say=t=>typeof reply==='function'?reply(t):sendText(client,peer,t);
+  const mediaCta=typeof reply==='function'?()=>reply(''):null;
+  const image=(u,c)=>sendImage(client,peer,u,c,mediaCta);
+  const need=()=>{if(!raw)throw new Error('argument manquant pour /'+name)};
+  const localOnly=new Set(['animeprofile','animelist','mangalist','watching','completed','planned','dropped','favoriteanime','favoritechar','animehistory']);
+  if(progress?.step)await progress.step(localOnly.has(name)?'Anime · lecture de ta bibliothèque…':'Anime · recherche des données…');
 
-  if(name==='anitts')return animeTts(client,peer,args);
+  if(name==='anitts')return animeTts(client,peer,args,mediaCta);
 
   if(name==='animeinfo'||name==='anisearch'){
     need();const m=await mediaSearch(raw,'ANIME');await remember(account.telegramUserId,'anime',raw);
@@ -351,7 +354,7 @@ export async function handleAnimeCommand({runtime,event,name,args=[]}){
   }
   if(name==='animebyseason'){
     const season=String(args[0]||'').toUpperCase(),year=Number(args[1]||new Date().getFullYear());
-    if(!['WINTER','SPRING','SUMMER','FALL'].includes(season))throw new Error('usage : .animebyseason summer 2026');
+    if(!['WINTER','SPRING','SUMMER','FALL'].includes(season))throw new Error('usage : /Animebyseason summer 2026');
     const items=await mediaPage({type:'ANIME',sort:'POPULARITY_DESC',season,year,perPage:12});await say(listMedia(season+' '+year,items));return true;
   }
   if(name==='episode'||name==='episodes'){
@@ -405,38 +408,38 @@ export async function handleAnimeCommand({runtime,event,name,args=[]}){
   if(name==='amv'||name==='amvhd'){await say('NexAi · '+name+'\n'+random(name==='amvhd'?AMV_HD:AMV));return true}
   if(name==='opening'||name==='openingvip'){const row=random(name==='openingvip'?OPENINGS_VIP:OPENINGS);await say(row[0]+'\n'+row[1]);return true}
   if(name==='ship'){
-    const p=splitTwo(raw);if(p.length<2)throw new Error('usage : .ship personnage1 | personnage2');
+    const p=splitTwo(raw);if(p.length<2)throw new Error('usage : /Ship personnage1 | personnage2');
     await say('Ship fictif · '+p[0]+' × '+p[1]+'\nCompatibilité fun : '+hashPercent(p[0],p[1])+'%');return true;
   }
   if(name==='guessanime'||name==='animeriddle'){
     if(raw){const checked=await checkGame(account.telegramUserId,name,raw);if(checked){await say((checked.ok?'Correct.':'Raté.')+' Réponse : '+checked.answer);return true}}
     const items=await mediaPage({type:'ANIME',sort:'POPULARITY_DESC',page:1+Math.floor(Math.random()*4),perPage:20}),m=random(items);
     const full=await mediaSearch(titleOf(m),'ANIME');await gameState(account.telegramUserId,{kind:name,answer:titleOf(full),at:Date.now()});
-    await say((name==='guessanime'?'Devine l’anime':'Devinette anime')+'\n\n'+clip(full.description,600)+'\n\nRéponds : .'+name+' <titre>');return true;
+    await say((name==='guessanime'?'Devine l’anime':'Devinette anime')+'\n\n'+clip(full.description,600)+'\n\nRéponds : /'+name+' <titre>');return true;
   }
   if(name==='guesscharacter'){
     if(raw){const checked=await checkGame(account.telegramUserId,name,raw);if(checked){await say((checked.ok?'Correct.':'Raté.')+' Réponse : '+checked.answer);return true}}
     const items=await mediaPage({type:'ANIME',sort:'POPULARITY_DESC',perPage:20}),m=random(items),full=await mediaSearch(titleOf(m),'ANIME'),c=random(full.characters?.nodes||[]);
     if(!c)throw new Error('personnage indisponible');await gameState(account.telegramUserId,{kind:name,answer:nameOf(c),at:Date.now()});
-    await image(c.image?.large,'Devine le personnage\nAnime : '+titleOf(full)+'\nRéponds : .guesscharacter <nom>');return true;
+    await image(c.image?.large,'Devine le personnage\nAnime : '+titleOf(full)+'\nRéponds : /Guesscharacter <nom>');return true;
   }
   if(name==='guessopening'){
     if(raw){const checked=await checkGame(account.telegramUserId,name,raw);if(checked){await say((checked.ok?'Correct.':'Raté.')+' Réponse : '+checked.answer);return true}}
     const items=await mediaPage({type:'ANIME',sort:'POPULARITY_DESC',perPage:20});
     for(const m of items.sort(()=>Math.random()-.5)){
-      try{const a=await jikanFullAnime(titleOf(m)),op=random(a?.theme?.openings||[]);if(op){await gameState(account.telegramUserId,{kind:name,answer:titleOf(m),at:Date.now()});await say('Quel anime utilise cet opening ?\n'+op+'\n\nRéponds : .guessopening <anime>');return true}}catch{}
+      try{const a=await jikanFullAnime(titleOf(m)),op=random(a?.theme?.openings||[]);if(op){await gameState(account.telegramUserId,{kind:name,answer:titleOf(m),at:Date.now()});await say('Quel anime utilise cet opening ?\n'+op+'\n\nRéponds : /Guessopening <anime>');return true}}catch{}
     }
     throw new Error('opening quiz indisponible');
   }
   if(name==='animequiz'||name==='mangaquiz'){
     if(raw){const checked=await checkGame(account.telegramUserId,name,raw);if(checked){await say((checked.ok?'Correct.':'Raté.')+' Réponse : '+checked.answer);return true}}
     const q=await randomQuiz(name==='animequiz'?'ANIME':'MANGA');await gameState(account.telegramUserId,{kind:name,answer:q.answer,at:Date.now()});
-    await say(q.question+'\n\n'+q.choices.map((x,i)=>(i+1)+'. '+x).join('\n')+'\n\nRéponds : .'+name+' <titre>');return true;
+    await say(q.question+'\n\n'+q.choices.map((x,i)=>(i+1)+'. '+x).join('\n')+'\n\nRéponds : /'+name+' <titre>');return true;
   }
   if(name==='whosaid'){
     if(raw){const checked=await checkGame(account.telegramUserId,name,raw);if(checked){await say((checked.ok?'Correct.':'Raté.')+' Réponse : '+checked.answer);return true}}
     const q=await animeQuote();await gameState(account.telegramUserId,{kind:name,answer:q.character,at:Date.now()});
-    await say('Qui a dit : “'+q.quote+'” ?\nAnime : '+q.anime+'\nRéponds : .whosaid <personnage>');return true;
+    await say('Qui a dit : “'+q.quote+'” ?\nAnime : '+q.anime+'\nRéponds : /Whosaid <personnage>');return true;
   }
   if(name==='powerbattle'||name==='animecompare'||name==='charcompare'){
     const p=splitTwo(raw);if(p.length<2)throw new Error('sépare les deux noms avec |');
@@ -473,7 +476,7 @@ export async function handleAnimeCommand({runtime,event,name,args=[]}){
     const lib=await setStatus(account.telegramUserId,name,raw,'ANIME');await say(titleOf(await mediaSearch(raw,'ANIME'))+' → '+name+'\nTotal : '+(lib[name]?.length||0));return true;
   }
   if(name==='rateanime'){
-    const parts=raw.split('|').map(clean);const score=Number(parts.pop());const query=parts.join('|');if(!query||score<0||score>10)throw new Error('usage : .rateanime Naruto | 9');
+    const parts=raw.split('|').map(clean);const score=Number(parts.pop());const query=parts.join('|');if(!query||score<0||score>10)throw new Error('usage : /Rateanime Naruto | 9');
     const m=await mediaSearch(query,'ANIME');await patchLibrary(account.telegramUserId,lib=>{lib.ratings={...(lib.ratings||{}),[m.id]:{title:titleOf(m),score}};return lib});await say(titleOf(m)+' noté '+score+'/10.');return true;
   }
   if(name==='favoriteanime'){

@@ -336,12 +336,13 @@ export async function handleAudioLabCommand({runtime,event,name,args,sendText}){
   name=String(name||'').toLowerCase();
   if(!AUDIO_LAB_COMMANDS.has(name))return false;
   const {client,account}=runtime,peer=event.message.peerId,chat=String(account.telegramUserId)+':'+messageKey(event);
+  const mediaCta=()=>sendText(client,peer,'');
   try{
     if(AUDIO_EFFECT_COMMANDS.has(name)){
       return await withInput(client,peer,event,async input=>{
         const output=await processAudio(input,name,args);
         try{
-          await sendTelegramMedia(client,peer,fs.readFileSync(output),{fileName:'NexAI-'+name+'.mp3',mimeType:'audio/mpeg',kind:'audio',caption:'NexAI · Audio Lab · '+name});
+          await sendTelegramMedia(client,peer,fs.readFileSync(output),{fileName:'NexAI-'+name+'.mp3',mimeType:'audio/mpeg',kind:'audio',caption:'NexAI · Audio Lab · '+name,afterSend:mediaCta});
         }finally{cleanup(output)}
         return true;
       });
@@ -356,7 +357,7 @@ export async function handleAudioLabCommand({runtime,event,name,args,sendText}){
     if(name==='waveform'||name==='spectrogram'){
       return await withInput(client,peer,event,async input=>{
         const output=await waveform(input,name);
-        try{await sendTelegramMedia(client,peer,fs.readFileSync(output),{fileName:name+'.png',mimeType:'image/png',kind:'image',caption:'NexAI · '+name})}
+        try{await sendTelegramMedia(client,peer,fs.readFileSync(output),{fileName:name+'.png',mimeType:'image/png',kind:'image',caption:'NexAI · '+name,afterSend:mediaCta})}
         finally{cleanup(output)}
         return true;
       });
@@ -376,7 +377,7 @@ export async function handleAudioLabCommand({runtime,event,name,args,sendText}){
       const q=prune(chat);
       const mode=name==='joinaudio'?'join':name;
       const output=await mixFiles(q.map(x=>x.file),mode,{fade:args[0]});
-      try{await sendTelegramMedia(client,peer,fs.readFileSync(output),{fileName:'NexAI-'+name+'.mp3',mimeType:'audio/mpeg',kind:'audio',caption:'NexAI · DJ · '+name})}
+      try{await sendTelegramMedia(client,peer,fs.readFileSync(output),{fileName:'NexAI-'+name+'.mp3',mimeType:'audio/mpeg',kind:'audio',caption:'NexAI · DJ · '+name,afterSend:mediaCta})}
       finally{cleanup(output)}
       return true;
     }

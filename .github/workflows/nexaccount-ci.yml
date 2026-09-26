@@ -42,6 +42,16 @@ jobs:
         run: node nexaccount/scripts/test-anime-ingest.mjs
       - name: Media send regression
         run: node nexaccount/scripts/test-media-send.mjs
+      - name: WhatsApp sticker package regression
+        run: node nexaccount/scripts/test-wastickers.mjs
+      - name: TGS decoder regression
+        run: node nexaccount/scripts/test-tgs-renderer.mjs
+      - name: Alias parser regression
+        run: node nexaccount/scripts/test-alias-parser.mjs
+      - name: HTTP progress regression
+        run: node nexaccount/scripts/test-http-progress.mjs
+      - name: Download progress parser regression
+        run: node nexaccount/scripts/test-download-progress.mjs
       - name: Menu resilience regression
         run: node nexaccount/scripts/test-menu-resilience.mjs
       - name: Critical public routes regression
@@ -64,7 +74,7 @@ jobs:
           const settings={style:1,prefix:'.'};
           const menu=await menuModel({account,settings,commands:commandMap()});
           const styles=await stylesModel({account,settings});
-          if(!menu.entities.some(x=>x.type==='expandable_blockquote'))throw new Error('expandable quote missing');
+          if(!menu.entities.some(x=>x.type==='blockquote'||x.type==='expandable_blockquote'))throw new Error('header quote missing');
           if(!styles.entities.some(x=>x.type==='bot_command'))throw new Error('style commands missing');
           console.log('styles',c.maxStyle,'menu chars',menu.text.length);
           NODE

@@ -5,6 +5,7 @@ import { commandMap } from './commands.mjs';
 import { accountRecord, settingsFor, patchSettings } from './store.mjs';
 import { menuModel, stylesModel } from './menu.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
+import { getInlineResponse } from './inline-response-store.mjs';
 import { observeUser, recordEvent } from './analytics.mjs';
 import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
 import { listStyles, toSmallCaps } from './styles.mjs';
@@ -108,51 +109,110 @@ function portableMarkup(markup){
 }
 
 function portableEntities(entities,maxLength){
-  return (entities||[]).filter(e=>e.type==='bot_command'&&e.offset+e.length<=maxLength);
+  const safe=new Set(['bot_command','blockquote','expandable_blockquote','text_link']);
+  return (entities||[]).filter(e=>safe.has(e.type)&&e.offset+e.length<=maxLength);
+}
+
+function textInputContent(model,entities,disableArtwork=false){
+  return {
+    message_text:model.text.slice(0,4096),
+    entities,
+    link_preview_options:!disableArtwork&&model.photoUrl
+      ?{url:model.photoUrl,prefer_large_media:true,show_above_text:true}
+      :{is_disabled:true}
+  };
 }
 
 function inlineCachedPhotoResult(model,accountId,id,fileId,portable=false){
   const stamped=stampMarkup(model.reply_markup,accountId);
   const reply_markup=portable?portableMarkup(stamped):stamped;
+  const textEntities=portable?portableEntities(model.entities,4096):model.entities.filter(e=>e.offset+e.length<=4096);
   return {
     type:'photo',
     id,
     photo_file_id:fileId,
-    caption:model.text.slice(0,1024),
-    caption_entities:portable?portableEntities(model.entities,1024):model.entities.filter(e=>e.offset+e.length<=1024),
+    input_message_content:textInputContent(model,textEntities),
     reply_markup
   };
 }
 
-function inlineResult(model,accountId,id='menu',forceArticle=false,portable=false){
+function inlineResult(model,accountId,id='menu',forceArticle=false,portable=false,disableArtwork=false){
   const stamped=stampMarkup(model.reply_markup,accountId);
   const reply_markup=portable?portableMarkup(stamped):stamped;
-  const captionEntities=portable?portableEntities(model.entities,1024):model.entities.filter(e=>e.offset+e.length<=1024);
   const textEntities=portable?portableEntities(model.entities,4096):model.entities.filter(e=>e.offset+e.length<=4096);
+  const input_message_content=textInputContent(model,textEntities,disableArtwork);
+
+  // A photo result keeps a visual thumbnail in the inline picker, but
+  // input_message_content makes Telegram send an editable TEXT message with
+  // the artwork as a large link preview. This avoids the 1024-char caption
+  // limit and keeps Home -> Category navigation in one stable message.
   if(model.photoUrl&&!forceArticle){
     return {
       type:'photo',id,
       photo_url:model.photoUrl,
       thumbnail_url:model.photoUrl,
-      caption:model.text.slice(0,1024),
-      caption_entities:captionEntities,
+      input_message_content,
       reply_markup
     };
   }
   return {
     type:'article',id,title:'NexAI',description:'NexAccount menu',
-    input_message_content:{
-      message_text:model.text.slice(0,4096),
-      entities:textEntities,
-      link_preview_options:{is_disabled:true}
-    },
+    input_message_content,
     reply_markup
+  };
+}
+
+function inlineReplyModel(value,settings={}){
+  const raw=String(value??'').trim();
+  const label='By Nextech';
+  const maxBase=Math.max(0,4096-label.length-2);
+  const base=raw.slice(0,maxBase);
+  const text=(base?base+'\n\n':'')+label;
+  const entities=[];
+
+  for(const m of text.matchAll(/\/[a-z][a-z0-9_]{0,63}/gi)){
+    entities.push({
+      type:'bot_command',
+      offset:utf16len(text.slice(0,m.index)),
+      length:utf16len(m[0])
+    });
+  }
+
+  const linkStart=text.lastIndexOf(label);
+  if(cfg.nextechUrl&&linkStart>=0){
+    entities.push({
+      type:'text_link',
+      offset:utf16len(text.slice(0,linkStart)),
+      length:utf16len(label),
+      url:cfg.nextechUrl
+    });
+  }
+
+  const button={text:'ɴᴇxᴛᴇᴄʜ',url:cfg.nextechUrl,style:'success'};
+  const customId=String(
+    settings?.customEmojiIds?.NEXAI_EMOJI_NEXTECH||
+    process.env.NEXAI_EMOJI_NEXTECH||
+    ''
+  ).trim();
+  if(customId)button.icon_custom_emoji_id=customId;
+
+  return {
+    text,
+    entities,
+    reply_markup:{inline_keyboard:cfg.nextechUrl?[[button]]:[]},
+    photoUrl:''
   };
 }
 
 async function modelFor(account,query){
   const settings=await settingsFor(account.telegramUserId);
-  const q=String(query||'').trim().toLowerCase();
+  const rawQuery=String(query||'').trim();
+  const q=rawQuery.toLowerCase();
+  if(q.startsWith('reply:')){
+    const token=rawQuery.slice('reply:'.length).trim();
+    const row=await getInlineResponse(token,account.telegramUserId);
+    return inlineReplyModel(row?.text||'Réponse expirée. Relance la commande.',settings);
+  }
   if(q==='styles'||q==='style')return stylesModel({account,settings});
   if(q.startsWith('cat:')){
     const [,catRaw,pageRaw='0']=q.split(':');
@@ -165,37 +225,25 @@ async function sendModelMessage(ctx,model,accountId){
   const rich=stampMarkup(model.reply_markup,accountId);
   const plain=portableMarkup(rich);
   const errors=[];
+  const preview=model.photoUrl
+    ?{url:model.photoUrl,prefer_large_media:true,show_above_text:true}
+    :{is_disabled:true};
+  const attempts=[
+    ['text-rich',model.entities.filter(e=>e.offset+e.length<=4096),preview,rich],
+    ['text-portable',portableEntities(model.entities,4096),preview,plain],
+    ['text-no-artwork',portableEntities(model.entities,4096),{is_disabled:true},plain]
+  ];
 
-  if(model.photoUrl){
+  for(const [kind,entities,link_preview_options,reply_markup] of attempts){
     try{
-      return await ctx.replyWithPhoto(model.photoUrl,{
-        caption:model.text.slice(0,1024),
-        caption_entities:model.entities.filter(e=>e.offset+e.length<=1024),
-        reply_markup:rich
+      return await ctx.reply(model.text.slice(0,4096),{
+        entities,
+        link_preview_options,
+        reply_markup
       });
     }catch(error){
-      errors.push('photo:'+String(error?.description||error?.message||error).slice(0,350));
+      errors.push(kind+':'+String(error?.description||error?.message||error).slice(0,350));
     }
-  }
-
-  try{
-    return await ctx.reply(model.text.slice(0,4096),{
-      entities:model.entities.filter(e=>e.offset+e.length<=4096),
-      link_preview_options:{is_disabled:true},
-      reply_markup:rich
-    });
-  }catch(error){
-    errors.push('text-rich:'+String(error?.description||error?.message||error).slice(0,350));
-  }
-
-  try{
-    return await ctx.reply(model.text.slice(0,4096),{
-      entities:portableEntities(model.entities,4096),
-      link_preview_options:{is_disabled:true},
-      reply_markup:plain
-    });
-  }catch(error){
-    errors.push('text-portable:'+String(error?.description||error?.message||error).slice(0,350));
   }
   throw new Error('menu_send_failed '+errors.join(' | '));
 }
@@ -211,48 +259,44 @@ async function editInline(ctx,model,accountId,{replaceMedia=false}={}){
   const rich=stampMarkup(model.reply_markup,accountId);
   const markups=[['rich',rich],['portable',portableMarkup(rich)]];
   const errors=[];
+  const preview=model.photoUrl
+    ?{url:model.photoUrl,prefer_large_media:true,show_above_text:true}
+    :{is_disabled:true};
 
-  // Context edit methods work for both inline_message_id callbacks and normal
-  // bot messages. This keeps /menu and .menu on the same navigation engine.
-  if(replaceMedia&&model.photoUrl){
-    for(const [kind,reply_markup] of markups){
-      try{
-        await ctx.editMessageMedia({
-          type:'photo',
-          media:model.photoUrl,
-          caption:model.text.slice(0,1024),
-          caption_entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=1024):portableEntities(model.entities,1024)
-        },{reply_markup});
-        return 'media-'+kind;
-      }catch(error){
-        errors.push('media-'+kind+':'+String(error?.description||error?.message||error).slice(0,350));
-      }
-    }
-  }
-
-  for(const [kind,reply_markup] of markups){
-    try{
-      await ctx.editMessageCaption({
-        caption:model.text.slice(0,1024),
-        caption_entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=1024):portableEntities(model.entities,1024),
-        reply_markup
-      });
-      return 'caption-'+kind;
-    }catch(error){
-      errors.push('caption-'+kind+':'+String(error?.description||error?.message||error).slice(0,350));
-    }
-  }
-
-  for(const [kind,reply_markup] of markups){
+  // New menus are always editable text messages. Artwork is optional:
+  // a dead/unsupported preview must never prevent categories or styles from loading.
+  const textAttempts=[
+    ['rich',rich,model.entities.filter(e=>e.offset+e.length<=4096),preview],
+    ['portable',portableMarkup(rich),portableEntities(model.entities,4096),preview],
+    ['no-artwork',portableMarkup(rich),portableEntities(model.entities,4096),{is_disabled:true}]
+  ];
+  for(const [kind,reply_markup,entities,link_preview_options] of textAttempts){
     try{
       await ctx.editMessageText(model.text.slice(0,4096),{
-        entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=4096):portableEntities(model.entities,4096),
-        link_preview_options:{is_disabled:true},
+        entities,
+        link_preview_options,
         reply_markup
       });
       return 'text-'+kind;
     }catch(error){
       errors.push('text-'+kind+':'+String(error?.description||error?.message||error).slice(0,350));
+    }
+  }
+
+  // Compatibility only for old photo-menu messages created before this
+  // refactor. Never truncate a long category merely to fit a media caption.
+  if(model.text.length<=1024){
+    for(const [kind,reply_markup] of markups){
+      try{
+        await ctx.editMessageCaption({
+          caption:model.text,
+          caption_entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=1024):portableEntities(model.entities,1024),
+          reply_markup
+        });
+        return 'legacy-caption-'+kind;
+      }catch(error){
+        errors.push('legacy-caption-'+kind+':'+String(error?.description||error?.message||error).slice(0,350));
+      }
     }
   }
 
@@ -460,7 +504,8 @@ export async function startInlineBot(){
       ...(cachedPhotoId?[['cached-photo-rich',inlineCachedPhotoResult(model,account.telegramUserId,resultId,cachedPhotoId,false)]]:[]),
       ['photo-rich',inlineResult(model,account.telegramUserId,resultId,false,false)],
       ['article-rich',inlineResult(model,account.telegramUserId,resultId,true,false)],
-      ['article-portable',inlineResult(model,account.telegramUserId,resultId,true,true)]
+      ['article-portable',inlineResult(model,account.telegramUserId,resultId,true,true)],
+      ['article-no-artwork',inlineResult(model,account.telegramUserId,resultId,true,true,true)]
     ];
     const errors=[];
     for(const [kind,result] of attempts){
@@ -526,7 +571,7 @@ export async function startInlineBot(){
     }catch(error){
       const reason=String(error?.description||error?.message||error).slice(0,700);
       console.error('[NexAI callback] failed',action,reason);
-      await ctx.answerCallbackQuery({text:'Impossible de mettre à jour ce menu. Réessaie avec .menu',show_alert:false}).catch(()=>{});
+      await ctx.answerCallbackQuery({text:'Impossible de mettre à jour ce menu. Réessaie avec /Menu',show_alert:false}).catch(()=>{});
     }
   });
 
@@ -544,4 +589,4 @@ export async function stopInlineBot(){
 }
 
 
-export const __test={stampMarkup,portableMarkup,inlineResult,inlineCachedPhotoResult,telegramCommandMenu};
+export const __test={stampMarkup,portableMarkup,inlineResult,inlineCachedPhotoResult,inlineReplyModel,telegramCommandMenu};

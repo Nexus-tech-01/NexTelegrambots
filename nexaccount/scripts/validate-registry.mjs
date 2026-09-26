@@ -65,7 +65,18 @@ const REQUIRED_ALIAS_TARGETS={
   dipper:'menu',grimoire:'menu',play:'song',dlmusic:'song',yta:'song',
   mp3:'tomp3',toaudio:'tomp3',paroles:'lyrics',lyric:'lyrics',lirik:'lyrics',
   identify:'shazam',identifie:'shazam',reconnaitre:'shazam',
-  ytv:'video',ytmp4:'video',dlyoutube:'video',ig:'instagram',fb:'facebook',fbdl:'facebook',tt:'tiktok',apksearch:'apk'
+  ytv:'video',ytmp4:'video',dlyoutube:'video',ig:'instagram',fb:'facebook',fbdl:'facebook',tt:'tiktok',apksearch:'apk',
+  s:'sticker',st:'sticker',stick:'sticker',stickers:'sticker',
+  clone:'clonepack',take:'clonepack',packclone:'clonepack',
+  newpack:'createpack',makepack:'createpack',
+  wastickers:'exportwhatsapp',exportwa:'exportwhatsapp',
+  tr:'translate',qrcode:'qr',shorten:'tinyurl',
+  music:'song',yta:'song',ytv:'video',mp4:'video',get:'download',
+  me:'account',profile:'account',lang:'language',setprefix:'prefix',
+  all:'tagall',htag:'hidetag',makeadmin:'promote',unadmin:'demote',
+  nolink:'antilink',nospam:'antispam',
+  webshot:'ssweb',upload:'tourl',viewonce:'vv',
+  ani:'animeinfo',ep:'episode',eps:'episodes',recanime:'recommendanime'
 };
 for(const [alias,target] of Object.entries(REQUIRED_ALIAS_TARGETS)){
   const cmd=commands.get(alias);
