@@ -117,6 +117,7 @@ export async function menuModel({account,settings,commands,view='home',category=
   const user=displayUser(account,settings);
   const rank=owner?'owner':account.premium?'premium':'user';
   const header=renderThemeHeader(style.id,{
+    botName:String(settings.botDisplayName||'NEXAI').slice(0,32),
     user,
     rank,
     prefix:settings.prefix||'.',
