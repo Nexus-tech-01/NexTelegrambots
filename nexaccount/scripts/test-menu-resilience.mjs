@@ -76,7 +76,8 @@ assert.match(menuSource,/Historical Dipper styles 11–20 have no dedicated artw
 assert.ok(Object.keys(generatedStyles.themes||{}).length>=31,'all 31 public Dipper styles must be bundled');
 assert.equal(Number(generatedStyles.themes?.['20']?.id),20,'style20 must be present in the bundled catalog');
 assert.match(styleSource,/for\(let start=0;start<urls\.length;start\+=4\)/,'artwork resolver must scan beyond the first broken URL batch');
-assert.match(styleSource,/Telegram can still fetch the public JPEG/,'direct JPEG Telegram fallback missing');
+assert.match(styleSource,/files\.catbox\.moe/,'Catbox artwork conversion guard missing');
+assert.match(styleSource,/img\.vxs\.nl/,'verified JPEG conversion proxy missing');
 assert.equal(new Set(CATEGORY_ORDER).size,CATEGORY_ORDER.length,'menu categories must not be duplicated');
 assert.match(styleSource,/INLINE_PHOTO_MAX_BYTES=5\*1024\*1024/,'inline photo size guard missing');
 assert.match(styleSource,/image\/jpeg/,'inline artwork must validate JPEG content');
