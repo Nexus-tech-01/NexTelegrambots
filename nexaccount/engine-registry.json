@@ -1,8 +1,8 @@
 {
-  "version": 2,
-  "updatedAt": "2026-09-20",
-  "mode": "standalone",
-  "note": "NexAi × Dipper executes commands locally; no sibling Telegram bot is an execution dependency.",
+  "version": 3,
+  "updatedAt": "2026-09-26",
+  "mode": "multisession-orchestrated",
+  "note": "NexAccount owns Telegram sessions and worker orchestration; NexAI engines execute commands locally through the isolated engine router.",
   "engines": {
     "ai": {
       "type": "local",
@@ -32,5 +32,10 @@
       "type": "local",
       "module": "audio-lab.mjs"
     }
+  },
+  "layers": {
+    "session": "NexAccount",
+    "command": "NexAI",
+    "presentation": "Inline bot"
   }
 }

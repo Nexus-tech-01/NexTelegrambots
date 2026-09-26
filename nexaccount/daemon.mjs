@@ -104,6 +104,7 @@ async function route(req,res){
       return json(res,200,{
         ok:true,
         service:'nexaccount',
+        architecture:{version:3,sessionLayer:'NexAccount',engineLayer:'NexAI',presentationLayer:'Inline bot'},
         botConfigured:!!(await loadBotToken()),
         botUsername:cfg.botUsername||null,
         worker:{id:cfg.workerId,index:cfg.workerIndex,count:cfg.workerCount,capacity:cfg.maxRuntimesPerWorker},

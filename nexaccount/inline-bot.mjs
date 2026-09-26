@@ -7,7 +7,6 @@ import { menuModel, stylesModel } from './menu.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { observeUser, recordEvent } from './analytics.mjs';
 import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
-import { attachConnectedClient } from './runtime.mjs';
 import { listStyles, toSmallCaps } from './styles.mjs';
 
 const commands=commandMap();

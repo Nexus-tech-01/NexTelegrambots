@@ -12,18 +12,19 @@ import { recordEvent } from './analytics.mjs';
 import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
 import { handleCompatCommand } from './compat.mjs';
 import { menuModel, stylesModel } from './menu.mjs';
-import { canHandleAnimeCommand, handleAnimeCommand } from './anime-engine.mjs';
-import { canHandleDownloadCommand, handleDownloadCommand } from './dipper-fallback.mjs';
-import { aiProviderStatus, canHandleAiCommand, generateAiReply, handleAiCommand } from './ai-engine.mjs';
-import { canHandleStickerCommand, handleStickerCommand, stickerEngineDiagnostic } from './sticker-engine.mjs';
-import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
+import { aiProviderStatus, generateAiReply } from './ai-engine.mjs';
+import { stickerEngineDiagnostic } from './sticker-engine.mjs';
+import { parseCommand, textOf } from './core/command-parser.mjs';
+import { createCommandDeduper } from './core/command-deduper.mjs';
+import { createRuntimeContext, clearRuntimeTimers } from './core/runtime-context.mjs';
+import { routeEngineCommand } from './core/engine-router.mjs';
 import { animeBeginRebuild, animeDiscoverNow, animeIngestStatus, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
 
 const commands=commandMap();
 const runtimes=new Map();
 const spamWindows=new Map();
-const handledCommands=new Map();
+const commandDeduper=createCommandDeduper();
 const aiAutoWindows=new Map();
 let reconcilingRuntimes=false;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -39,22 +40,7 @@ function isPrimaryAnimePublisher(account){
 function randomLong(){
   return BigInt.asIntN(64,BigInt('0x'+crypto.randomBytes(8).toString('hex')));
 }
-function textOf(message){return String(message?.message||message?.text||'').trim()}
 function utf16len(s){return Buffer.from(String(s),'utf16le').length/2}
-
-function parseCommand(text,prefix='.'){
-  const t=String(text||'').trim();
-  if(!t)return null;
-  if(t.startsWith('/')){
-    const [head,...args]=t.slice(1).split(/\s+/);
-    return {name:head.replace(/@[^\s]+$/,'').toLowerCase(),args};
-  }
-  if(prefix&&t.startsWith(prefix)){
-    const [head,...args]=t.slice(prefix.length).split(/\s+/);
-    return {name:head.toLowerCase(),args};
-  }
-  return null;
-}
 
 function messageAuthorId(message){
   return String(message?.senderId||message?.fromId?.userId||message?.fromId?.channelId||'');
@@ -90,20 +76,8 @@ function isSelfAuthoredMessage(message,account){
   return false;
 }
 
-function commandEventKey(telegramUserId,message){
-  const peer=String(message?.peerId?.userId||message?.peerId?.chatId||message?.peerId?.channelId||'peer');
-  return String(telegramUserId)+':'+peer+':'+String(message?.id||'0');
-}
-
 function claimCommand(telegramUserId,message){
-  const key=commandEventKey(telegramUserId,message);
-  const now=Date.now();
-  for(const [k,t] of handledCommands){
-    if(now-t>10*60*1000)handledCommands.delete(k);
-  }
-  if(handledCommands.has(key))return false;
-  handledCommands.set(key,now);
-  return true;
+  return commandDeduper.claim(telegramUserId,message);
 }
 
 async function sendText(client,peer,text){
@@ -388,47 +362,14 @@ async function handleCommand(runtime,event,parsed){
     await premiumDenied(client,peer,name);
     return true;
   }
-  if(cmd.engine==='anime'){
-    const canonical=cmd.aliasFor||cmd.name||name;
-    if(!canHandleAnimeCommand(canonical)){
-      await sendText(client,peer,'Erreur interne : route Anime inconnue pour .'+canonical);
-      return true;
-    }
-    try{
-      await handleAnimeCommand({runtime,event,name:canonical,args:parsed.args});
-    }catch(error){
-      await sendText(client,peer,'Anime · '+canonical+' : '+String(error?.message||error).slice(0,500));
-    }
-    return true;
-  }
-  if(cmd.engine==='ai'){
-    const canonical=cmd.aliasFor||cmd.name||name;
-    if(!canHandleAiCommand(canonical)){await sendText(client,peer,'Erreur interne : route IA inconnue pour .'+canonical);return true}
-    try{await handleAiCommand({runtime,event,name:canonical,args:parsed.args})}
-    catch(error){await sendText(client,peer,'IA · '+canonical+' : '+String(error?.message||error).slice(0,500))}
-    return true;
-  }
-  if(cmd.engine==='download'){
-    const canonical=cmd.aliasFor||cmd.name||name;
-    if(!canHandleDownloadCommand(canonical)){await sendText(client,peer,'Erreur interne : route Download inconnue pour .'+canonical);return true}
-    try{await handleDownloadCommand({client,peer,name:canonical,args:parsed.args,event})}
-    catch(error){await sendText(client,peer,'Download · '+canonical+' : '+String(error?.message||error).slice(0,500))}
-    return true;
-  }
-  if(cmd.engine==='sticker'){
-    const canonical=cmd.aliasFor||cmd.name||name;
-    if(!canHandleStickerCommand(canonical)){await sendText(client,peer,'Erreur interne : route Sticker inconnue pour .'+canonical);return true}
-    try{await handleStickerCommand({runtime,event,name:canonical,args:parsed.args})}
-    catch(error){await sendText(client,peer,'Sticker · '+canonical+' : '+String(error?.message||error).slice(0,500))}
-    return true;
-  }
-  if(cmd.engine==='game'){
-    const canonical=cmd.aliasFor||cmd.name||name;
-    if(!canHandleGameCommand(canonical)){await sendText(client,peer,'Erreur interne : route Game inconnue pour .'+canonical);return true}
-    try{await handleGameCommand({runtime,event,name:canonical,args:parsed.args})}
-    catch(error){await sendText(client,peer,'Game · '+canonical+' : '+String(error?.message||error).slice(0,500))}
-    return true;
-  }
+  const engineHandled=await routeEngineCommand({
+    cmd,
+    runtime,
+    event,
+    args:parsed.args,
+    sendText
+  });
+  if(engineHandled)return true;
 
   const compatHandled=await handleCompatCommand({
     runtime,event,name,args:parsed.args,cmd,sendText,sendInline
@@ -894,31 +835,16 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
   }
   if(runtimes.has(id)){
     const old=runtimes.get(id);
-    if(old.autoJoinTimer)clearInterval(old.autoJoinTimer);
-    if(old.presenceTimer)clearInterval(old.presenceTimer);
-    if(old.updateSyncTimer)clearInterval(old.updateSyncTimer);
-    if(old.commandPollTimer)clearInterval(old.commandPollTimer);
-    if(old.leaseTimer)clearInterval(old.leaseTimer);
+    clearRuntimeTimers(old);
     await stopAnimeIngest(old).catch(()=>{});
     try{await old.client.disconnect()}catch{}
     runtimes.delete(id);
   }
-  const runtime={
+  const runtime=createRuntimeContext({
     client,
     account,
-    animePublisher:isPrimaryAnimePublisher(account),
-    startedAt:new Date(),
-    lastUpdateAt:null,
-    lastCatchUpAt:null,
-    updateCount:0,
-    catchUpFailures:0,
-    syncing:false,
-    commandPollStartedAt:Date.now(),
-    lastCommandPollAt:null,
-    commandPollFailures:0,
-    pollingCommands:false,
-    presenceTimer:null
-  };
+    animePublisher:isPrimaryAnimePublisher(account)
+  });
   runtime.setPresenceEnabled=enabled=>configurePresence(runtime,enabled);
   runtimes.set(id,runtime);
 
@@ -1012,11 +938,7 @@ export async function detachRuntime(telegramUserId,{releaseLease=true}={}){
   const id=String(telegramUserId);
   const runtime=runtimes.get(id);
   if(runtime){
-    if(runtime.autoJoinTimer)clearInterval(runtime.autoJoinTimer);
-    if(runtime.presenceTimer)clearInterval(runtime.presenceTimer);
-    if(runtime.updateSyncTimer)clearInterval(runtime.updateSyncTimer);
-    if(runtime.commandPollTimer)clearInterval(runtime.commandPollTimer);
-    if(runtime.leaseTimer)clearInterval(runtime.leaseTimer);
+    clearRuntimeTimers(runtime);
     await stopAnimeIngest(runtime).catch(()=>{});
     try{await runtime.client.disconnect()}catch{}
     runtimes.delete(id);
@@ -1308,6 +1230,12 @@ export async function engineStatus(){
   return {
     ok:true,
     standalone:true,
+    architecture:{
+      version:3,
+      sessionLayer:'NexAccount',
+      engineLayer:'NexAI',
+      presentationLayer:'Inline bot'
+    },
     runtimeConnected:runtime?.client?.connected===true,
     engines:[
       {service:'ai',type:'local',configured:providers.length>0,reachable:providers.length>0,providers},
@@ -1348,10 +1276,7 @@ export function runtimeStatus(){
 
 export async function stopRuntimes(){
   for(const [id,r] of runtimes.entries()){
-    if(r.autoJoinTimer)clearInterval(r.autoJoinTimer);
-    if(r.updateSyncTimer)clearInterval(r.updateSyncTimer);
-    if(r.commandPollTimer)clearInterval(r.commandPollTimer);
-    if(r.leaseTimer)clearInterval(r.leaseTimer);
+    clearRuntimeTimers(r);
     await stopAnimeIngest(r).catch(()=>{});
     try{await r.client.disconnect()}catch{}
     await releaseRuntimeLease(id).catch(()=>{});
