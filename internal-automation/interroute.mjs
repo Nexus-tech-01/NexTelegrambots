@@ -67,6 +67,34 @@ async function tg(method,payload,timeout=30000){
   if(!r.ok||!j.ok){const e=new Error(j.description||('telegram_http_'+r.status));e.retryAfter=Number(j?.parameters?.retry_after||0);throw e;}
   return j.result;
 }
+async function telegramUpload(method,payload,fileField,media,timeout=120000){
+  if(!TG_BASE)throw new Error('telegram_publisher_unconfigured');
+  let bytes,mime=String(media?.mimetype||'application/octet-stream'),name=String(media?.fileName||'media.bin');
+  if(media?.localPath){
+    bytes=await fsp.readFile(media.localPath);
+  }else if(media?.url){
+    const res=await fetch(media.url,{headers:{'user-agent':'Nexus-Interroute/1.0'},signal:AbortSignal.timeout(30000)});
+    if(!res.ok)throw new Error('telegram_media_fetch_http_'+res.status);
+    const len=Number(res.headers.get('content-length')||0);
+    if(len>50*1024*1024)throw new Error('telegram_media_fetch_too_large');
+    mime=String(res.headers.get('content-type')||mime).split(';')[0]||mime;
+    const ab=await res.arrayBuffer();
+    if(ab.byteLength>50*1024*1024)throw new Error('telegram_media_fetch_too_large');
+    bytes=Buffer.from(ab);
+  }else{
+    throw new Error('telegram_media_reference_missing');
+  }
+  const form=new FormData();
+  for(const [key,value] of Object.entries(payload||{})){
+    if(value===undefined||value===null)continue;
+    form.append(key,typeof value==='object'?JSON.stringify(value):String(value));
+  }
+  form.append(fileField,new Blob([bytes],{type:mime}),name);
+  const res=await fetch(TG_BASE+'/'+method,{method:'POST',body:form,signal:AbortSignal.timeout(timeout)});
+  const out=await res.json().catch(()=>({}));
+  if(!res.ok||!out.ok){const e=new Error(out.description||('telegram_http_'+res.status));e.retryAfter=Number(out?.parameters?.retry_after||0);throw e;}
+  return out.result;
+}
 function replyMarkup(buttons){if(!buttons.length)return undefined;const rows=[];for(let i=0;i<buttons.length;i+=2)rows.push(buttons.slice(i,i+2).map(b=>({text:b.text,url:b.url})));return {inline_keyboard:rows};}
 async function publishTelegram(e,r){
   if(e.dryRun)return {dryRun:true,platform:'telegram'};
@@ -76,13 +104,34 @@ async function publishTelegram(e,r){
     return {message:await tg('copyMessage',{chat_id,from_chat_id:c.telegramCopy.fromChatId,message_id:c.telegramCopy.messageId,caption:c.text.slice(0,1024),parse_mode:'HTML',...(buttons?{reply_markup:buttons}:{})},120000)};
   }
   if(!c.media.length)return {message:await tg('sendMessage',{chat_id,text:c.text||'Publication Nextech',parse_mode:'HTML',...(buttons?{reply_markup:buttons}:{})})};
-  const first=c.media[0],file=first.fileId||first.url;if(!file)throw new Error('telegram_media_reference_missing');
+  const first=c.media[0];
   const common={chat_id,caption:c.text.slice(0,1024),parse_mode:'HTML',...(buttons?{reply_markup:buttons}:{})};
   const type=first.type;
-  if(type==='photo'||type==='image')return {message:await tg('sendPhoto',{...common,photo:file},60000)};
-  if(type==='video'||type==='animation')return {message:await tg(type==='animation'?'sendAnimation':'sendVideo',{...common,[type==='animation'?'animation':'video']:file},120000)};
-  if(type==='audio'||type==='voice')return {message:await tg(type==='voice'?'sendVoice':'sendAudio',{...common,[type==='voice'?'voice':'audio']:file},120000)};
-  return {message:await tg('sendDocument',{...common,document:file},120000)};
+  const method=type==='photo'||type==='image'?'sendPhoto':type==='animation'?'sendAnimation':type==='video'?'sendVideo':type==='voice'?'sendVoice':type==='audio'?'sendAudio':'sendDocument';
+  const field=method==='sendPhoto'?'photo':method==='sendAnimation'?'animation':method==='sendVideo'?'video':method==='sendVoice'?'voice':method==='sendAudio'?'audio':'document';
+  if(first.localPath){
+    return {message:await telegramUpload(method,common,field,first,120000),uploaded:true};
+  }
+  if(first.fileId){
+    return {message:await tg(method,{...common,[field]:first.fileId},120000)};
+  }
+  if(first.url){
+    try{
+      return {message:await tg(method,{...common,[field]:first.url},120000)};
+    }catch(error){
+      const directError=String(error?.message||error);
+      try{
+        return {message:await telegramUpload(method,common,field,first,120000),uploaded:true,directUrlError:directError};
+      }catch(uploadError){
+        if(type==='photo'||type==='image'){
+          const message=await tg('sendMessage',{chat_id,text:c.text||'Publication Nextech',parse_mode:'HTML',...(buttons?{reply_markup:buttons}:{})},60000);
+          return {message,degradedMedia:true,mediaError:String(uploadError?.message||uploadError),directUrlError:directError};
+        }
+        throw uploadError;
+      }
+    }
+  }
+  throw new Error('telegram_media_reference_missing');
 }
 async function publishWhatsApp(e){
   if(e.dryRun)return {dryRun:true,platform:'whatsapp'};
