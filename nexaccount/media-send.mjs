@@ -169,7 +169,7 @@ export function prepareTelegramMedia(data,{fileName='media',mimeType='',kind='au
 
 export async function sendTelegramMedia(client,peer,data,{
   fileName='media',mimeType='',kind='auto',caption='',formattingEntities,
-  voiceNote=false,buttons,replyTo,silent,parseMode,workers,thumb
+  voiceNote=false,buttons,replyTo,silent,parseMode,workers,thumb,afterSend
 }={}){
   const media=prepareTelegramMedia(data,{fileName,mimeType,kind});
   const dir=path.join(
@@ -186,7 +186,7 @@ export async function sendTelegramMedia(client,peer,data,{
       ...(Array.isArray(formattingEntities)?formattingEntities:[]),
       ...branded.entities
     ];
-    return await client.sendFile(peer,{
+    const sent=await client.sendFile(peer,{
       file:filePath,
       fileName:media.fileName,
       caption:branded.text,
@@ -201,6 +201,12 @@ export async function sendTelegramMedia(client,peer,data,{
       workers,
       thumb
     });
+    if(typeof afterSend==='function'){
+      try{await afterSend(sent,media)}catch(error){
+        console.warn('[NexAi media CTA]',String(error?.message||error).slice(0,250));
+      }
+    }
+    return sent;
   }finally{
     await rm(dir,{recursive:true,force:true}).catch(()=>{});
   }
