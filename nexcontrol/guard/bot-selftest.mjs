@@ -9,24 +9,24 @@ const ROOT=path.resolve(process.env.NEX_ROOT||(fssync.existsSync('/opt/nex/curre
 const TIMEOUT=Math.max(30_000,Number(process.env.NEXGUARD_BOT_TEST_TIMEOUT_MS||5*60*1000));
 const MAX_FILES=Math.max(20,Number(process.env.NEXGUARD_BOT_TEST_MAX_FILES||250));
 const DEFAULT_COMPONENTS=[
-  ['nexaccount','nexaccount'],
-  ['nexgroup','bots/nexgroup'],
-  ['nexcanal','bots/nexcanal'],
-  ['nexgame','bots/nexgame'],
-  ['nexdownloader','bots/nexdownloader'],
-  ['nexstick','bots/nexstick'],
-  ['nexwhisper','bots/nexwhisper'],
-  ['stacy','bots/stacy'],
-  ['whatsapp-publisher','whatsapp-publisher'],
-  ['watchers','watchers']
-].map(([name,rel])=>({name,rel}));
+  {name:'nexaccount',candidates:['nexaccount','/opt/nex/apps/public/nexai/current']},
+  {name:'nexgroup',candidates:['bots/nexgroup','/opt/nex/apps/public/nexgroup/current']},
+  {name:'nexcanal',candidates:['nexcanal','bots/nexcanal','/opt/nex/apps/user-automation/nexcanal/current']},
+  {name:'nexgame',candidates:['bots/nexgame','/opt/nex/apps/public/nexgame/current']},
+  {name:'nexdownloader',candidates:['bots/nexdownloader','/opt/nex/apps/public/nexdownloader/current']},
+  {name:'nexstick',candidates:['bots/nexstick','/opt/nex/apps/public/nexstick/current']},
+  {name:'nexwhisper',candidates:['bots/nexwhisper','/opt/nex/apps/public/nexwhisper/current']},
+  {name:'stacy',candidates:['bots/stacy','/opt/nex/apps/public/stacy/current']},
+  {name:'whatsapp-publisher',candidates:['whatsapp-publisher','/opt/nex/apps/internal/whatsapp-publisher/current']},
+  {name:'watchers',candidates:['watchers','/opt/nex/current/watchers']}
+];
 
 function components(){
   const raw=String(process.env.NEXGUARD_COMPONENTS_JSON||'').trim();
   if(!raw)return DEFAULT_COMPONENTS;
   try{
     const rows=JSON.parse(raw);
-    return Array.isArray(rows)?rows.map(x=>typeof x==='string'?{name:x,rel:x}:x).filter(x=>x?.name&&x?.rel):DEFAULT_COMPONENTS;
+    return Array.isArray(rows)?rows.map(x=>typeof x==='string'?{name:x,candidates:[x]}:{...x,candidates:Array.isArray(x?.candidates)?x.candidates:(x?.rel?[x.rel]:[])}).filter(x=>x?.name&&x.candidates?.length):DEFAULT_COMPONENTS;
   }catch{return DEFAULT_COMPONENTS}
 }
 
@@ -74,18 +74,27 @@ async function checkPythonSyntax(dir,files){
   return {ok:r.ok,checked:files.filter(x=>/.py$/i.test(x)).length,error:r.ok?'':(r.stderr||r.error)};
 }
 
+async function firstExistingDir(def){
+  for(const raw of (def.candidates||[])){
+    const dir=path.resolve(ROOT,String(raw));
+    try{await fs.access(dir);return dir}catch{}
+  }
+  return null;
+}
+
 async function checkComponent(def){
-  const dir=path.resolve(ROOT,String(def.rel));
-  try{await fs.access(dir)}catch{return {name:def.name,rel:def.rel,present:false,ok:true,skipped:'missing'}}
+  const dir=await firstExistingDir(def);
+  if(!dir)return {name:def.name,candidates:def.candidates,present:false,ok:true,skipped:'missing'};
+  const deployedPath=dir;
   const pkgPath=path.join(dir,'package.json');
   let pkg=null;try{pkg=JSON.parse(await fs.readFile(pkgPath,'utf8'))}catch{}
   if(pkg?.scripts?.check){
     const r=await run('/usr/bin/npm',['run','check'],{cwd:dir,timeout:Math.max(TIMEOUT,8*60*1000)});
-    return {name:def.name,rel:def.rel,present:true,ok:r.ok,mode:'npm-check',durationMs:r.durationMs,error:r.ok?'':(r.stderr||r.error),output:r.stdout};
+    return {name:def.name,path:deployedPath,present:true,ok:r.ok,mode:'npm-check',durationMs:r.durationMs,error:r.ok?'':(r.stderr||r.error),output:r.stdout};
   }
   const files=await listSourceFiles(dir);
   const [node,python]=await Promise.all([checkNodeSyntax(files),checkPythonSyntax(dir,files)]);
-  return {name:def.name,rel:def.rel,present:true,ok:node.ok&&python.ok,mode:'syntax',node,python,fileCount:files.length};
+  return {name:def.name,path:deployedPath,present:true,ok:node.ok&&python.ok,mode:'syntax',node,python,fileCount:files.length};
 }
 
 async function nexAccountRuntimeSmoke(){
