@@ -1,6 +1,7 @@
 import { cfg, isOwnerId } from './config.mjs';
 import { CATEGORY_ICONS, CATEGORY_LABELS, CATEGORY_ORDER, commandsByCategory, commandStats } from './commands.mjs';
-import { getStyle, listStyles, renderDipperHeader, resolveInlinePhoto, resolveStyleImage, telegramizeDipperText, toSmallCaps } from './styles.mjs';
+import { getStyle, listStyles, resolveInlinePhoto, resolveStyleImage, toSmallCaps } from './styles.mjs';
+import { renderThemeHeader, renderThemeCategory } from './theme-ui.mjs';
 
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
 const FALLBACK_EMOJI={
@@ -8,12 +9,13 @@ const FALLBACK_EMOJI={
   PROTECTION:'🔒',TOOLS:'🛠️',MEDIA:'🎞️',STICKERS:'🎴',FUN:'🎮',ANIME:'🌸',
   SEARCH:'🔎',PREMIUM:'👑',OWNER:'🔮'
 };
+const BUTTON_LABELS={PROTECTION:'PROTECT',PREMIUM:'PREMIUM'};
 
 export function expandableEntities(text,commandSpans=[],quoteRange=null){
   const entities=[];
   if(quoteRange&&Number(quoteRange.length)>0){
     entities.push({
-      type:'expandable_blockquote',
+      type:'blockquote',
       offset:utf16len(text.slice(0,quoteRange.start)),
       length:utf16len(text.slice(quoteRange.start,quoteRange.start+quoteRange.length))
     });
@@ -33,30 +35,16 @@ function slashCommand(name){
   return '/'+(raw?raw[0].toUpperCase()+raw.slice(1):'');
 }
 
-function commandText(lines,style){
+function commandText(lines,bullet='• '){
   let text='',spans=[];
-  const marker='98765432101234567890';
   for(const line of lines){
     const command=slashCommand(line.name);
-    let before=style.id===1?'┃➻ ':'• ',after='\n';
-    if(style.exactCatCmd){
-      try{
-        const rendered=telegramizeDipperText(style.exactCatCmd({name:marker}));
-        const at=rendered.indexOf(marker);
-        if(at>=0){
-          before=rendered.slice(0,at);
-          after=rendered.slice(at+marker.length);
-          if(before.endsWith('/')&&command.startsWith('/'))before=before.slice(0,-1);
-          if(!after.endsWith('\n'))after+='\n';
-        }
-      }catch{}
-    }
-    text+=before;
+    text+=bullet;
     const start=text.length;
     text+=command;
     spans.push({start,text:command});
     if(line.suffix)text+=line.suffix;
-    text+=after;
+    text+='\n';
   }
   return {text,spans};
 }
@@ -66,8 +54,6 @@ function localized(settings,fr,en){
 }
 
 async function menuArtwork(settings,styleId){
-  // Custom artwork is bound to the style that was active when the user chose it.
-  // Changing styles therefore cannot leave an unrelated old image attached.
   const bound=Number(settings?.menuImageStyle||0)===Number(styleId)
     ?String(settings?.menuImageUrl||'').trim()
     :'';
@@ -75,80 +61,53 @@ async function menuArtwork(settings,styleId){
     const custom=await resolveInlinePhoto(bound);
     if(custom)return custom;
   }
-  const themed=await resolveStyleImage(styleId,'');
-  if(themed)return themed;
-
-  // Historical Dipper styles 11–20 have no dedicated artwork in the source
-  // catalog. Never leave their menu blank: use the stable Dark/NexAI artwork
-  // until a style-specific image is configured.
-  if(Number(styleId)!==1)return resolveStyleImage(1,'');
-  return '';
+  return resolveStyleImage(styleId,'');
 }
 
-export async function menuModel({account,settings,commands,view='home',category=null,page=0}){
+function displayUser(account,settings){
+  if(account?.username)return '@'+String(account.username).replace(/^@/,'');
+  const full=[account?.firstName,account?.lastName].filter(Boolean).join(' ').trim();
+  return full||localized(settings,'Utilisateur Telegram','Telegram User');
+}
+
+export async function menuModel({account,settings,commands,view='home',category=null}){
   const groups=commandsByCategory(commands);
   const style=await getStyle(settings.style||1);
   const owner=isOwnerId(account.telegramUserId);
-  const visible=c=>!c.hidden&&(!c.ownerOnly||owner);
-  const rawOwnerName=account.username?'@'+account.username:(account.firstName||localized(settings,'Utilisateur','User'));
-  const ownerToken=account.username?'@@998877665544332211@@':rawOwnerName;
-  let header=await renderDipperHeader(style.id,{
-    botName:String(settings.botDisplayName||'NexAi · Dipper').slice(0,64),
-    ownerName:ownerToken,
-    rank:owner?'owner':account.premium?'premium':'free',
+  const visible=cmd=>!cmd.hidden&&(!cmd.ownerOnly||owner);
+  const user=displayUser(account,settings);
+  const rank=owner?'owner':account.premium?'premium':'user';
+  const header=renderThemeHeader(style.id,{
+    user,
+    rank,
     prefix:settings.prefix||'.',
     count:commandStats(commands).tokens
   });
-  if(account.username)header=header.replaceAll(ownerToken,rawOwnerName);
-  let body=header,spans=[],quoteRange=null;
+  let body=header,spans=[];
+  const quoteRange={start:0,length:header.length};
 
   if(view==='category'&&category){
     const list=(groups[category]||[]).filter(visible);
-    const perPage=16;
-    const pages=Math.max(1,Math.ceil(list.length/perPage));
-    page=Math.max(0,Math.min(pages-1,Number(page)||0));
-    const pageList=list.slice(page*perPage,(page+1)*perPage);
     const label=toSmallCaps(CATEGORY_LABELS[category]||category);
-    const themedLabel=(FALLBACK_EMOJI[category]||'')+' '+label;
+    const themed=renderThemeCategory(style.id,label);
+    body=header+'\n\n'+themed.title+'\n';
+    body+=toSmallCaps(localized(settings,'Commandes','Commands'))+' • '+list.length+'\n\n';
 
-    body=header.trimEnd()+'\n\n';
-    if(style.exactCatOpen){
-      try{body+=telegramizeDipperText(style.exactCatOpen(themedLabel))}catch{body+=themedLabel+'\n'}
-    }else body+=themedLabel+'\n';
-    body+=toSmallCaps(localized(settings,'Commandes','Commands'))+' : '+list.length+
-      ' · '+toSmallCaps(localized(settings,'Page','Page'))+' '+(page+1)+'/'+pages+'\n';
-
-    const visibleCommands=pageList.map(c=>({
-      name:c.name,
+    const visibleCommands=list.map(cmd=>({
+      name:cmd.name,
       suffix:[
-        c.privateOnly?'  · '+toSmallCaps(localized(settings,'Privé','Private')):'',
-        c.groupOnly?(c.adminOnly?'  · '+toSmallCaps(localized(settings,'Groupe/Admin','Group/Admin')):'  · '+toSmallCaps(localized(settings,'Groupe','Group'))):'',
-        c.premium&&!account.premium?'  · 👑 '+toSmallCaps('Premium'):''
+        cmd.privateOnly?'  · '+toSmallCaps(localized(settings,'Privé','Private')):'',
+        cmd.groupOnly?(cmd.adminOnly?'  · '+toSmallCaps(localized(settings,'Groupe/Admin','Group/Admin')):'  · '+toSmallCaps(localized(settings,'Groupe','Group'))):'',
+        cmd.premium&&!account.premium?'  · 👑 '+toSmallCaps('Premium'):''
       ].join('')
     }));
-    const ct=commandText(visibleCommands,style);
+    const ct=commandText(visibleCommands,themed.bullet);
     const shift=body.length;
     body+=ct.text;
     spans.push(...ct.spans.map(x=>({...x,start:x.start+shift})));
-    quoteRange={start:shift,length:ct.text.length};
-
-    if(style.exactCatClose){
-      try{body+=telegramizeDipperText(style.exactCatClose())}catch{}
-    }
-    if(style.exactFooter){
-      try{body+='\n'+telegramizeDipperText(style.exactFooter())}catch{}
-    }
-    body+='\n'+toSmallCaps('Powered by Nextech');
+    if(themed.footer)body+='\n'+themed.footer;
   }else{
-    const visibleHeader=header.trimEnd();
-    body=visibleHeader;
-    if(style.exactFooter){
-      try{body+='\n\n'+telegramizeDipperText(style.exactFooter())}catch{}
-    }else if(style.tagline){
-      body+='\n\n'+toSmallCaps(style.tagline);
-    }
-    body+='\n'+toSmallCaps('Powered by Nextech');
-    if(body.length>visibleHeader.length)quoteRange={start:visibleHeader.length,length:body.length-visibleHeader.length};
+    body=header;
   }
 
   const buttons=[];
@@ -157,34 +116,30 @@ export async function menuModel({account,settings,commands,view='home',category=
     for(let i=0;i<cats.length;i+=2){
       buttons.push(cats.slice(i,i+2).map(cat=>{
         const id=emojiId(CATEGORY_ICONS[cat]);
-        const label=toSmallCaps(CATEGORY_LABELS[cat]||cat);
+        const raw=BUTTON_LABELS[cat]||CATEGORY_LABELS[cat]||cat;
+        const label=toSmallCaps(raw);
         return button((id?'':(FALLBACK_EMOJI[cat]||'')+' ')+label,'cat:'+cat,'primary',CATEGORY_ICONS[cat]);
       }));
     }
     buttons.push([button('🎨 '+toSmallCaps(localized(settings,'Styles','Styles')),'menu:styles','primary','style')]);
-    const links=[];
-    if(cfg.nextechUrl)links.push(urlButton('ɴᴇxᴛᴇᴄʜ',cfg.nextechUrl,'success','nextech'));
-    if(cfg.nexnewsUrl)links.push(urlButton('ɴᴇxɴᴇᴡѕ',cfg.nexnewsUrl,'success','news'));
-    if(cfg.darkUniverseUrl)links.push(urlButton('ᴅᴀʀᴋ ᴜɴɪᴠᴇʀѕᴇ',cfg.darkUniverseUrl,'success','dark'));
-    if(links.length)buttons.push(links);
+
+    const primaryLinks=[];
+    if(cfg.nextechUrl)primaryLinks.push(urlButton('ɴᴇxᴛᴇᴄʜ',cfg.nextechUrl,'success','nextech'));
+    if(cfg.nexnewsUrl)primaryLinks.push(urlButton('ɴᴇxɴᴇᴡѕ',cfg.nexnewsUrl,'success','news'));
+    if(primaryLinks.length)buttons.push(primaryLinks);
+    if(cfg.darkUniverseUrl)buttons.push([urlButton('ᴅᴀʀᴋ ᴜɴɪᴠᴇʀѕᴇ',cfg.darkUniverseUrl,'success','dark')]);
   }else{
-    if(view==='category'&&category){
-      const list=(groups[category]||[]).filter(visible);
-      const perPage=16,pages=Math.max(1,Math.ceil(list.length/perPage));
-      const current=Math.max(0,Math.min(pages-1,Number(page)||0));
-      const nav=[];
-      if(current>0)nav.push(button('‹ '+toSmallCaps(localized(settings,'Précédent','Previous')),'cat:'+category+':'+(current-1),'primary','back'));
-      if(current<pages-1)nav.push(button(toSmallCaps(localized(settings,'Suivant','Next'))+' ›','cat:'+category+':'+(current+1),'primary','next'));
-      if(nav.length)buttons.push(nav);
-    }
     buttons.push([button('↩ '+toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back')]);
   }
+
   const text=body.trim();
   return {
     text,
     entities:expandableEntities(text,spans,quoteRange),
     reply_markup:{inline_keyboard:buttons},
-    photoUrl:await menuArtwork(settings,style.id)
+    // Long category lists cannot fit in a Telegram photo caption. Keep artwork
+    // attached to home/styles and use a single full text message for categories.
+    photoUrl:view==='category'?'':await menuArtwork(settings,style.id)
   };
 }
 
