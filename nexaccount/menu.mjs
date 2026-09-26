@@ -33,9 +33,10 @@ const STYLE_BUTTON_LABELS={
   30:'SHINOBU',31:'BENIMARU'
 };
 const STYLE_EMOJI_FALLBACK={
-  1:'🕯',2:'🍃',6:'⭐',7:'🌸',8:'👁',10:'🎀',11:'🗡',12:'👁',13:'🪷',
-  14:'👁',15:'⚔',16:'👁',17:'👑',19:'🌒',20:'☄',21:'🌙',22:'🦇',
-  23:'🌸',24:'❄',25:'🍫',26:'⚔',27:'⚽',28:'🎯',29:'🩸',30:'🦋',31:'⛩'
+  1:'🕯',2:'🍃',3:'◈',4:'💻',5:'⚔',6:'⭐',7:'🌸',8:'👁',9:'🌿',10:'🎀',
+  11:'🗡',12:'👁',13:'🪷',14:'👁',15:'⚔',16:'👁',17:'👑',18:'📊',19:'🌒',
+  20:'☄',21:'🌙',22:'🦇',23:'🌸',24:'❄',25:'🍫',26:'⚔',27:'⚽',28:'🎯',
+  29:'🩸',30:'🦋',31:'⛩'
 };
 
 export function expandableEntities(text,commandSpans=[],quoteRange=null,customEmojiSpans=[]){
@@ -229,7 +230,9 @@ export async function stylesModel({account,settings}){
     keyboard.push(styles.slice(i,i+2).map(s=>{
       const active=Number(settings.style)===s.id;
       const short=STYLE_BUTTON_LABELS[s.id]||s.name;
-      return button((active?'✓ ':'')+String(s.id).padStart(2,'0')+' · '+toSmallCaps(short),'style:set:'+s.id,active?'success':'primary','style');
+      const icon='style_'+s.id;
+      const prefix=(active?'✓ ':'')+(emojiId(icon)?'':(STYLE_EMOJI_FALLBACK[s.id]||'✦')+' ');
+      return button(prefix+String(s.id).padStart(2,'0')+' · '+toSmallCaps(short),'style:set:'+s.id,active?'success':'primary',icon);
     }));
   }
   keyboard.push([button((emojiId('back')?'':'↩ ')+toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back')]);
