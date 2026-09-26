@@ -129,6 +129,15 @@ if(!downloadSource.includes('allowH265:false'))errors.push('current-cobalt-tikto
 for(const forbidden of ['ttgrab_bot','SaveOFFbot','ttiktok_downloader_bot','telegramTikTokRelay','relais Telegram']){
   if(downloadSource.includes(forbidden))errors.push('forbidden-tiktok-telegram-relay:'+forbidden);
 }
+const forbiddenDownloaderRelayPatterns=[
+  /@[A-Za-z0-9_]+_bot/i,
+  /getEntity\([^)]*bot/i,
+  /telegram.*relay/i,
+  /relay.*telegram/i
+];
+for(const pattern of forbiddenDownloaderRelayPatterns){
+  if(pattern.test(downloadSource))errors.push('forbidden-external-telegram-downloader-relay:'+pattern);
+}
 if(!downloadSource.includes('tdownv4.sl-bjs.workers.dev'))errors.push('tiktok-http-fallback-missing');
 if(!downloadSource.includes('/opt/nex/tools/yt-dlp-full/bin/yt-dlp'))errors.push('full-ytdlp-preferred-path-missing');
 if(!stickerSource.includes('stickerEngineDiagnostic'))errors.push('sticker-real-health-probe-missing');
