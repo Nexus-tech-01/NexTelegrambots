@@ -214,7 +214,8 @@ export async function menuModel({account,settings,commands,view='home',category=
 
 export async function stylesModel({account,settings}){
   const styles=(await listStyles()).filter(s=>s.id>0);
-  let text='🔮 ɴᴇxᴀɪ • ᴅɪᴘᴘᴇʀ • ѕᴛʏʟᴇѕ\n\n',spans=[];
+  const displayName=toSmallCaps(String(settings?.botDisplayName||'NEXAI').slice(0,32));
+  let text='🔮 '+displayName+' • ᴅɪᴘᴘᴇʀ • ѕᴛʏʟᴇѕ\n\n',spans=[];
   for(const s of styles){
     const command='/Style'+s.id;
     const start=text.length;
@@ -223,7 +224,7 @@ export async function stylesModel({account,settings}){
     text+=' • '+toSmallCaps(s.name)+(Number(settings.style)===s.id?' • '+toSmallCaps(localized(settings,'Actif','Active')):'')+'\n';
   }
   text+='\n'+toSmallCaps(localized(settings,'Choisis un style ci-dessous ou utilise /Style<numéro>.','Choose a style below or use /Style<number>.'))+
-    '\n♛ ɴᴇxᴀɪ • ᴅɪᴘᴘᴇʀ × ɴᴇxᴛᴇᴄʜ ♛';
+    '\n♛ '+displayName+' • ᴅɪᴘᴘᴇʀ × ɴᴇxᴛᴇᴄʜ ♛';
 
   const keyboard=[];
   for(let i=0;i<styles.length;i+=2){
