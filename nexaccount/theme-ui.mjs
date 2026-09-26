@@ -16,7 +16,7 @@ function fill(lines,data){
 const T={
   1:{
     header:[
-      '♰〔 𝗗𝗔𝗥𝗞 • 𝗗𝗜𝗣𝗣𝗘𝗥 〕',
+      '♰〔 𝗡𝗘𝗫𝗔𝗜 • 𝗗𝗔𝗥𝗞 𝗗𝗜𝗣𝗣𝗘𝗥 〕',
       '┃ 👤 {user}',
       '┃ ♛ ʀᴀɴɢ • {rank}',
       '┃ ⌁ ᴘʀᴇғɪx • [ {prefix} ]',
@@ -26,7 +26,7 @@ const T={
   },
   2:{
     header:[
-      '🍃〔 木ノ葉 • NARUTO 〕',
+      '🍃〔 NEXAI • 木ノ葉 / NARUTO 〕',
       '┃ 忍 {user}',
       '┃ 火 ʀᴀɴɢ • {rank}',
       '┃ 印 ᴘʀᴇғɪx • [ {prefix} ]',
@@ -36,7 +36,7 @@ const T={
   },
   3:{
     header:[
-      '◈〔 SHADOW GARDEN 〕',
+      '◈〔 NEXAI • SHADOW GARDEN 〕',
       '┃ 影 {user}',
       '┃ ◇ AUTHORITY • {rank}',
       '┃ ◇ TRIGGER • [ {prefix} ]',
@@ -56,7 +56,7 @@ const T={
   },
   5:{
     header:[
-      '《 PLAYER WINDOW 》',
+      '《 NEXAI • PLAYER WINDOW 》',
       '┃ ID • {user}',
       '┃ CLASS • {rank}',
       '┃ KEY • [ {prefix} ]',
@@ -66,7 +66,7 @@ const T={
   },
   6:{
     header:[
-      '✦〔 B-KOMACHI • AI 〕',
+      '✦〔 NEXAI • B-KOMACHI / AI 〕',
       '┃ ⭐ {user}',
       '┃ ♡ ѕᴛᴀɢᴇ • {rank}',
       '┃ 🎤 ᴄᴀʟʟ • [ {prefix} ]',
@@ -76,7 +76,7 @@ const T={
   },
   7:{
     header:[
-      '୨ৎ〔 RUBY • IDOL DREAM 〕',
+      '୨ৎ〔 NEXAI • RUBY / IDOL DREAM 〕',
       '┃ 🌸 {user}',
       '┃ ♡ STAR • {rank}',
       '┃ ✦ CALL • [ {prefix} ]',
@@ -86,7 +86,7 @@ const T={
   },
   8:{
     header:[
-      '♾〔 SIX EYES • GOJO 〕',
+      '♾〔 NEXAI • SIX EYES / GOJO 〕',
       '┃ 👁 {user}',
       '┃ ∞ STATUS • {rank}',
       '┃ ◉ INPUT • [ {prefix} ]',
@@ -96,7 +96,7 @@ const T={
   },
   9:{
     header:[
-      'oreki / nexai',
+      'nexai / oreki',
       '› {user}',
       '› access : {rank}',
       '› prefix : {prefix}',
@@ -106,7 +106,7 @@ const T={
   },
   10:{
     header:[
-      '୨୧〔 MARIN • COSPLAY MODE 〕',
+      '୨୧〔 NEXAI • MARIN / COSPLAY 〕',
       '┃ 🎀 {user}',
       '┃ ♡ ROLE • {rank}',
       '┃ ✂ CALL • [ {prefix} ]',
@@ -116,7 +116,7 @@ const T={
   },
   11:{
     header:[
-      '〔 SYSTEM NOTIFICATION 〕',
+      '〔 NEXAI • SYSTEM NOTIFICATION 〕',
       '┃ PLAYER • {user}',
       '┃ CLASS • {rank}',
       '┃ COMMAND • [ {prefix} ]',
@@ -126,7 +126,7 @@ const T={
   },
   12:{
     header:[
-      '👁〔 UCHIHA • MADARA 〕',
+      '👁〔 NEXAI • UCHIHA / MADARA 〕',
       '┃ USER • {user}',
       '┃ WAR RANK • {rank}',
       '┃ SEAL • [ {prefix} ]',
@@ -136,7 +136,7 @@ const T={
   },
   13:{
     header:[
-      '〔 KYŌKA SUIGETSU 〕',
+      '〔 NEXAI • KYŌKA SUIGETSU 〕',
       '┃ SUBJECT • {user}',
       '┃ CLEARANCE • {rank}',
       '┃ ORDER • [ {prefix} ]',
@@ -146,7 +146,7 @@ const T={
   },
   14:{
     header:[
-      '♔〔 ZERO • GEASS 〕',
+      '♔〔 NEXAI • ZERO / GEASS 〕',
       '┃ SUBJECT • {user}',
       '┃ AUTHORITY • {rank}',
       '┃ COMMAND • [ {prefix} ]',
@@ -156,7 +156,7 @@ const T={
   },
   15:{
     header:[
-      '⚔〔 SCOUT REGIMENT 〕',
+      '⚔〔 NEXAI • SCOUT REGIMENT 〕',
       '┃ SOLDIER • {user}',
       '┃ RANK • {rank}',
       '┃ SIGNAL • [ {prefix} ]',
@@ -166,7 +166,7 @@ const T={
   },
   16:{
     header:[
-      '☾〔 ANBU • ITACHI 〕',
+      '☾〔 NEXAI • ANBU / ITACHI 〕',
       '┃ IDENTITY • {user}',
       '┃ CLEARANCE • {rank}',
       '┃ SEAL • [ {prefix} ]',
@@ -176,7 +176,7 @@ const T={
   },
   17:{
     header:[
-      '☩〔 THE ALMIGHTY 〕',
+      '☩〔 NEXAI • THE ALMIGHTY 〕',
       '┃ SOUL • {user}',
       '┃ SCHRIFT • {rank}',
       '┃ WORD • [ {prefix} ]',
@@ -186,7 +186,7 @@ const T={
   },
   18:{
     header:[
-      '〔 NEXAI • BUSINESS 〕',
+      '〔 NEXAI • BUSINESS PRO 〕',
       '│ Account • {user}',
       '│ Access • {rank}',
       '│ Prefix • [ {prefix} ]',
@@ -196,7 +196,7 @@ const T={
   },
   19:{
     header:[
-      '🌒〔 NIGHT MARKET 〕',
+      '🌒〔 NEXAI • NIGHT MARKET 〕',
       '┃ BUYER • {user}',
       '┃ ACCESS • {rank}',
       '┃ SEAL • [ {prefix} ]',
@@ -206,7 +206,7 @@ const T={
   },
   20:{
     header:[
-      '☄〔 PURGE PROTOCOL 〕',
+      '☄〔 NEXAI • PURGE PROTOCOL 〕',
       '┃ TARGET • {user}',
       '┃ AUTHORITY • {rank}',
       '┃ ORDER • [ {prefix} ]',
@@ -217,7 +217,7 @@ const T={
   },
   21:{
     header:[
-      '🌙〔 MIO • MIDNIGHT 〕',
+      '🌙〔 NEXAI • MIO / MIDNIGHT 〕',
       '┃ 🖤 {user}',
       '┃ 𖦹 STATUS • {rank}',
       '┃ ୨୧ CALL • [ {prefix} ]',
@@ -227,7 +227,7 @@ const T={
   },
   22:{
     header:[
-      '☾〔 CALL OF THE NIGHT 〕',
+      '☾〔 NEXAI • CALL OF THE NIGHT 〕',
       '┃ 🦇 {user}',
       '┃ NIGHT ROLE • {rank}',
       '┃ CALL • [ {prefix} ]',
@@ -237,7 +237,7 @@ const T={
   },
   23:{
     header:[
-      '୨ৎ〔 FRAGRANT FLOWER 〕',
+      '୨ৎ〔 NEXAI • FRAGRANT FLOWER 〕',
       '┃ 🌸 {user}',
       '┃ ROLE • {rank}',
       '┃ PREFIX • [ {prefix} ]',
@@ -247,7 +247,7 @@ const T={
   },
   24:{
     header:[
-      '❄〔 ALYA • SECRET WORDS 〕',
+      '❄〔 NEXAI • ALYA / SECRET WORDS 〕',
       '┃ 🩵 {user}',
       '┃ STATUS • {rank}',
       '┃ PREFIX • [ {prefix} ]',
@@ -257,7 +257,7 @@ const T={
   },
   25:{
     header:[
-      '🍫〔 YAMADA • AFTER SCHOOL 〕',
+      '🍫〔 NEXAI • YAMADA / AFTER SCHOOL 〕',
       '┃ 🎬 {user}',
       '┃ ROLE • {rank}',
       '┃ PREFIX • [ {prefix} ]',
@@ -267,7 +267,7 @@ const T={
   },
   26:{
     header:[
-      '⚔〔 DEFENSE FORCE • HOSHINA 〕',
+      '⚔〔 NEXAI • DEFENSE FORCE / HOSHINA 〕',
       '┃ OFFICER • {user}',
       '┃ RANK • {rank}',
       '┃ TRIGGER • [ {prefix} ]',
@@ -277,7 +277,7 @@ const T={
   },
   27:{
     header:[
-      '⚽〔 BLUE LOCK • BACHIRA 〕',
+      '⚽〔 NEXAI • BLUE LOCK / BACHIRA 〕',
       '┃ PLAYER • {user}',
       '┃ EGO • {rank}',
       '┃ KICK • [ {prefix} ]',
@@ -287,7 +287,7 @@ const T={
   },
   28:{
     header:[
-      '🎯〔 BLUE LOCK • RIN 〕',
+      '🎯〔 NEXAI • BLUE LOCK / RIN 〕',
       '┃ TARGET • {user}',
       '┃ EGO • {rank}',
       '┃ INPUT • [ {prefix} ]',
@@ -297,7 +297,7 @@ const T={
   },
   29:{
     header:[
-      '🩸〔 POWER • THE GREAT 〕',
+      '🩸〔 NEXAI • POWER / THE GREAT 〕',
       '┃ HUMAN • {user}',
       '┃ STATUS • {rank}, OBVIOUSLY',
       '┃ ORDER • [ {prefix} ]',
@@ -307,7 +307,7 @@ const T={
   },
   30:{
     header:[
-      '🦋〔 BUTTERFLY ESTATE 〕',
+      '🦋〔 NEXAI • BUTTERFLY ESTATE 〕',
       '┃ GUEST • {user}',
       '┃ RANK • {rank}',
       '┃ DOSE • [ {prefix} ]',
@@ -317,7 +317,7 @@ const T={
   },
   31:{
     header:[
-      '⛩〔 ASAKUSA • COMPANY 7 〕',
+      '⛩〔 NEXAI • ASAKUSA / COMPANY 7 〕',
       '┃ FIRE SOLDIER • {user}',
       '┃ RANK • {rank}',
       '┃ SIGNAL • [ {prefix} ]',
