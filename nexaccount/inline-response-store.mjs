@@ -20,7 +20,7 @@ async function collection(){
   return c;
 }
 
-export async function putInlineResponse(text,{ttlMs=TTL_MS}={}){
+export async function putInlineResponse(text,{ttlMs=TTL_MS,accountId=''}={}){
   const token=crypto.randomBytes(12).toString('base64url');
   const now=new Date();
   const ttl=Math.max(10_000,Math.min(300_000,Number(ttlMs)||TTL_MS));
@@ -28,16 +28,18 @@ export async function putInlineResponse(text,{ttlMs=TTL_MS}={}){
   await c.insertOne({
     _id:token,
     text:String(text??'').slice(0,4096),
+    accountId:String(accountId||''),
     createdAt:now,
     expiresAt:new Date(now.getTime()+ttl)
   });
   return token;
 }
 
-export async function getInlineResponse(token){
+export async function getInlineResponse(token,accountId=''){
   const c=await collection();
   const row=await c.findOne({
     _id:String(token||''),
+    accountId:String(accountId||''),
     expiresAt:{$gt:new Date()}
   });
   if(!row)return null;
