@@ -4,6 +4,7 @@ import { TelegramClient, Api } from 'teleproto';
 import { StringSession } from 'teleproto/sessions/index.js';
 import { CustomFile } from 'teleproto/client/uploads.js';
 import { enqueueSourceEvent, hasEvent, markEventCompleted, normalizeInterrouteState, normalizeQueueItem } from './internal-event-core.mjs';
+import { createSocialFeed } from './social-feed.mjs';
 
 const dst=(process.env.NEXCANAL__APK_DESTINATION||process.env.NEXCANAL__WATCHER_DESTINATION||'thenexusorigin').replace(/^@/,'').trim();
 const token=(process.env.NEXCANAL__BOT_TOKEN||'').trim();
@@ -567,6 +568,13 @@ async function run(session){
   void runEngagement(true);
   let nextEngagementAt=Date.now()+engagementPollMs;
 
+  const socialFeed=createSocialFeed({bot,log,warn});
+  await socialFeed.init();
+  // Publish one visual post immediately after a successful runtime restart.
+  // WhatsApp failures are retained in the feed state and retried without
+  // duplicating the Telegram publication.
+  void socialFeed.tick({force:true});
+
   // Migrate the old LiteAPK cursor if this is the first v2 run.
   try{
     const oldPath=process.env.NEXCANAL__WATCHER_OLD_STATE_FILE||'/home/container/.nexcontrol/nexcanal-liteapks-state.json';
@@ -596,6 +604,7 @@ async function run(session){
         nextEngagementAt=Date.now()+engagementPollMs;
         void runEngagement(false);
       }
+      void socialFeed.tick();
     }catch(e){
       const message=String(e?.message||e);
       warn('cycle failed',message);
