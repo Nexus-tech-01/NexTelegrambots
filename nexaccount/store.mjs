@@ -23,7 +23,8 @@ export async function db(){
       d.collection('nexaccount_accounts').createIndex({enabled:1,runtimeBucket:1,connectedAt:1}),
       d.collection('nexaccount_settings').createIndex({telegramUserId:1},{unique:true}),
       d.collection('nexaccount_runtime_leases').createIndex({expiresAt:1},{expireAfterSeconds:0}),
-      d.collection('nexaccount_pairing_state').createIndex({expiresAt:1},{expireAfterSeconds:0})
+      d.collection('nexaccount_pairing_state').createIndex({expiresAt:1},{expireAfterSeconds:0}),
+      d.collection('nexaccount_command_claims').createIndex({expiresAt:1},{expireAfterSeconds:0})
     ]).catch(e=>{indexesReady=false;throw e;});
     await d.collection('nexaccount_accounts').updateMany(
       {runtimeBucket:{$exists:false}},
@@ -188,6 +189,26 @@ export async function releaseRuntimeLease(telegramUserId,workerId=cfg.workerId){
   const d=await db();
   const result=await d.collection('nexaccount_runtime_leases').deleteOne({_id:String(telegramUserId),workerId:String(workerId)});
   return result.deletedCount===1;
+}
+
+export async function claimCommandDelivery(telegramUserId,commandKey,{ttlMs=24*60*60*1000}={}){
+  const d=await db();
+  const now=new Date();
+  const ttl=Math.max(60_000,Math.min(7*24*60*60*1000,Number(ttlMs)||24*60*60*1000));
+  const id=String(telegramUserId)+':'+String(commandKey||'');
+  try{
+    await d.collection('nexaccount_command_claims').insertOne({
+      _id:id,
+      telegramUserId:String(telegramUserId),
+      commandKey:String(commandKey||''),
+      createdAt:now,
+      expiresAt:new Date(now.getTime()+ttl)
+    });
+    return true;
+  }catch(error){
+    if(Number(error?.code)===11000)return false;
+    throw error;
+  }
 }
 
 export async function accountRecord(telegramUserId){
