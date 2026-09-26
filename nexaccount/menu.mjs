@@ -146,8 +146,8 @@ export async function menuModel({account,settings,commands,view='home',category=
     const label=toSmallCaps(CATEGORY_LABELS[category]||category);
     const themedLabel=(FALLBACK_EMOJI[category]||'')+(FALLBACK_EMOJI[category]?' ':'')+label;
     const themed=renderThemeCategory(style.id,themedLabel);
-    body=header+'\n\n'+themed.title+'\n';
-    body+=toSmallCaps(localized(settings,'Commandes','Commands'))+' • '+list.length+'\n\n';
+    body=header+'\n'+themed.title+'\n';
+    body+=toSmallCaps(localized(settings,'Commandes','Commands'))+' • '+list.length+'\n';
 
     const visibleCommands=list.map(cmd=>({
       name:cmd.name,
@@ -161,7 +161,7 @@ export async function menuModel({account,settings,commands,view='home',category=
     const shift=body.length;
     body+=ct.text;
     spans.push(...ct.spans.map(x=>({...x,start:x.start+shift})));
-    if(themed.footer)body+='\n'+themed.footer;
+    if(themed.footer)body+=themed.footer;
   }else{
     body=header;
   }
