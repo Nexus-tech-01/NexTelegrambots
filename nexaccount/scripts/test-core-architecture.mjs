@@ -36,4 +36,7 @@ for(const forbidden of [
   assert.equal(runtimeSource.includes(forbidden),false,'runtime.mjs still owns engine routing: '+forbidden);
 }
 
+const inlineSource=fs.readFileSync(path.resolve(here,'../inline-bot.mjs'),'utf8');
+assert.equal(inlineSource.includes("from './runtime.mjs'"),false,'inline-bot must not import the multi-session runtime directly');
+
 console.log('core architecture ok');
