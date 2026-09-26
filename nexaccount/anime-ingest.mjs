@@ -18,7 +18,7 @@ const NEXCANAL_STAGE_BOT=String(process.env.NEXANIME_NEXCANAL_BOT||'the_big_dipp
 const NEXCANAL_HANDOFF_COLLECTION='nexanime_nexcanal_handoffs';
 const NEXCANAL_HANDOFF_TIMEOUT_MS=Math.max(15_000,Number(process.env.NEXANIME_NEXCANAL_HANDOFF_TIMEOUT_MS||120_000));
 const DISCOVERY_MS=Math.max(15*60*1000,Number(process.env.NEXANIME_DISCOVERY_MS||6*60*60*1000));
-const PUBLISH_MS=Math.max(5000,Number(process.env.NEXANIME_PUBLISH_MS||15000));
+const PUBLISH_MS=Math.max(15*60*1000,Number(process.env.NEXANIME_PUBLISH_MS||15*60*1000));
 const INTER_SERIES_MS=Math.max(60_000,Number(process.env.NEXANIME_INTER_SERIES_MS||2*60*60*1000));
 const PUBLISHER_LEASE_GRACE_MS=Math.max(INTER_SERIES_MS+60_000,Number(process.env.NEXANIME_PUBLISHER_LEASE_GRACE_MS||INTER_SERIES_MS+5*60*1000));
 const POLL_MS=Math.max(30000,Number(process.env.NEXANIME_POLL_MS||60000));
@@ -2205,7 +2205,7 @@ export function animeIngestStatus(runtime){
     lastDiscoveryAt:a.lastDiscoveryAt||null,lastBackfillAt:a.lastBackfillAt||null,
     lastBackfillCount:a.lastBackfillCount||0,lastPollAt:a.lastPollAt||null,
     lastPollCount:a.lastPollCount||0,discovering:a.discovering===true,polling:a.polling===true,
-    interSeriesMs:INTER_SERIES_MS
+    publishMs:PUBLISH_MS,interSeriesMs:INTER_SERIES_MS
   };
 }
 
