@@ -89,7 +89,7 @@ async function cascade(label,attempts){
   }
   throw new Error(label+' indisponible · '+errors.slice(-4).join(' | '));
 }
-async function sendRemote(client,peer,url,{caption='',fileName='media.bin',maxBytes=MAX_MEDIA_BYTES}={}){
+async function sendRemote(client,peer,url,{caption='',fileName='media.bin',maxBytes=MAX_MEDIA_BYTES,afterSend=null}={}){
   const r=await response(url,{headers:{accept:'*/*'}},120000);
   const declared=Number(r.headers.get('content-length')||0);
   if(declared&&declared>maxBytes)throw new Error('fichier trop volumineux ('+Math.round(declared/1024/1024)+' Mo)');
@@ -100,7 +100,7 @@ async function sendRemote(client,peer,url,{caption='',fileName='media.bin',maxBy
   if(/(?:text\/html|application\/json)/i.test(type))throw new Error('la source a renvoyé une page/API au lieu du média');
   const ext=extFromType(type,url);
   const finalName=fileName.includes('.')?fileName:(fileName+'.'+ext);
-  return sendTelegramMedia(client,peer,buf,{fileName:finalName,caption,mimeType:type,kind:'auto'});
+  return sendTelegramMedia(client,peer,buf,{fileName:finalName,caption,mimeType:type,kind:'auto',afterSend});
 }
 async function resolveYoutube(input){
   const raw=clean(input);
@@ -157,14 +157,14 @@ async function youtubeVideo(input){
   ]);
   return {...result,target};
 }
-async function tiktokMedia(client,peer,url){
+async function tiktokMedia(client,peer,url,afterSend=null){
   if(!/tiktok\.com\//i.test(url))throw new Error('lien TikTok invalide');
 
   // Prefer the local downloader. Public APIs frequently rate-limit/block server
   // traffic (403/503), so they are fallbacks rather than the only path.
   let localError=null;
   try{
-    await sendLocalTikTok(client,peer,url);
+    await sendLocalTikTok(client,peer,url,afterSend);
     return {sent:true,title:'TikTok',source:'yt-dlp local'};
   }catch(error){
     localError=error;
@@ -180,7 +180,7 @@ async function tiktokMedia(client,peer,url){
         const v=d?.download_url||d?.downloadUrl||d?.url;
         if(!isHttp(v))return null;
         const title=d?.title||'TikTok';
-        await sendRemote(client,peer,v,{caption:'NexAi · Download\n'+title+'\nSource : SLBJS',fileName:'tiktok.mp4'});
+        await sendRemote(client,peer,v,{caption:'NexAi · Download\n'+title+'\nSource : SLBJS',fileName:'tiktok.mp4',afterSend});
         return {sent:true,title};
       }],
       ['Siputzx',async()=>{
@@ -188,7 +188,7 @@ async function tiktokMedia(client,peer,url){
         const v=d?.data?.urls?.[0]||d?.data?.video_url||d?.data?.url||d?.data?.download_url;
         if(!isHttp(v))return null;
         const title=d?.data?.metadata?.title||'TikTok';
-        await sendRemote(client,peer,v,{caption:'NexAi · Download\n'+title+'\nSource : Siputzx',fileName:'tiktok.mp4'});
+        await sendRemote(client,peer,v,{caption:'NexAi · Download\n'+title+'\nSource : Siputzx',fileName:'tiktok.mp4',afterSend});
         return {sent:true,title};
       }],
       ['TikWM',async()=>{
@@ -197,14 +197,14 @@ async function tiktokMedia(client,peer,url){
         const v=d?.data?.hdplay||d?.data?.play;
         if(!isHttp(v))return null;
         const title=d?.data?.title||'TikTok';
-        await sendRemote(client,peer,v,{caption:'NexAi · Download\n'+title+'\nSource : TikWM',fileName:'tiktok.mp4'});
+        await sendRemote(client,peer,v,{caption:'NexAi · Download\n'+title+'\nSource : TikWM',fileName:'tiktok.mp4',afterSend});
         return {sent:true,title};
       }],
       ['Cobalt',async()=>{
         const d=await postJson('http://127.0.0.1:9000/',{url,downloadMode:'auto',videoQuality:'max',allowH265:false});
         const v=cobaltUrl(d);
         if(!v)return null;
-        await sendRemote(client,peer,v,{caption:'NexAi · Download\nTikTok\nSource : Cobalt',fileName:'tiktok.mp4'});
+        await sendRemote(client,peer,v,{caption:'NexAi · Download\nTikTok\nSource : Cobalt',fileName:'tiktok.mp4',afterSend});
         return {sent:true,title:'TikTok'};
       }]
     ]);
@@ -376,13 +376,14 @@ async function localTikTokFile(url){
   }
 }
 
-async function sendLocalTikTok(client,peer,url){
+async function sendLocalTikTok(client,peer,url,afterSend=null){
   const media=await localTikTokFile(url);
   await sendTelegramMedia(client,peer,media.buffer,{
     fileName:media.fileName,
     caption:'NexAi · Download\nTikTok\nSource : yt-dlp local',
     mimeType:media.mimeType,
-    kind:'video'
+    kind:'video',
+    afterSend
   });
   return true;
 }
@@ -440,13 +441,14 @@ async function localYoutubeFile(input,mode='audio'){
   }
 }
 
-async function sendLocalYoutube(client,peer,input,mode='audio'){
+async function sendLocalYoutube(client,peer,input,mode='audio',afterSend=null){
   const media=await localYoutubeFile(input,mode);
   await sendTelegramMedia(client,peer,media.buffer,{
     fileName:media.fileName,
     caption:'NexAi · Download\n'+media.title+'\nSource : yt-dlp local',
     mimeType:media.mimeType,
-    kind:mode==='video'?'video':'audio'
+    kind:mode==='video'?'video':'audio',
+    afterSend
   });
   return true;
 }
@@ -522,7 +524,7 @@ async function localSocialFiles(url,label='Media'){
   }
 }
 
-async function sendLocalSocial(client,peer,url,label='Media'){
+async function sendLocalSocial(client,peer,url,label='Media',afterSend=null){
   const files=await localSocialFiles(url,label);
   for(let i=0;i<files.length;i++){
     const media=files[i];
@@ -530,7 +532,8 @@ async function sendLocalSocial(client,peer,url,label='Media'){
       fileName:media.fileName,
       caption:i===0?'NexAi · Download\n'+label+'\nSource : yt-dlp local':'',
       mimeType:media.mimeType,
-      kind:'auto'
+      kind:'auto',
+      afterSend:i===files.length-1?afterSend:null
     });
   }
   return true;
@@ -645,7 +648,7 @@ function detectDownloadService(url){
   return '';
 }
 
-async function localToMp3(client,peer,message){
+async function localToMp3(client,peer,message,afterSend=null){
   const source=await repliedOrCurrentMedia(client,peer,message);
   if(!source?.media)throw new Error('Réponds à un audio ou une vidéo, ou donne un lien/titre après .tomp3.');
   const buffer=Buffer.from(await client.downloadMedia(source));
@@ -658,7 +661,7 @@ async function localToMp3(client,peer,message){
     await runFfmpeg(['-i',input,'-vn','-c:a','libmp3lame','-b:a','192k',output]);
     const out=fs.readFileSync(output);
     if(!out.length)throw new Error('conversion MP3 vide');
-    await sendTelegramMedia(client,peer,out,{fileName:'nexai-audio.mp3',caption:'NexAi · conversion MP3 locale',mimeType:'audio/mpeg',kind:'audio'});
+    await sendTelegramMedia(client,peer,out,{fileName:'nexai-audio.mp3',caption:'NexAi · conversion MP3 locale',mimeType:'audio/mpeg',kind:'audio',afterSend});
   }finally{
     try{fs.unlinkSync(input)}catch{}
     try{fs.unlinkSync(output)}catch{}
@@ -717,30 +720,31 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
     if(progress?.step)await progress.step(label);
     else if(progress?.update)await progress.update('⏳ '+label);
   };
+  const mediaCta=typeof reply==='function'?()=>reply(''):null;
 
   if(command==='song'){
     await step('YouTube audio · recherche et téléchargement…');
-    try{return await sendLocalYoutube(client,peer,input,'audio')}
+    try{return await sendLocalYoutube(client,peer,input,'audio',mediaCta)}
     catch(localError){
       console.warn('[NexAi download yt-dlp audio]',String(localError?.message||localError).slice(0,500));
     }
     const r=await youtubeAudio(input);
-    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'audio')+'.mp3'});
+    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'audio')+'.mp3',afterSend:mediaCta});
     return true;
   }
   if(command==='video'){
     await step('YouTube vidéo · recherche et téléchargement…');
-    try{return await sendLocalYoutube(client,peer,input,'video')}
+    try{return await sendLocalYoutube(client,peer,input,'video',mediaCta)}
     catch(localError){
       console.warn('[NexAi download yt-dlp video]',String(localError?.message||localError).slice(0,500));
     }
     const r=await youtubeVideo(input);
-    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'video')+'.mp4'});
+    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'video')+'.mp4',afterSend:mediaCta});
     return true;
   }
   if(command==='tiktok'){
     await step('TikTok · récupération de la vidéo…');
-    await tiktokMedia(client,peer,input);
+    await tiktokMedia(client,peer,input,mediaCta);
     return true;
   }
   if(command==='download'){
@@ -748,71 +752,71 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
     if(!isHttp(input))throw new Error('usage : .download <lien>');
     const detected=detectDownloadService(input);
     if(detected)return executeDipperFallback({client,peer,name:detected,args:[input],event,progress,reply});
-    return sendLocalSocial(client,peer,input,'Media');
+    return sendLocalSocial(client,peer,input,'Media',mediaCta);
   }
   if(command==='instagram'){
     await step('Instagram · récupération du média…');
-    try{return await sendLocalSocial(client,peer,input,'Instagram')}
+    try{return await sendLocalSocial(client,peer,input,'Instagram',mediaCta)}
     catch(localError){console.warn('[NexAi download Instagram local]',String(localError?.message||localError).slice(0,500))}
     const r=await instagramMedia(input);
     const urls=(r.urls||[]).slice(0,10);
     if(!urls.length)throw new Error('aucun média Instagram');
     for(let i=0;i<urls.length;i++){
-      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\nInstagram · '+r.source:'',fileName:'instagram-'+(i+1)});
+      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\nInstagram · '+r.source:'',fileName:'instagram-'+(i+1),afterSend:i===urls.length-1?mediaCta:null});
     }
     return true;
   }
   if(command==='facebook'){
     await step('Facebook · récupération du média…');
-    try{return await sendLocalSocial(client,peer,input,'Facebook')}
+    try{return await sendLocalSocial(client,peer,input,'Facebook',mediaCta)}
     catch(localError){console.warn('[NexAi download Facebook local]',String(localError?.message||localError).slice(0,500))}
     const r=await facebookMedia(input);
-    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\nFacebook · '+r.source,fileName:'facebook.mp4'});
+    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\nFacebook · '+r.source,fileName:'facebook.mp4',afterSend:mediaCta});
     return true;
   }
   if(command==='pinterest'){
     await step('Pinterest · récupération du média…');
-    try{return await sendLocalSocial(client,peer,input,'Pinterest')}
+    try{return await sendLocalSocial(client,peer,input,'Pinterest',mediaCta)}
     catch(localError){console.warn('[NexAi download Pinterest local]',String(localError?.message||localError).slice(0,500))}
     const r=await pinterestMedia(input);
-    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+(r.author?'\nAuteur : '+r.author:'')+'\nSource : '+r.source,fileName:'pinterest'});
+    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+(r.author?'\nAuteur : '+r.author:'')+'\nSource : '+r.source,fileName:'pinterest',afterSend:mediaCta});
     return true;
   }
 
   if(command==='snapchat'){
     await step('Snapchat · récupération du média…');
-    try{return await sendLocalSocial(client,peer,input,'Snapchat')}
+    try{return await sendLocalSocial(client,peer,input,'Snapchat',mediaCta)}
     catch(localError){console.warn('[NexAi download Snapchat local]',String(localError?.message||localError).slice(0,500))}
     const r=await snapchatMedia(input);
     const urls=(r.urls||[]).slice(0,10);
     if(!urls.length)throw new Error('aucun média Snapchat');
     for(let i=0;i<urls.length;i++){
-      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\nSnapchat · '+r.source:'',fileName:'snapchat-'+(i+1)});
+      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\nSnapchat · '+r.source:'',fileName:'snapchat-'+(i+1),afterSend:i===urls.length-1?mediaCta:null});
     }
     return true;
   }
   if(command==='capcut'){
     await step('CapCut · récupération du média…');
-    try{return await sendLocalSocial(client,peer,input,'CapCut')}
+    try{return await sendLocalSocial(client,peer,input,'CapCut',mediaCta)}
     catch(localError){console.warn('[NexAi download CapCut local]',String(localError?.message||localError).slice(0,500))}
     const r=await capcutMedia(input);
     const urls=(r.urls||[]).slice(0,5);
     if(!urls.length)throw new Error('aucun média CapCut');
     for(let i=0;i<urls.length;i++){
-      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\nCapCut · '+r.source:'',fileName:'capcut-'+(i+1)+'.mp4'});
+      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\nCapCut · '+r.source:'',fileName:'capcut-'+(i+1)+'.mp4',afterSend:i===urls.length-1?mediaCta:null});
     }
     return true;
   }
   if(['twitter','reddit','soundcloud','vimeo','tumblr'].includes(command)){
     const label={twitter:'X / Twitter',reddit:'Reddit',soundcloud:'SoundCloud',vimeo:'Vimeo',tumblr:'Tumblr'}[command]||command;
     await step(label+' · récupération du média…');
-    try{return await sendLocalSocial(client,peer,input,label)}
+    try{return await sendLocalSocial(client,peer,input,label,mediaCta)}
     catch(localError){console.warn('[NexAi download '+label+' local]',String(localError?.message||localError).slice(0,500))}
     const r=await genericSocialMedia(input,label);
     const urls=(r.urls||[]).slice(0,10);
     if(!urls.length)throw new Error('aucun média '+label);
     for(let i=0;i<urls.length;i++){
-      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\n'+label+' · '+r.source:'',fileName:command+'-'+(i+1)});
+      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\n'+label+' · '+r.source:'',fileName:command+'-'+(i+1),afterSend:i===urls.length-1?mediaCta:null});
     }
     return true;
   }
@@ -820,15 +824,15 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
   if(command==='tomp3'){
     await step('Conversion MP3 · traitement…');
     if(input){
-      try{return await sendLocalYoutube(client,peer,input,'audio')}
+      try{return await sendLocalYoutube(client,peer,input,'audio',mediaCta)}
       catch(localError){
         console.warn('[NexAi download yt-dlp tomp3]',String(localError?.message||localError).slice(0,500));
       }
       const r=await youtubeAudio(input);
-      await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'audio')+'.mp3'});
+      await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'audio')+'.mp3',afterSend:mediaCta});
       return true;
     }
-    return localToMp3(client,peer,event?.message);
+    return localToMp3(client,peer,event?.message,mediaCta);
   }
   if(command==='lyrics'){
     await step('Paroles · recherche…');
@@ -867,7 +871,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
   if(command==='apk'){
     await step('APK · recherche de l’application…');
     const r=await apkSearch(input);
-    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\n'+r.pkg+' · '+r.version+'\nSource : F-Droid',fileName:safeName(r.pkg+'_'+r.version)+'.apk',maxBytes:MAX_MEDIA_BYTES});
+    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\n'+r.pkg+' · '+r.version+'\nSource : F-Droid',fileName:safeName(r.pkg+'_'+r.version)+'.apk',maxBytes:MAX_MEDIA_BYTES,afterSend:mediaCta});
     return true;
   }
   return false;
