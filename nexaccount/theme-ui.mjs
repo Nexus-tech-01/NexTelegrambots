@@ -38,7 +38,7 @@ const T={
   },
   3:{
     header:[
-      '◈〔 {bot} • SHADOW GARDEN 〕',
+      '🕶️〔 {bot} • SHADOW GARDEN 〕',
       '┃ 影 {user}',
       '┃ ◇ AUTHORITY • {rank}',
       '┃ ◇ TRIGGER • [ {prefix} ]',
@@ -48,7 +48,7 @@ const T={
   },
   4:{
     header:[
-      '┌─[ {bot}://ROOT ]',
+      '💻 [ {bot}://ROOT ]',
       '├ user   {user}',
       '├ access {rank}',
       '├ prefix {prefix}',
@@ -58,7 +58,7 @@ const T={
   },
   5:{
     header:[
-      '《 {bot} • PLAYER WINDOW 》',
+      '⚔️《 {bot} • PLAYER WINDOW 》',
       '┃ ID • {user}',
       '┃ CLASS • {rank}',
       '┃ KEY • [ {prefix} ]',
@@ -98,7 +98,7 @@ const T={
   },
   9:{
     header:[
-      '{bot} / oreki',
+      '🌿 {bot} / oreki',
       '› {user}',
       '› access : {rank}',
       '› prefix : {prefix}',
@@ -188,7 +188,7 @@ const T={
   },
   18:{
     header:[
-      '〔 {bot} • BUSINESS PRO 〕',
+      '📊〔 {bot} • BUSINESS PRO 〕',
       '│ Account • {user}',
       '│ Access • {rank}',
       '│ Prefix • [ {prefix} ]',
