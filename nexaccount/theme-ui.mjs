@@ -6,10 +6,8 @@ function fill(lines,data){
   const prefix=clean(data.prefix)||'.';
   const count=Number(data.count)||0;
   const bot=(clean(data.botName)||'NEXAI').slice(0,32);
-  const botkey=bot.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9_]+/g,'_').replace(/^_+|_+$/g,'').slice(0,24)||'nexai';
   return lines.map(line=>line
     .replaceAll('{bot}',bot)
-    .replaceAll('{botkey}',botkey)
     .replaceAll('{user}',user)
     .replaceAll('{rank}',rank.toUpperCase())
     .replaceAll('{prefix}',prefix)
