@@ -5,6 +5,7 @@ import { commandMap } from './commands.mjs';
 import { accountRecord, settingsFor, patchSettings } from './store.mjs';
 import { menuModel, stylesModel } from './menu.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
+import { getInlineResponse } from './inline-response-store.mjs';
 import { observeUser, recordEvent } from './analytics.mjs';
 import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
 import { listStyles, toSmallCaps } from './styles.mjs';
@@ -150,9 +151,54 @@ function inlineResult(model,accountId,id='menu',forceArticle=false,portable=fals
   };
 }
 
+function inlineReplyModel(value){
+  const raw=String(value??'').trim();
+  const label='By Nextech';
+  const maxBase=Math.max(0,4096-label.length-2);
+  const base=raw.slice(0,maxBase);
+  const text=base+(base?'\n\n':'')+label;
+  const entities=[];
+  for(const m of text.matchAll(/\/[a-z][a-z0-9_]{0,63}/gi)){
+    entities.push({
+      type:'bot_command',
+      offset:utf16len(text.slice(0,m.index)),
+      length:utf16len(m[0])
+    });
+  }
+  const linkStart=text.lastIndexOf(label);
+  if(cfg.nextechUrl&&linkStart>=0){
+    entities.push({
+      type:'text_link',
+      offset:utf16len(text.slice(0,linkStart)),
+      length:utf16len(label),
+      url:cfg.nextechUrl
+    });
+  }
+  const inline_keyboard=[];
+  if(cfg.nextechUrl){
+    inline_keyboard.push([{
+      text:'ɴᴇxᴛᴇᴄʜ',
+      url:cfg.nextechUrl,
+      style:'success'
+    }]);
+  }
+  return {
+    text,
+    entities,
+    reply_markup:{inline_keyboard},
+    photoUrl:''
+  };
+}
+
 async function modelFor(account,query){
   const settings=await settingsFor(account.telegramUserId);
-  const q=String(query||'').trim().toLowerCase();
+  const rawQuery=String(query||'').trim();
+  const q=rawQuery.toLowerCase();
+  if(q.startsWith('reply:')){
+    const token=rawQuery.slice('reply:'.length).trim();
+    const row=getInlineResponse(token);
+    return inlineReplyModel(row?.text||'Réponse expirée. Relance la commande.');
+  }
   if(q==='styles'||q==='style')return stylesModel({account,settings});
   if(q.startsWith('cat:')){
     const [,catRaw,pageRaw='0']=q.split(':');
