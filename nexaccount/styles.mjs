@@ -123,13 +123,31 @@ const directImageCache=new Map();
 const lastStyleImage=new Map();
 const characterImageCache=new Map();
 const CHARACTER_ARTWORK={
-  11:'Sung Jin-Woo',
+  2:'Naruto Uzumaki',
+  3:'Cid Kagenou',
+  6:'Ai Hoshino',
+  7:'Ruby Hoshino',
+  8:'Satoru Gojo',
+  9:'Houtarou Oreki',
+  10:'Marin Kitagawa',
+  11:'Sung Jinwoo',
   12:'Madara Uchiha',
-  13:'Sosuke Aizen',
+  13:'Sousuke Aizen',
   14:'Lelouch Lamperouge',
   15:'Eren Yeager',
   16:'Itachi Uchiha',
-  17:'Yhwach'
+  17:'Yhwach',
+  21:'Mio Haimiya',
+  22:'Nazuna Nanakusa',
+  23:'Kaoruko Waguri',
+  24:'Alisa Mikhailovna Kujou',
+  25:'Anna Yamada',
+  26:'Soshiro Hoshina',
+  27:'Meguru Bachira',
+  28:'Rin Itoshi',
+  29:'Power',
+  30:'Shinobu Kocho',
+  31:'Benimaru Shinmon'
 };
 const INLINE_PHOTO_MAX_BYTES=5*1024*1024;
 const IMAGE_CACHE_OK_MS=60*60*1000;
