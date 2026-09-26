@@ -347,6 +347,37 @@ function makeZip(files){
   return Buffer.concat([...locals,...centrals,end]);
 }
 
+function isWebp(buffer){
+  const b=Buffer.from(buffer||[]);
+  return b.length>=12&&b.toString('ascii',0,4)==='RIFF'&&b.toString('ascii',8,12)==='WEBP';
+}
+function isPng(buffer){
+  const b=Buffer.from(buffer||[]);
+  return b.length>=8&&b[0]===0x89&&b.toString('ascii',1,4)==='PNG'&&b[4]===0x0d&&b[5]===0x0a&&b[6]===0x1a&&b[7]===0x0a;
+}
+export function buildWastickersArchive({title='NexAi Stickers',author='NexAi',stickers=[],cover}={}){
+  const rows=Array.isArray(stickers)?stickers:[];
+  if(rows.length<3||rows.length>30)throw new Error('wastickers : 3 à 30 stickers requis');
+  const coverBuffer=Buffer.from(cover||[]);
+  if(!isPng(coverBuffer))throw new Error('wastickers : cover.png doit être un PNG valide');
+  if(coverBuffer.length>50*1024)throw new Error('wastickers : cover.png dépasse 50 Ko');
+
+  const files=[
+    {name:'title.txt',data:Buffer.from(String(title||'NexAi Stickers').slice(0,128),'utf8')},
+    {name:'author.txt',data:Buffer.from(String(author||'NexAi').slice(0,128),'utf8')},
+    {name:'cover.png',data:coverBuffer}
+  ];
+  rows.forEach((item,index)=>{
+    const buffer=Buffer.from(item?.buffer||item||[]);
+    const animated=item?.animated===true;
+    if(!isWebp(buffer))throw new Error('wastickers : sticker '+(index+1)+' n’est pas un WebP valide');
+    const limit=(animated?500:100)*1024;
+    if(buffer.length>limit)throw new Error('wastickers : sticker '+(index+1)+' dépasse '+(animated?500:100)+' Ko');
+    files.push({name:'sticker_'+String(index+1).padStart(2,'0')+'.webp',data:buffer});
+  });
+  return makeZip(files);
+}
+
 export const STICKER_ENGINE_COMMANDS=new Set(['sticker','stickerinfo','clonepack','createpack','mypacks','exportwhatsapp']);
 export function canHandleStickerCommand(name){return STICKER_ENGINE_COMMANDS.has(String(name||'').toLowerCase())}
 
@@ -434,16 +465,12 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
 
     const title=clean(set?.set?.title)||automaticPackTitle(account);
     const author=accountDisplayName(account);
-    const files=[
-      {name:'title.txt',data:Buffer.from(title,'utf8')},
-      {name:'author.txt',data:Buffer.from(author,'utf8')},
-      {name:'cover.png',data:tray}
-    ];
-    stickers.slice(0,30).forEach((item,i)=>files.push({
-      name:'sticker_'+String(i+1).padStart(2,'0')+'.webp',
-      data:item.buffer
-    }));
-    const pack=makeZip(files);
+    const pack=buildWastickersArchive({
+      title,
+      author,
+      cover:tray,
+      stickers:stickers.slice(0,30)
+    });
     const safe=safeBase(title,48)||'nexai-pack';
     await progress.update('⬆️ WhatsApp stickers · envoi du fichier…');
     await sendTelegramMedia(client,peer,pack,{
