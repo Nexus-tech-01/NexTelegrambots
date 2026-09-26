@@ -11,16 +11,21 @@ After Telegram authentication, the MTProto session string is encrypted with AES-
 ## Menu
 
 - `.menu` asks the normal NexAI bot for an inline result and the **user account** sends that result.
-- The entire menu text/caption is one Telegram `expandable_blockquote`.
-- Commands inside category pages are native `bot_command` entities, so they render blue/clickable.
-- Categories are colored inline buttons (primary) and external Nextech/NexNews/Dark Universe buttons are URL buttons.
-- Custom emoji button icons are read from `NEXAI_EMOJI_*`.
+- The compact **header only** is a Telegram blockquote; the command list remains outside the quote.
+- A category is kept in **one editable Telegram text message** with no page splitting.
+- Commands inside categories are native `bot_command` entities, so `/Ping`, `/Menu`, etc. remain blue/clickable.
+- Artwork is rendered above the text as a large link preview instead of a media caption, avoiding Telegram's caption-size/layout problems.
+- Categories use compact two-column inline rows; Nextech/NexNews/Dark Universe remain URL buttons.
+- Custom emoji IDs can come from `NEXAI_EMOJI_*` or from the connected session's own `.menuemoji` configuration.
+- `.menuemoji current`, `.menuemoji anime`, `.menuemoji download`, `.menuemoji style_7`, etc. register an emoji from a replied Telegram custom-emoji message for that session only.
 - Menu styles are synchronized from THE BIG DIPPER at deploy time. Style 0 is excluded.
 - `.style` shows the styles; `.style N` and `/styleN` change the active style.
 
 ## Runtime
 
 Saved accounts reconnect automatically after daemon restart. NexAi × Dipper now executes its command engines locally: AI, downloads, group/admin tools, stickers, games, anime and audio processing do not depend on sibling Telegram bots. Telegram-native adapters live inside `nexaccount`.
+
+Long-running actions use an editable progress message instead of going silent. Sticker export produces a `.wastickers` package with WebP validation; static, video-WebP and Telegram TGS/Lottie sources are converted through the local media pipeline before packaging.
 
 The account session is not disguised as an official Telegram client: it is a normal third-party MTProto client and remains subject to Telegram permissions, flood limits and feature restrictions.
 
