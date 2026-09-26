@@ -740,8 +740,14 @@ async function pollRecentCommands(runtime){
     if(!client.connected)return;
     const settings=await settingsFor(account.telegramUserId);
     const prefix=String(settings.prefix||'.');
-    const since=Number(runtime.commandPollStartedAt||runtime.startedAt?.getTime?.()||Date.now())-1500;
     const now=Date.now();
+    // Only scan messages that appeared since the previous poll. Using the
+    // runtime start forever caused the same historical command to become
+    // eligible again as soon as the in-memory dedupe TTL expired.
+    const previousPollAt=runtime.lastCommandPollAt instanceof Date
+      ? runtime.lastCommandPollAt.getTime()
+      : Number(runtime.commandPollStartedAt||runtime.startedAt?.getTime?.()||now);
+    const since=previousPollAt-1500;
 
     async function inspect(message,isGroup=false){
       if(!message)return;
@@ -791,7 +797,9 @@ async function pollRecentCommands(runtime){
       }
     }
 
-    runtime.lastCommandPollAt=new Date();
+    // Advance the watermark to the start of this poll. The 1.5 s overlap above
+    // absorbs Telegram/client clock jitter without replaying old commands.
+    runtime.lastCommandPollAt=new Date(now);
     runtime.commandPollFailures=0;
   }catch(error){
     runtime.commandPollFailures=(runtime.commandPollFailures||0)+1;
