@@ -164,6 +164,7 @@ async function resolveChannel(){
 
 async function connectWhatsApp({freshPairing=false}={}){
   const generation=++socketGeneration;
+  const socketStartedAt=Date.now();
   clearTimeout(reconnectTimer);
 
   if(freshPairing&&socket){
@@ -193,6 +194,15 @@ async function connectWhatsApp({freshPairing=false}={}){
     browser:Browsers.ubuntu('Chrome'),
     markOnlineOnConnect:false,
     syncFullHistory:false,
+    shouldSyncHistoryMessage:()=>false,
+    // A fresh companion may receive encrypted backlog created for an older
+    // Signal state. Quarantine that backlog briefly, then keep ignoring only
+    // direct/status traffic. Group/newsletter receipts remain available.
+    shouldIgnoreJid:jid=>{
+      if(!jid) return false;
+      if(Date.now()-socketStartedAt<45000) return true;
+      return /@s\.whatsapp\.net$/.test(jid) || /@lid$/.test(jid) || /@broadcast$/.test(jid);
+    },
     generateHighQualityLinkPreview:true,
     keepAliveIntervalMs:30000,
     retryRequestDelayMs:2000
