@@ -136,6 +136,22 @@ assert.ok(emojiModel.entities.filter(x=>x.type==='custom_emoji').length>=2,'styl
 delete process.env.NEXAI_EMOJI_STYLE_2;
 delete process.env.NEXAI_EMOJI_ANIME;
 
+process.env.NEXAI_EMOJI_STYLE_7='5368324170671202290';
+process.env.NEXAI_EMOJI_ANIME='5368324170671202291';
+const overlapModel=await menuModel({
+  account:{telegramUserId:'7799',username:'ruby_test',firstName:'Ruby',premium:true},
+  settings:{style:7,prefix:'.',language:'fr'},
+  commands:registry,
+  view:'category',
+  category:'ANIME'
+});
+const emojiRanges=overlapModel.entities
+  .filter(x=>x.type==='custom_emoji')
+  .map(x=>x.offset+':'+x.length);
+assert.equal(new Set(emojiRanges).size,emojiRanges.length,'custom emoji entity ranges must never overlap exactly');
+delete process.env.NEXAI_EMOJI_STYLE_7;
+delete process.env.NEXAI_EMOJI_ANIME;
+
 const brandedA=await menuModel({
   account:{telegramUserId:'5511',username:'brand_a',firstName:'A',premium:false},
   settings:{style:1,prefix:'.',language:'fr',botDisplayName:'NexAi Alpha'},
