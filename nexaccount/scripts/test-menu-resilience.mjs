@@ -107,8 +107,8 @@ for(let style=1;style<=31;style++){
   const accountA={telegramUserId:'991'+style,username:'alpha_'+style,firstName:'Alpha',premium:style%2===0};
   const accountB={telegramUserId:'881'+style,username:'beta_'+style,firstName:'Beta',premium:false};
   const settings={style,prefix:style%2===0?'!':'.',language:'fr'};
-  const modelA=await menuModel({account:accountA,settings,commands:registry,view:'category',category:'ANIME'});
-  const modelB=await menuModel({account:accountB,settings,commands:registry,view:'category',category:'ANIME'});
+  const modelA=await menuModel({account:accountA,settings,commands:registry,view:'category',category:'ANIME',includeArtwork:false});
+  const modelB=await menuModel({account:accountB,settings,commands:registry,view:'category',category:'ANIME',includeArtwork:false});
   assert.ok(modelA.text.length<=4096,'style '+style+' Anime menu exceeds Telegram text limit');
   assert.ok(modelA.text.includes('@alpha_'+style),'style '+style+' must render active session username');
   assert.ok(modelB.text.includes('@beta_'+style),'style '+style+' must not reuse another session username');
@@ -130,8 +130,8 @@ const emojiModel=await menuModel({
   commands:registry,
   view:'category',
   category:'ANIME',
-    includeArtwork:false
-  });
+  includeArtwork:false
+});
 assert.ok(emojiModel.entities.filter(x=>x.type==='custom_emoji').length>=2,'style/category custom emoji entities must activate when IDs are configured');
 delete process.env.NEXAI_EMOJI_STYLE_2;
 delete process.env.NEXAI_EMOJI_ANIME;
@@ -163,7 +163,7 @@ const brandedB=await menuModel({
   account:{telegramUserId:'5522',username:'brand_b',firstName:'B',premium:false},
   settings:{style:9,prefix:'!',language:'fr',botDisplayName:'NexAi Beta'},
   commands:registry,
-  view:'category',category:'GENERAL'
+  view:'category',category:'GENERAL',includeArtwork:false
 });
 assert.ok(brandedA.text.includes('NexAi Alpha'),'style 1 must use the session bot display name');
 assert.ok(brandedB.text.includes('NexAi Beta'),'style 9 must use the session bot display name');
