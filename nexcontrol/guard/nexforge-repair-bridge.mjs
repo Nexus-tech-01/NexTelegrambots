@@ -12,8 +12,10 @@ const RUNTIME=path.resolve(process.env.NEXFORGE_REPAIR_BRIDGE_RUNTIME||'/var/lib
 const NEXGUARD_RUNTIME=path.resolve(process.env.NEXGUARD_RUNTIME||'/var/lib/nex/runtime/nexguard');
 const AUTOMATION_RUNTIME=path.resolve(process.env.NEX_AUTOMATION_RUNTIME||'/var/lib/nex/runtime/automation-supervisor');
 const SUPABASE_URL=String(process.env.SUPABASE_URL||process.env.NEXT_PUBLIC_SUPABASE_URL||'https://ojbyvjqurlamplmujmyu.supabase.co').trim().replace(/\/+$/,'');
-const SUPABASE_SERVICE_ROLE=String(process.env.SUPABASE_SERVICE_ROLE_KEY||process.env.SUPABASE_SERVICE_ROLE||process.env.SUPABASE_SECRET_KEY||'').trim();
-const DIRECT_ENABLED=Boolean(SUPABASE_URL&&SUPABASE_SERVICE_ROLE);
+const HOST_PUBLISHABLE=String(process.env.PUBLISHABLE_KEY||process.env.SUPABASE_ANON_KEY||process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY||'').trim();
+const HOST_AGENT_ID=String(process.env.AGENT_ID||'').trim();
+const HOST_AGENT_KEY=String(process.env.AGENT_KEY||'').trim();
+const DIRECT_ENABLED=Boolean(SUPABASE_URL&&HOST_PUBLISHABLE&&HOST_AGENT_ID&&HOST_AGENT_KEY);
 const STATE_FILE=path.join(RUNTIME,'state.json');
 const SOURCES=[
   {name:'nexguard',file:path.join(NEXGUARD_RUNTIME,'repair-requests.jsonl')},
@@ -55,22 +57,24 @@ async function callTool(name,args){
 }
 
 
-function directHeaders(extra={}){
-  return {
-    apikey:SUPABASE_SERVICE_ROLE,
-    authorization:'Bearer '+SUPABASE_SERVICE_ROLE,
-    'content-type':'application/json',
-    ...extra
-  };
-}
-async function directRequest(pathname,options={}){
-  if(!DIRECT_ENABLED)throw new Error('supabase_direct_unavailable');
+
+async function hostRpc(name,payload){
+  if(!DIRECT_ENABLED)throw new Error('host_rpc_unavailable');
   const ctl=new AbortController();
   const timer=setTimeout(()=>ctl.abort(),15000);
   try{
-    const res=await fetch(SUPABASE_URL+'/rest/v1/'+pathname,{...options,headers:directHeaders(options.headers||{}),signal:ctl.signal});
+    const res=await fetch(SUPABASE_URL+'/rest/v1/rpc/'+name,{
+      method:'POST',
+      headers:{
+        apikey:HOST_PUBLISHABLE,
+        authorization:'Bearer '+HOST_PUBLISHABLE,
+        'content-type':'application/json'
+      },
+      body:JSON.stringify(payload||{}),
+      signal:ctl.signal
+    });
     const text=await res.text();
-    if(!res.ok)throw new Error('Supabase REST '+res.status+': '+text.slice(0,500));
+    if(!res.ok)throw new Error('Host RPC '+name+' '+res.status+': '+text.slice(0,500));
     if(!text)return null;
     try{return JSON.parse(text)}catch{return text}
   }finally{clearTimeout(timer)}
@@ -79,51 +83,30 @@ async function createTaskDirect(args){
   const externalRef='nexguard:'+crypto.createHash('sha256').update(JSON.stringify({
     project:args.project,title:args.title,origin:args.payload?.origin,signature:args.payload?.incidentSignature,kind:args.payload?.incidentKind
   })).digest('hex').slice(0,40);
-  const found=await directRequest('nxc_task_queue?external_ref=eq.'+encodeURIComponent(externalRef)+'&select=id,status&limit=1');
-  if(Array.isArray(found)&&found.length)return {id:found[0].id,status:found[0].status,deduplicated:true,transport:'supabase-direct'};
-  const body={
-    external_ref:externalRef,
-    title:args.title,
-    description:args.description,
-    project:args.project,
-    executor:args.executor||'shared',
-    priority:args.priority||2,
-    status:'pending',
-    payload:args.payload||{},
-    created_by:'nexguard-bridge',
-    available_at:nowIso()
-  };
-  const rows=await directRequest('nxc_task_queue',{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify(body)});
-  const row=Array.isArray(rows)?rows[0]:rows;
-  return {id:row?.id||null,status:row?.status||'pending',transport:'supabase-direct'};
+  const result=await hostRpc('nxf_host_create_repair_task',{
+    p_agent_id:HOST_AGENT_ID,
+    p_agent_key:HOST_AGENT_KEY,
+    p_task:{
+      external_ref:externalRef,
+      title:args.title,
+      description:args.description,
+      project:args.project,
+      executor:args.executor||'shared',
+      priority:args.priority||2,
+      payload:args.payload||{}
+    }
+  });
+  return {...(result||{}),transport:'host-rpc'};
 }
 let lastLeaseSweep=0;
 async function recoverExpiredLeases(){
   if(!DIRECT_ENABLED||Date.now()-lastLeaseSweep<60000)return;
   lastLeaseSweep=Date.now();
-  const cutoff=new Date().toISOString();
-  const stale=await directRequest('nxc_task_queue?status=eq.working&lease_expires_at=lt.'+encodeURIComponent(cutoff)+'&select=id,title,worker,lease_expires_at&limit=200');
-  for(const row of (Array.isArray(stale)?stale:[])){
-    await directRequest('nxc_task_queue?id=eq.'+encodeURIComponent(row.id),{
-      method:'PATCH',
-      headers:{Prefer:'return=minimal'},
-      body:JSON.stringify({
-        status:'pending',worker:null,locked_at:null,lease_expires_at:null,blocked_reason:null,
-        last_action:'expired lease recovered automatically',
-        next_action:'claim and continue from current state',
-        updated_at:nowIso()
-      })
-    });
-  }
-  await directRequest('nxf_resource_locks?lease_expires_at=lt.'+encodeURIComponent(cutoff),{method:'DELETE',headers:{Prefer:'return=minimal'}});
-  const workers=await directRequest('nxf_workers?status=eq.online&select=slug,last_seen_at&limit=100');
-  const staleBefore=Date.now()-5*60_000;
-  for(const worker of (Array.isArray(workers)?workers:[])){
-    if(Date.parse(String(worker.last_seen_at||0))>=staleBefore)continue;
-    await directRequest('nxf_workers?slug=eq.'+encodeURIComponent(worker.slug),{
-      method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({status:'offline',updated_at:nowIso()})
-    });
-  }
+  const result=await hostRpc('nxf_host_reap_repairs',{
+    p_agent_id:HOST_AGENT_ID,
+    p_agent_key:HOST_AGENT_KEY
+  });
+  state.lastLeaseSweep={at:nowIso(),result};
 }
 
 let state=await readJson(STATE_FILE,{version:1,sources:{},posted:{}});
