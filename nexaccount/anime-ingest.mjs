@@ -2344,6 +2344,132 @@ export async function animeSystemStatus(){
   };
 }
 
+export async function animeDedupePublishedEpisodeVariants(runtime,{dryRun=true,maxGroups=500}={}){
+  if(!runtime?.client)throw new Error('anime_runtime_required');
+  await ensureIndexes();
+  const d=await db(),now=new Date();
+  const publications=d.collection('nexanime_publications');
+  const groups=await publications.aggregate([
+    {$match:{kind:'episode',purgedAt:{$exists:false},telegramMessageId:{$gt:0}}},
+    {$group:{
+      _id:{seriesKey:'$seriesKey',season:{$ifNull:['$season',1]},episode:'$episode'},
+      count:{$sum:1}
+    }},
+    {$match:{count:{$gt:1}}},
+    {$sort:{'_id.seriesKey':1,'_id.season':1,'_id.episode':1}},
+    {$limit:Math.max(1,Math.min(5000,Number(maxGroups)||500))}
+  ]).toArray();
+
+  const plan=[];
+  for(const group of groups){
+    const rows=await publications.find({
+      seriesKey:group._id.seriesKey,
+      kind:'episode',
+      season:group._id.season,
+      episode:group._id.episode,
+      purgedAt:{$exists:false},
+      telegramMessageId:{$gt:0}
+    }).toArray();
+    rows.sort((a,b)=>
+      episodeVariantScore(b)-episodeVariantScore(a)||
+      new Date(a.publishedAt||a.createdAt||0)-new Date(b.publishedAt||b.createdAt||0)||
+      Number(a.telegramMessageId||0)-Number(b.telegramMessageId||0)
+    );
+    if(rows.length>1)plan.push({identity:group._id,keep:rows[0],remove:rows.slice(1)});
+  }
+
+  const publicPlan=plan.map(x=>({
+    identity:x.identity,
+    keep:{
+      id:String(x.keep._id),dedupeKey:x.keep.dedupeKey,
+      telegramMessageId:Number(x.keep.telegramMessageId||0),
+      language:x.keep.language||'',quality:x.keep.quality||'',
+      score:episodeVariantScore(x.keep)
+    },
+    remove:x.remove.map(r=>({
+      id:String(r._id),dedupeKey:r.dedupeKey,
+      telegramMessageId:Number(r.telegramMessageId||0),
+      language:r.language||'',quality:r.quality||'',
+      score:episodeVariantScore(r)
+    }))
+  }));
+  const plannedRemovals=publicPlan.reduce((n,x)=>n+x.remove.length,0);
+  if(dryRun){
+    return {ok:true,dryRun:true,groups:publicPlan.length,plannedRemovals,plan:publicPlan};
+  }
+
+  const destination=await destinationEntity(runtime);
+  const audit=await d.collection('nexanime_maintenance').insertOne({
+    kind:'episode-variant-dedupe',
+    status:'running',
+    createdAt:now,
+    accountId:String(runtime.account?.telegramUserId||''),
+    accountUsername:String(runtime.account?.username||''),
+    destination:'@'+DESTINATION,
+    groupCount:publicPlan.length,
+    plannedRemovals,
+    plan:publicPlan
+  });
+
+  let deleted=0,failed=0,marked=0;
+  const failures=[];
+  for(const group of plan){
+    const ids=group.remove.map(x=>Number(x.telegramMessageId||0)).filter(Boolean);
+    if(!ids.length)continue;
+    try{
+      await runtime.client.deleteMessages(destination,ids,{revoke:true});
+      deleted+=ids.length;
+      const result=await publications.updateMany(
+        {_id:{$in:group.remove.map(x=>x._id)},purgedAt:{$exists:false}},
+        {$set:{
+          purgedAt:new Date(),
+          purgedBy:'nexguard_episode_variant_dedupe_v1',
+          purgeReason:'duplicate_episode_variant',
+          canonicalTelegramMessageId:Number(group.keep.telegramMessageId||0),
+          canonicalDedupeKey:String(group.keep.dedupeKey||''),
+          supervisorCleanupAt:new Date()
+        },$unset:{purgeError:'',purgeAttemptAt:''}}
+      );
+      marked+=Number(result.modifiedCount||0);
+    }catch(error){
+      failed+=ids.length;
+      const message=String(error?.errorMessage||error?.message||error).slice(0,500);
+      failures.push({identity:group.identity,messageIds:ids,error:message});
+      await publications.updateMany(
+        {_id:{$in:group.remove.map(x=>x._id)},purgedAt:{$exists:false}},
+        {$set:{purgeError:message,purgeAttemptAt:new Date()}}
+      );
+    }
+    await sleep(150);
+  }
+
+  const remaining=await publications.aggregate([
+    {$match:{kind:'episode',purgedAt:{$exists:false},telegramMessageId:{$gt:0}}},
+    {$group:{_id:{seriesKey:'$seriesKey',season:{$ifNull:['$season',1]},episode:'$episode'},count:{$sum:1}}},
+    {$match:{count:{$gt:1}}},
+    {$count:'n'}
+  ]).toArray();
+  const remainingDuplicateIdentities=Number(remaining?.[0]?.n||0);
+
+  await d.collection('nexanime_maintenance').updateOne(
+    {_id:audit.insertedId},
+    {$set:{
+      status:failed?'partial':'done',
+      completedAt:new Date(),deleted,failed,marked,
+      remainingDuplicateIdentities,
+      failures:failures.slice(0,100)
+    }}
+  );
+
+  return {
+    ok:failed===0,dryRun:false,
+    auditId:String(audit.insertedId),
+    groups:publicPlan.length,plannedRemovals,
+    deleted,failed,marked,remainingDuplicateIdentities,
+    failures
+  };
+}
+
 export async function animeRetryQueue({includeQuarantine=true,includeFailures=true}={}){
   await ensureIndexes();
   const d=await db();
