@@ -80,11 +80,7 @@ const controlSource=fs.readFileSync(path.join(ROOT,'..','nexcontrol','api','inde
 
 for(const marker of [
   "if(parsed.name==='menu')return sendMenu(runtime,peer)",
-  "if(cmd.engine==='anime')",
-  "if(cmd.engine==='ai')",
-  "if(cmd.engine==='download')",
-  "if(cmd.engine==='sticker')",
-  "if(cmd.engine==='game')",
+  'routeEngineCommand({',
   'handleCompatCommand'
 ]){
   if(!runtime.includes(marker))errors.push('runtime-marker:'+marker);
