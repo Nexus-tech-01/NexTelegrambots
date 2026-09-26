@@ -9,19 +9,27 @@ const token=(process.env.NEXCANAL__BOT_TOKEN||'').trim();
 const expectedScanner=String(process.env.NEXCANAL__WATCHER_EXPECTED_USERNAME||'tresor20009').trim().replace(/^@/,'').toLowerCase();
 const apiId=Number(process.env.NEXCANAL__WATCHER_API_ID||process.env.NEXGROUP__TELEGRAM_API_ID||0);
 const apiHash=(process.env.NEXCANAL__WATCHER_API_HASH||process.env.NEXGROUP__TELEGRAM_API_HASH||'').trim();
-const sessionFile=process.env.NEXCANAL__WATCHER_SESSION_FILE||'/home/container/.nexcontrol/nexcanal-reader-session.txt';
-const stateFile=process.env.NEXCANAL__WATCHER_STATE_FILE||'/home/container/.nexcontrol/nexcanal-watch-state-v2.json';
-const mediaTmpDir=process.env.NEXCANAL__WATCHER_MEDIA_TMP||'/home/container/.nexcontrol/nexcanal-media';
+const sessionFile=process.env.NEX_LITEAPKS_SESSION_FILE||process.env.NEXCANAL__WATCHER_SESSION_FILE||'/home/container/.nexcontrol/nexcanal-reader-session.txt';
+const stateFile=process.env.NEX_LITEAPKS_STATE_FILE||process.env.NEXCANAL__WATCHER_STATE_FILE||'/home/container/.nexcontrol/nexcanal-watch-state-v2.json';
+const mediaTmpDir=process.env.NEX_LITEAPKS_MEDIA_TMP||process.env.NEXCANAL__WATCHER_MEDIA_TMP||'/home/container/.nexcontrol/nexcanal-media';
 const mediaTmpRetentionMs=Math.max(60*60*1000,Number(process.env.NEXCANAL__WATCHER_MEDIA_RETENTION_MS||24*60*60*1000));
 const mediaTmpCleanupMs=Math.max(60*1000,Number(process.env.NEXCANAL__WATCHER_MEDIA_CLEANUP_MS||15*60*1000));
-const watcherIdentityFile=process.env.NEXCANAL__WATCHER_ID_FILE||'/home/container/.nexcontrol/nexcanal-watcher-id.txt';
+const watcherIdentityFile=process.env.NEX_LITEAPKS_ID_FILE||process.env.NEXCANAL__WATCHER_ID_FILE||'/home/container/.nexcontrol/nexcanal-watcher-id.txt';
+const publisherSessionFile=process.env.NEX_LITEAPKS_PUBLISHER_SESSION_FILE||'/var/lib/nex/sessions/internal/nexcanal-publisher-session.txt';
 const poll=Math.max(1500,Number(process.env.NEXCANAL__WATCHER_POLL_MS||2500));
-// Keep scanning continuously, but pace public publication by logical batch.
-// A descriptor (image/caption) and its matching APK are one batch and may be sent back-to-back.
+// Scan continuously, but pace public posts by logical publication batch.
+// A descriptor (image/caption) and its matching APK belong to the same batch.
 const publicationGapMs=Math.max(60*1000,Number(process.env.NEXCANAL__WATCHER_PUBLICATION_GAP_MS||2*60*60*1000));
 const linkedBatchWindowMs=Math.max(60*1000,Number(process.env.NEXCANAL__WATCHER_LINK_WINDOW_MS||30*60*1000));
 const botLimit=49*1024*1024;
+const whatsappDirectFileLimit=19*1024*1024;
+const smallDownloadTimeoutMs=Math.max(120000,Number(process.env.NEXCANAL__WATCHER_SMALL_DOWNLOAD_TIMEOUT_MS||300000));
+const largeDownloadTimeoutMs=Math.max(180000,Number(process.env.NEXCANAL__WATCHER_LARGE_DOWNLOAD_TIMEOUT_MS||900000));
+const largeUploadTimeoutMs=Math.max(180000,Number(process.env.NEXCANAL__WATCHER_LARGE_UPLOAD_TIMEOUT_MS||900000));
+const serverCopyEnabled=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXCANAL__WATCHER_SERVER_COPY_ENABLED||'false'));
 const maxFetch=500;
+const interrouteUrl=String(process.env.NEX_INTERROUTE_URL||'http://127.0.0.1:18130').replace(/\/$/,'');
+const nexusTechFacebookPageId=String(process.env.NEXTECH_FACEBOOK_PAGE_ID||'106458282029367').trim();
 
 const sourceSpecs=[
   {key:'liteapks',username:'liteapks',kind:'liteapks'},
@@ -102,6 +110,8 @@ async function reactOne(c,username,m){
 async function pollEngagementReactions(c,st){
   const es=engagementState(st);
   let changed=false;
+  const now=Date.now();
+  if(Number(es.reactionPausedUntil||0)>now)return;
   for(const username of engagementReactTargets){
     try{
       const entity=await c.getEntity('@'+username);
@@ -127,7 +137,10 @@ async function pollEngagementReactions(c,st){
       }
       const fresh=await c.getMessages(entity,{limit:100,minId:cursor});
       const list=(fresh||[]).filter(m=>Number(m.id)>cursor).sort((a,b)=>Number(a.id)-Number(b.id));
-      for(const m of list){
+      // Never mass-react to a historical backlog after downtime/migration.
+      // For a backlog, react only to the newest post and advance the cursor.
+      const reactionList=list.length>3?[list[list.length-1]]:list;
+      for(const m of reactionList){
         try{
           const emoji=await reactOne(c,username,m);
           es.reactionStatus[username]={ok:true,msgId:Number(m.id),emoji,at:Date.now()};
@@ -135,6 +148,17 @@ async function pollEngagementReactions(c,st){
         }catch(e){
           const error=String(e?.errorMessage||e?.message||e);
           es.reactionStatus[username]={ok:false,msgId:Number(m.id),error:error.slice(0,220),at:Date.now()};
+          const flood=error.match(/FLOOD_WAIT_(\d+)/i);
+          if(flood){
+            const waitMs=(Math.max(1,Number(flood[1]))+10)*1000;
+            es.reactionPausedUntil=Date.now()+waitMs;
+            // Skip historical reaction backlog; resume only for future posts.
+            const newest=list[list.length-1];
+            if(newest)es.reactionCursors[username]=Math.max(Number(es.reactionCursors[username]||0),Number(newest.id||0));
+            warn('auto-react paused','@'+username,Math.ceil(waitMs/1000)+'s');
+            changed=true;
+            break;
+          }
           warn('auto-react failed','@'+username,'#'+m.id,error);
         }
         es.reactionCursors[username]=Math.max(Number(es.reactionCursors[username]||0),Number(m.id||0));
@@ -233,8 +257,33 @@ async function bot(method,fields,file){
   if(!r.ok||!j.ok)throw new Error(`${method}: ${j.description||r.status}`);
   return j.result;
 }
+function documentLocation(m){
+  const doc=m?.document;
+  if(!doc?.id||!doc?.accessHash)return null;
+  return new Api.InputDocumentFileLocation({
+    id:doc.id,
+    accessHash:doc.accessHash,
+    fileReference:doc.fileReference||Buffer.alloc(0),
+    thumbSize:''
+  });
+}
+async function downloadDocument(c,m,outputFile){
+  const location=documentLocation(m);
+  if(!location)throw new Error('document location unavailable');
+  const opts={
+    dcId:Number(m.document?.dcId||0)||undefined,
+    fileSize:m.document?.size,
+    partSizeKb:512,
+    ...(outputFile?{outputFile}:{})
+  };
+  const out=await c.downloadFile(location,opts);
+  if(!out&&outputFile)return outputFile;
+  return out;
+}
 async function media(c,m){
-  const b=await c.downloadMedia(m.media,{workers:1});
+  const b=m?.document
+    ? await downloadDocument(c,m)
+    : await c.downloadMedia(m.media,{workers:1});
   if(!b)throw new Error('media download failed');
   return Buffer.isBuffer(b)?b:Buffer.from(b);
 }
@@ -264,7 +313,9 @@ async function mediaToFile(c,m,name,cacheKey=''){
   }catch{}
   const partial=target+`.part-${process.pid}-${Date.now()}`;
   try{
-    const out=await c.downloadMedia(m.media,{outputFile:partial});
+    const out=m?.document
+      ? await downloadDocument(c,m,partial)
+      : await c.downloadMedia(m.media,{outputFile:partial,workers:1});
     const file=typeof out==='string'&&out?out:partial;
     const st=await fs.stat(file);
     if(!st.isFile()||st.size<=0)throw new Error('media download produced an empty file');
@@ -279,6 +330,55 @@ async function mediaToFile(c,m,name,cacheKey=''){
     throw error;
   }
 }
+
+async function enqueueCrossPlatformMirror(body){
+  try{
+    const r=await fetch(interrouteUrl+'/events',{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify(body),
+      signal:AbortSignal.timeout(15000)
+    });
+    const out=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error('interroute '+r.status+': '+String(out?.error||'enqueue failed'));
+    return out;
+  }catch(error){
+    warn('cross-platform mirror enqueue failed',String(error?.message||error).slice(0,240));
+    return null;
+  }
+}
+function mirrorButtons(u){
+  return u?[{text:'Download Fast',url:u}]:[];
+}
+async function mirrorDescriptor(m,sourceKind,sent){
+  const u=chooseUrl(m),text=clean(m,sourceKind,u);
+  const photos=Array.isArray(sent?.photo)?sent.photo:[];
+  const last=photos.length?photos[photos.length-1]:null;
+  const media=last?.file_id?[{type:'photo',fileId:last.file_id,fileName:'nextech-'+String(m.id)+'.jpg'}]:[];
+  return enqueueCrossPlatformMirror({
+    ownerDomain:'system',
+    idempotencyKey:'nextech-mirror:descriptor:'+sourceKind+':'+String(m.id)+':v1',
+    source:{platform:'telegram',name:'thenexusorigin',messageId:String(sent?.message_id||m.id),accountRole:'system-apk-worker'},
+    content:{text,media,buttons:mirrorButtons(u)},
+    routes:[{platform:'facebook',pageId:nexusTechFacebookPageId},{platform:'whatsapp'}]
+  });
+}
+async function mirrorApk(m,sourceKind,sent,linked){
+  const u=chooseUrl(m),name=filename(m)||('package-'+String(m.id)+'.apk');
+  const text=linked?name:clean(m,sourceKind,u);
+  const fileId=String(sent?.document?.file_id||'');
+  const localPath=String(sent?.__nexLocalPath||'');
+  const media=(fileId||localPath)?[{type:'document',fileId,localPath,fileName:name,mimetype:m.document?.mimeType||'application/vnd.android.package-archive'}]:[];
+  if(!media.length)throw new Error('APK mirror media reference missing; refusing filename-only publication');
+  return enqueueCrossPlatformMirror({
+    ownerDomain:'system',
+    idempotencyKey:'nextech-mirror:apk:'+sourceKind+':'+String(m.id)+':v1',
+    source:{platform:'telegram',name:'thenexusorigin',messageId:String(sent?.message_id||m.id),accountRole:'system-apk-worker'},
+    content:{text,media,buttons:mirrorButtons(u)},
+    routes:[{platform:'whatsapp'}]
+  });
+}
+
 async function postDescriptor(c,m,sourceKind){
   const u=chooseUrl(m),text=clean(m,sourceKind,u),kb=markup(u);
   if(m.photo){
@@ -293,7 +393,7 @@ async function postApk(c,publisher,dstEntity,m,sourceKind,linked,item){
   const text=clean(m,sourceKind,u);
   const kb=markup(u);
   const doc=m.document||m?.media?.document;
-  if(doc?.id&&doc?.accessHash){
+  if(serverCopyEnabled&&doc?.id&&doc?.accessHash){
     try{
       const input=new Api.InputDocument({id:doc.id,accessHash:doc.accessHash,fileReference:doc.fileReference||Buffer.alloc(0)});
       const peer=await publisher.getInputEntity(dstEntity);
@@ -312,8 +412,8 @@ async function postApk(c,publisher,dstEntity,m,sourceKind,linked,item){
     }catch(e){warn('server-side document copy failed; falling back',e?.message||e);}
   }
   const size=Number(m.document?.size||0);
-  if(size&&size<=botLimit){
-    const b=await withTimeout(media(c,m),120000,'small APK download');
+  if(size&&size<=Math.min(botLimit,whatsappDirectFileLimit)){
+    const b=await withTimeout(media(c,m),smallDownloadTimeoutMs,'small APK download');
     return bot('sendDocument',{
       chat_id:`@${dst}`,
       caption:linked?'':text.slice(0,1024),
@@ -321,21 +421,16 @@ async function postApk(c,publisher,dstEntity,m,sourceKind,linked,item){
     },{field:'document',buf:b,name,mime:m.document?.mimeType||'application/vnd.android.package-archive'});
   }
   if(!linked&&u&&(text||kb))await bot('sendMessage',{chat_id:`@${dst}`,text:text||name,reply_markup:kb,disable_web_page_preview:true});
-  const tmp=await withTimeout(mediaToFile(c,m,name,item?.key||String(m.id||'')),180000,'large APK download');
-  let published=false;
-  try{
-    const result=await withTimeout(
-      publisher.sendFile(dstEntity,{file:new CustomFile(name,tmp.size,tmp.file),caption:linked||u?'':text.slice(0,1024),forceDocument:true,workers:1}),
-      180000,
-      'large APK upload'
-    );
-    published=true;
-    return result;
-  }finally{
-    // Keep a complete local copy when publication fails so the retry reuses it.
-    // Delete it only after Telegram confirms the destination upload.
-    if(published)await tmp.cleanup();
-  }
+  const tmp=await withTimeout(mediaToFile(c,m,name,item?.key||String(m.id||'')),largeDownloadTimeoutMs,'large APK download');
+  const result=await withTimeout(
+    publisher.sendFile(dstEntity,{file:new CustomFile(name,tmp.size,tmp.file),caption:linked||u?'':text.slice(0,1024),forceDocument:true,workers:1}),
+    largeUploadTimeoutMs,
+    'large APK upload'
+  );
+  // Keep the downloaded APK in the shared temp area long enough for the
+  // WhatsApp publisher to stream the exact same file. Cleanup is handled by
+  // the watcher's retention sweep after the mirror has had time to retry.
+  return {__nexTelegramResult:result,__nexLocalPath:tmp.file,__nexLocalSize:tmp.size};
 }
 
 async function load(){
@@ -343,6 +438,13 @@ async function load(){
     const x=JSON.parse(await fs.readFile(stateFile,'utf8'));
     x.sources=x.sources||{};
     x.queue=Array.isArray(x.queue)?x.queue:[];
+    x.deadLetter=Array.isArray(x.deadLetter)?x.deadLetter:[];
+    // Retry items that only failed under the old too-short transfer limits.
+    for(const item of x.queue){
+      if(/(?:small|large) APK download timeout after (?:120000|180000)ms/i.test(String(item.lastError||''))){
+        item.retries=0;item.nextRetryAt=0;item.lastError='';
+      }
+    }
     return x;
   }catch{return {version:2,sources:{},queue:[]};}
 }
@@ -393,8 +495,7 @@ function publicationState(st){
   return st.publication;
 }
 function nextPublicationAt(st){
-  const ps=publicationState(st);
-  return Number(ps.lastBatchAt||0)+publicationGapMs;
+  return Number(publicationState(st).lastBatchAt||0)+publicationGapMs;
 }
 function isOpenBatchCompanion(st,item,descriptor){
   const open=publicationState(st).openBatch;
@@ -417,24 +518,24 @@ function markBatchStart(st,{source,descriptorId=null}={}){
 function closeOpenBatch(st){
   publicationState(st).openBatch=null;
 }
-function publicationLedger(st){
-  const ps=publicationState(st);
-  ps.ledger=Array.isArray(ps.ledger)?ps.ledger:[];
-  return ps.ledger;
-}
-function recordPublicationLedger(st,item,result){
-  const reason=String(result?.reason||'');
-  if(!['apk-linked','apk-standalone','descriptor-batch-start'].includes(reason))return;
-  const ledger=publicationLedger(st);
-  ledger.push({
-    key:String(item?.key||queueKey(item?.source,item?.id)),
-    source:String(item?.source||''),
-    sourceMessageId:Number(item?.id||0),
-    reason,
-    batchId:String(result?.batchId||item?.key||''),
-    at:Date.now()
-  });
-  if(ledger.length>500)ledger.splice(0,ledger.length-500);
+
+const queueMessageCache=new Map();
+async function queueMessage(c,source,st,item){
+  const wantedKey=queueKey(item.source,Number(item.id));
+  if(queueMessageCache.has(wantedKey))return queueMessageCache.get(wantedKey);
+  const ids=[Number(item.id),...(st.queue||[]).filter(x=>x.source===item.source).map(x=>Number(x.id))]
+    .filter((id,index,array)=>id>0&&array.indexOf(id)===index)
+    .slice(0,50);
+  const rows=await withTimeout(c.getMessages(source.entity,{ids}),Math.max(opTimeoutMs,60000),item.source+' queue batch fetch');
+  const returned=new Set();
+  for(const row of rows||[]){
+    const id=Number(row?.id||0);
+    if(!id)continue;
+    returned.add(id);
+    queueMessageCache.set(queueKey(item.source,id),row);
+  }
+  for(const id of ids)if(!returned.has(id))queueMessageCache.set(queueKey(item.source,id),null);
+  return queueMessageCache.get(wantedKey)||null;
 }
 
 function isTlDecodeError(error){
@@ -534,8 +635,7 @@ async function processItem(c,publisher,destination,st,sources,item){
   const source=sources.get(item.source);
   if(!source)throw new Error('source unavailable: '+item.source);
   const ss=ensureSourceState(st,item.source);
-  const rows=await c.getMessages(source.entity,{ids:[Number(item.id)]});
-  const m=rows?.[0];
+  const m=await queueMessage(c,source,st,item);
   if(!m)return {done:true,reason:'source-message-missing'};
   if(m?.noforwards||source.entity?.noforwards)return {done:true,reason:'protected'};
 
@@ -547,21 +647,23 @@ async function processItem(c,publisher,destination,st,sources,item){
       if(Date.now()<nextAt)return {done:false,deferUntil:nextAt,reason:'publication-gap'};
     }
 
-    await postApk(c,publisher,destination,m,source.kind,!!linked,item);
+    const sent=await postApk(c,publisher,destination,m,source.kind,!!linked,item);
+    await mirrorApk(m,source.kind,sent,!!linked);
     if(linked)linked.used=true;
     pruneDescriptors(ss);
 
     if(companion)closeOpenBatch(st);
     else markBatchStart(st,{source:item.source});
 
-    return {done:true,reason:linked?'apk-linked':'apk-standalone',batchId:linked?(item.source+':descriptor:'+Number(linked.id)):item.key};
+    return {done:true,reason:linked?'apk-linked':'apk-standalone'};
   }
 
   if(isDescriptor(m)){
     const nextAt=nextPublicationAt(st);
     if(Date.now()<nextAt)return {done:false,deferUntil:nextAt,reason:'publication-gap'};
 
-    await postDescriptor(c,m,source.kind);
+    const sent=await postDescriptor(c,m,source.kind);
+    await mirrorDescriptor(m,source.kind,sent);
     ss.descriptors.push({
       id:Number(m.id),
       title:title(m.message||''),
@@ -571,7 +673,7 @@ async function processItem(c,publisher,destination,st,sources,item){
     });
     pruneDescriptors(ss);
     markBatchStart(st,{source:item.source,descriptorId:Number(m.id)});
-    return {done:true,reason:'descriptor-batch-start',batchId:item.source+':descriptor:'+Number(m.id)};
+    return {done:true,reason:'descriptor-batch-start'};
   }
 
   return {done:true,reason:'ignored'};
@@ -580,8 +682,26 @@ async function processItem(c,publisher,destination,st,sources,item){
 
 const processing=new Set();
 const processingSources=new Set();
-// One publisher worker prevents two unrelated items from claiming the same publication slot.
+// One publisher worker guarantees that unrelated batches cannot claim the same slot.
 const workerLimit=1;
+
+function transientFailureInfo(error){
+  const message=String(error?.errorMessage||error?.message||error||'');
+  const fileReferenceExpired=/FILE_REFERENCE_EXPIRED|file reference[^\n]*expired|must be refreshed/i.test(message);
+  const flood=message.match(/FLOOD_WAIT_(\d+)/i)||message.match(/Please wait\s+(\d+)\s+seconds/i);
+  const network=/\b(?:ETIMEDOUT|ECONNRESET|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|socket hang up|connection closed|connection reset|TIMEOUT)\b/i.test(message);
+  const telegramTemporary=/\b(?:RPC_CALL_FAIL|INTERNAL_SERVER_ERROR|MSG_WAIT_FAILED|WORKER_BUSY_TOO_LONG|publisher MTProto cooldown)\b/i.test(message);
+  const transient=fileReferenceExpired||!!flood||network||telegramTemporary||/\btimeout after \d+ms\b/i.test(message);
+  const delayMs=flood
+    ? (Math.max(1,Number(flood[1]||0))+5)*1000
+    : fileReferenceExpired ? 3000
+    : 15000;
+  return {message,fileReferenceExpired,transient,delayMs};
+}
+function clearSourceMessageCache(sourceKey){
+  const prefix=String(sourceKey)+':';
+  for(const key of queueMessageCache.keys())if(key.startsWith(prefix))queueMessageCache.delete(key);
+}
 
 async function handleQueueItem(c,publisher,destination,st,sources,item){
   try{
@@ -593,17 +713,34 @@ async function handleQueueItem(c,publisher,destination,st,sources,item){
       log('deferred',item.key,result.reason,'until',new Date(item.nextRetryAt).toISOString());
       return;
     }
-    recordPublicationLedger(st,item,result);
     st.queue=st.queue.filter(x=>x.key!==item.key);
     await save(st);
     log('processed',item.key,result.reason,'queue',st.queue.length,'active',processing.size);
   }catch(e){
-    item.retries=Number(item.retries||0)+1;
-    item.lastError=String(e?.message||e).slice(0,300);
+    const failure=transientFailureInfo(e);
+    item.lastError=failure.message.slice(0,300);
     item.lastAttemptAt=Date.now();
-    item.nextRetryAt=Date.now()+Math.min(5*60*1000,Math.max(5000,5000*Math.pow(2,Math.min(item.retries-1,6))));
-    await save(st);
-    warn('message failed; queued for retry',item.key,'retry',item.retries,item.lastError);
+    if(failure.transient){
+      if(failure.fileReferenceExpired)clearSourceMessageCache(item.source);
+      item.transientFailures=Number(item.transientFailures||0)+1;
+      item.nextRetryAt=Date.now()+failure.delayMs;
+      await save(st);
+      warn('transient failure; retry preserved',item.key,'attempt',item.transientFailures,item.lastError);
+    }else{
+      item.retries=Number(item.retries||0)+1;
+      if(item.retries>=8){
+        st.deadLetter=Array.isArray(st.deadLetter)?st.deadLetter:[];
+        st.deadLetter.push({...item,deadLetterAt:Date.now()});
+        st.deadLetter=st.deadLetter.slice(-200);
+        st.queue=st.queue.filter(x=>x.key!==item.key);
+        await save(st);
+        warn('message quarantined after repeated permanent failures',item.key,'retries',item.retries,item.lastError);
+      }else{
+        item.nextRetryAt=Date.now()+Math.min(5*60*1000,Math.max(5000,5000*Math.pow(2,Math.min(item.retries-1,6))));
+        await save(st);
+        warn('message failed; queued for retry',item.key,'retry',item.retries,item.lastError);
+      }
+    }
   }finally{
     processing.delete(item.key);
     processingSources.delete(item.source);
@@ -633,7 +770,36 @@ async function run(session){
   if(!token||!apiId||!apiHash||!session)throw new Error('missing NexCanal watcher credentials');
   await cleanupMediaTmp();
   let nextMediaCleanupAt=Date.now()+mediaTmpCleanupMs;
-  const c=new TelegramClient(new StringSession(session),apiId,apiHash,{connectionRetries:10,autoReconnect:true,floodSleepThreshold:60});
+  const c=new TelegramClient(new StringSession(session),apiId,apiHash,{
+    connectionRetries:10,
+    autoReconnect:true,
+    floodSleepThreshold:60,
+    downloadPool:{requestDeadlineMs:120000,requestRetries:8,sessions:1,maxSessions:1,inflightPerDc:1}
+  });
+  c.onError=async(error)=>{
+    const msg=String(error?.errorMessage||error?.message||error);
+    const code=String(error?.code??error?.status??'');
+    const req=String(error?.request?.className||error?.request?.constructor?.name||'');
+    warn('mtproto client error','code='+code,'request='+req,msg);
+  };
+  // Durable guard around Teleproto's exported-DC sender. Some versions retry
+  // auth.ExportAuthorization immediately on FLOOD_WAIT; never let that hammer Telegram.
+  if(typeof c._connectSender==='function'&&!c.__nexDcFloodGuard){
+    const rawConnectSender=c._connectSender.bind(c);
+    c._connectSender=async(...args)=>{
+      try{return await rawConnectSender(...args);}
+      catch(error){
+        const msg=String(error?.errorMessage||error?.message||error);
+        const match=msg.match(/FLOOD_WAIT_(\d+)/i)||msg.match(/Please wait\s+(\d+)\s+seconds/i);
+        if(!match)throw error;
+        const seconds=Math.max(1,Number(match[1]||0))+2;
+        warn('dc authorization cooldown','dc='+String(args[1]??'?'),seconds+'s');
+        await sleep(seconds*1000);
+        return c._connectSender(args[0],args[1],undefined,args[3]);
+      }
+    };
+    c.__nexDcFloodGuard=true;
+  }
   await c.connect();
   if(!(await c.isUserAuthorized()))throw new Error('watcher session is not authorized');
   const me=await c.getMe();
@@ -642,21 +808,69 @@ async function run(session){
     await c.disconnect().catch(()=>{});
     throw new Error('unexpected APK scanner account @'+(scannerUsername||'unknown')+'; expected @'+expectedScanner);
   }
-  const publisher=new TelegramClient(new StringSession(''),apiId,apiHash,{connectionRetries:10,autoReconnect:true,floodSleepThreshold:60});
-  await publisher.start({botAuthToken:token});
-  const publisherMe=await publisher.getMe();
-  if(publisherMe?.bot!==true){
-    await publisher.disconnect().catch(()=>{});
-    await c.disconnect().catch(()=>{});
-    throw new Error('NexCanal publisher session is not a bot');
-  }
+  let publisherClient=null;
+  let publisherInit=null;
+  let publisherBlockedUntil=0;
+  const ensurePublisher=async()=>{
+    if(publisherClient)return publisherClient;
+    if(publisherInit)return publisherInit;
+    if(Date.now()<publisherBlockedUntil){
+      throw new Error('publisher MTProto cooldown '+Math.ceil((publisherBlockedUntil-Date.now())/1000)+'s');
+    }
+    publisherInit=(async()=>{
+      let saved='';
+      try{saved=(await fs.readFile(publisherSessionFile,'utf8')).trim();}catch{}
+      const client=new TelegramClient(new StringSession(saved),apiId,apiHash,{
+        connectionRetries:10,
+        autoReconnect:true,
+        floodSleepThreshold:60,
+        downloadPool:{requestDeadlineMs:120000,requestRetries:8,sessions:1,maxSessions:1,inflightPerDc:1}
+      });
+      try{
+        await client.connect();
+        if(!(await client.isUserAuthorized()))await client.start({botAuthToken:token});
+        const publisherMe=await client.getMe();
+        if(publisherMe?.bot!==true)throw new Error('NexCanal publisher session is not a bot');
+        const persisted=String(client.session?.save?.()||'').trim();
+        if(persisted){
+          await fs.mkdir(path.dirname(publisherSessionFile),{recursive:true});
+          const tmp=publisherSessionFile+'.tmp-'+process.pid;
+          await fs.writeFile(tmp,persisted,{mode:0o600});
+          await fs.rename(tmp,publisherSessionFile);
+        }
+        publisherClient=client;
+        log('public publisher MTProto ready as',publisherMe?.username?'@'+publisherMe.username:String(publisherMe?.id||'NexCanal'));
+        return client;
+      }catch(e){
+        const message=String(e?.errorMessage||e?.message||e);
+        const wait=message.match(/FLOOD_WAIT_(\d+)/i)||message.match(/Please wait\s+(\d+)\s+seconds/i);
+        if(wait){
+          const seconds=Math.max(1,Number(wait[1]||0));
+          publisherBlockedUntil=Date.now()+(seconds+10)*1000;
+          warn('publisher MTProto paused',seconds+'s');
+        }
+        await client.disconnect().catch(()=>{});
+        throw e;
+      }finally{publisherInit=null;}
+    })();
+    return publisherInit;
+  };
+  const publisher={
+    getInputEntity:async(...args)=>(await ensurePublisher()).getInputEntity(...args),
+    invoke:async(...args)=>(await ensurePublisher()).invoke(...args),
+    sendFile:async(...args)=>(await ensurePublisher()).sendFile(...args),
+    disconnect:async()=>{
+      const client=publisherClient;publisherClient=null;
+      if(client)await client.disconnect().catch(()=>{});
+    }
+  };
   await fs.mkdir(path.dirname(watcherIdentityFile),{recursive:true}).catch(()=>{});
   await fs.writeFile(watcherIdentityFile,String(me?.id||''),{mode:0o600}).catch(e=>warn('watcher identity file',e?.message||e));
   log('scanner connected as',me?.username?'@'+me.username:String(me?.id||'unknown'));
-  log('public publisher connected as',publisherMe?.username?'@'+publisherMe.username:String(publisherMe?.id||'NexCanal'));
+  log('Bot API publisher ready as @'+dst+'; MTProto publisher will initialize only for large files');
   const sources=await resolveSources(c);
   for(const spec of sourceSpecs)if(!sources.has(spec.key))throw new Error('required source unavailable: '+spec.key);
-  const destination=await publisher.getEntity(dst);
+  const destination='@'+dst;
   const st=await load();
   const es=engagementState(st);
   es.owner='nexcanal-watcher';
