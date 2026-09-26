@@ -4,7 +4,7 @@ NexMeta is the Facebook/Messenger adapter for the Nexus ecosystem.
 
 It does not copy Telegram bot logic. Meta events are normalized into a shared Nexus protocol and can be routed to the common bot gateway so NexDownloader, NexGame, NexStick, NexGroup, NexCanal and future Nexus services can reuse their real backend logic.
 
-Current service version: **0.4.0**.
+Current service version: **0.8.0**.
 
 ## Implemented
 
