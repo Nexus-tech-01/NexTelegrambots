@@ -33,6 +33,7 @@ let setupExpiresAt = 0;
 let lastLoginState = false;
 let lastContext = null;
 let launchPromise = null;
+let attachedExternalBrowser = false;
 
 function runProbe(command, args = [], timeoutMs = 8_000) {
   return new Promise(resolve => {
@@ -234,119 +235,133 @@ async function launchBrowser() {
   launchPromise = (async () => {
     await mkdir(profileDir, { recursive: true });
 
-    const chromiumBinDir = path.resolve(
-      process.env.NEXMETA_CHROMIUM_BIN_DIR ||
-      path.join(
-        root,
-        'node_modules',
-        '@sparticuz',
-        'chromium',
-        'bin'
-      )
-    );
+    const externalBrowserUrl = String(
+      process.env.NEXMETA_BROWSER_DEBUG_URL || ''
+    ).trim();
 
-    if (
-      process.platform === 'linux' &&
-      !/^(?:0|false|no|off)$/i.test(
-        String(
-          process.env.NEXMETA_SPARTICUZ_COMPAT_LIBS ??
-          '1'
-        )
-      )
-    ) {
-      const compatRoot = await inflate(
-        path.join(
-          chromiumBinDir,
-          'al2023.tar.br'
-        )
-      );
-
-      setupLambdaEnvironment(
-        path.join(
-          compatRoot || path.join(tmpdir(), 'al2023'),
-          'lib'
-        )
-      );
-    }
-
-    chromium.setGraphicsMode = false;
-
-    const executablePath =
-      process.env.NEXMETA_CHROMIUM_PATH ||
-      await chromium.executablePath(
-        chromiumBinDir
-      );
-
-    const debugPort = Math.max(
-      1024,
-      Math.min(
-        65535,
-        Number(process.env.NEXMETA_BROWSER_DEBUG_PORT || 9223)
-      )
-    );
-
-    const launchArgs = await puppeteer.defaultArgs({
-      headless: 'shell',
-      args: [
-        ...chromium.args,
-        '--disable-dev-shm-usage',
-        '--disable-background-timer-throttling',
-        '--disable-renderer-backgrounding',
-        '--disable-features=CalculateNativeWinOcclusion',
-        '--remote-debugging-address=127.0.0.1',
-        `--remote-debugging-port=${debugPort}`,
-        '--lang=fr-FR',
-        '--window-size=1440,1400'
-      ]
-    });
-
-    try {
-      browser = await puppeteer.launch({
-        executablePath,
-        headless: 'shell',
-        userDataDir: profileDir,
-        args: launchArgs,
-        defaultViewport: {
-          width: 1440,
-          height: 1400,
-          deviceScaleFactor: 1
-        }
+    if (externalBrowserUrl) {
+      browser = await puppeteer.connect({
+        browserURL: externalBrowserUrl,
+        defaultViewport: null
       });
-    } catch (error) {
-      const versionProbe = await runProbe(
-        executablePath,
-        ['--version']
+      attachedExternalBrowser = true;
+    } else {
+      const chromiumBinDir = path.resolve(
+        process.env.NEXMETA_CHROMIUM_BIN_DIR ||
+        path.join(
+          root,
+          'node_modules',
+          '@sparticuz',
+          'chromium',
+          'bin'
+        )
       );
-
-      const libraryProbe = process.platform === 'linux'
-        ? await runProbe(
-            'ldd',
-            [executablePath]
+  
+      if (
+        process.platform === 'linux' &&
+        !/^(?:0|false|no|off)$/i.test(
+          String(
+            process.env.NEXMETA_SPARTICUZ_COMPAT_LIBS ??
+            '1'
           )
-        : null;
-
-      const diagnostic = {
-        launchError: String(error?.message || error).slice(0, 2_000),
-        versionProbe,
-        libraryProbe
-      };
-
-      console.error(
-        '[NexMeta Session] Chromium launch diagnostic',
-        diagnostic
+        )
+      ) {
+        const compatRoot = await inflate(
+          path.join(
+            chromiumBinDir,
+            'al2023.tar.br'
+          )
+        );
+  
+        setupLambdaEnvironment(
+          path.join(
+            compatRoot || path.join(tmpdir(), 'al2023'),
+            'lib'
+          )
+        );
+      }
+  
+      chromium.setGraphicsMode = false;
+  
+      const executablePath =
+        process.env.NEXMETA_CHROMIUM_PATH ||
+        await chromium.executablePath(
+          chromiumBinDir
+        );
+  
+      const debugPort = Math.max(
+        1024,
+        Math.min(
+          65535,
+          Number(process.env.NEXMETA_BROWSER_DEBUG_PORT || 9223)
+        )
       );
-
-      const wrapped = new Error(
-        'chromium_launch_failed: ' +
-        JSON.stringify(diagnostic).slice(0, 12_000)
-      );
-      wrapped.cause = error;
-      throw wrapped;
+  
+      const launchArgs = await puppeteer.defaultArgs({
+        headless: 'shell',
+        args: [
+          ...chromium.args,
+          '--disable-dev-shm-usage',
+          '--disable-background-timer-throttling',
+          '--disable-renderer-backgrounding',
+          '--disable-features=CalculateNativeWinOcclusion',
+          '--remote-debugging-address=127.0.0.1',
+          `--remote-debugging-port=${debugPort}`,
+          '--lang=fr-FR',
+          '--window-size=1440,1400'
+        ]
+      });
+  
+      try {
+        browser = await puppeteer.launch({
+          executablePath,
+          headless: 'shell',
+          userDataDir: profileDir,
+          args: launchArgs,
+          defaultViewport: {
+            width: 1440,
+            height: 1400,
+            deviceScaleFactor: 1
+          }
+        });
+      } catch (error) {
+        const versionProbe = await runProbe(
+          executablePath,
+          ['--version']
+        );
+  
+        const libraryProbe = process.platform === 'linux'
+          ? await runProbe(
+              'ldd',
+              [executablePath]
+            )
+          : null;
+  
+        const diagnostic = {
+          launchError: String(error?.message || error).slice(0, 2_000),
+          versionProbe,
+          libraryProbe
+        };
+  
+        console.error(
+          '[NexMeta Session] Chromium launch diagnostic',
+          diagnostic
+        );
+  
+        const wrapped = new Error(
+          'chromium_launch_failed: ' +
+          JSON.stringify(diagnostic).slice(0, 12_000)
+        );
+        wrapped.cause = error;
+        throw wrapped;
+      }
+      attachedExternalBrowser = false;
     }
 
     browser.on('disconnected', () => {
       browser = null;
       page = null;
+      attachedExternalBrowser = false;
       setTimeout(() => {
         launchBrowser().catch(error => {
           console.error('[NexMeta Session] relaunch failed', String(error?.message || error));
@@ -355,7 +370,9 @@ async function launchBrowser() {
     });
 
     const pages = await browser.pages();
-    page = pages[0] || await browser.newPage();
+    page = attachedExternalBrowser
+      ? await browser.newPage()
+      : pages[0] || await browser.newPage();
 
     await page.setUserAgent(
       process.env.NEXMETA_SESSION_USER_AGENT ||
