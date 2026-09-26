@@ -1048,6 +1048,7 @@ async function resolveSource(runtime,item){
     ...sources.filter(s=>String(s.accountId)===accountId),
     ...sources.filter(s=>String(s.accountId)!==accountId)
   ];
+  let lastIdentityError=null;
   for(const source of ordered){
     let entity=null;
     const username=String(source?.channelUsername||'').replace(/^@/,'');
@@ -1061,9 +1062,28 @@ async function resolveSource(runtime,item){
     try{
       const messages=await runtime.client.getMessages(entity,{ids:[Number(source.messageId)]});
       const message=Array.isArray(messages)?messages[0]:messages;
-      if(message)return {source,entity,message};
-    }catch{}
+      if(!message)continue;
+      const resolved={source,entity,message};
+      if(item?.synthetic!==true&&item?.kind==='episode'){
+        try{
+          await validateResolvedEpisodeIdentity(item,resolved);
+        }catch(error){
+          if(String(error?.code||'')==='SOURCE_IDENTITY_MISMATCH'){
+            lastIdentityError=error;
+            continue;
+          }
+          throw error;
+        }
+      }
+      return resolved;
+    }catch(error){
+      if(String(error?.code||'')==='SOURCE_IDENTITY_MISMATCH'){
+        lastIdentityError=error;
+        continue;
+      }
+    }
   }
+  if(lastIdentityError)throw lastIdentityError;
   return null;
 }
 async function destinationEntity(runtime){
@@ -1230,6 +1250,25 @@ async function markPublication(item,sent,runtime){
     {_id:item._id},
     {$set:{status:'published',publishedAt:now,updatedAt:now},$unset:{claimAt:'',claimBy:''}}
   );
+  if(item.kind==='episode'&&item.episode!=null){
+    await d.collection('nexanime_queue').updateMany(
+      {
+        _id:{$ne:item._id},
+        seriesKey:item.seriesKey,
+        kind:'episode',
+        season:item.season??1,
+        episode:item.episode,
+        status:{$nin:['published','superseded']}
+      },
+      {$set:{
+        status:'superseded',
+        supersededAt:now,
+        supersededReason:'episode_already_published',
+        preferredDedupeKey:item.dedupeKey,
+        updatedAt:now
+      },$unset:{claimAt:'',claimBy:'',lastError:'',quarantineReason:''}}
+    );
+  }
 }
 async function releaseClaim(item,error){
   const d=await db(),now=new Date();
@@ -1558,15 +1597,10 @@ async function preferredEpisodeVariant(d,seriesKey,season,episode){
   ).limit(50).toArray();
   if(!variants.length)return null;
   variants.sort((a,b)=>episodeVariantScore(b)-episodeVariantScore(a)||new Date(a.createdAt||0)-new Date(b.createdAt||0));
-  const keep=variants[0];
-  const discard=variants.slice(1).map(x=>x._id);
-  if(discard.length){
-    await d.collection('nexanime_queue').updateMany(
-      {_id:{$in:discard},status:'queued'},
-      {$set:{status:'superseded',supersededAt:new Date(),supersededReason:'duplicate_episode_variant',preferredDedupeKey:keep.dedupeKey,updatedAt:new Date()}}
-    );
-  }
-  return keep;
+  // Do not discard fallback variants before the preferred source has actually
+  // been validated and published. If the first one is stale/wrong, it will be
+  // quarantined and the next valid variant can be tried on the next cycle.
+  return variants[0];
 }
 
 async function claimNext(runtime){
@@ -1833,13 +1867,30 @@ async function purgePublishedEpisodeImageCards(runtime){
     },$unset:{claimAt:'',claimBy:'',lastError:''}}
   );
 
+  // Items quarantined by the old "first source wins" resolver deserve one
+  // retry under the new multi-source resolver. A still-invalid variant will
+  // immediately quarantine again and the next variant remains available.
+  const recovered=await queue.updateMany(
+    {
+      kind:'episode',
+      status:'quarantine',
+      quarantineReason:'source_identity_mismatch'
+    },
+    {$set:{
+      status:'queued',
+      recoveredAt:new Date(),
+      recoveredReason:'multi_source_validation',
+      updatedAt:new Date()
+    },$unset:{quarantineReason:'',lastError:'',claimAt:'',claimBy:''}}
+  );
+
   runtime.animeIngest ??={};
   runtime.animeIngest.episodeCardCleanupDone=failed===0;
   runtime.animeIngest.episodeCardCleanupAt=new Date();
   runtime.animeIngest.episodeCardCleanupDeleted=deleted;
   runtime.animeIngest.episodeCardCleanupFailed=failed;
-  console.log('[NexAnime cleanup] episode image cards deleted='+deleted+' failed='+failed);
-  return {deleted,failed,skipped:false};
+  console.log('[NexAnime cleanup] episode image cards deleted='+deleted+' failed='+failed+' recoveredIdentity='+Number(recovered?.modifiedCount||0));
+  return {deleted,failed,recoveredIdentity:Number(recovered?.modifiedCount||0),skipped:false};
 }
 
 async function publishOne(runtime){
@@ -1859,9 +1910,11 @@ async function publishOne(runtime){
     }
     let resolved=null;
     if(item.synthetic!==true){
+      // resolveSource validates each candidate source for episode items and
+      // falls through to the next source instead of failing on the first stale
+      // or misidentified message.
       resolved=await resolveSource(runtime,item);
       if(!resolved)throw new Error('source_message_unavailable_for_runtime');
-      await validateResolvedEpisodeIdentity(item,resolved);
     }
     const sent=await publishViaNexCanal(runtime,item,resolved);
     await markPublication(item,sent,runtime);
