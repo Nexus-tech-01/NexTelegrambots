@@ -71,12 +71,12 @@ function firstUrl(value,predicate=()=>true){
 }
 function cobaltUrl(d){
   if(!d)return '';
-  if((d.status==='tunnel'||d.status==='redirect')&&isHttp(d.url))return d.url;
+  if((d.status==='tunnel'||d.status==='redirect')&&isHttp(d.url))return String(d.url).replace(/&amp;/gi,'&');
   if(d.status==='picker'&&Array.isArray(d.picker)){
     const item=d.picker.find(x=>x?.type==='video')||d.picker.find(x=>x?.type==='audio')||d.picker[0];
-    if(isHttp(item?.url))return item.url;
+    if(isHttp(item?.url))return String(item.url).replace(/&amp;/gi,'&');
   }
-  return isHttp(d.url)?d.url:'';
+  return isHttp(d.url)?String(d.url).replace(/&amp;/gi,'&'):'';
 }
 async function cascade(label,attempts){
   const errors=[];
@@ -129,6 +129,16 @@ async function youtubeAudio(input){
   if(target?.url){
     const u=encodeURIComponent(target.url);
     attempts.push(
+      ['Cobalt local',async()=>{
+        const d=await postJson('http://127.0.0.1:9000/',{
+          url:target.url,
+          downloadMode:'audio',
+          audioFormat:'mp3',
+          audioBitrate:'128'
+        });
+        const v=cobaltUrl(d);
+        return v?{url:v,title:target.title||'YouTube'}:null;
+      }],
       ['EliteProTech',async()=>{
         const d=await json('https://eliteprotech-apis.zone.id/ytdown?url='+u+'&format=mp3');
         return d?.success&&d?.downloadURL?{url:d.downloadURL,title:d.title||target.title}:null;
