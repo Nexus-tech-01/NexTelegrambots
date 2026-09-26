@@ -54,7 +54,7 @@ export async function routeEngineCommand({cmd,runtime,event,args=[],sendText}){
     }
     return guarded({
       label:ENGINE_LABELS[engine],name,client:runtime.client,peer,sendText:(p,t)=>sendText(runtime.client,p,t),progressEnabled:needsProgress(engine,name),
-      run:progress=>handleAnimeCommand({runtime,event,name,args,progress})
+      run:progress=>handleAnimeCommand({runtime,event,name,args,progress,reply:text=>sendText(runtime.client,peer,text)})
     });
   }
 
@@ -65,7 +65,7 @@ export async function routeEngineCommand({cmd,runtime,event,args=[],sendText}){
     }
     return guarded({
       label:ENGINE_LABELS[engine],name,client:runtime.client,peer,sendText:(p,t)=>sendText(runtime.client,p,t),progressEnabled:needsProgress(engine,name),
-      run:progress=>handleAiCommand({runtime,event,name,args,progress})
+      run:progress=>handleAiCommand({runtime,event,name,args,progress,reply:text=>sendText(runtime.client,peer,text)})
     });
   }
 
@@ -76,7 +76,7 @@ export async function routeEngineCommand({cmd,runtime,event,args=[],sendText}){
     }
     return guarded({
       label:ENGINE_LABELS[engine],name,client:runtime.client,peer,sendText:(p,t)=>sendText(runtime.client,p,t),progressEnabled:needsProgress(engine,name),
-      run:progress=>handleDownloadCommand({client:runtime.client,peer,name,args,event,progress})
+      run:progress=>handleDownloadCommand({client:runtime.client,peer,name,args,event,progress,reply:text=>sendText(runtime.client,peer,text)})
     });
   }
 
@@ -87,7 +87,7 @@ export async function routeEngineCommand({cmd,runtime,event,args=[],sendText}){
     }
     return guarded({
       label:ENGINE_LABELS[engine],name,client:runtime.client,peer,sendText:(p,t)=>sendText(runtime.client,p,t),progressEnabled:needsProgress(engine,name),
-      run:progress=>handleStickerCommand({runtime,event,name,args,progress})
+      run:progress=>handleStickerCommand({runtime,event,name,args,progress,reply:text=>sendText(runtime.client,peer,text)})
     });
   }
 
@@ -98,7 +98,7 @@ export async function routeEngineCommand({cmd,runtime,event,args=[],sendText}){
     }
     return guarded({
       label:ENGINE_LABELS[engine],name,client:runtime.client,peer,sendText:(p,t)=>sendText(runtime.client,p,t),progressEnabled:needsProgress(engine,name),
-      run:progress=>handleGameCommand({runtime,event,name,args,progress})
+      run:progress=>handleGameCommand({runtime,event,name,args,progress,reply:text=>sendText(runtime.client,peer,text)})
     });
   }
 
