@@ -5,7 +5,7 @@ import { NewMessage } from 'teleproto/events/index.js';
 import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { cfg, isOwnerId } from './config.mjs';
 import { commandMap } from './commands.mjs';
-import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, disableAccount, enableAccount, listAccountsForWorker, patchSettings, releaseRuntimeLease, renewRuntimeLease, settingsFor } from './store.mjs';
+import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, claimCommandDelivery, disableAccount, enableAccount, listAccountsForWorker, patchSettings, releaseRuntimeLease, renewRuntimeLease, settingsFor } from './store.mjs';
 import { listStyles } from './styles.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { recordEvent } from './analytics.mjs';
@@ -78,8 +78,27 @@ function isSelfAuthoredMessage(message,account){
   return false;
 }
 
-function claimCommand(telegramUserId,message){
-  return commandDeduper.claim(telegramUserId,message);
+function commandDeliveryKey(message){
+  const peer=String(
+    message?.peerId?.userId||
+    message?.peerId?.chatId||
+    message?.peerId?.channelId||
+    message?.chatId||
+    'peer'
+  );
+  return peer+':'+String(message?.id||'0');
+}
+
+async function claimCommand(telegramUserId,message){
+  if(!commandDeduper.claim(telegramUserId,message))return false;
+  try{
+    return await claimCommandDelivery(telegramUserId,commandDeliveryKey(message));
+  }catch(error){
+    // Keep commands usable during a temporary MongoDB issue; the in-memory
+    // guard still prevents duplicate handling inside this runtime.
+    console.warn('[NexAccount command-dedupe] durable_claim_failed',String(telegramUserId),String(error?.message||error).slice(0,250));
+    return true;
+  }
 }
 
 async function sendText(client,peer,text){
@@ -698,7 +717,7 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
   if(!selfAuthored&&await messageAuthorIsBot(client,message,event?.sender))return false;
   const parsed=parseCommand(textOf(message),settings.prefix||'.');
   if(!parsed)return false;
-  if(!claimCommand(account.telegramUserId,message))return true;
+  if(!(await claimCommand(account.telegramUserId,message)))return true;
   console.log(
     '[NexAccount command]',
     String(account.telegramUserId),

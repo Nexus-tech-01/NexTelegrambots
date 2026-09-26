@@ -215,7 +215,11 @@ async function modelFor(account,query){
   if(q.startsWith('reply:')){
     const token=rawQuery.slice('reply:'.length).trim();
     const row=await getInlineResponse(token,account.telegramUserId);
-    return inlineReplyModel(row?.text||'Réponse expirée. Relance la commande.',settings);
+    if(!row){
+      console.warn('[NexAI inline reply] missing_or_expired',String(account.telegramUserId),token.slice(0,8));
+      return null;
+    }
+    return inlineReplyModel(row.text,settings);
   }
   if(q==='styles'||q==='style')return stylesModel({account,settings});
   if(q.startsWith('cat:')){
@@ -500,6 +504,13 @@ export async function startInlineBot(){
       return;
     }
     const model=await modelFor(account,ctx.inlineQuery.query);
+    if(!model){
+      // Never inject an "expired response" message into the user's chat.
+      // Returning no result makes the connected account fall back to a direct
+      // branded Telegram message containing the real command response.
+      await ctx.answerInlineQuery([],{cache_time:0,is_personal:true});
+      return;
+    }
     const resultId='nex-'+Date.now();
     const cachedPhotoId=model.photoUrl
       ?await cachePhotoFileId(model.photoUrl,account.telegramUserId)
