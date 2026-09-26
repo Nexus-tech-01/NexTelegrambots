@@ -126,6 +126,11 @@ if(downloadSource.includes('api.yupra.my.id'))errors.push('dead-yupra-provider-s
 if(downloadSource.includes('izumiiiiiiii.dpdns.org'))errors.push('dead-izumi-provider-still-present');
 if(downloadSource.includes('tiktokH265'))errors.push('obsolete-cobalt-tiktok-option-present');
 if(!downloadSource.includes('allowH265:false'))errors.push('current-cobalt-tiktok-option-missing');
+for(const forbidden of ['ttgrab_bot','SaveOFFbot','ttiktok_downloader_bot','telegramTikTokRelay','relais Telegram']){
+  if(downloadSource.includes(forbidden))errors.push('forbidden-tiktok-telegram-relay:'+forbidden);
+}
+if(!downloadSource.includes('tdownv4.sl-bjs.workers.dev'))errors.push('tiktok-http-fallback-missing');
+if(!downloadSource.includes('/opt/nex/tools/yt-dlp-full/bin/yt-dlp'))errors.push('full-ytdlp-preferred-path-missing');
 if(!stickerSource.includes('stickerEngineDiagnostic'))errors.push('sticker-real-health-probe-missing');
 if(!stickerSource.includes("botApi('getMe'"))errors.push('sticker-botapi-reachability-probe-missing');
 if(!stickerSource.includes("prepareSticker({buffer:png,mime:'image/png'})"))errors.push('sticker-local-conversion-probe-missing');
