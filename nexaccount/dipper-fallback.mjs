@@ -290,7 +290,13 @@ function runYtDlp(args,timeout=180000){
 
 async function localYoutubeFile(input,mode='audio'){
   if(!fs.existsSync(YTDLP))throw new Error('yt-dlp local absent');
-  const target=await resolveYoutube(input);
+  const raw=clean(input);
+  if(!raw)throw new Error('indique un titre ou un lien YouTube');
+  // Let yt-dlp perform text search itself. Scraping YouTube result HTML before
+  // invoking yt-dlp made .song/.video fail whenever YouTube changed its markup.
+  const target=youtubeUrl(raw)
+    ? {url:raw,title:'YouTube'}
+    : {url:'ytsearch1:'+raw,title:raw};
   const base='nexai-ytdlp-'+process.pid+'-'+Date.now()+'-'+crypto.randomBytes(4).toString('hex');
   const template=path.join(os.tmpdir(),base+'-%(id)s.%(ext)s');
   const common=[
