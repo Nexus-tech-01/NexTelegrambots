@@ -475,19 +475,6 @@ export async function handle(envelope) {
     };
   }
 
-  if (!providerReady) {
-    return {
-      text: lang === 'fr'
-        ? 'NexAI est installé dans le bridge Facebook, mais son provider IA n’est pas encore configuré sur le serveur. Les autres services Nexus restent disponibles.'
-        : 'NexAI is installed in the Facebook bridge, but its AI provider is not configured on the server yet. Other Nexus services remain available.',
-      quickReplies: [
-        { title: 'Download', payload: '/download' },
-        { title: 'Games', payload: '/game' },
-        { title: 'Whisper', payload: '/whisper' }
-      ]
-    };
-  }
-
   const prompt = commandPrompt(text);
   if (!prompt) {
     return {
@@ -506,6 +493,19 @@ export async function handle(envelope) {
       { role: 'assistant', content: canonical.slice(0, 12000) }
     ]);
     return { text: canonical };
+  }
+
+  if (!providerReady) {
+    return {
+      text: lang === 'fr'
+        ? 'Je peux toujours répondre aux informations officielles Nextech, mais mon moteur conversationnel avancé est momentanément indisponible.'
+        : 'I can still answer official Nextech information, but my advanced conversational engine is temporarily unavailable.',
+      quickReplies: [
+        { title: 'Download', payload: '/download' },
+        { title: 'Games', payload: '/game' },
+        { title: 'Whisper', payload: '/whisper' }
+      ]
+    };
   }
 
   const previous = readHistory(envelope);
