@@ -121,6 +121,7 @@ if(!runtime.includes('getInputChannel(await client.getInputEntity(peer))'))error
 if(!daemonSource.includes("aqz-KE-bpKQ"))errors.push('download-startup-smoke-fixture-missing');
 if(!downloadSource.includes("/opt/nex/tools/yt-dlp/yt-dlp"))errors.push('local-ytdlp-path-missing');
 if(!downloadSource.includes("Source : yt-dlp local"))errors.push('local-ytdlp-primary-route-missing');
+if(!downloadSource.includes("'ytsearch1:'+raw"))errors.push('local-ytdlp-native-search-missing');
 if(downloadSource.includes('api.yupra.my.id'))errors.push('dead-yupra-provider-still-present');
 if(downloadSource.includes('izumiiiiiiii.dpdns.org'))errors.push('dead-izumi-provider-still-present');
 if(downloadSource.includes('tiktokH265'))errors.push('obsolete-cobalt-tiktok-option-present');
