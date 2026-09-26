@@ -42,6 +42,8 @@ jobs:
         run: node nexaccount/scripts/test-anime-ingest.mjs
       - name: Media send regression
         run: node nexaccount/scripts/test-media-send.mjs
+      - name: WhatsApp sticker package regression
+        run: node nexaccount/scripts/test-wastickers.mjs
       - name: Menu resilience regression
         run: node nexaccount/scripts/test-menu-resilience.mjs
       - name: Critical public routes regression
