@@ -143,7 +143,7 @@ function recoveredMediaName(source){
 }
 async function recoverOwnViewOnce(client,peer,commandMessage,account,afterSend=null){
   const source=await repliedMessage(client,peer,commandMessage);
-  if(!source?.media)throw new Error('Réponds à ton média vue unique avec .vv.');
+  if(!source?.media)throw new Error('Réponds à ton média vue unique avec /Vv.');
   if(mediaTtlSeconds(source)<=0)throw new Error('Le média répondu n’est pas éphémère/vue unique.');
   if(!sourceBelongsToConnectedAccount(source,account)){
     throw new Error('VV ne récupère que les médias éphémères envoyés par le compte connecté.');
@@ -496,12 +496,12 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(name==='calc'){try{await sendText(client,peer,String(safeCalc(argText)))}catch(e){await sendText(client,peer,'Calcul : '+e.message)}return true}
 
   if(name==='tinyurl'){
-    if(!/^https?:\/\//i.test(argText)){await sendText(client,peer,'Usage : .tinyurl https://...');return true}
+    if(!/^https?:\/\//i.test(argText)){await sendText(client,peer,'Usage : /Tinyurl https://...');return true}
     try{await sendText(client,peer,await fetchText('https://tinyurl.com/api-create.php?url='+encodeURIComponent(argText)))}catch(e){await sendText(client,peer,'TinyURL indisponible : '+e.message)}
     return true;
   }
   if(name==='translate'||name==='traduction'){
-    if(!argText){await sendText(client,peer,'Usage : .translate [langue] texte');return true}
+    if(!argText){await sendText(client,peer,'Usage : /Translate [langue] texte');return true}
     let target='fr',text=argText;
     if(/^[a-z]{2,3}$/i.test(args[0])&&args.length>1){target=args[0].toLowerCase();text=args.slice(1).join(' ')}
     try{
@@ -522,7 +522,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
   if(name==='define'){
     const word=args[0];
-    if(!word){await sendText(client,peer,'Usage : .define mot');return true}
+    if(!word){await sendText(client,peer,'Usage : /Define mot');return true}
     try{
       const j=await fetchJson('https://api.dictionaryapi.dev/api/v2/entries/en/'+encodeURIComponent(word));
       const e=Array.isArray(j)?j[0]:null;
@@ -532,7 +532,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return true;
   }
   if(name==='animeinfo'||name==='anime'){
-    if(!argText){await sendText(client,peer,'Usage : .animeinfo titre');return true}
+    if(!argText){await sendText(client,peer,'Usage : /Animeinfo titre');return true}
     try{
       const j=await fetchJson('https://api.jikan.moe/v4/anime?q='+encodeURIComponent(argText)+'&limit=1');
       const a=j?.data?.[0];
@@ -552,27 +552,27 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return true;
   }
   if(name==='qr'){
-    if(!argText){await sendText(client,peer,'Usage : .qr texte ou URL');return true}
+    if(!argText){await sendText(client,peer,'Usage : /Qr texte ou URL');return true}
     const u='https://api.qrserver.com/v1/create-qr-code/?size=512x512&data='+encodeURIComponent(argText);
     try{await sendRemoteFile(client,peer,u,{caption:'NexAi · QR',name:'qr.png'})}catch(e){await sendText(client,peer,'QR indisponible : '+e.message)}
     return true;
   }
   if(name==='tts'){
-    if(!argText){await sendText(client,peer,'Usage : .tts texte');return true}
+    if(!argText){await sendText(client,peer,'Usage : /Tts texte');return true}
     const text=argText.slice(0,180),lang=(await settingsFor(account.telegramUserId)).language||'fr';
     const u='https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl='+encodeURIComponent(lang)+'&q='+encodeURIComponent(text);
     try{await sendRemoteFile(client,peer,u,{caption:'NexAi · TTS',name:'tts.mp3'})}catch(e){await sendText(client,peer,'TTS indisponible : '+e.message)}
     return true;
   }
   if(name==='ssweb'||name==='sswebpc'){
-    if(!/^https?:\/\//i.test(argText)){await sendText(client,peer,'Usage : .'+name+' https://...');return true}
+    if(!/^https?:\/\//i.test(argText)){await sendText(client,peer,'Usage : /'+name+' https://...');return true}
     const width=name==='sswebpc'?'1440':'390';
     const u='https://image.thum.io/get/width/'+width+'/crop/900/noanimate/'+argText;
     try{await sendRemoteFile(client,peer,u,{caption:'NexAi · Screenshot',name:'screenshot.png'})}catch(e){await sendText(client,peer,'Capture indisponible : '+e.message)}
     return true;
   }
   if(name==='browse'){
-    if(!/^https?:\/\//i.test(argText)){await sendText(client,peer,'Usage : .browse https://...');return true}
+    if(!/^https?:\/\//i.test(argText)){await sendText(client,peer,'Usage : /Browse https://...');return true}
     try{
       const t=await fetchText(argText,{headers:{'user-agent':'Mozilla/5.0'}},10000);
       const title=html(t.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'');
@@ -582,7 +582,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return true;
   }
   if(name==='downloadinfo'){
-    if(!/^https?:\/\//i.test(argText)){await sendText(client,peer,'Usage : .downloadinfo URL');return true}
+    if(!/^https?:\/\//i.test(argText)){await sendText(client,peer,'Usage : /Downloadinfo URL');return true}
     try{
       const r=await fetch(argText,{method:'HEAD',redirect:'follow',signal:AbortSignal.timeout(10000)});
       await sendText(client,peer,'URL : '+r.url+'\nType : '+(r.headers.get('content-type')||'?')+'\nTaille : '+(r.headers.get('content-length')||'?')+' octets\nHTTP : '+r.status);
@@ -590,7 +590,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return true;
   }
   if(name==='imdb'){
-    if(!argText){await sendText(client,peer,'Usage : .imdb titre');return true}
+    if(!argText){await sendText(client,peer,'Usage : /Imdb titre');return true}
     try{
       const j=await fetchJson('https://api.tvmaze.com/search/shows?q='+encodeURIComponent(argText));
       const s=j?.[0]?.show;
@@ -601,7 +601,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return true;
   }
   if(name==='gsmarena'){
-    if(!argText){await sendText(client,peer,'Usage : .gsmarena téléphone');return true}
+    if(!argText){await sendText(client,peer,'Usage : /Gsmarena téléphone');return true}
     try{
       const t=await fetchText('https://www.gsmarena.com/results.php3?sQuickSearch=yes&sName='+encodeURIComponent(argText),{headers:{'user-agent':'Mozilla/5.0'}},10000);
       const names=[...t.matchAll(/<span>([^<]{2,80})<\/span>/g)].map(m=>html(m[1])).filter(Boolean).slice(0,10);
@@ -640,7 +640,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
         text=argText||'Je te mentionne ici.';
       }else{
         const target=clean(args[0]);
-        if(!target){await sendText(client,peer,'Usage : réponds à un membre avec .tag [message], ou .tag @username [message].');return true}
+        if(!target){await sendText(client,peer,'Usage : réponds à un membre avec /Tag [message], ou .tag @username [message].');return true}
         const ref=/^\d+$/.test(target)?BigInt(target):target;
         user=await client.getEntity(ref);
         text=args.slice(1).join(' ').trim()||'Je te mentionne ici.';
@@ -715,7 +715,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return true;
   }
   if(name==='add'){
-    if(!args[0]){await sendText(client,peer,'Usage : .add @username');return true}
+    if(!args[0]){await sendText(client,peer,'Usage : /Add @username');return true}
     try{
       const channel=getInputChannel(await client.getInputEntity(peer)),user=getInputUser(await client.getInputEntity(args[0]));
       await client.invoke(new Api.channels.InviteToChannel({channel,users:[user]}));
@@ -777,11 +777,11 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const current=s.accessMode==='public'?'public':'private';
     const value=clean(args[0]).toLowerCase();
     if(!value){
-      await sendText(client,peer,'Mode d’accès : '+current.toUpperCase()+'\nUsage : .mode private | .mode public');
+      await sendText(client,peer,'Mode d’accès : '+current.toUpperCase()+'\nUsage : /Mode private | .mode public');
       return true;
     }
     if(!['private','privé','prive','public'].includes(value)){
-      await sendText(client,peer,'Usage : .mode private | .mode public');
+      await sendText(client,peer,'Usage : /Mode private | .mode public');
       return true;
     }
     const accessMode=value==='public'?'public':'private';
@@ -800,7 +800,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
   if(name==='language'){
     const v=clean(args[0]).toLowerCase();
-    if(!['fr','en'].includes(v)){await sendText(client,peer,'Usage : .language fr|en');return true}
+    if(!['fr','en'].includes(v)){await sendText(client,peer,'Usage : /Language fr|en');return true}
     await patchSettings(account.telegramUserId,{language:v});await sendText(client,peer,'Langue : '+v.toUpperCase());return true;
   }
   if(name==='reflexe_systeme'){
@@ -929,7 +929,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       await patchGroupPolicy(account.telegramUserId,chat,snap.policy||{});await sendText(client,peer,'Configuration NexAi restaurée.');return true;
     }
     if(name==='copyconfig'){
-      const target=clean(args[0]);if(!target){await sendText(client,peer,'Usage : .copyconfig <chatId source>');return true}
+      const target=clean(args[0]);if(!target){await sendText(client,peer,'Usage : /Copyconfig <chatId source>');return true}
       const src=s.groupPolicies?.[target];if(!src){await sendText(client,peer,'Configuration source introuvable.');return true}
       await patchGroupPolicy(account.telegramUserId,chat,src);await sendText(client,peer,'Configuration copiée.');return true;
     }
@@ -941,7 +941,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       await sendText(client,peer,toSmallCaps(key)+' : '+next.length+' entrée(s).');return true;
     }
     if(name==='broadcast'){
-      if(!argText){await sendText(client,peer,'Usage : .broadcast message');return true}await sendText(client,peer,argText);return true;
+      if(!argText){await sendText(client,peer,'Usage : /Broadcast message');return true}await sendText(client,peer,argText);return true;
     }
     if(name==='cancel'){await sendText(client,peer,'Aucun flux NexAi actif à annuler dans ce chat.');return true}
     if(name==='clearwarns'){
@@ -967,7 +967,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       await sendText(client,peer,name==='notes'?(policy.notes||'Aucune note.'):(policy.rules||'Aucune règle enregistrée.'));return true;
     }
     if(name==='setcommand'){
-      const first=clean(args[0]).toLowerCase();const body=args.slice(1).join(' ').trim();if(!first||!body){await sendText(client,peer,'Usage : .setcommand nom réponse');return true}
+      const first=clean(args[0]).toLowerCase();const body=args.slice(1).join(' ').trim();if(!first||!body){await sendText(client,peer,'Usage : /Setcommand nom réponse');return true}
       const custom={...(policy.customCommands||{}),[first]:body};await patchGroupPolicy(account.telegramUserId,chat,{customCommands:custom});await sendText(client,peer,'Commande .'+first+' enregistrée.');return true;
     }
     if(name==='warnings'){
@@ -1019,7 +1019,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
   if(name==='vcf'){
     const values=args.filter(Boolean);
-    if(!values.length){await sendText(client,peer,'Usage : .vcf +229... +33...');return true}
+    if(!values.length){await sendText(client,peer,'Usage : /Vcf +229... +33...');return true}
     const cards=values.map((v,i)=>'BEGIN:VCARD\nVERSION:3.0\nFN:Contact '+(i+1)+'\nTEL;TYPE=CELL:'+v+'\nEND:VCARD').join('\n');
     await sendTelegramMedia(client,peer,Buffer.from(cards),{fileName:'contacts.vcf',caption:'NexAi · VCF',mimeType:'text/vcard',kind:'document',afterSend:mediaCta});return true;
   }
@@ -1027,12 +1027,12 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     await sendText(client,peer,'Réponds à un fichier .vcf avec les critères à conserver. Cette commande est reconnue ; le moteur Telegram ne modifie jamais silencieusement un carnet de contacts.');return true;
   }
   if(name==='texttopdf'){
-    if(!argText){await sendText(client,peer,'Usage : .texttopdf ton texte');return true}
+    if(!argText){await sendText(client,peer,'Usage : /Texttopdf ton texte');return true}
     try{await sendTelegramMedia(client,peer,simplePdf(argText),{fileName:'nexai-text.pdf',caption:'NexAi · PDF',mimeType:'application/pdf',kind:'document',afterSend:mediaCta})}catch(e){await sendText(client,peer,'PDF impossible : '+e.message)}
     return true;
   }
   if(name==='toimage'){
-    if(!argText){await sendText(client,peer,'Usage : .toimage ton texte');return true}
+    if(!argText){await sendText(client,peer,'Usage : /Toimage ton texte');return true}
     const lines=argText.match(/.{1,44}(?:\s|$)/g)||[argText];
     const tspans=lines.slice(0,12).map((l,i)=>'<tspan x="60" dy="'+(i?54:0)+'">'+xmlEscape(l.trim())+'</tspan>').join('');
     const svg='<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080"><rect width="1080" height="1080" rx="64" fill="#17130d"/><text x="60" y="130" fill="#ffe39a" font-family="sans-serif" font-size="42" font-weight="700">'+tspans+'</text><text x="60" y="1010" fill="#aa9162" font-family="sans-serif" font-size="24">NexAi · Nextech</text></svg>';
@@ -1040,7 +1040,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
   if(name==='crop'||name==='resize'){
     const source=await repliedMessage(client,peer,event.message);
-    if(!source?.media){await sendText(client,peer,'Réponds à une image avec .'+name+(name==='resize'?' 800x800':''));return true}
+    if(!source?.media){await sendText(client,peer,'Réponds à une image avec /'+name+(name==='resize'?' 800x800':''));return true}
     const progress=await progressFor(name==='crop'?'Recadrage image':'Redimensionnement image');
     try{
       if(progress)await progress.step('Image · téléchargement Telegram…');
@@ -1071,7 +1071,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
   if(name==='pausequeue'){await sendText(client,peer,'La file média NexAi n’a pas de lecture locale active dans ce chat.');return true}
   if(name==='emojimix'){
-    const a=args[0]||'',b=args[1]||'';if(!a||!b){await sendText(client,peer,'Usage : .emojimix 😀 😎');return true}
+    const a=args[0]||'',b=args[1]||'';if(!a||!b){await sendText(client,peer,'Usage : /Emojimix 😀 😎');return true}
     await sendText(client,peer,a+'  ×  '+b+'  →  '+a+b);return true;
   }
   if(name==='menuemoji'){
@@ -1175,7 +1175,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     }
     const reply=await repliedMessage(client,peer,event.message);
     if(!reply?.media){
-      await sendText(client,peer,'Réponds à une image, un audio ou une vidéo avec .reponseauto [délai_secondes].');
+      await sendText(client,peer,'Réponds à une image, un audio ou une vidéo avec /Reponseauto [délai_secondes].');
       return true;
     }
     try{
@@ -1199,7 +1199,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       if(raw){
         const username=raw.replace(/^https?:\/\/(?:t\.me|telegram\.me)\//i,'').replace(/^@/,'').split(/[/?#]/)[0];
         if(!username||/^\+/.test(username)){
-          await sendText(client,peer,'Pour un canal privé, rejoins-le d’abord avec .join puis relance .infos_canal.');
+          await sendText(client,peer,'Pour un canal privé, rejoins-le d’abord avec /Join puis relance .infos_canal.');
           return true;
         }
         target=await client.getInputEntity('@'+username);
@@ -1243,7 +1243,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
 
   if(name==='illustration_grimoire'){
     const reply=await repliedMessage(client,peer,event.message);
-    if(!reply?.media){await sendText(client,peer,'Réponds à une image avec .illustration_grimoire.');return true}
+    if(!reply?.media){await sendText(client,peer,'Réponds à une image avec /Menuimage.');return true}
     try{
       const buffer=await client.downloadMedia(reply);
       if(!buffer?.length)throw new Error('image vide');
