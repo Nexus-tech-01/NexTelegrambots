@@ -268,3 +268,15 @@ console.log('NexAnime ingest regression tests: OK');
   assert.equal(c.season,2);
   assert.equal(c.episode,6);
 }
+
+
+// episode variant preference must be deterministic: prefer VF first, then quality.
+{
+  const vf720=__test.episodeVariantScore({language:'VF',quality:'720p'});
+  const vf480=__test.episodeVariantScore({language:'VF',quality:'480p'});
+  const multi1080=__test.episodeVariantScore({language:'MULTI',quality:'1080p'});
+  const vostfr1080=__test.episodeVariantScore({language:'VOSTFR',quality:'1080p'});
+  assert.ok(vf720>vf480);
+  assert.ok(vf480>multi1080);
+  assert.ok(multi1080>vostfr1080);
+}
