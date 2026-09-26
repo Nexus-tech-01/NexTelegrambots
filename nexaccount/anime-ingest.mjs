@@ -1884,13 +1884,46 @@ async function purgePublishedEpisodeImageCards(runtime){
     },$unset:{quarantineReason:'',lastError:'',claimAt:'',claimBy:''}}
   );
 
+  const scheduler=d.collection('nexanime_config');
+  const schedulerState=await scheduler.findOne({_id:'scheduler'});
+  const repairSeries=String(schedulerState?.lastCompletedSeriesKey||'');
+  let resumedSeries='';
+  if(repairSeries){
+    const repairPending=await queue.countDocuments({
+      seriesKey:repairSeries,
+      kind:'episode',
+      status:'queued',
+      recoveredReason:'multi_source_validation'
+    });
+    if(repairPending>0){
+      resumedSeries=repairSeries;
+      const repairNow=new Date();
+      await scheduler.updateOne(
+        {_id:'scheduler'},
+        {$set:{
+          activeSeriesKey:repairSeries,
+          activeSeriesStartedAt:repairNow,
+          repairResumeAt:repairNow,
+          repairResumeReason:'recovered_identity_mismatch',
+          updatedAt:repairNow
+        },$unset:{
+          plannedSeriesKey:'',
+          plannedAt:'',
+          plannedSummary:'',
+          cooldownUntil:''
+        }},
+        {upsert:true}
+      );
+    }
+  }
+
   runtime.animeIngest ??={};
   runtime.animeIngest.episodeCardCleanupDone=failed===0;
   runtime.animeIngest.episodeCardCleanupAt=new Date();
   runtime.animeIngest.episodeCardCleanupDeleted=deleted;
   runtime.animeIngest.episodeCardCleanupFailed=failed;
-  console.log('[NexAnime cleanup] episode image cards deleted='+deleted+' failed='+failed+' recoveredIdentity='+Number(recovered?.modifiedCount||0));
-  return {deleted,failed,recoveredIdentity:Number(recovered?.modifiedCount||0),skipped:false};
+  console.log('[NexAnime cleanup] episode image cards deleted='+deleted+' failed='+failed+' recoveredIdentity='+Number(recovered?.modifiedCount||0)+' resumedSeries='+(resumedSeries||'none'));
+  return {deleted,failed,recoveredIdentity:Number(recovered?.modifiedCount||0),resumedSeries:resumedSeries||null,skipped:false};
 }
 
 async function publishOne(runtime){
