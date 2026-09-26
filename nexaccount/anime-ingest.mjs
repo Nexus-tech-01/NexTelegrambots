@@ -1775,6 +1775,73 @@ async function publishViaNexCanal(runtime,item,resolved){
   }
 }
 
+async function purgePublishedEpisodeImageCards(runtime){
+  if(runtime?.animeIngest?.episodeCardCleanupDone===true)return {deleted:0,failed:0,skipped:true};
+  const d=await db();
+  const publications=d.collection('nexanime_publications');
+  const queue=d.collection('nexanime_queue');
+  const rows=await publications.find({
+    kind:'presentation',
+    episode:{$ne:null},
+    telegramMessageId:{$gt:0},
+    purgedAt:{$exists:false}
+  }).project({_id:1,telegramMessageId:1,seriesKey:1,season:1,episode:1}).sort({telegramMessageId:1}).toArray();
+
+  let deleted=0,failed=0;
+  if(rows.length){
+    const destination=await destinationEntity(runtime);
+    for(let i=0;i<rows.length;i+=100){
+      const chunk=rows.slice(i,i+100);
+      const ids=chunk.map(x=>Number(x.telegramMessageId)).filter(Boolean);
+      if(!ids.length)continue;
+      try{
+        await runtime.client.deleteMessages(destination,ids,{revoke:true});
+        deleted+=ids.length;
+        await publications.updateMany(
+          {_id:{$in:chunk.map(x=>x._id)}},
+          {$set:{
+            purgedAt:new Date(),
+            purgedBy:'episode_image_card_cleanup_v1',
+            purgeReason:'episode_image_card_disabled'
+          },$unset:{purgeError:'',purgeAttemptAt:''}}
+        );
+      }catch(error){
+        failed+=ids.length;
+        await publications.updateMany(
+          {_id:{$in:chunk.map(x=>x._id)}},
+          {$set:{
+            purgeError:String(error?.message||error).slice(0,300),
+            purgeAttemptAt:new Date()
+          }}
+        );
+      }
+      await sleep(150);
+    }
+  }
+
+  await queue.updateMany(
+    {
+      kind:'presentation',
+      episode:{$ne:null},
+      status:{$in:['queued','publishing']}
+    },
+    {$set:{
+      status:'superseded',
+      supersededAt:new Date(),
+      supersededReason:'episode_image_card_disabled',
+      updatedAt:new Date()
+    },$unset:{claimAt:'',claimBy:'',lastError:''}}
+  );
+
+  runtime.animeIngest ??={};
+  runtime.animeIngest.episodeCardCleanupDone=failed===0;
+  runtime.animeIngest.episodeCardCleanupAt=new Date();
+  runtime.animeIngest.episodeCardCleanupDeleted=deleted;
+  runtime.animeIngest.episodeCardCleanupFailed=failed;
+  console.log('[NexAnime cleanup] episode image cards deleted='+deleted+' failed='+failed);
+  return {deleted,failed,skipped:false};
+}
+
 async function publishOne(runtime){
   if(!isPublisherRuntime(runtime)||runtime.animeIngest?.publishing)return false;
   runtime.animeIngest ??={};
@@ -1835,8 +1902,12 @@ export async function startAnimeIngest(runtime){
     runtime.animeIngest.pollTimer.unref?.();
   }
   if(publisher){
+    // Remove legacy per-episode poster cards that were already published before
+    // this fix. Real episode media and the one general synopsis are untouched.
+    await purgePublishedEpisodeImageCards(runtime);
     runtime.animeIngest.publishTimer=setInterval(()=>publishOne(runtime).catch(()=>{}),PUBLISH_MS);
     runtime.animeIngest.publishTimer.unref?.();
+    queueMicrotask(()=>publishOne(runtime).catch(()=>{}));
   }
   return true;
 }
