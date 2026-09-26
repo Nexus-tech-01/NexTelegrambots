@@ -63,6 +63,48 @@ async function run(name,args=[]){
   return sent;
 }
 
+async function runAction(name,args=[]){
+  const sent=[],invoked=[];
+  const channelPeer=new Api.InputPeerChannel({channelId:1001n,accessHash:2002n});
+  const userPeer=new Api.InputPeerUser({userId:3003n,accessHash:4004n});
+  const client={
+    getMessages:async()=>[],
+    getInputEntity:async value=>value==='peer'?channelPeer:userPeer,
+    invoke:async request=>{invoked.push(request);return {link:'https://t.me/+qa'};},
+    sendMessage:async(_peer,payload)=>{sent.push(String(payload.message||''));return payload;}
+  };
+  const runtime={client,account:{telegramUserId:'999999999'}};
+  const event={message:{peerId:'peer',id:1,out:true},isGroup:true};
+  const sendText=async(_client,_peer,text)=>sent.push(String(text));
+  const handled=await handleCompatCommand({
+    runtime,event,name,args,cmd:{engine:'group'},sendText,sendInline:async()=>{}
+  });
+  assert.equal(handled,true,name+' action must be handled');
+  return {sent,invoked};
+}
+
+const promoteAction=await runAction('promote',['@target']);
+assert.ok(promoteAction.invoked[0] instanceof Api.channels.EditAdmin,'promote must call channels.EditAdmin');
+assert.ok(promoteAction.invoked[0].channel instanceof Api.InputChannel,'promote must use InputChannel');
+assert.ok(promoteAction.invoked[0].userId instanceof Api.InputUser,'promote must use InputUser');
+assert.doesNotThrow(()=>promoteAction.invoked[0].getBytes(),'promote request must serialize');
+
+const banAction=await runAction('ban',['@target']);
+assert.ok(banAction.invoked[0] instanceof Api.channels.EditBanned,'ban must call channels.EditBanned');
+assert.ok(banAction.invoked[0].channel instanceof Api.InputChannel,'ban must use InputChannel');
+assert.doesNotThrow(()=>banAction.invoked[0].getBytes(),'ban request must serialize');
+
+const addAction=await runAction('add',['@target']);
+assert.ok(addAction.invoked[0] instanceof Api.channels.InviteToChannel,'add must call channels.InviteToChannel');
+assert.ok(addAction.invoked[0].channel instanceof Api.InputChannel,'add must use InputChannel');
+assert.ok(addAction.invoked[0].users?.[0] instanceof Api.InputUser,'add must use InputUser');
+assert.doesNotThrow(()=>addAction.invoked[0].getBytes(),'add request must serialize');
+
+const approveAction=await runAction('approve',['@target']);
+assert.ok(approveAction.invoked[0] instanceof Api.messages.HideChatJoinRequest,'approve must call HideChatJoinRequest');
+assert.ok(approveAction.invoked[0].userId instanceof Api.InputUser,'approve must use InputUser');
+assert.doesNotThrow(()=>approveAction.invoked[0].getBytes(),'approve request must serialize');
+
 const tagall=await run('tagall',['Hello']);
 assert.equal(tagall.length,3,'tagall must chunk 130 members into three messages');
 assert.ok(tagall[0].text.startsWith('Hello'),'tagall must start with the requested introduction');
@@ -91,5 +133,6 @@ console.log(JSON.stringify({
   outgoingEntity:'InputMessageEntityMentionName',
   tagallMentions:130,
   hidetagMentions:130,
-  adminMentions:3
+  adminMentions:3,
+  mtprotoActions:['promote','ban','add','approve']
 }));
