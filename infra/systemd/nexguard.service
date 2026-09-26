@@ -1,15 +1,19 @@
 [Unit]
 Description=NexGuard autonomous bot self-test and self-healing supervisor
-After=network-online.target
+After=network-online.target nexforge-host-agent.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/nex/current
+User=root
+WorkingDirectory=/opt/nex/apps/internal/nexguard/current
 Environment=NEX_ROOT=/opt/nex/current
-Environment=NEXGUARD_CONFIG=/opt/nex/current/nexcontrol/guard/guard.config.json
-EnvironmentFile=-/etc/nex/nexguard.env
-ExecStart=/usr/bin/node /opt/nex/current/nexcontrol/guard/nexguard.mjs
+Environment=NEXGUARD_CONFIG=/etc/nex/nexguard/guard.config.json
+Environment=NEXGUARD_RUNTIME=/var/lib/nex/runtime/nexguard
+Environment=NEXGUARD_NEXACCOUNT_URL=http://127.0.0.1:18120
+Environment=NEXGUARD_NEXACCOUNT_SMOKE=true
+EnvironmentFile=-/etc/nex/secrets/legacy-root.env
+ExecStart=/usr/bin/node /opt/nex/apps/internal/nexguard/current/nexguard.mjs
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM
