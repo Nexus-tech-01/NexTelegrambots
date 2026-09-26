@@ -15,6 +15,9 @@ const DL_MAP={
   cobalt:'facebook',facebook:'facebook',
   instagram:'instagram',igs:'instagram','sᴄᴇᴀᴜ_ɪɢ_ᴄᴀʀʀᴇ':'instagram',
   pinterest:'pinterest',song:'song',tiktok:'tiktok',tomp3:'tomp3',video:'video',
+  download:'download',dl:'download',snapchat:'snapchat',snap:'snapchat',snapdl:'snapchat',
+  capcut:'capcut',capcutdl:'capcut',twitter:'twitter',x:'twitter',xdl:'twitter',
+  reddit:'reddit',soundcloud:'soundcloud',scdl:'soundcloud',vimeo:'vimeo',tumblr:'tumblr',
   'ᴄᴀɴᴛɪǫᴜᴇ':'lyrics',apksearch:'apk'
 };
 const STICKER_MAP={sceau:'sticker',sticker:'sticker',reflet:'sticker',effet:'sticker'};
