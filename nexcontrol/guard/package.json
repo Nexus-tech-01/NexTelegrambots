@@ -1,0 +1,11 @@
+{
+  "name": "@nexus/nexguard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node nexguard.mjs",
+    "automations": "node automation-supervisor.mjs",
+    "check": "node --check nexguard.mjs && node --check automation-supervisor.mjs"
+  }
+}
