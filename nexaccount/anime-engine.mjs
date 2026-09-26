@@ -288,12 +288,14 @@ export const ANIME_ENGINE_COMMANDS=new Set([
 
 export function canHandleAnimeCommand(name){return ANIME_ENGINE_COMMANDS.has(String(name||'').toLowerCase())}
 
-export async function handleAnimeCommand({runtime,event,name,args=[],reply=null}){
+export async function handleAnimeCommand({runtime,event,name,args=[],reply=null,progress=null}){
   const {client,account}=runtime,peer=event.message.peerId,raw=args.join(' ').trim();
   const say=t=>typeof reply==='function'?reply(t):sendText(client,peer,t);
   const mediaCta=typeof reply==='function'?()=>reply(''):null;
   const image=(u,c)=>sendImage(client,peer,u,c,mediaCta);
-  const need=()=>{if(!raw)throw new Error('argument manquant pour .'+name)};
+  const need=()=>{if(!raw)throw new Error('argument manquant pour /'+name)};
+  const localOnly=new Set(['animeprofile','animelist','mangalist','watching','completed','planned','dropped','favoriteanime','favoritechar','animehistory']);
+  if(progress?.step)await progress.step(localOnly.has(name)?'Anime · lecture de ta bibliothèque…':'Anime · recherche des données…');
 
   if(name==='anitts')return animeTts(client,peer,args,mediaCta);
 
