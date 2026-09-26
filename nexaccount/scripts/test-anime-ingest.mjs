@@ -280,3 +280,12 @@ console.log('NexAnime ingest regression tests: OK');
   assert.ok(vf480>multi1080);
   assert.ok(multi1080>vostfr1080);
 }
+
+
+// Completed newer seasons must never deduplicate or suppress older seasons
+// discovered later. S1E01 and S2E01 are distinct publication identities.
+{
+  const s1=__test.releaseKey({title:'Devil May Cry',season:1,episode:1,language:'VF',quality:'1080p'});
+  const s2=__test.releaseKey({title:'Devil May Cry',season:2,episode:1,language:'VF',quality:'1080p'});
+  assert.notEqual(s1,s2);
+}
