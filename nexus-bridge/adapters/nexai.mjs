@@ -264,6 +264,18 @@ function productFromText(text) {
   ) || null;
 }
 
+function plainMessengerAnswer(value) {
+  return String(value || '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/~~(.*?)~~/g, '$1')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*•]\s+/gm, '')
+    .replace(/\s*\n+\s*/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 function socialReply(text, language) {
   const raw = clean(text)
     .toLowerCase()
@@ -281,6 +293,10 @@ function socialReply(text, language) {
       return /vous|allez vous/.test(raw)
         ? 'Oui, ça va bien 😄 Et vous ?'
         : 'Oui, ça va bien 😄 Et toi ?';
+    }
+
+    if (/^(?:oui\s+)?(?:ca va|ça va|sa va|cv|je vais bien|tranquille|ça roule|ca roule)(?:\s+(?:bien|merci))?$/i.test(raw)) {
+      return 'Nickel 😄';
     }
 
     if (/^(?:salut|slt|coucou|cc|hey|hello|yo|wesh|wsh|bonjour|bonsoir)$/i.test(raw)) {
@@ -358,8 +374,8 @@ function nonPublicReply(language) {
 
 function productsSentence(language) {
   return language === 'fr'
-    ? 'Nextech propose 7 bots publics : NexCanal (canaux), NexGroup (groupes), NexDownloader (médias), NexGame (jeux), NexStick (stickers), NexWhisper (messages discrets) et Stacy (IA sociale).'
-    : 'Nextech has 7 public bots: NexCanal (channels), NexGroup (groups), NexDownloader (media), NexGame (games), NexStick (stickers), NexWhisper (private messaging), and Stacy (social AI).';
+    ? 'Nextech propose 7 bots publics : NexCanal pour gérer et automatiser les canaux, NexGroup pour administrer et protéger les groupes, NexDownloader pour les médias, NexGame pour les jeux, NexStick pour les stickers, NexWhisper pour les messages discrets et Stacy pour discuter avec une IA sociale.'
+    : 'Nextech has 7 public bots: NexCanal for channel management and automation, NexGroup for group administration and protection, NexDownloader for media, NexGame for games, NexStick for stickers, NexWhisper for private messaging, and Stacy for social AI chat.';
 }
 
 function planSentence(product, language, { detailed = false } = {}) {
@@ -433,7 +449,7 @@ function canonicalReply(text, language, context = {}) {
   }
 
   const productIntent =
-    /(?:quels?\s+(?:sont\s+)?(?:(?:les|vos|nos)\s+)?(?:produits?|services?|offres?|solutions?|projets?|bots?)|(?:présente|presente|montre|liste)\s+(?:moi\s+)?(?:(?:les|vos|nos)\s+)?(?:produits?|services?|bots?)|que\s+(?:fait|propose|développe|developpe)\s+(?:nextech|nexus\s*tech)|(?:produits?|services?|offres?|solutions?|projets?|bots?).*?(?:nextech|nexus\s*tech)|what\s+(?:products?|services?|solutions?|projects?|bots?)|what\s+does\s+(?:nextech|nexus\s*tech)\s+(?:do|offer|make)|tell\s+me\s+about\s+(?:nextech|nexus\s*tech))/i;
+    /(?:quels?\s+(?:sont\s+)?(?:(?:les|vos|nos)\s+)?(?:produits?|services?|offres?|solutions?|projets?|bots?)|(?:je\s+veux\s+(?:savoir|conna[iî]tre)|j['’]aimerais\s+(?:savoir|conna[iî]tre)).*?(?:produits?|services?|bots?)|(?:produits?|services?|bots?)\s+(?:de|du|chez)\s+(?:(?:l['’])?entreprise|nextech|nexus\s*tech)|(?:présente|presente|montre|liste)\s+(?:moi\s+)?(?:(?:les|vos|nos)\s+)?(?:produits?|services?|bots?)|que\s+(?:fait|propose|développe|developpe)\s+(?:nextech|nexus\s*tech)|(?:produits?|services?|offres?|solutions?|projets?|bots?).*?(?:nextech|nexus\s*tech)|what\s+(?:products?|services?|solutions?|projects?|bots?)|what\s+does\s+(?:nextech|nexus\s*tech)\s+(?:do|offer|make)|tell\s+me\s+about\s+(?:nextech|nexus\s*tech))/i;
 
   if (productIntent.test(value)) {
     return productsSentence(language);
@@ -497,7 +513,7 @@ function systemPrompt(language) {
     'Lorsque tu présentes Trésor HONTONNOU, n’écris jamais son pseudonyme entre parenthèses après son nom : utilise la formulation « plus connu sous le pseudonyme de ». ' +
     catalogFr + salesFr + ' ' +
     'N’invente jamais de cofondateur, de membre d’équipe, de nom de personne, de date, de rôle, de prix, de disponibilité, de site officiel ou de service client. ' +
-    'Réponds dans la langue de l’utilisateur, naturellement, clairement et une seule fois. Par défaut, fais court : 1 à 3 phrases. Sur Messenger, n’utilise aucun Markdown visible (**gras**, # titres, tableaux avec |, etc.), aucun titre inutile et aucune longue liste. Donne uniquement l’information demandée ; développe seulement si l’utilisateur demande plus de détails. ' +
+    'Réponds dans la langue de l’utilisateur, naturellement, clairement et une seule fois. Par défaut, fais court : 1 à 3 phrases. Sur Messenger, écris comme dans une conversation normale : un message complet, sans Markdown, sans astérisques, sans titres, sans tableaux et sans longue énumération. Ne découpe pas artificiellement une réponse en plusieurs parties. Donne uniquement l’information demandée ; développe seulement si l’utilisateur demande plus de détails. ' +
     'En conversation ordinaire, sois chaleureux, vivant, sociable et spontané. Comprends le français familier et les abréviations de chat (par exemple « cv » signifie « ça va » quand le contexte est clairement une discussion informelle). Adapte naturellement le tutoiement ou le vouvoiement au ton de la personne. Réagis d’abord à ce qu’elle vient de dire au lieu de réciter une formule de support. Ne ramène pas chaque échange aux bots, aux produits ou à « comment puis-je vous aider ». Si la personne bavarde, bavarde avec elle ; une touche légère d’humour ou un emoji est acceptable sans en abuser. Tu restes NexAI : ne prétends jamais être Stacy et ne copies pas son identité ni sa personnalité romantique. ' +
     'N’invente jamais d’actions qui n’ont pas réellement été exécutées.';
 
@@ -507,7 +523,7 @@ function systemPrompt(language) {
     'When introducing Trésor HONTONNOU, never put the pseudonym in parentheses after the name; use the wording “better known by the pseudonym”. ' +
     catalogEn + salesEn + ' ' +
     'Never invent a cofounder, team member, person, date, role, price, availability, official website, or customer-support service. ' +
-    'Reply naturally, clearly, in the user’s language, and only once. Keep the default reply short: 1 to 3 sentences. On Messenger, use no visible Markdown (**bold**, # headings, pipe tables, etc.), no unnecessary heading, and no long list. Give only what was asked; expand only when the user asks for more detail. ' +
+    'Reply naturally, clearly, in the user’s language, and only once. Keep the default reply short: 1 to 3 sentences. On Messenger, write like a normal chat message: one complete message, no Markdown, no asterisks, no headings, no tables, and no long enumeration. Do not artificially split a reply into multiple parts. Give only what was asked; expand only when the user asks for more detail. ' +
     'In ordinary conversation, be warm, lively, socially fluent, and spontaneous. Understand casual chat abbreviations, match the person’s level of formality, and respond to the social intent before sounding like customer support. Do not drag every exchange back to bots, products, or “how can I help”. If the person is just chatting, chat naturally; light humor or an occasional emoji is fine. You remain NexAI: never claim to be Stacy and do not copy her identity or romantic persona. ' +
     'Never claim an action happened unless it actually did.';
 
@@ -569,7 +585,7 @@ async function requestCompletion(messages) {
     throw error;
   }
 
-  return content.trim();
+  return plainMessengerAnswer(content.trim());
 }
 
 export async function handle(envelope) {
@@ -595,9 +611,11 @@ export async function handle(envelope) {
   }
 
   const previous = readHistory(envelope);
-  const canonical = canonicalReply(prompt, lang, {
-    planFollowUp: recentPlanContext(previous)
-  });
+  const canonical = plainMessengerAnswer(
+    canonicalReply(prompt, lang, {
+      planFollowUp: recentPlanContext(previous)
+    })
+  );
   if (canonical) {
     writeHistory(envelope, [
       ...previous,
