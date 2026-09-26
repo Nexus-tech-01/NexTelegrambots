@@ -1,7 +1,7 @@
 import { cfg, isOwnerId } from './config.mjs';
 import { CATEGORY_ICONS, CATEGORY_LABELS, CATEGORY_ORDER, commandsByCategory, commandStats } from './commands.mjs';
 import { getStyle, listStyles, resolveInlinePhoto, resolveStyleImage, toSmallCaps } from './styles.mjs';
-import { renderThemeHeader, renderThemeCategory } from './theme-ui.mjs';
+import { renderThemeHeader, renderThemeCategory, themeUi } from './theme-ui.mjs';
 
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
 const FALLBACK_EMOJI={
@@ -141,6 +141,8 @@ export async function menuModel({account,settings,commands,view='home',category=
   const groups=commandsByCategory(commands);
   const style=await getStyle(settings.style||1);
   const owner=isOwnerId(account.telegramUserId);
+  const activeTheme=themeUi(style.id);
+  const menuButtonStyle=activeTheme.buttonStyle||'primary';
   const visible=cmd=>!cmd.hidden&&(!cmd.ownerOnly||owner);
   const user=displayUser(account,settings);
   const rank=owner?'owner':account.premium?'premium':'user';
@@ -187,10 +189,10 @@ export async function menuModel({account,settings,commands,view='home',category=
         const id=emojiId(CATEGORY_ICONS[cat],settings);
         const raw=BUTTON_LABELS[cat]||CATEGORY_LABELS[cat]||cat;
         const label=toSmallCaps(raw);
-        return button((id?'':(FALLBACK_EMOJI[cat]||'')+' ')+label,'cat:'+cat,'primary',CATEGORY_ICONS[cat],settings);
+        return button((id?'':(FALLBACK_EMOJI[cat]||'')+' ')+label,'cat:'+cat,menuButtonStyle,CATEGORY_ICONS[cat],settings);
       }));
     }
-    buttons.push([button((emojiId('style',settings)?'':'🎨 ')+toSmallCaps(localized(settings,'Styles','Styles')),'menu:styles','primary','style',settings)]);
+    buttons.push([button((emojiId('style',settings)?'':'🎨 ')+toSmallCaps(localized(settings,'Styles','Styles')),'menu:styles',menuButtonStyle,'style',settings)]);
 
     const primaryLinks=[];
     if(cfg.nextechUrl)primaryLinks.push(urlButton('ɴᴇxᴛᴇᴄʜ',cfg.nextechUrl,'success','nextech',settings));
