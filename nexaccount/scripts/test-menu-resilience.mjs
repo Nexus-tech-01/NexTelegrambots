@@ -42,6 +42,10 @@ assert.equal(article.type,'article');
 assert.equal(article.input_message_content.entities[0]?.type,'blockquote','portable fallback must preserve the header citation');
 assert.equal(article.reply_markup.inline_keyboard[0][0].callback_data,'menu:home|999');
 
+const articleNoArtwork=__test.inlineResult(model,'999','x',true,true,true);
+assert.equal(articleNoArtwork.type,'article');
+assert.equal(articleNoArtwork.input_message_content.link_preview_options.is_disabled,true,'last-resort inline fallback must not depend on artwork');
+
 const cachedPhoto=__test.inlineCachedPhotoResult(model,'999','cached-x','telegram-file-id',false);
 assert.equal(cachedPhoto.type,'photo');
 assert.equal(cachedPhoto.photo_file_id,'telegram-file-id');
@@ -74,6 +78,9 @@ assert.match(inlineSource,/bot\.command\('menu'/,'/menu handler must exist');
 assert.match(inlineSource,/bot\.command\('help'/,'/help handler must exist');
 assert.match(inlineSource,/ctx\.callbackQuery\.inline_message_id\|\|ctx\.callbackQuery\.message/,'callbacks must support inline and direct bot messages');
 assert.match(inlineSource,/article-portable/,'inline fallback must preserve an interactive article result');
+assert.match(inlineSource,/article-no-artwork/,'inline menu must survive artwork preview failures');
+assert.match(inlineSource,/text-no-artwork/,'direct menu must survive artwork preview failures');
+assert.match(inlineSource,/\['no-artwork'/,'callback edits must retry without artwork');
 assert.match(inlineSource,/cachePhotoFileId/,'inline artwork must be cached as a Telegram file_id');
 assert.match(inlineSource,/photo_file_id/,'cached inline photo result must use Telegram media');
 assert.match(inlineSource,/prefer_large_media:true,show_above_text:true/,'menu artwork must render as a stable large link preview above text');
