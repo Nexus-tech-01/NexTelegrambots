@@ -84,9 +84,9 @@ function claimCommand(telegramUserId,message){
 
 async function sendText(client,peer,text){
   const value=String(text);
-  if(cfg.botUsername){
+  const accountId=[...runtimes.entries()].find(([,runtime])=>runtime?.client===client)?.[0]||'';
+  if(cfg.botUsername&&accountId){
     try{
-      const accountId=[...runtimes.entries()].find(([,runtime])=>runtime?.client===client)?.[0]||'';
       const token=await putInlineResponse(value,{accountId});
       return await sendInline(client,peer,'reply:'+token);
     }catch(error){
