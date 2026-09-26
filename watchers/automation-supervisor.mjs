@@ -101,7 +101,7 @@ async function auditWhatsapp(){
   const now=Date.now();
   const pending=(Array.isArray(q)?q:[]).filter(x=>x.status==='pending');
   const stuck=pending.filter(x=>Number(x.nextAttemptAt||0)<now-15*60_000);
-  const done=(Array.isArray(history)?history:[]).filter(x=>x.type==='published');
+  const done=(Array.isArray(history)?history:[]).filter(x=>x.type==='published'&&Date.parse(String(x.at||''))>=now-24*60*60*1000);
   const seen=new Set(),duplicates=[];
   for(const row of done){
     const key=String(row.publicationId||'')+'|'+String(row.destination||'');
