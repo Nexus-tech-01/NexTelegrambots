@@ -133,14 +133,41 @@ function stripNoiseTitle(raw='',episodeToken=''){
   s=s.replace(/\s+/g,' ').trim().replace(/^[\W_]+|[\W_]+$/g,'');
   return s.slice(0,140);
 }
+function usableTitleCandidate(value=''){
+  const t=String(value||'').trim();
+  return t.length>=2 && !/^(episode|ep|e|vf|vostfr|vo)$/i.test(t);
+}
+function strongTitleCandidate(value=''){
+  const t=cleanSeriesTitle(value);
+  if(!usableTitleCandidate(t))return false;
+  const tokens=norm(t).split(' ').filter(Boolean);
+  return tokens.length>=2 || norm(t).length>=5;
+}
+function titlesClearlyConflict(a,b){
+  const aa=cleanSeriesTitle(a),bb=cleanSeriesTitle(b);
+  if(!strongTitleCandidate(aa)||!strongTitleCandidate(bb))return false;
+  const an=norm(aa),bn=norm(bb);
+  if(an===bn)return false;
+  if(an.length>=5&&bn.length>=5&&(an.includes(bn)||bn.includes(an)))return false;
+  if(prefixTokens(aa,bb).length>=2)return false;
+  return titleSimilarity(aa,bb)<0.34;
+}
+function titleEvidenceFromMessage(message,ep){
+  const token=ep?.token||'';
+  const captionTitle=stripNoiseTitle(String(message?.message||''),token);
+  const fileTitle=stripNoiseTitle(filename(message),token);
+  const captionUsable=usableTitleCandidate(captionTitle);
+  const fileUsable=usableTitleCandidate(fileTitle);
+  return {
+    captionTitle:captionUsable?captionTitle:'',
+    fileTitle:fileUsable?fileTitle:'',
+    conflict:captionUsable&&fileUsable&&titlesClearlyConflict(captionTitle,fileTitle)
+  };
+}
 function titleFromMessage(message,ep){
-  const f=filename(message);
-  const caption=String(message?.message||'');
-  const candidates=[caption,f].filter(Boolean);
-  for(const raw of candidates){
-    const t=stripNoiseTitle(raw,ep?.token||'');
-    if(t.length>=2 && !/^(episode|ep|e|vf|vostfr|vo)$/i.test(t))return t;
-  }
+  const evidence=titleEvidenceFromMessage(message,ep);
+  if(evidence.captionTitle)return evidence.captionTitle;
+  if(evidence.fileTitle)return evidence.fileTitle;
   return '';
 }
 function cleanCaption(text='',source={}){
@@ -315,7 +342,7 @@ async function verifyAnimeTitle(query){
         media.title?.english,media.title?.romaji,media.title?.native,...(media.synonyms||[])
       ].filter(Boolean);
       const score=animeAliasScore(cleaned,aliases);
-      const ok=media.isAdult!==true&&score>=0.43;
+      const ok=media.isAdult!==true&&score>=0.58;
       result={
         key,query:cleaned,ok,temporary:false,score:Number(score.toFixed(3)),
         canonicalTitle:ok?(media.title?.english||media.title?.romaji||cleaned):'',
@@ -339,7 +366,7 @@ async function verifyAnimeTitle(query){
 }
 async function animePresentationMetadata(title){
   const first=await verifyAnimeTitle(title);
-  if(first.ok&&(first.coverImage||first.description))return first;
+  if(first.ok&&String(first.description||'').trim())return first;
   if(first.key){
     try{
       const d=await db();
@@ -369,7 +396,7 @@ function bestAnchor(title,anchors=[]){
     const adjusted=(qn.length>=5&&rn.length>=5&&(qn.includes(rn)||rn.includes(qn)))?Math.max(score,0.9):score;
     if(adjusted>bestScore){bestScore=adjusted;best=a}
   }
-  return bestScore>=0.38?best:null;
+  return bestScore>=0.58?best:null;
 }
 async function verifiedSeriesAnchors(messages,source={}){
   const raw=deriveRawAnchors(messages,source);
@@ -396,6 +423,48 @@ async function canonicalizeCandidate(c,source={}){
     return {...c,title:anchor.canonicalTitle,anilistId:anchor.anilistId,verifiedAnime:true};
   }
   return {...c,verifiedAnime:false,verificationTemporary:direct.temporary===true};
+}
+function episodeIdentityCompatible(item,candidate,verified=null){
+  if(!item||!candidate||candidate.kind!=='episode')return false;
+  if(Number(item.episode)!==Number(candidate.episode))return false;
+  if(item.season!=null&&candidate.season!=null&&Number(item.season)!==Number(candidate.season))return false;
+
+  const itemId=Number(item.anilistId||0);
+  const verifiedId=Number(verified?.anilistId||0);
+  if(itemId&&verified?.ok&&verifiedId)return itemId===verifiedId;
+
+  const expected=cleanSeriesTitle(item.title||'');
+  const observed=cleanSeriesTitle(verified?.ok?(verified.canonicalTitle||candidate.title):candidate.title);
+  if(!expected||!observed)return false;
+  const en=norm(expected),on=norm(observed);
+  if(en===on)return true;
+  if(en.length>=5&&on.length>=5&&(en.includes(on)||on.includes(en)))return true;
+  return titleSimilarity(expected,observed)>=0.62;
+}
+async function validateResolvedEpisodeIdentity(item,resolved){
+  if(item?.synthetic===true||item?.kind!=='episode')return true;
+  const sourceMeta={
+    username:resolved?.entity?.username||resolved?.source?.channelUsername||'',
+    title:resolved?.entity?.title||resolved?.source?.channelTitle||''
+  };
+  const candidate=classifyMessage(resolved?.message,sourceMeta);
+  if(candidate?.kind!=='episode'){
+    const error=new Error('source_identity_mismatch: source message is not a verified episode');
+    error.code='SOURCE_IDENTITY_MISMATCH';
+    throw error;
+  }
+  const verified=await verifyAnimeTitle(candidate.title);
+  if(!episodeIdentityCompatible(item,candidate,verified)){
+    const error=new Error(
+      'source_identity_mismatch: expected '+String(item.title||'?')+
+      ' S'+String(item.season??1)+'E'+String(item.episode??'?')+
+      ', observed '+String(candidate.title||'?')+
+      ' S'+String(candidate.season??1)+'E'+String(candidate.episode??'?')
+    );
+    error.code='SOURCE_IDENTITY_MISMATCH';
+    throw error;
+  }
+  return true;
 }
 
 function releaseKey(c){
@@ -445,8 +514,16 @@ function classifyMessage(message,source={}){
   const ep=parseEpisode(raw);
   const mk=mediaKind(message);
   const lang=detectLanguage(raw),quality=detectQuality(raw);
+  const titleEvidence=titleEvidenceFromMessage(message,ep);
   const title=titleFromMessage(message,ep);
   const obviousNonEpisode=NON_EPISODE_RE.test(raw);
+  if(ep && titleEvidence.conflict && !obviousNonEpisode && (mk==='video'||mk==='document')){
+    return {
+      kind:'conflict',reason:'caption_filename_title_conflict',
+      title,season:ep.season??1,episode:ep.episode,language:lang,quality,
+      mediaKind:mk,originalFilename:filename(message),confidence:0
+    };
+  }
   if(ep && title && !obviousNonEpisode && (mk==='video'||mk==='document')){
     const cleanedCaption=cleanCaption(text,source);
     const season=ep.season??1;
@@ -1122,15 +1199,17 @@ async function releaseClaim(item,error){
   const d=await db(),now=new Date();
   const attempts=Number(item.attempts||0)+1;
   const mediaPolicy=String(error?.code||'')==='MEDIA_POLICY';
+  const identityMismatch=String(error?.code||'')==='SOURCE_IDENTITY_MISMATCH';
   await d.collection('nexanime_queue').updateOne(
     {_id:item._id},
     {$set:{
-      status:mediaPolicy?'awaiting_rights':'queued',
+      status:identityMismatch?'quarantine':(mediaPolicy?'awaiting_rights':'queued'),
+      ...(identityMismatch?{quarantineReason:'source_identity_mismatch'}:{}),
       lastError:String(error?.message||error).slice(0,500),
       updatedAt:now
     },$inc:{attempts:1},$unset:{claimAt:'',claimBy:''}}
   );
-  if(attempts>=5&&!mediaPolicy){
+  if(attempts>=5&&!mediaPolicy&&!identityMismatch){
     await d.collection('nexanime_queue').updateOne({_id:item._id},{$set:{status:'quarantine',quarantineReason:'publish_failures',updatedAt:now}});
   }
 }
@@ -1312,7 +1391,7 @@ async function ensureGeneralPresentation(d,seriesKey){
   );
   if(!episode?.title)return;
   const meta=await animePresentationMetadata(episode.title);
-  if(!meta?.ok)return;
+  if(!meta?.ok||!String(meta.description||'').trim())return;
   const now=new Date();
   const c={
     kind:'presentation',
@@ -1517,6 +1596,17 @@ async function claimNext(runtime){
     return claimExactItem(d,generalPresentation,accountId,{allowAny});
   }
 
+  const publishedGeneralPresentation=await d.collection('nexanime_publications').findOne({
+    seriesKey,kind:'presentation',
+    $or:[{episode:null},{episode:{$exists:false}}],
+    telegramMessageId:{$gt:0},
+    purgedAt:{$exists:false}
+  },{projection:{_id:1,telegramMessageId:1}});
+  if(!publishedGeneralPresentation){
+    // Hard invariant: no episode is allowed out before the anime synopsis card.
+    return null;
+  }
+
   // 2) Find the earliest episode that still has either its synopsis or media.
   const nextEpisode=await d.collection('nexanime_queue').findOne(
     {
@@ -1708,6 +1798,7 @@ async function publishOne(runtime){
     if(item.synthetic!==true){
       resolved=await resolveSource(runtime,item);
       if(!resolved)throw new Error('source_message_unavailable_for_runtime');
+      await validateResolvedEpisodeIdentity(item,resolved);
     }
     const sent=await publishViaNexCanal(runtime,item,resolved);
     await markPublication(item,sent,runtime);
@@ -1778,7 +1869,8 @@ export const __test={
   parseEpisode,detectLanguage,detectQuality,stripNoiseTitle,cleanCaption,safeFilename,
   classifyMessage,sourceStats,titleSimilarity,releaseKey,presentationKey,
   cleanSeriesTitle,sourceTitleCandidate,deriveRawAnchors,commonPrefixTitle,verifyAnimeTitle,
-  standardizedCaption,quotedCaption,titleFromMessage,bestAnchor,episodeVariantScore
+  standardizedCaption,quotedCaption,titleFromMessage,titleEvidenceFromMessage,titlesClearlyConflict,
+  bestAnchor,episodeVariantScore,episodeIdentityCompatible
 };
 
 
