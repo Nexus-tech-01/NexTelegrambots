@@ -65,3 +65,39 @@ Self-improvement is bounded:
 - source-code changes still go through Git + tests + verification + rollback.
 
 This avoids an uncontrolled self-modifying production bot while still allowing the system to become better at diagnosing and repairing recurring failures.
+
+
+## Fleet self-test
+
+`bot-selftest.mjs` audits the installed Nexus components. When a component exposes an
+`npm run check` script it runs that suite; otherwise it performs safe JavaScript syntax
+checks and Python compilation checks. An optional NexAccount live smoke test can verify
+the menu and core commands through the local control API without posting test traffic to
+public channels.
+
+## Additional strict publication guards
+
+The automation supervisor also consumes the LiteAPK publication ledger so it can tell a
+valid descriptor + APK pair from two unrelated publications. It detects duplicate source
+publication keys and unrelated batches that violate the configured publication gap.
+
+The WhatsApp publisher uses deterministic source publication IDs and refuses to enqueue
+the same publication/destination twice. The supervisor audits stuck relay jobs and recent
+duplicate delivery history.
+
+For anime, the supervisor calls the same `animeSupervisorAudit` used by the publishing
+engine. Safe repairs include recovering stale claims, requeuing a foreign series that
+attempts to publish during the active series, suppressing already-published queued
+episodes, and creating a missing general synopsis before episodes are allowed to resume.
+
+## Installation
+
+On the primary VPS:
+
+```bash
+sudo NEX_ROOT=/opt/nex/current /opt/nex/current/infra/systemd/install-nexguard.sh
+```
+
+The installer enables NexGuard and the automation supervisor, adds them to the local
+NexControl service registry without changing credentials, and enables the NexForge AI
+repair bridge when `/etc/nex/nexguard-ai.env` is configured.
