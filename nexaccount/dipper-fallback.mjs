@@ -710,11 +710,16 @@ export function canHandleDownloadCommand(name){
 }
 export const canUseDipperFallback=canHandleDownloadCommand;
 
-export async function executeDipperFallback({client,peer,name,args=[],event}){
+export async function executeDipperFallback({client,peer,name,args=[],event,progress=null}){
   const command=String(name||'').toLowerCase();
   const input=args.join(' ').trim();
+  const step=async label=>{
+    if(progress?.step)await progress.step(label);
+    else if(progress?.update)await progress.update('⏳ '+label);
+  };
 
   if(command==='song'){
+    await step('YouTube audio · recherche et téléchargement…');
     try{return await sendLocalYoutube(client,peer,input,'audio')}
     catch(localError){
       console.warn('[NexAi download yt-dlp audio]',String(localError?.message||localError).slice(0,500));
@@ -724,6 +729,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
     return true;
   }
   if(command==='video'){
+    await step('YouTube vidéo · recherche et téléchargement…');
     try{return await sendLocalYoutube(client,peer,input,'video')}
     catch(localError){
       console.warn('[NexAi download yt-dlp video]',String(localError?.message||localError).slice(0,500));
@@ -733,16 +739,19 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
     return true;
   }
   if(command==='tiktok'){
+    await step('TikTok · récupération de la vidéo…');
     await tiktokMedia(client,peer,input);
     return true;
   }
   if(command==='download'){
+    await step('Téléchargement · détection de la source…');
     if(!isHttp(input))throw new Error('usage : .download <lien>');
     const detected=detectDownloadService(input);
-    if(detected)return executeDipperFallback({client,peer,name:detected,args:[input],event});
+    if(detected)return executeDipperFallback({client,peer,name:detected,args:[input],event,progress});
     return sendLocalSocial(client,peer,input,'Media');
   }
   if(command==='instagram'){
+    await step('Instagram · récupération du média…');
     try{return await sendLocalSocial(client,peer,input,'Instagram')}
     catch(localError){console.warn('[NexAi download Instagram local]',String(localError?.message||localError).slice(0,500))}
     const r=await instagramMedia(input);
@@ -754,6 +763,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
     return true;
   }
   if(command==='facebook'){
+    await step('Facebook · récupération du média…');
     try{return await sendLocalSocial(client,peer,input,'Facebook')}
     catch(localError){console.warn('[NexAi download Facebook local]',String(localError?.message||localError).slice(0,500))}
     const r=await facebookMedia(input);
@@ -761,6 +771,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
     return true;
   }
   if(command==='pinterest'){
+    await step('Pinterest · récupération du média…');
     try{return await sendLocalSocial(client,peer,input,'Pinterest')}
     catch(localError){console.warn('[NexAi download Pinterest local]',String(localError?.message||localError).slice(0,500))}
     const r=await pinterestMedia(input);
@@ -769,6 +780,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
   }
 
   if(command==='snapchat'){
+    await step('Snapchat · récupération du média…');
     try{return await sendLocalSocial(client,peer,input,'Snapchat')}
     catch(localError){console.warn('[NexAi download Snapchat local]',String(localError?.message||localError).slice(0,500))}
     const r=await snapchatMedia(input);
@@ -780,6 +792,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
     return true;
   }
   if(command==='capcut'){
+    await step('CapCut · récupération du média…');
     try{return await sendLocalSocial(client,peer,input,'CapCut')}
     catch(localError){console.warn('[NexAi download CapCut local]',String(localError?.message||localError).slice(0,500))}
     const r=await capcutMedia(input);
@@ -792,6 +805,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
   }
   if(['twitter','reddit','soundcloud','vimeo','tumblr'].includes(command)){
     const label={twitter:'X / Twitter',reddit:'Reddit',soundcloud:'SoundCloud',vimeo:'Vimeo',tumblr:'Tumblr'}[command]||command;
+    await step(label+' · récupération du média…');
     try{return await sendLocalSocial(client,peer,input,label)}
     catch(localError){console.warn('[NexAi download '+label+' local]',String(localError?.message||localError).slice(0,500))}
     const r=await genericSocialMedia(input,label);
@@ -804,6 +818,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
   }
 
   if(command==='tomp3'){
+    await step('Conversion MP3 · traitement…');
     if(input){
       try{return await sendLocalYoutube(client,peer,input,'audio')}
       catch(localError){
@@ -816,6 +831,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
     return localToMp3(client,peer,event?.message);
   }
   if(command==='lyrics'){
+    await step('Paroles · recherche…');
     const r=await lyricsSearch(input);
     const body=String(r.lyrics||'');
     const clipped=body.length>3500?body.slice(0,3500)+'\n…':body;
@@ -830,6 +846,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
     return true;
   }
   if(command==='shazam'){
+    await step('Shazam · analyse audio…');
     const r=await identifyAudio(client,peer,event?.message);
     const links=[r.spotify?.external_urls?.spotify,r.apple_music?.url].filter(Boolean);
     await client.sendMessage(peer,{message:[
@@ -844,6 +861,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event}){
     return true;
   }
   if(command==='apk'){
+    await step('APK · recherche de l’application…');
     const r=await apkSearch(input);
     await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\n'+r.pkg+' · '+r.version+'\nSource : F-Droid',fileName:safeName(r.pkg+'_'+r.version)+'.apk',maxBytes:MAX_MEDIA_BYTES});
     return true;
