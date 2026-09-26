@@ -51,7 +51,7 @@ async function listSourceFiles(dir){
       if(ignored.has(e.name))continue;
       const full=path.join(cur,e.name);
       if(e.isDirectory())await walk(full);
-      else if(e.isFile()&&/.(?:mjs|cjs|js|py)$/i.test(e.name))out.push(full);
+      else if(e.isFile()&&/\\.(?:mjs|cjs|js|py)$/i.test(e.name))out.push(full);
     }
   }
   await walk(dir);
@@ -60,7 +60,7 @@ async function listSourceFiles(dir){
 
 async function checkNodeSyntax(files){
   const failures=[];let checked=0;
-  for(const file of files.filter(x=>/.(?:mjs|cjs|js)$/i.test(x))){
+  for(const file of files.filter(x=>/\\.(?:mjs|cjs|js)$/i.test(x))){
     const r=await run(process.execPath,['--check',file],{cwd:ROOT,timeout:30_000});
     checked++;
     if(!r.ok){failures.push({file:path.relative(ROOT,file),error:r.stderr||r.error});if(failures.length>=10)break}
@@ -69,7 +69,7 @@ async function checkNodeSyntax(files){
 }
 
 async function checkPythonSyntax(dir,files){
-  if(!files.some(x=>/.py$/i.test(x)))return {ok:true,checked:0,skipped:true};
+  if(!files.some(x=>/\\.py$/i.test(x)))return {ok:true,checked:0,skipped:true};
   const r=await run('/usr/bin/python3',['-m','compileall','-q',dir],{cwd:dir,timeout:TIMEOUT});
   return {ok:r.ok,checked:files.filter(x=>/.py$/i.test(x)).length,error:r.ok?'':(r.stderr||r.error)};
 }
@@ -94,7 +94,7 @@ async function nexAccountRuntimeSmoke(){
   const key=String(process.env.NEXACCOUNT_CONTROL_KEY||process.env.NEXCONTROL_FLEET_KEY||'').trim();
   const telegramUserId=String(process.env.NEXGUARD_TEST_TELEGRAM_USER_ID||process.env.NEXAI_OWNER_TELEGRAM_ID||process.env.NEXUS_OWNER_TELEGRAM_ID||'').trim();
   if(!key||!telegramUserId)return {ok:true,skipped:'missing-key-or-runtime-id'};
-  const base=String(process.env.NEXGUARD_NEXACCOUNT_URL||'http://127.0.0.1:'+(process.env.NEXACCOUNT_PORT||3491)).replace(//$/,'');
+  const base=String(process.env.NEXGUARD_NEXACCOUNT_URL||'http://127.0.0.1:'+(process.env.NEXACCOUNT_PORT||3491)).replace(/\\\/$/,'');
   const call=async(pathname,payload)=>{
     try{
       const response=await fetch(base+pathname,{method:'POST',headers:{'content-type':'application/json','x-nexaccount-key':key},body:JSON.stringify(payload),signal:AbortSignal.timeout(30_000)});
