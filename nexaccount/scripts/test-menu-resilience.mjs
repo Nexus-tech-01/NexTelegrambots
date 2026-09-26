@@ -136,5 +136,20 @@ assert.ok(emojiModel.entities.filter(x=>x.type==='custom_emoji').length>=2,'styl
 delete process.env.NEXAI_EMOJI_STYLE_2;
 delete process.env.NEXAI_EMOJI_ANIME;
 
+const brandedA=await menuModel({
+  account:{telegramUserId:'5511',username:'brand_a',firstName:'A',premium:false},
+  settings:{style:1,prefix:'.',language:'fr',botDisplayName:'NexAi Alpha'},
+  commands:registry
+});
+const brandedB=await menuModel({
+  account:{telegramUserId:'5522',username:'brand_b',firstName:'B',premium:false},
+  settings:{style:9,prefix:'!',language:'fr',botDisplayName:'NexAi Beta'},
+  commands:registry
+});
+assert.ok(brandedA.text.includes('NexAi Alpha'),'style 1 must use the session bot display name');
+assert.ok(brandedB.text.includes('NexAi Beta'),'style 9 must use the session bot display name');
+assert.ok(!brandedB.text.includes('NexAi Alpha'),'bot display name leaked between sessions');
+
+
 
 console.log('menu resilience regression tests: ok');
