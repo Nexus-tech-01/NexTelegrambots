@@ -93,31 +93,84 @@ function commandPrompt(text) {
   return stripCommand(text).join(' ').trim();
 }
 
+const OWNER_NAME = 'Trésor HONTONNOU';
+const OWNER_ALIAS = '⏤͟͟͞͞𝄞ᬼ⃟ 𝐌ꝛ⥔𝕿𝖗𝖊𝖘𝖔𝖗✧ ⃞';
+
+const NEXTECH_PROJECTS = [
+  'NexAI',
+  'NexControl',
+  'NexCanal Manager',
+  'NexGroup Manager',
+  'NexDownloader',
+  'NexGame',
+  'NexStick',
+  'NexWhisper',
+  'Stacy',
+  'KnowMe',
+  'NexPlayer'
+];
+
+function ownerSentence(language) {
+  return language === 'fr'
+    ? `Le créateur et propriétaire de Nextech est ${OWNER_NAME}, plus connu sous le pseudonyme de ${OWNER_ALIAS}.`
+    : `Nextech was created and is owned by ${OWNER_NAME}, better known by the pseudonym ${OWNER_ALIAS}.`;
+}
+
+function productsSentence(language) {
+  const projects = NEXTECH_PROJECTS.join(', ');
+  return language === 'fr'
+    ? `Nextech développe un écosystème de solutions numériques et d’automatisation, notamment ${projects}. L’écosystème travaille aussi sur l’automatisation pour Telegram, WhatsApp et Facebook. Certaines solutions sont publiques, d’autres privées ou encore en développement ; je précise leur statut lorsqu’il est connu au lieu d’inventer une offre, un prix, un site ou un service client.`
+    : `Nextech develops an ecosystem of digital and automation solutions, including ${projects}. The ecosystem also works on automation for Telegram, WhatsApp and Facebook. Some solutions are public, while others are private or still in development; I state their known status instead of inventing an offer, price, website or customer-support service.`;
+}
+
+function canonicalReply(text, language) {
+  const value = clean(text);
+
+  const ownerIntent =
+    /(?:qui\s+(?:est|a\s+créé|a\s+cree|dirige|possède|possede).*?(?:nextech|nexus\s*tech|fondateur|créateur|createur|propriétaire|proprietaire)|(?:fondateur|créateur|createur|propriétaire|proprietaire|owner).*?(?:nextech|nexus\s*tech)|who\s+(?:owns|created|founded|runs).*?(?:nextech|nexus\s*tech)|(?:ton|votre)\s+(?:créateur|createur|propriétaire|proprietaire)|your\s+(?:creator|owner)|tr[eé]sor\s+hontonnou|pseudonyme?|pseudo)/i;
+
+  if (ownerIntent.test(value)) {
+    return ownerSentence(language);
+  }
+
+  const productIntent =
+    /(?:quels?\s+(?:sont\s+)?(?:les\s+)?(?:produits?|services?|offres?|solutions?|projets?)|que\s+(?:fait|propose|développe|developpe)\s+(?:nextech|nexus\s*tech)|(?:produits?|services?|offres?|solutions?|projets?).*?(?:nextech|nexus\s*tech)|what\s+(?:products?|services?|solutions?|projects?)|what\s+does\s+(?:nextech|nexus\s*tech)\s+(?:do|offer|make)|tell\s+me\s+about\s+(?:nextech|nexus\s*tech))/i;
+
+  if (productIntent.test(value)) {
+    return productsSentence(language);
+  }
+
+  return '';
+}
+
 function systemPrompt(language) {
   const custom = clean(process.env.NEXAI_SYSTEM_PROMPT);
-  if (custom) return custom;
 
   const identityFr =
-    'Tu es NexAI, l’assistant officiel de l’écosystème Nexus/Nextech. ' +
-    'Ton créateur est Trésor HONTONNOU, aussi connu publiquement sous le pseudonyme Tresor562. ' +
-    'Trésor HONTONNOU (Tresor562) est également le créateur et fondateur de l’écosystème Nexus/Nextech et de Nexus Tech. ' +
-    'Si on te demande qui t’a créé, qui a créé Nexus/Nextech, qui est le fondateur, le propriétaire ou la personne derrière le projet, réponds avec Trésor HONTONNOU (Tresor562). ' +
-    'N’invente jamais de cofondateur, de membre d’équipe, de nom de personne, de date, de rôle ou d’historique interne. ' +
-    'Si une information interne à Nexus/Nextech ne fait pas partie de tes faits canoniques, dis que tu ne disposes pas de cette information au lieu de l’inventer. ' +
-    'Réponds dans la langue de l’utilisateur, naturellement, clairement et de façon concise. ' +
+    'Tu es NexAI, l’assistant officiel de Nextech. ' +
+    ownerSentence('fr') + ' ' +
+    'Lorsque tu présentes Trésor HONTONNOU, n’écris jamais son pseudonyme entre parenthèses après son nom : utilise la formulation « plus connu sous le pseudonyme de ». ' +
+    productsSentence('fr') + ' ' +
+    'N’invente jamais de cofondateur, de membre d’équipe, de nom de personne, de date, de rôle, de prix, de disponibilité, de site officiel ou de service client. ' +
+    'Pour une information interne ou un statut qui ne fait pas partie des faits canoniques, dis simplement que ce statut n’est pas confirmé. ' +
+    'Réponds dans la langue de l’utilisateur, naturellement, clairement et une seule fois. ' +
     'N’invente jamais d’actions qui n’ont pas réellement été exécutées.';
 
   const identityEn =
-    'You are NexAI, the official assistant of the Nexus/Nextech ecosystem. ' +
-    'Your creator is Trésor HONTONNOU, also publicly known as Tresor562. ' +
-    'Trésor HONTONNOU (Tresor562) is also the creator and founder of the Nexus/Nextech ecosystem and Nexus Tech. ' +
-    'If asked who created you, Nexus/Nextech, who the founder or owner is, or who is behind the project, answer Trésor HONTONNOU (Tresor562). ' +
-    'Never invent a cofounder, team member, person, date, role, or internal history. ' +
-    'If an internal Nexus/Nextech fact is not among your canonical facts, say that you do not have that information instead of inventing it. ' +
-    'Reply naturally, clearly and concisely in the user’s language. ' +
+    'You are NexAI, the official assistant of Nextech. ' +
+    ownerSentence('en') + ' ' +
+    'When introducing Trésor HONTONNOU, never put the pseudonym in parentheses after the name; use the wording “better known by the pseudonym”. ' +
+    productsSentence('en') + ' ' +
+    'Never invent a cofounder, team member, person, date, role, price, availability, official website, or customer-support service. ' +
+    'For an internal fact or status that is not canonical, simply say that the status is not confirmed. ' +
+    'Reply naturally, clearly, in the user’s language, and only once. ' +
     'Never claim an action happened unless it actually did.';
 
-  return language === 'fr' ? identityFr : identityEn;
+  const canonical = language === 'fr' ? identityFr : identityEn;
+
+  return custom
+    ? canonical + '\n\nInstructions complémentaires configurées : ' + custom
+    : canonical;
 }
 
 async function requestCompletion(messages) {
@@ -207,6 +260,17 @@ export async function handle(envelope) {
         ? 'Écris ta question après /ai, ou envoie simplement ton message.'
         : 'Write your question after /ai, or just send your message.'
     };
+  }
+
+  const canonical = canonicalReply(prompt, lang);
+  if (canonical) {
+    const previous = readHistory(envelope);
+    writeHistory(envelope, [
+      ...previous,
+      { role: 'user', content: prompt.slice(0, 12000) },
+      { role: 'assistant', content: canonical.slice(0, 12000) }
+    ]);
+    return { text: canonical };
   }
 
   const previous = readHistory(envelope);
