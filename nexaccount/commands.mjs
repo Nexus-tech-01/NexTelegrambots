@@ -355,7 +355,7 @@ export const LEGACY_ALIASES={
   calculator:'calc',sc:'smallcaps',browser:'browse',webshot:'ssweb',
   desktopshot:'sswebpc',contacts:'vcf',mixemoji:'emojimix',
   name:'getname',aboutuser:'getabout',photo:'getpp',
-  upload:'tourl',cut:'crop',scale:'resize',soundinfo:'analyzesound',viewonce:'vv',
+  upload:'tourl',cut:'crop',scale:'resize',soundinfo:'analyzesound',
 
   // Fun/search shortcuts.
   truthgame:'truth',daregame:'dare',funny:'joke',nice:'compliment',
