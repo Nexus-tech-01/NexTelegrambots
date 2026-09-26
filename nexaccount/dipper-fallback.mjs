@@ -3,7 +3,6 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { NewMessage } from 'teleproto/events/index.js';
 import { sendTelegramMedia } from './media-send.mjs';
 
 const UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 NexAi/1.0';
@@ -157,98 +156,11 @@ async function youtubeVideo(input){
   ]);
   return {...result,target};
 }
-function telegramPeerId(value){
-  const raw=value?.value??value?.id?.value??value?.id??value;
-  return String(raw??'').replace(/^-100/,'');
-}
-
-function telegramMessageIsVideo(message){
-  const doc=message?.document||message?.media?.document||null;
-  const mime=String(doc?.mimeType||doc?.mime_type||'').toLowerCase();
-  if(mime.startsWith('video/'))return true;
-  const attrs=Array.isArray(doc?.attributes)?doc.attributes:[];
-  return attrs.some(a=>/DocumentAttributeVideo/i.test(String(a?.className||a?.constructor?.name||'')));
-}
-
-async function waitForTelegramVideo(client,entity,timeoutMs=10000){
-  const wanted=telegramPeerId(entity);
-  let handler=null,builder=null,timer=null,settled=false;
-  const cleanup=()=>{
-    if(timer)clearTimeout(timer);
-    if(handler&&builder){
-      try{client.removeEventHandler(handler,builder)}catch{}
-    }
-  };
-  return new Promise((resolve,reject)=>{
-    builder=new NewMessage({incoming:true});
-    handler=async event=>{
-      if(settled)return;
-      const message=event?.message;
-      const sender=telegramPeerId(message?.senderId||event?.senderId);
-      if(wanted&&sender&&wanted!==sender)return;
-      if(!telegramMessageIsVideo(message))return;
-      settled=true;
-      cleanup();
-      resolve(message);
-    };
-    client.addEventHandler(handler,builder);
-    timer=setTimeout(()=>{
-      if(settled)return;
-      settled=true;
-      cleanup();
-      reject(new Error('aucune vidéo reçue en '+Math.round(timeoutMs/1000)+' s'));
-    },timeoutMs);
-    timer.unref?.();
-  });
-}
-
-async function telegramTikTokRelay(client,peer,url){
-  const configured=String(process.env.NEXAI_TIKTOK_TELEGRAM_BOTS||'@ttgrab_bot,@SaveOFFbot,@ttiktok_downloader_bot')
-    .split(',').map(x=>x.trim()).filter(Boolean);
-  const errors=[];
-
-  for(const botName of configured){
-    let entity=null,sent=null,video=null;
-    const cleanupIds=[];
-    try{
-      entity=await client.getEntity(botName);
-      const pending=waitForTelegramVideo(client,entity,10000);
-      sent=await client.sendMessage(entity,{message:url});
-      if(sent?.id)cleanupIds.push(sent.id);
-      video=await pending;
-      if(video?.id)cleanupIds.push(video.id);
-      const data=Buffer.from(await client.downloadMedia(video,{workers:1}));
-      if(!data.length)throw new Error('média Telegram vide');
-      if(data.length>MAX_MEDIA_BYTES)throw new Error('média Telegram trop volumineux');
-      await sendTelegramMedia(client,peer,data,{
-        fileName:'tiktok.mp4',
-        mimeType:String(video?.document?.mimeType||video?.media?.document?.mimeType||'video/mp4'),
-        kind:'video',
-        caption:'NexAi · Download\nTikTok\nSource : '+botName+' · relais Telegram'
-      });
-      try{if(cleanupIds.length)await client.deleteMessages(entity,cleanupIds,{revoke:true})}catch{}
-      return {sent:true,title:'TikTok',source:botName};
-    }catch(error){
-      errors.push(botName+': '+String(error?.message||error).replace(/\s+/g,' ').slice(-350));
-      try{if(entity&&cleanupIds.length)await client.deleteMessages(entity,cleanupIds,{revoke:true})}catch{}
-    }
-  }
-  throw new Error('relais Telegram indisponible · '+errors.join(' | '));
-}
-
 async function tiktokMedia(client,peer,url){
   if(!/tiktok\.com\//i.test(url))throw new Error('lien TikTok invalide');
 
-  // TikTok blocks the production VPS egress IP. Prefer Telegram relay
-  // infrastructure, which avoids the blocked IP and returns native Telegram media.
-  let relayError=null;
-  try{
-    return await telegramTikTokRelay(client,peer,url);
-  }catch(error){
-    relayError=error;
-    console.warn('[NexAi download TikTok relay]',String(error?.message||error).slice(0,900));
-  }
-
+  // Prefer the local downloader. Public APIs frequently rate-limit/block server
+  // traffic (403/503), so they are fallbacks rather than the only path.
   let localError=null;
   try{
     await sendLocalTikTok(client,peer,url);
@@ -259,9 +171,19 @@ async function tiktokMedia(client,peer,url){
   }
 
   try{
+    // Never message external Telegram bots from the user's account.
+    // HTTP-only fallbacks keep the download path isolated from Telegram chats.
     return await cascade('TikTok',[
+      ['SLBJS',async()=>{
+        const d=await json('https://tdownv4.sl-bjs.workers.dev/?down='+encodeURIComponent(url),{},20000);
+        const v=d?.download_url||d?.downloadUrl||d?.url;
+        if(!isHttp(v))return null;
+        const title=d?.title||'TikTok';
+        await sendRemote(client,peer,v,{caption:'NexAi · Download\n'+title+'\nSource : SLBJS',fileName:'tiktok.mp4'});
+        return {sent:true,title};
+      }],
       ['Siputzx',async()=>{
-        const d=await json('https://api.siputzx.my.id/api/d/tiktok?url='+encodeURIComponent(url),{},12000);
+        const d=await json('https://api.siputzx.my.id/api/d/tiktok?url='+encodeURIComponent(url));
         const v=d?.data?.urls?.[0]||d?.data?.video_url||d?.data?.url||d?.data?.download_url;
         if(!isHttp(v))return null;
         const title=d?.data?.metadata?.title||'TikTok';
@@ -269,12 +191,7 @@ async function tiktokMedia(client,peer,url){
         return {sent:true,title};
       }],
       ['TikWM',async()=>{
-        const body=new URLSearchParams({url,hd:'1'}).toString();
-        const r=await response('https://www.tikwm.com/api/',{
-          method:'POST',
-          headers:{'content-type':'application/x-www-form-urlencoded'},
-          body
-        },12000);
+        const r=await postForm('https://www.tikwm.com/api/',{url,hd:'1'});
         const d=await r.json();
         const v=d?.data?.hdplay||d?.data?.play;
         if(!isHttp(v))return null;
@@ -283,11 +200,7 @@ async function tiktokMedia(client,peer,url){
         return {sent:true,title};
       }],
       ['Cobalt',async()=>{
-        const d=await json('https://api.cobalt.tools/',{
-          method:'POST',
-          headers:{accept:'application/json','content-type':'application/json'},
-          body:JSON.stringify({url,downloadMode:'auto',videoQuality:'max',allowH265:false})
-        },12000);
+        const d=await postJson('https://api.cobalt.tools/',{url,downloadMode:'auto',videoQuality:'max',allowH265:false});
         const v=cobaltUrl(d);
         if(!v)return null;
         await sendRemote(client,peer,v,{caption:'NexAi · Download\nTikTok\nSource : Cobalt',fileName:'tiktok.mp4'});
@@ -295,10 +208,9 @@ async function tiktokMedia(client,peer,url){
       }]
     ]);
   }catch(apiError){
-    const relay=String(relayError?.message||relayError||'inconnu').replace(/\s+/g,' ').slice(-650);
-    const local=String(localError?.message||localError||'inconnu').replace(/\s+/g,' ').slice(-450);
-    const remote=String(apiError?.message||apiError).replace(/\s+/g,' ').slice(-650);
-    throw new Error('TikTok indisponible · relais: '+relay+' | local: '+local+' | API: '+remote);
+    const local=String(localError?.message||localError||'inconnu').replace(/\s+/g,' ').slice(-700);
+    const remote=String(apiError?.message||apiError).replace(/\s+/g,' ').slice(-1200);
+    throw new Error('TikTok indisponible · yt-dlp local: '+local+' | '+remote);
   }
 }
 async function instagramMedia(url){
@@ -389,7 +301,8 @@ function runFfmpeg(args,timeout=120000){
   });
 }
 
-const YTDLP=String(process.env.YTDLP_PATH||'/opt/nex/tools/yt-dlp/yt-dlp');
+const DEFAULT_YTDLP=fs.existsSync('/opt/nex/tools/yt-dlp-full/bin/yt-dlp')?'/opt/nex/tools/yt-dlp-full/bin/yt-dlp':'/opt/nex/tools/yt-dlp/yt-dlp';
+const YTDLP=String(process.env.YTDLP_PATH||DEFAULT_YTDLP);
 
 function runYtDlp(args,timeout=180000){
   return new Promise((resolve,reject)=>{
@@ -416,7 +329,9 @@ async function localTikTokFile(url){
     '--print','after_move:filepath','-o',template
   ];
   const variants=[
-    [...common,'--impersonate','chrome','-f','bv*+ba/b','--merge-output-format','mp4',url],
+    [...common,'--impersonate','Chrome-133:Macos-15','-f','bv*+ba/b','--merge-output-format','mp4',url],
+    [...common,'--impersonate','Chrome-99:Android-12','-f','bv*+ba/b','--merge-output-format','mp4',url],
+    [...common,'--impersonate','Safari-18.0:Ios-18.0','-f','bv*+ba/b','--merge-output-format','mp4',url],
     [...common,'-f','bv*+ba/b','--merge-output-format','mp4',url]
   ];
 
