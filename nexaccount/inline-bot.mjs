@@ -162,6 +162,48 @@ function inlineResult(model,accountId,id='menu',forceArticle=false,portable=fals
   };
 }
 
+function inlineReplyModel(value,settings={}){
+  const raw=String(value??'').trim();
+  const label='By Nextech';
+  const maxBase=Math.max(0,4096-label.length-2);
+  const base=raw.slice(0,maxBase);
+  const text=(base?base+'\n\n':'')+label;
+  const entities=[];
+
+  for(const m of text.matchAll(/\/[a-z][a-z0-9_]{0,63}/gi)){
+    entities.push({
+      type:'bot_command',
+      offset:utf16len(text.slice(0,m.index)),
+      length:utf16len(m[0])
+    });
+  }
+
+  const linkStart=text.lastIndexOf(label);
+  if(cfg.nextechUrl&&linkStart>=0){
+    entities.push({
+      type:'text_link',
+      offset:utf16len(text.slice(0,linkStart)),
+      length:utf16len(label),
+      url:cfg.nextechUrl
+    });
+  }
+
+  const button={text:'ɴᴇxᴛᴇᴄʜ',url:cfg.nextechUrl,style:'success'};
+  const customId=String(
+    settings?.customEmojiIds?.NEXAI_EMOJI_NEXTECH||
+    process.env.NEXAI_EMOJI_NEXTECH||
+    ''
+  ).trim();
+  if(customId)button.icon_custom_emoji_id=customId;
+
+  return {
+    text,
+    entities,
+    reply_markup:{inline_keyboard:cfg.nextechUrl?[[button]]:[]},
+    photoUrl:''
+  };
+}
+
 async function modelFor(account,query){
   const settings=await settingsFor(account.telegramUserId);
   const rawQuery=String(query||'').trim();
@@ -169,7 +211,7 @@ async function modelFor(account,query){
   if(q.startsWith('reply:')){
     const token=rawQuery.slice('reply:'.length).trim();
     const row=await getInlineResponse(token,account.telegramUserId);
-    return inlineReplyModel(row?.text||'Réponse expirée. Relance la commande.');
+    return inlineReplyModel(row?.text||'Réponse expirée. Relance la commande.',settings);
   }
   if(q==='styles'||q==='style')return stylesModel({account,settings});
   if(q.startsWith('cat:')){
