@@ -103,9 +103,10 @@ function clean(value) {
 
 function emptyState() {
   return {
-    version: 1,
+    version: 2,
     pages: {},
-    processed: {}
+    processed: {},
+    pending: {}
   };
 }
 
@@ -122,6 +123,10 @@ async function loadState() {
       processed:
         data?.processed && typeof data.processed === 'object'
           ? data.processed
+          : {},
+      pending:
+        data?.pending && typeof data.pending === 'object'
+          ? data.pending
           : {}
     };
   } catch {
@@ -140,10 +145,17 @@ async function saveState() {
       .slice(0, 2500)
   );
 
+  const pending = Object.fromEntries(
+    Object.entries(state.pending || {})
+      .sort((a, b) => Number(b[1]?.createdAt || 0) - Number(a[1]?.createdAt || 0))
+      .slice(0, 500)
+  );
+
   const payload = {
-    version: 1,
+    version: 2,
     pages: state.pages || {},
     processed,
+    pending,
     updatedAt: new Date().toISOString()
   };
 
@@ -649,9 +661,9 @@ async function sendMessage(tab, text) {
     }
 
     await composer.handle.focus();
-    await tab.keyboard.insertText(chunk);
+    await composer.handle.type(chunk, { delay: 5 });
     await sleep(180);
-    await tab.keyboard.press('Enter');
+    await composer.handle.press('Enter');
     await sleep(650);
   }
 }
@@ -714,21 +726,57 @@ async function processRow(config, tab, pageState, row) {
     length: text.length
   });
 
-  const routed = await bridgeRequest({
-    config,
-    externalUserId: conversationId,
-    text,
-    eventId
-  });
+  let routed = null;
+  let response = '';
+  const pending = state.pending?.[eventId];
 
-  const response = replyText(routed);
+  if (pending?.response) {
+    response = String(pending.response);
+    routed = {
+      handledBy: pending.handledBy || null,
+      duplicate: true
+    };
+
+    safeLog('delivery_retry', {
+      page: config.name,
+      thread: hash(conversationId).slice(0, 12),
+      replyLength: response.length
+    });
+  } else {
+    routed = await bridgeRequest({
+      config,
+      externalUserId: conversationId,
+      text,
+      eventId
+    });
+
+    response = replyText(routed);
+
+    if (routed?.duplicate === true && !response) {
+      throw new Error('bridge_duplicate_without_cached_reply');
+    }
+
+    if (response) {
+      state.pending ||= {};
+      state.pending[eventId] = {
+        response,
+        handledBy: routed?.handledBy || null,
+        createdAt: Date.now()
+      };
+      await saveState();
+    }
+  }
 
   if (response) {
     await sendMessage(tab, response);
   }
 
   state.processed[eventId] = Date.now();
+  if (state.pending?.[eventId]) {
+    delete state.pending[eventId];
+  }
   pageState.rows[row.rowKey] = row.fingerprint;
+  await saveState();
 
   safeLog('reply_completed', {
     page: config.name,
