@@ -121,6 +121,15 @@ function creatorFormattingEntities(model){
     if(e.type==='text_link'){
       return new Api.MessageEntityTextUrl({offset:e.offset,length:e.length,url:e.url});
     }
+    if(e.type==='custom_emoji'&&e.custom_emoji_id){
+      try{
+        return new Api.MessageEntityCustomEmoji({
+          offset:e.offset,
+          length:e.length,
+          documentId:BigInt(String(e.custom_emoji_id))
+        });
+      }catch{return null}
+    }
     return null;
   }).filter(Boolean);
 }
