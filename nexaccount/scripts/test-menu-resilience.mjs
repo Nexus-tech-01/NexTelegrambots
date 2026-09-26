@@ -39,7 +39,7 @@ assert.equal(photo.reply_markup.inline_keyboard[0][0].callback_data,'menu:home|9
 
 const article=__test.inlineResult(model,'999','x',true,true);
 assert.equal(article.type,'article');
-assert.deepEqual(article.input_message_content.entities,[]);
+assert.equal(article.input_message_content.entities[0]?.type,'blockquote','portable fallback must preserve the header citation');
 assert.equal(article.reply_markup.inline_keyboard[0][0].callback_data,'menu:home|999');
 
 const cachedPhoto=__test.inlineCachedPhotoResult(model,'999','cached-x','telegram-file-id',false);
