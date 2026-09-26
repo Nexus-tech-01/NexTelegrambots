@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { db } from './store.mjs';
 
-const TTL_MS=90_000;
+const TTL_MS=5*60_000;
 let indexReady=false;
 
 async function collection(){
