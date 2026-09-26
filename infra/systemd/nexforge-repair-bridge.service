@@ -5,10 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/nex/current
+WorkingDirectory=/opt/nex/apps/internal/nexguard/current
 Environment=NEX_ROOT=/opt/nex/current
 EnvironmentFile=-/etc/nex/nexguard-ai.env
-ExecStart=/usr/bin/node /opt/nex/current/nexcontrol/guard/nexforge-repair-bridge.mjs
+ExecStart=/usr/bin/node /opt/nex/apps/internal/nexguard/current/nexforge-repair-bridge.mjs
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM
