@@ -121,6 +121,8 @@ for(let style=1;style<=31;style++){
 
 assert.match(styleSource,/INLINE_PHOTO_MAX_BYTES=5\*1024\*1024/,'inline photo size guard missing');
 assert.match(styleSource,/image\/jpeg/,'inline artwork must validate JPEG content');
+assert.match(styleSource,/CHARACTER_ARTWORK/,'missing character artwork fallback map');
+assert.match(styleSource,/NEXAI_STYLE_.*_IMAGE_URLS/,'per-style artwork environment overrides missing');
 
 process.env.NEXAI_EMOJI_STYLE_2='5368324170671202286';
 process.env.NEXAI_EMOJI_ANIME='5368324170671202287';
