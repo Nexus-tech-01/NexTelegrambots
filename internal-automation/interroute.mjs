@@ -10,6 +10,7 @@ const STATE_FILE=path.join(DATA_DIR,'state.json');
 const MAX_ATTEMPTS=Math.max(2,Number(process.env.INTERROUTE_MAX_ATTEMPTS||8));
 const TICK_MS=Math.max(500,Number(process.env.INTERROUTE_TICK_MS||2000));
 const FACEBOOK_TIMEOUT_MS=Math.max(30000,Number(process.env.INTERROUTE_FACEBOOK_TIMEOUT_MS||120000));
+const FACEBOOK_PAGE_ID=String(process.env.INTERROUTE_FACEBOOK_PAGE_ID||'106458282029367').trim();
 const TG_TOKEN=String(process.env.NEXCANAL__BOT_TOKEN||'').trim();
 const META_KEY=String(process.env.NEXMETA_CONTROL_KEY||'').trim();
 const BRIDGE_KEY=String(process.env.NEXCONTROL_BRIDGE_TOKEN||'').trim();
@@ -150,7 +151,8 @@ async function publishFacebook(e,r){
   if(e.dryRun)return {dryRun:true,platform:'facebook'};
   const a=facebookAdapt(e);if(a.skip)return {skipped:true,reason:a.reason};
   if(!META_KEY)throw new Error('facebook_publisher_unconfigured');
-  const payload={action:'publish_page_post',message:a.message,link:a.link||undefined,published:true,idempotencyKey:e.idempotencyKey,sourceMessageId:e.source?.messageId??undefined,...(r.pageId?{pageId:r.pageId}:{})};
+  const pageId=String(r.pageId||FACEBOOK_PAGE_ID||'').trim();
+  const payload={action:'publish_page_post',message:a.message,link:a.link||undefined,published:true,idempotencyKey:e.idempotencyKey,sourceMessageId:e.source?.messageId??undefined,...(pageId?{pageId}:{})};
   const res=await fetch(META_URL,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+META_KEY},body:JSON.stringify(payload),signal:AbortSignal.timeout(FACEBOOK_TIMEOUT_MS)});
   const out=await res.json().catch(()=>({}));if(!res.ok)throw new Error(out.error||out.message||('facebook_http_'+res.status));return out;
 }
