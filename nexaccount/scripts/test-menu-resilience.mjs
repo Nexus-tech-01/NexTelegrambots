@@ -123,4 +123,18 @@ for(let style=1;style<=31;style++){
 assert.match(styleSource,/INLINE_PHOTO_MAX_BYTES=5\*1024\*1024/,'inline photo size guard missing');
 assert.match(styleSource,/image\/jpeg/,'inline artwork must validate JPEG content');
 
+process.env.NEXAI_EMOJI_STYLE_2='5368324170671202286';
+process.env.NEXAI_EMOJI_ANIME='5368324170671202287';
+const emojiModel=await menuModel({
+  account:{telegramUserId:'7788',username:'emoji_test',firstName:'Emoji',premium:true},
+  settings:{style:2,prefix:'.',language:'fr'},
+  commands:registry,
+  view:'category',
+  category:'ANIME'
+});
+assert.ok(emojiModel.entities.filter(x=>x.type==='custom_emoji').length>=2,'style/category custom emoji entities must activate when IDs are configured');
+delete process.env.NEXAI_EMOJI_STYLE_2;
+delete process.env.NEXAI_EMOJI_ANIME;
+
+
 console.log('menu resilience regression tests: ok');
