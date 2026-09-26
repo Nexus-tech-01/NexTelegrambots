@@ -1,0 +1,25 @@
+{
+  "intervalMs": 30000,
+  "failureThreshold": 2,
+  "repairCooldownMs": 300000,
+  "verifyDelayMs": 8000,
+  "targets": [
+    {
+      "name": "LiteAPK watcher",
+      "type": "fileHeartbeat",
+      "path": "/var/lib/nex/state/internal-automation/nexcanal-watch-state-v2.json",
+      "timestampField": "updatedAt",
+      "maxAgeMs": 300000,
+      "repair": {
+        "type": "restartService",
+        "service": "nex-liteapks-watcher.service"
+      }
+    },
+    {
+      "name": "WhatsApp publisher",
+      "type": "http",
+      "url": "http://127.0.0.1:8789/healthz",
+      "timeoutMs": 5000
+    }
+  ]
+}
