@@ -72,15 +72,15 @@ async function anilist(query,variables={}){
   return d?.data;
 }
 async function sendText(client,peer,text){return client.sendMessage(peer,{message:String(text)})}
-async function sendImage(client,peer,url,caption=''){
+async function sendImage(client,peer,url,caption='',afterSend=null){
   if(!url)return sendText(client,peer,caption);
   const r=await res(url,{headers:{accept:'image/*'}},25000);
   const b=Buffer.from(await r.arrayBuffer());
   if(b.length>15*1024*1024)throw new Error('image trop volumineuse');
-  return sendTelegramMedia(client,peer,b,{fileName:'nexai-anime',mimeType:r.headers.get('content-type')||'',kind:'image',caption});
+  return sendTelegramMedia(client,peer,b,{fileName:'nexai-anime',mimeType:r.headers.get('content-type')||'',kind:'image',caption,afterSend});
 }
-async function sendAudio(client,peer,buffer,name='anime-voice.wav'){
-  return sendTelegramMedia(client,peer,Buffer.from(buffer),{fileName:name,kind:'audio',voiceNote:true});
+async function sendAudio(client,peer,buffer,name='anime-voice.wav',afterSend=null){
+  return sendTelegramMedia(client,peer,Buffer.from(buffer),{fileName:name,kind:'audio',voiceNote:true,afterSend});
 }
 async function remember(accountId,type,query){
   if(!query)return;
@@ -257,7 +257,7 @@ async function googleTts(textValue,lang='ja'){
   const r=await res(u,{headers:{accept:'audio/mpeg'}},20000);
   return Buffer.from(await r.arrayBuffer());
 }
-async function animeTts(client,peer,args){
+async function animeTts(client,peer,args,afterSend=null){
   const first=clean(args[0]||'');
   if(!first||first==='voices'){
     const vv=await voicevox('', 'voices').catch(()=>null);
@@ -269,10 +269,10 @@ async function animeTts(client,peer,args){
   const textValue=args.slice(1).join(' ').trim();
   if(!textValue){await sendText(client,peer,'Usage : .anitts <voix> <texte>');return true}
   const vv=await voicevox(textValue,first).catch(()=>null);
-  if(vv?.buffer){await sendAudio(client,peer,vv.buffer,'anime-voice.wav');return true}
+  if(vv?.buffer){await sendAudio(client,peer,vv.buffer,'anime-voice.wav',afterSend);return true}
   const lang=/^[\u3040-\u30ff\u3400-\u9fff]/u.test(textValue)?'ja':'fr';
   const audio=await googleTts(textValue,lang);
-  await sendAudio(client,peer,audio,'anime-voice.mp3');
+  await sendAudio(client,peer,audio,'anime-voice.mp3',afterSend);
   return true;
 }
 
@@ -291,10 +291,11 @@ export function canHandleAnimeCommand(name){return ANIME_ENGINE_COMMANDS.has(Str
 export async function handleAnimeCommand({runtime,event,name,args=[],reply=null}){
   const {client,account}=runtime,peer=event.message.peerId,raw=args.join(' ').trim();
   const say=t=>typeof reply==='function'?reply(t):sendText(client,peer,t);
-  const image=(u,c)=>sendImage(client,peer,u,c);
+  const mediaCta=typeof reply==='function'?()=>reply(''):null;
+  const image=(u,c)=>sendImage(client,peer,u,c,mediaCta);
   const need=()=>{if(!raw)throw new Error('argument manquant pour .'+name)};
 
-  if(name==='anitts')return animeTts(client,peer,args);
+  if(name==='anitts')return animeTts(client,peer,args,mediaCta);
 
   if(name==='animeinfo'||name==='anisearch'){
     need();const m=await mediaSearch(raw,'ANIME');await remember(account.telegramUserId,'anime',raw);
