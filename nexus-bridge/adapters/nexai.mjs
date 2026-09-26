@@ -41,7 +41,7 @@ const model = configuredModel;
 const providerReady = Boolean(apiUrl && model);
 const history = new Map();
 const HISTORY_TTL_MS = 20 * 60 * 1000;
-const MAX_HISTORY_MESSAGES = 8;
+const MAX_HISTORY_MESSAGES = 6;
 
 export const adapterManifest = Object.freeze({
   version: '1.0.0',
@@ -296,16 +296,9 @@ function nonPublicReply(language) {
 }
 
 function productsSentence(language) {
-  const products = PUBLIC_PRODUCTS
-    .map(product => {
-      const description = language === 'fr' ? product.fr : product.en;
-      return '• ' + product.name + ' — ' + description + '\n' + product.url;
-    })
-    .join('\n\n');
-
   return language === 'fr'
-    ? 'Les produits publics de Nextech disponibles sur Telegram sont :\n\n' + products
-    : 'Nextech\'s public Telegram products are:\n\n' + products;
+    ? 'Nextech propose 7 bots publics : NexCanal (canaux), NexGroup (groupes), NexDownloader (médias), NexGame (jeux), NexStick (stickers), NexWhisper (messages discrets) et Stacy (IA sociale).'
+    : 'Nextech has 7 public bots: NexCanal (channels), NexGroup (groups), NexDownloader (media), NexGame (games), NexStick (stickers), NexWhisper (private messaging), and Stacy (social AI).';
 }
 
 function planSentence(product, language, { detailed = false } = {}) {
@@ -440,7 +433,7 @@ function systemPrompt(language) {
     'Lorsque tu présentes Trésor HONTONNOU, n’écris jamais son pseudonyme entre parenthèses après son nom : utilise la formulation « plus connu sous le pseudonyme de ». ' +
     catalogFr + salesFr + ' ' +
     'N’invente jamais de cofondateur, de membre d’équipe, de nom de personne, de date, de rôle, de prix, de disponibilité, de site officiel ou de service client. ' +
-    'Réponds dans la langue de l’utilisateur, naturellement, clairement et une seule fois. Par défaut, fais court : 1 à 3 phrases, sans tableau Markdown, sans titre inutile et sans liste longue. Donne uniquement l’information demandée ; développe seulement si l’utilisateur demande plus de détails. ' +
+    'Réponds dans la langue de l’utilisateur, naturellement, clairement et une seule fois. Par défaut, fais court : 1 à 3 phrases. Sur Messenger, n’utilise aucun Markdown visible (**gras**, # titres, tableaux avec |, etc.), aucun titre inutile et aucune longue liste. Donne uniquement l’information demandée ; développe seulement si l’utilisateur demande plus de détails. ' +
     'N’invente jamais d’actions qui n’ont pas réellement été exécutées.';
 
   const identityEn =
@@ -449,7 +442,7 @@ function systemPrompt(language) {
     'When introducing Trésor HONTONNOU, never put the pseudonym in parentheses after the name; use the wording “better known by the pseudonym”. ' +
     catalogEn + salesEn + ' ' +
     'Never invent a cofounder, team member, person, date, role, price, availability, official website, or customer-support service. ' +
-    'Reply naturally, clearly, in the user’s language, and only once. Keep the default reply short: 1 to 3 sentences, no Markdown tables, no unnecessary heading, and no long list. Give only what was asked; expand only when the user asks for more detail. ' +
+    'Reply naturally, clearly, in the user’s language, and only once. Keep the default reply short: 1 to 3 sentences. On Messenger, use no visible Markdown (**bold**, # headings, pipe tables, etc.), no unnecessary heading, and no long list. Give only what was asked; expand only when the user asks for more detail. ' +
     'Never claim an action happened unless it actually did.';
 
   const canonical = language === 'fr' ? identityFr : identityEn;
