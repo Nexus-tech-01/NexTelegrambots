@@ -48,6 +48,15 @@ assert.equal(cachedPhoto.photo_file_id,'telegram-file-id');
 assert.equal(cachedPhoto.input_message_content.message_text,'NexAI menu');
 assert.equal(cachedPhoto.reply_markup.inline_keyboard[0][0].callback_data,'menu:home|999');
 
+const inlineReply=__test.inlineReplyModel(
+  'Téléchargement terminé\n/Help Clonepack',
+  {customEmojiIds:{NEXAI_EMOJI_NEXTECH:'5368324170671202400'}}
+);
+assert.ok(inlineReply.text.endsWith('By Nextech'),'inline reply must include clickable By Nextech');
+assert.ok(inlineReply.entities.some(x=>x.type==='text_link'&&x.url.includes('t.me')),'By Nextech must be a Telegram text_link');
+assert.ok(inlineReply.entities.some(x=>x.type==='bot_command'),'slash commands in replies must stay clickable');
+assert.equal(inlineReply.reply_markup.inline_keyboard[0][0].icon_custom_emoji_id,'5368324170671202400','Nextech CTA must use the session custom emoji when configured');
+
 assert.deepEqual(
   __test.telegramCommandMenu().map(x=>x.command),
   ['start','menu','help','pair','language','creator'],
