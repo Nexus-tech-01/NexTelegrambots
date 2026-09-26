@@ -149,17 +149,29 @@ console.log('NexAnime ingest regression tests: OK');
 }
 
 
-// episode synopsis card without explicit "synopsis" label
+// episode-numbered poster/synopsis cards are source context only and must not
+// be published as fake episodes or repeated per-episode presentations
 {
   const c=__test.classifyMessage({
     message:'Classroom of the Elite S04 EP16 VOSTFR\nCette semaine, la classe fait face à une nouvelle épreuve qui bouleverse complètement les alliances et les stratégies des élèves.',
     photo:{id:1}
   },{username:'anime_source',title:'Anime Source'});
-  assert.equal(c.kind,'presentation');
-  assert.equal(c.season,4);
-  assert.equal(c.episode,16);
+  assert.equal(c.kind,'ignore');
+  assert.equal(c.reason,'episode_image_card_context_only');
 }
 
+
+
+// A series-level synopsis image is still accepted once for the anime.
+{
+  const c=__test.classifyMessage({
+    message:'Classroom of the Elite\nSynopsis\nLes élèves de la classe D affrontent un système scolaire fondé sur la compétition et la stratégie.',
+    photo:{id:1}
+  },{username:'anime_source',title:'Anime Source'});
+  assert.equal(c.kind,'presentation');
+  assert.equal(c.season,null);
+  assert.equal(c.episode,null);
+}
 
 // conflicting caption/file anime identities must never be published
 {
