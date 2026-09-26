@@ -251,6 +251,93 @@ const PUBLIC_PLANS = {
   }
 };
 
+const PUBLIC_GUIDES = {
+  nexcanal: {
+    fr: {
+      what: 'gestion et automatisation de canaux Telegram',
+      how: 'Tu ouvres NexCanal, relies ou choisis un canal que tu administres, prépares le contenu puis tu peux le publier immédiatement ou le programmer. Le bot centralise ensuite les publications, brouillons, files éditoriales, campagnes, séries et statistiques selon le plan.',
+      features: 'composition et prévisualisation de publications, brouillons, programmation, calendrier/file éditoriale, multi-canal, campagnes, séries, statistiques, automatisation de diffusion et gestion de publications enrichies'
+    },
+    en: {
+      what: 'Telegram channel management and publishing automation',
+      how: 'Open NexCanal, connect or choose a channel you administer, prepare the content, then publish immediately or schedule it. The bot centralizes posts, drafts, editorial queues, campaigns, series, and statistics depending on the plan.',
+      features: 'post composition and preview, drafts, scheduling, editorial queue, multi-channel management, campaigns, series, statistics, publishing automation, and rich posts'
+    }
+  },
+  nexgroup: {
+    fr: {
+      what: 'administration, modération et protection de groupes Telegram',
+      how: 'Tu ajoutes NexGroup au groupe, lui donnes les droits nécessaires, puis tu règles les protections et outils depuis le bot. Il applique ensuite les règles dans le groupe et fournit les commandes de modération et d’administration aux personnes autorisées.',
+      features: 'modération, anti-spam, anti-liens, captcha, anti-raid, approbation, commandes admin, gestion de membres, topics, automatisations, XP/réputation, statistiques et sauvegardes selon le plan'
+    },
+    en: {
+      what: 'Telegram group administration, moderation, and protection',
+      how: 'Add NexGroup to the group, grant the required permissions, then configure protections and tools from the bot. It enforces the rules in the group and exposes moderation and administration commands to authorized users.',
+      features: 'moderation, anti-spam, anti-link, captcha, anti-raid, approvals, admin commands, member management, topics, automation, XP/reputation, statistics, and backups depending on the plan'
+    }
+  },
+  nexdownloader: {
+    fr: {
+      what: 'téléchargement et traitement de médias',
+      how: 'Tu lui envoies un lien compatible ou une recherche musicale. NexDownloader récupère le média, te propose ou applique le traitement demandé puis renvoie le fichier ou le résultat dans Telegram.',
+      features: 'téléchargement de médias compatibles, recherche de musique, reconnaissance musicale, extraction audio, conversion, compression, découpage et téléchargement multi-liens selon le plan'
+    },
+    en: {
+      what: 'media downloading and processing',
+      how: 'Send a supported link or a music search. NexDownloader retrieves the media, applies or offers the requested processing, then returns the file or result in Telegram.',
+      features: 'supported media downloads, music search, music recognition, audio extraction, conversion, compression, trimming, and multi-link downloads depending on the plan'
+    }
+  },
+  nexgame: {
+    fr: {
+      what: 'jeux et défis interactifs dans Telegram',
+      how: 'Tu démarres NexGame, choisis un jeu ou un mode, puis tu joues directement avec les boutons et messages du bot. Selon le jeu, tu peux jouer seul, en duel ou avec plusieurs personnes et suivre ta progression.',
+      features: 'quiz, devinettes, défis, jeux rapides, modes solo, 1v1 et multijoueur, compétitions, progression, profil et statistiques de jeu'
+    },
+    en: {
+      what: 'interactive games and challenges inside Telegram',
+      how: 'Start NexGame, choose a game or mode, then play directly through the bot buttons and messages. Depending on the game, you can play solo, in a duel, or with multiple people and track your progress.',
+      features: 'quizzes, riddles, challenges, quick games, solo, 1v1 and multiplayer modes, competitions, progression, profile, and game statistics'
+    }
+  },
+  nexstick: {
+    fr: {
+      what: 'création, clonage et export de stickers',
+      how: 'Tu envoies un sticker, un pack ou le contenu que tu veux transformer, puis NexStick crée ou clone le pack et permet de l’exporter dans les formats pris en charge, notamment vers WhatsApp.',
+      features: 'création de packs, clonage de packs, récupération et organisation de stickers, export WhatsApp et gestion de quotas Free/Premium'
+    },
+    en: {
+      what: 'sticker creation, cloning, and export',
+      how: 'Send a sticker, a pack, or content you want to transform. NexStick creates or clones the pack and lets you export it to supported formats, including WhatsApp.',
+      features: 'pack creation, pack cloning, sticker retrieval and organization, WhatsApp export, and Free/Premium quota management'
+    }
+  },
+  nexwhisper: {
+    fr: {
+      what: 'messages privés et discrets avec contrôle de confidentialité',
+      how: 'Tu choisis le destinataire et écris ton Whisper, puis tu règles les options disponibles avant l’envoi. Le destinataire ouvre le message via NexWhisper avec les règles choisies.',
+      features: 'messages anonymes ou identifiés selon le mode, lecture unique, expiration, confidentialité, plusieurs destinataires et programmation selon le plan'
+    },
+    en: {
+      what: 'private and discreet messages with privacy controls',
+      how: 'Choose the recipient and write your Whisper, then set the available options before sending. The recipient opens the message through NexWhisper under the selected rules.',
+      features: 'anonymous or identified messages depending on mode, one-view, expiration, privacy controls, multiple recipients, and scheduling depending on the plan'
+    }
+  },
+  stacy: {
+    fr: {
+      what: 'assistante IA sociale et conversationnelle',
+      how: 'Tu lui écris simplement comme à une personne. Stacy répond de façon conversationnelle, garde le contexte et peut utiliser ses fonctions sociales, de mémoire et de jeu selon la conversation.',
+      features: 'conversation naturelle, mémoire privée, interactions sociales, jeux et réponses contextuelles. Stacy n’a pas de plan Premium public'
+    },
+    en: {
+      what: 'social and conversational AI assistant',
+      how: 'Simply message her as you would a person. Stacy replies conversationally, keeps context, and can use her social, memory, and game features as the conversation requires.',
+      features: 'natural conversation, private memory, social interactions, games, and contextual replies. Stacy has no public Premium plan'
+    }
+  }
+};
+
 function ownerSentence(language) {
   return language === 'fr'
     ? 'Le créateur et propriétaire de Nextech est ' + OWNER_NAME + ', plus connu sous le pseudonyme de ' + OWNER_ALIAS + '.'
@@ -271,8 +358,10 @@ function plainMessengerAnswer(value) {
     .replace(/~~(.*?)~~/g, '$1')
     .replace(/^\s{0,3}#{1,6}\s+/gm, '')
     .replace(/^\s*[-*•]\s+/gm, '')
-    .replace(/\s*\n+\s*/g, ' ')
-    .replace(/\s{2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
     .trim();
 }
 
@@ -373,9 +462,46 @@ function nonPublicReply(language) {
 }
 
 function productsSentence(language) {
-  return language === 'fr'
-    ? 'Nextech propose 7 bots publics : NexCanal pour gérer et automatiser les canaux, NexGroup pour administrer et protéger les groupes, NexDownloader pour les médias, NexGame pour les jeux, NexStick pour les stickers, NexWhisper pour les messages discrets et Stacy pour discuter avec une IA sociale.'
-    : 'Nextech has 7 public bots: NexCanal for channel management and automation, NexGroup for group administration and protection, NexDownloader for media, NexGame for games, NexStick for stickers, NexWhisper for private messaging, and Stacy for social AI chat.';
+  const fr = language === 'fr';
+  const intro = fr
+    ? 'Nextech propose 7 bots publics :'
+    : 'Nextech has 7 public bots:';
+
+  const rows = PUBLIC_PRODUCTS.map((product, index) => {
+    const guide = PUBLIC_GUIDES[product.key]?.[fr ? 'fr' : 'en'];
+    const role = guide?.what || product[fr ? 'fr' : 'en'];
+    const linkLabel = fr ? 'Lien' : 'Link';
+
+    return [
+      String(index + 1) + '. ' + product.name + ' — ' + role + '.',
+      linkLabel + ' : ' + product.url
+    ].join('\n');
+  });
+
+  return [intro, ...rows].join('\n\n');
+}
+
+function productGuideSentence(product, language) {
+  if (!product) return '';
+
+  const fr = language === 'fr';
+  const guide = PUBLIC_GUIDES[product.key]?.[fr ? 'fr' : 'en'];
+  if (!guide) return '';
+
+  return [
+    product.name,
+    (fr ? 'Rôle : ' : 'Role: ') + guide.what + '.',
+    (fr ? 'Fonctionnement : ' : 'How it works: ') + guide.how,
+    (fr ? 'Fonctions principales : ' : 'Main features: ') + guide.features + '.',
+    (fr ? 'Lien : ' : 'Link: ') + product.url
+  ].join('\n');
+}
+
+const PRODUCT_GUIDE_INTENT_RE =
+  /(?:comment\s+(?:ça|ca|il|elle|le\s+bot)?\s*(?:marche|fonctionne)|fonctionnement|fonctionnalit[ée]s?|fonctions?|que\s+(?:fait|permet)|sert\s+[àa]\s+quoi|utiliser|usage|comment\s+l['’]utiliser|how\s+(?:does|to\s+use)|what\s+(?:does|can)|features?)/i;
+
+function isProductGuideIntent(text) {
+  return PRODUCT_GUIDE_INTENT_RE.test(clean(text));
 }
 
 function planSentence(product, language, { detailed = false } = {}) {
@@ -448,6 +574,10 @@ function canonicalReply(text, language, context = {}) {
     });
   }
 
+  if (product && isProductGuideIntent(value)) {
+    return productGuideSentence(product, language);
+  }
+
   const productIntent =
     /(?:quels?\s+(?:sont\s+)?(?:(?:les|vos|nos)\s+)?(?:produits?|services?|offres?|solutions?|projets?|bots?)|(?:je\s+veux\s+(?:savoir|conna[iî]tre)|j['’]aimerais\s+(?:savoir|conna[iî]tre)).*?(?:produits?|services?|bots?)|(?:produits?|services?|bots?)\s+(?:de|du|chez)\s+(?:(?:l['’])?entreprise|nextech|nexus\s*tech)|(?:présente|presente|montre|liste)\s+(?:moi\s+)?(?:(?:les|vos|nos)\s+)?(?:produits?|services?|bots?)|que\s+(?:fait|propose|développe|developpe)\s+(?:nextech|nexus\s*tech)|(?:produits?|services?|offres?|solutions?|projets?|bots?).*?(?:nextech|nexus\s*tech)|what\s+(?:products?|services?|solutions?|projects?|bots?)|what\s+does\s+(?:nextech|nexus\s*tech)\s+(?:do|offer|make)|tell\s+me\s+about\s+(?:nextech|nexus\s*tech))/i;
 
@@ -466,6 +596,13 @@ function systemPrompt(language) {
     PUBLIC_PRODUCTS.map(product =>
       product.name + ' — ' + product.fr + ' — ' + product.url
     ).join(' ; ') + '. ' +
+    'FONCTIONNEMENT CANONIQUE : ' +
+    PUBLIC_PRODUCTS.map(product => {
+      const guide = PUBLIC_GUIDES[product.key]?.fr;
+      return product.name + ' (' + product.url + ') : ' +
+        'rôle=' + guide.what + '; fonctionnement=' + guide.how +
+        '; fonctions=' + guide.features;
+    }).join(' ; ') + '. ' +
     'OFFRES CANONIQUES : ' +
     Object.entries(PUBLIC_PLANS).map(([key, value]) => {
       const product = PUBLIC_PRODUCTS.find(item => item.key === key);
@@ -477,6 +614,13 @@ function systemPrompt(language) {
     PUBLIC_PRODUCTS.map(product =>
       product.name + ' — ' + product.en + ' — ' + product.url
     ).join(' ; ') + '. ' +
+    'CANONICAL WORKFLOWS: ' +
+    PUBLIC_PRODUCTS.map(product => {
+      const guide = PUBLIC_GUIDES[product.key]?.en;
+      return product.name + ' (' + product.url + '): ' +
+        'role=' + guide.what + '; workflow=' + guide.how +
+        '; features=' + guide.features;
+    }).join(' ; ') + '. ' +
     'CANONICAL PLANS: ' +
     Object.entries(PUBLIC_PLANS).map(([key, value]) => {
       const product = PUBLIC_PRODUCTS.find(item => item.key === key);
@@ -487,7 +631,7 @@ function systemPrompt(language) {
     'Ton rôle public est de présenter et recommander uniquement ces sept bots. ' +
     'Ne mentionne jamais spontanément les projets internes, privés ou inachevés. Si un utilisateur en nomme explicitement un, ne révèle aucun détail : dis seulement qu’il ne fait pas partie du catalogue public disponible, puis recentre vers une solution publique pertinente. ' +
     'Agis comme un conseiller produit et commercial très compétent, mais sans pression : commence par comprendre le besoin, puis recommande au maximum un ou deux produits qui répondent réellement à ce besoin. ' +
-    'Présente dans cet ordre : résultat concret pour la personne, fonctions utiles, puis raison pour laquelle le produit correspond à son besoin. N’ajoute le lien officiel que si la personne le demande, veut essayer le produit ou si le lien est nécessaire pour agir. ' +
+    'Présente dans cet ordre : résultat concret pour la personne, fonctions utiles, puis raison pour laquelle le produit correspond à son besoin. Pour une présentation du catalogue ou une question directe sur un bot, donne son lien officiel. Dans les autres réponses, n’ajoute un lien que s’il est utile pour agir. ' +
     'Ne transforme pas chaque réponse en publicité. Ne répète pas une offre refusée. N’utilise jamais de fausse urgence, de rareté inventée, de faux témoignage, de fausses réductions ou de promesse impossible. ' +
     'Ne commence pas une première présentation par le prix, sauf si la personne demande explicitement le prix, les plans, Premium/Pro/Plus/Business/Agency, un abonnement, ou si la fonction demandée nécessite réellement une offre payante. ' +
     'Présente Premium au bon moment : quand la personne manifeste une intention claire, demande une fonction avancée, atteint ou évoque une limite gratuite, veut un usage intensif, compare des offres, ou demande si le service est payant. ' +
@@ -499,7 +643,7 @@ function systemPrompt(language) {
     'Your public role is to present and recommend only these seven bots. ' +
     'Never proactively mention internal, private, or unfinished projects. If a user explicitly names one, reveal no internal detail: only say it is not part of the available public catalog, then redirect to a relevant public solution. ' +
     'Act as a highly capable product and sales advisor without pressure: understand the need first, then recommend at most one or two products that genuinely fit. ' +
-    'Present in this order: concrete outcome for the person, useful features, then why the product matches the need. Add the official link only if the person asks for it, wants to try the product, or the link is needed to act. ' +
+    'Present in this order: concrete outcome for the person, useful features, then why the product matches the need. For a catalog presentation or a direct question about a bot, include its official link. In other replies, add a link only when it is useful to act. ' +
     'Do not turn every answer into an ad. Do not repeat an offer after refusal. Never use fake urgency, invented scarcity, fake testimonials, fake discounts, or impossible promises. ' +
     'Do not lead a first introduction with price unless the person explicitly asks about price, plans, Premium/Pro/Plus/Business/Agency, a subscription, or the requested feature genuinely requires a paid offer. ' +
     'Introduce Premium at the right moment: when the person shows clear intent, asks for an advanced feature, reaches or discusses a free limit, needs intensive usage, compares offers, or asks whether the service is paid. ' +
