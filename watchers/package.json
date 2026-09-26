@@ -4,9 +4,5 @@
   "type": "module",
   "dependencies": {
     "teleproto": "1.229.0"
-  },
-  "scripts": {
-    "check": "node --check liteapks-relay.mjs && node --check supervision-core.mjs && node --check nexguard.mjs && node --check automation-supervisor.mjs && node test-supervision.mjs",
-    "test": "node test-supervision.mjs"
   }
 }
