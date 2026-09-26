@@ -104,17 +104,17 @@ function emojiEntitySpans(text,glyph,id){
   return out;
 }
 
-function themeCustomEmojiSpans(text,styleId,category=null){
+function themeCustomEmojiSpans(text,styleId,category=null,settings=null){
   const out=[];
   const glyph=STYLE_EMOJI_FALLBACK[Number(styleId)];
-  out.push(...emojiEntitySpans(text,glyph,emojiId('style_'+Number(styleId))));
+  out.push(...emojiEntitySpans(text,glyph,emojiId('style_'+Number(styleId),settings)));
   if(category){
     const catGlyph=FALLBACK_EMOJI[category];
     // Telegram rejects overlapping MessageEntityCustomEmoji ranges. When the
     // character theme and the category intentionally use the same glyph (for
     // example Ruby + Anime = 🌸), keep the theme entity instead of stacking two.
     if(catGlyph&&catGlyph!==glyph){
-      out.push(...emojiEntitySpans(text,catGlyph,emojiId(CATEGORY_ICONS[category])));
+      out.push(...emojiEntitySpans(text,catGlyph,emojiId(CATEGORY_ICONS[category],settings)));
     }
   }
   return out;
@@ -184,27 +184,27 @@ export async function menuModel({account,settings,commands,view='home',category=
     const cats=CATEGORY_ORDER.filter(cat=>(groups[cat]||[]).some(visible));
     for(let i=0;i<cats.length;i+=2){
       buttons.push(cats.slice(i,i+2).map(cat=>{
-        const id=emojiId(CATEGORY_ICONS[cat]);
+        const id=emojiId(CATEGORY_ICONS[cat],settings);
         const raw=BUTTON_LABELS[cat]||CATEGORY_LABELS[cat]||cat;
         const label=toSmallCaps(raw);
-        return button((id?'':(FALLBACK_EMOJI[cat]||'')+' ')+label,'cat:'+cat,'primary',CATEGORY_ICONS[cat]);
+        return button((id?'':(FALLBACK_EMOJI[cat]||'')+' ')+label,'cat:'+cat,'primary',CATEGORY_ICONS[cat],settings);
       }));
     }
-    buttons.push([button((emojiId('style')?'':'🎨 ')+toSmallCaps(localized(settings,'Styles','Styles')),'menu:styles','primary','style')]);
+    buttons.push([button((emojiId('style',settings)?'':'🎨 ')+toSmallCaps(localized(settings,'Styles','Styles')),'menu:styles','primary','style',settings)]);
 
     const primaryLinks=[];
-    if(cfg.nextechUrl)primaryLinks.push(urlButton('ɴᴇxᴛᴇᴄʜ',cfg.nextechUrl,'success','nextech'));
-    if(cfg.nexnewsUrl)primaryLinks.push(urlButton('ɴᴇxɴᴇᴡѕ',cfg.nexnewsUrl,'success','news'));
+    if(cfg.nextechUrl)primaryLinks.push(urlButton('ɴᴇxᴛᴇᴄʜ',cfg.nextechUrl,'success','nextech',settings));
+    if(cfg.nexnewsUrl)primaryLinks.push(urlButton('ɴᴇxɴᴇᴡѕ',cfg.nexnewsUrl,'success','news',settings));
     if(primaryLinks.length)buttons.push(primaryLinks);
-    if(cfg.darkUniverseUrl)buttons.push([urlButton('ᴅᴀʀᴋ ᴜɴɪᴠᴇʀѕᴇ',cfg.darkUniverseUrl,'success','dark')]);
+    if(cfg.darkUniverseUrl)buttons.push([urlButton('ᴅᴀʀᴋ ᴜɴɪᴠᴇʀѕᴇ',cfg.darkUniverseUrl,'success','dark',settings)]);
   }else{
-    buttons.push([button((emojiId('back')?'':'↩ ')+toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back')]);
+    buttons.push([button((emojiId('back',settings)?'':'↩ ')+toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back',settings)]);
   }
 
   const text=body.trim();
   return {
     text,
-    entities:expandableEntities(text,spans,quoteRange,themeCustomEmojiSpans(text,style.id,view==='category'?category:null)),
+    entities:expandableEntities(text,spans,quoteRange,themeCustomEmojiSpans(text,style.id,view==='category'?category:null,settings)),
     reply_markup:{inline_keyboard:buttons},
     // Artwork is a link preview above an editable text message, so categories
     // keep the same image/header alignment without the 1024-char media-caption limit.
@@ -231,11 +231,11 @@ export async function stylesModel({account,settings}){
       const active=Number(settings.style)===s.id;
       const short=STYLE_BUTTON_LABELS[s.id]||s.name;
       const icon='style_'+s.id;
-      const prefix=(active?'✓ ':'')+(emojiId(icon)?'':(STYLE_EMOJI_FALLBACK[s.id]||'✦')+' ');
-      return button(prefix+String(s.id).padStart(2,'0')+' · '+toSmallCaps(short),'style:set:'+s.id,active?'success':'primary',icon);
+      const prefix=(active?'✓ ':'')+(emojiId(icon,settings)?'':(STYLE_EMOJI_FALLBACK[s.id]||'✦')+' ');
+      return button(prefix+String(s.id).padStart(2,'0')+' · '+toSmallCaps(short),'style:set:'+s.id,active?'success':'primary',icon,settings);
     }));
   }
-  keyboard.push([button((emojiId('back')?'':'↩ ')+toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back')]);
+  keyboard.push([button((emojiId('back',settings)?'':'↩ ')+toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back',settings)]);
 
   return {
     text,
@@ -245,21 +245,22 @@ export async function stylesModel({account,settings}){
   };
 }
 
-function emojiId(logical){
+function emojiId(logical,settings=null){
   const key='NEXAI_EMOJI_'+String(logical||'').toUpperCase().replace(/[^A-Z0-9]+/g,'_');
-  return String(process.env[key]||'').trim()||undefined;
+  const session=String(settings?.customEmojiIds?.[key]||'').trim();
+  return session||String(process.env[key]||'').trim()||undefined;
 }
 
-function button(text,data,style='primary',icon){
+function button(text,data,style='primary',icon,settings=null){
   const b={text,callback_data:data,style};
-  const id=emojiId(icon);
+  const id=emojiId(icon,settings);
   if(id)b.icon_custom_emoji_id=id;
   return b;
 }
 
-function urlButton(text,url,style='success',icon){
+function urlButton(text,url,style='success',icon,settings=null){
   const b={text,url,style};
-  const id=emojiId(icon);
+  const id=emojiId(icon,settings);
   if(id)b.icon_custom_emoji_id=id;
   return b;
 }
