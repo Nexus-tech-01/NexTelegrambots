@@ -139,7 +139,7 @@ function recoveredMediaName(source){
   if(mime.startsWith('audio/'))return 'vv-audio.ogg';
   return 'vv-media.bin';
 }
-async function recoverOwnViewOnce(client,peer,commandMessage,account){
+async function recoverOwnViewOnce(client,peer,commandMessage,account,afterSend=null){
   const source=await repliedMessage(client,peer,commandMessage);
   if(!source?.media)throw new Error('Réponds à ton média vue unique avec .vv.');
   if(mediaTtlSeconds(source)<=0)throw new Error('Le média répondu n’est pas éphémère/vue unique.');
@@ -154,7 +154,8 @@ async function recoverOwnViewOnce(client,peer,commandMessage,account){
     fileName:recoveredMediaName(source),
     caption:'VV · média récupéré',
     mimeType:String(source?.media?.document?.mimeType||''),
-    kind:'auto'
+    kind:'auto',
+    afterSend
   });
 }
 
@@ -271,7 +272,7 @@ async function fetchJson(url,options={},timeout=12000){
   if(!r.ok)throw new Error('HTTP '+r.status);
   return r.json();
 }
-async function sendRemoteFile(client,peer,url,{caption='',name}={}){
+async function sendRemoteFile(client,peer,url,{caption='',name,afterSend=null}={}){
   const r=await fetch(url,{headers:{'user-agent':'Mozilla/5.0'},signal:AbortSignal.timeout(20000)});
   if(!r.ok)throw new Error('Téléchargement impossible ('+r.status+').');
   const buf=Buffer.from(await r.arrayBuffer());
@@ -279,7 +280,8 @@ async function sendRemoteFile(client,peer,url,{caption='',name}={}){
     fileName:name||'media',
     caption,
     mimeType:r.headers.get('content-type')||'',
-    kind:'auto'
+    kind:'auto',
+    afterSend
   });
 }
 function xmlEscape(s){return String(s).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&apos;'}[c]))}
@@ -396,6 +398,8 @@ async function doModeration(client,peer,message,name,args){
 export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,sendInline}){
   const {client,account}=runtime;
   const peer=event.message.peerId;
+  const reply=text=>sendText(client,peer,String(text??''));
+  const mediaCta=()=>reply('');
   const requestedName=name;
   if(cmd?.engine==='group'&&cmd?.sourceCommand)name=cmd.sourceCommand;
   name=GROUP_ALIAS[name]||name;
@@ -406,18 +410,18 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
 
   if(DL_MAP[name]&&canHandleDownloadCommand(DL_MAP[name])){
-    await handleDownloadCommand({client,peer,name:DL_MAP[name],args,event});
+    await handleDownloadCommand({client,peer,name:DL_MAP[name],args,event,reply});
     return true;
   }
   if(STICKER_MAP[name]&&canHandleStickerCommand(STICKER_MAP[name])){
-    await handleStickerCommand({runtime,event,name:STICKER_MAP[name],args});
+    await handleStickerCommand({runtime,event,name:STICKER_MAP[name],args,reply});
     return true;
   }
   if(['oracle','ai','code','deepseek'].includes(name)){
     if(!argText){await sendText(client,peer,'Écris ta demande après la commande.');return true}
     const mode=name==='oracle'?'ai':name;
     const prefix=mode==='code'?'Aide-moi avec ce code ou cette tâche de programmation : ':mode==='deepseek'?'Raisonne soigneusement sur ceci : ':'';
-    await handleAiCommand({runtime,event,name:canHandleAiCommand(mode)?mode:'ai',args:[prefix+argText]});
+    await handleAiCommand({runtime,event,name:canHandleAiCommand(mode)?mode:'ai',args:[prefix+argText],reply});
     return true;
   }
 
@@ -443,7 +447,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
 
   if(name==='vv'){
     try{
-      await recoverOwnViewOnce(client,peer,event.message,account);
+      await recoverOwnViewOnce(client,peer,event.message,account,mediaCta);
       try{await client.deleteMessages(peer,[event.message.id],{revoke:true})}catch{}
     }catch(e){await sendText(client,peer,'VV · '+String(e?.message||e))}
     return true;
@@ -631,7 +635,8 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
               caption:built.message,
               mimeType:String(source?.media?.document?.mimeType||''),
               kind:'auto',
-              formattingEntities:built.entities
+              formattingEntities:built.entities,
+              afterSend:mediaCta
             });
             return true;
           }
@@ -846,7 +851,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       const entity=await client.getEntity(target);
       if(name==='getpp'){
         const b=await client.downloadProfilePhoto(entity,{isBig:true});
-        if(b)await sendTelegramMedia(client,peer,b,{fileName:'profile.jpg',caption:'NexAi · Profile',mimeType:'image/jpeg',kind:'image'});else await sendText(client,peer,'Aucune photo publique.');
+        if(b)await sendTelegramMedia(client,peer,b,{fileName:'profile.jpg',caption:'NexAi · Profile',mimeType:'image/jpeg',kind:'image',afterSend:mediaCta});else await sendText(client,peer,'Aucune photo publique.');
       }else{
         let about='';
         try{const full=await client.invoke(new Api.users.GetFullUser({id:target}));about=full?.fullUser?.about||''}catch{}
@@ -880,7 +885,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       const c=await currentChat(client,peer);const ps=await participants(client,peer,500);
       const snapshot={createdAt:new Date().toISOString(),chatId:chat,title:c?.title||'',username:c?.username||'',memberCount:ps.length,policy};
       const backups={...(s.groupBackups||{}),[chat]:snapshot};await patchSettings(account.telegramUserId,{groupBackups:backups});
-      await sendTelegramMedia(client,peer,Buffer.from(JSON.stringify(snapshot,null,2)),{fileName:'nexai-group-backup.json',caption:'NexAi · Backup',mimeType:'application/json',kind:'document'});return true;
+      await sendTelegramMedia(client,peer,Buffer.from(JSON.stringify(snapshot,null,2)),{fileName:'nexai-group-backup.json',caption:'NexAi · Backup',mimeType:'application/json',kind:'document',afterSend:mediaCta});return true;
     }
     if(name==='restore'){
       const snap=s.groupBackups?.[chat];if(!snap){await sendText(client,peer,'Aucune sauvegarde NexAi pour ce groupe.');return true}
@@ -972,14 +977,14 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const values=args.filter(Boolean);
     if(!values.length){await sendText(client,peer,'Usage : .vcf +229... +33...');return true}
     const cards=values.map((v,i)=>'BEGIN:VCARD\nVERSION:3.0\nFN:Contact '+(i+1)+'\nTEL;TYPE=CELL:'+v+'\nEND:VCARD').join('\n');
-    await sendTelegramMedia(client,peer,Buffer.from(cards),{fileName:'contacts.vcf',caption:'NexAi · VCF',mimeType:'text/vcard',kind:'document'});return true;
+    await sendTelegramMedia(client,peer,Buffer.from(cards),{fileName:'contacts.vcf',caption:'NexAi · VCF',mimeType:'text/vcard',kind:'document',afterSend:mediaCta});return true;
   }
   if(name==='filtervcf'){
     await sendText(client,peer,'Réponds à un fichier .vcf avec les critères à conserver. Cette commande est reconnue ; le moteur Telegram ne modifie jamais silencieusement un carnet de contacts.');return true;
   }
   if(name==='texttopdf'){
     if(!argText){await sendText(client,peer,'Usage : .texttopdf ton texte');return true}
-    try{await sendTelegramMedia(client,peer,simplePdf(argText),{fileName:'nexai-text.pdf',caption:'NexAi · PDF',mimeType:'application/pdf',kind:'document'})}catch(e){await sendText(client,peer,'PDF impossible : '+e.message)}
+    try{await sendTelegramMedia(client,peer,simplePdf(argText),{fileName:'nexai-text.pdf',caption:'NexAi · PDF',mimeType:'application/pdf',kind:'document',afterSend:mediaCta})}catch(e){await sendText(client,peer,'PDF impossible : '+e.message)}
     return true;
   }
   if(name==='toimage'){
@@ -987,7 +992,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const lines=argText.match(/.{1,44}(?:\s|$)/g)||[argText];
     const tspans=lines.slice(0,12).map((l,i)=>'<tspan x="60" dy="'+(i?54:0)+'">'+xmlEscape(l.trim())+'</tspan>').join('');
     const svg='<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080"><rect width="1080" height="1080" rx="64" fill="#17130d"/><text x="60" y="130" fill="#ffe39a" font-family="sans-serif" font-size="42" font-weight="700">'+tspans+'</text><text x="60" y="1010" fill="#aa9162" font-family="sans-serif" font-size="24">NexAi · Nextech</text></svg>';
-    await sendTelegramMedia(client,peer,Buffer.from(svg),{fileName:'nexai-text.svg',caption:'NexAi · Image SVG',mimeType:'image/svg+xml',kind:'document'});return true;
+    await sendTelegramMedia(client,peer,Buffer.from(svg),{fileName:'nexai-text.svg',caption:'NexAi · Image SVG',mimeType:'image/svg+xml',kind:'document',afterSend:mediaCta});return true;
   }
   if(name==='crop'||name==='resize'){
     const reply=await repliedMessage(client,peer,event.message);
@@ -1001,7 +1006,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       }
       const mode=name==='crop'?'fit=cover&a=attention&':'fit=contain&';
       const u='https://images.weserv.nl/?url='+encodeURIComponent(src)+'&w='+width+'&h='+height+'&'+mode+'output=jpg';
-      await sendRemoteFile(client,peer,u,{caption:'NexAi · '+name,name:name+'.jpg'});
+      await sendRemoteFile(client,peer,u,{caption:'NexAi · '+name,name:name+'.jpg',afterSend:mediaCta});
     }catch(e){await sendText(client,peer,'Traitement image impossible : '+e.message)}
     return true;
   }
