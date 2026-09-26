@@ -21,6 +21,7 @@ const DATA_DIR = process.env.WA_PUBLISHER_DATA_DIR || '/var/lib/nex/data/interna
 const AUTH_DIR = path.join(DATA_DIR, 'wa-auth');
 const GROUP_JID = process.env.WHATSAPP_GROUP_JID || '120363426961054070@g.us';
 const CHANNEL_INVITE_URL = process.env.WHATSAPP_CHANNEL_INVITE_URL || 'https://whatsapp.com/channel/0029VbCKhnq7j6gEhuUKMP1V';
+const OTAKU_CHANNEL_INVITE_URL = process.env.OTAKU_WHATSAPP_CHANNEL_INVITE_URL || 'https://whatsapp.com/channel/0029VbCKhnq7j6gEhuUKMP1V';
 const PRESENTATION_NEWSLETTER_JID = process.env.PRESENTATION_NEWSLETTER_JID || '120363411005383995@newsletter';
 const WEBHOOK_TOKEN = process.env.NEX_WHATSAPP_PUBLISHER_TOKEN || process.env.NEXCANAL__WEBHOOK_SECRET || '';
 const DASHBOARD_PASSWORD = process.env.NEX_WHATSAPP_DASHBOARD_PASSWORD || '';
@@ -40,6 +41,8 @@ const state = {
   qr: null,
   channelJid: null,
   channelTitle: null,
+  otakuChannelJid: null,
+  otakuChannelTitle: null,
   lastPublishAt: null,
 };
 let socket = null;
@@ -225,17 +228,44 @@ function addHistory(entry){ const h=readJson('history.json',[]); h.unshift({at:n
 function enqueue(destination,jid,pub){ const q=readJson('queue.json',[]); q.push({id:crypto.randomUUID(),destination,jid,pub,status:'pending',attempts:0,nextAttemptAt:Date.now(),createdAt:new Date().toISOString()}); writeJson('queue.json',q); }
 function dedupeSeen(pub){ const h=readJson('history.json',[]); return h.some(x=>x.type==='planned'&&x.publicationId===pub.id); }
 
-async function resolveChannel(){
+async function resolveNewsletter({inviteUrl,cacheFile,jidKey,titleKey}){
   if(!socket||state.status!=='connected') return null;
-  const persisted=readJson('channel.json',{});
-  if(persisted?.jid?.endsWith('@newsletter')){ state.channelJid=persisted.jid; state.channelTitle=persisted.title||null; return persisted.jid; }
-  const code=inviteCode(CHANNEL_INVITE_URL); if(!code) return null;
+  const expectedInvite=String(inviteUrl||'').trim();
+  const persisted=readJson(cacheFile,{});
+  if(
+    persisted?.jid?.endsWith('@newsletter') &&
+    String(persisted?.invite||'').trim()===expectedInvite
+  ){
+    state[jidKey]=persisted.jid;
+    state[titleKey]=persisted.title||null;
+    return persisted.jid;
+  }
+  const code=inviteCode(expectedInvite); if(!code) return null;
   const meta=await socket.newsletterMetadata('invite',code);
   const jid=String(meta?.id||meta?.jid||'');
   if(!jid.endsWith('@newsletter')) throw new Error('JID newsletter introuvable');
-  state.channelJid=jid; state.channelTitle=meta?.name||meta?.subject||null;
-  writeJson('channel.json',{jid,title:state.channelTitle,invite:CHANNEL_INVITE_URL,resolvedAt:new Date().toISOString()});
+  state[jidKey]=jid;
+  state[titleKey]=meta?.name||meta?.subject||null;
+  writeJson(cacheFile,{jid,title:state[titleKey],invite:expectedInvite,resolvedAt:new Date().toISOString()});
   return jid;
+}
+
+async function resolveChannel(){
+  return resolveNewsletter({
+    inviteUrl:CHANNEL_INVITE_URL,
+    cacheFile:'channel.json',
+    jidKey:'channelJid',
+    titleKey:'channelTitle',
+  });
+}
+
+async function resolveOtakuChannel(){
+  return resolveNewsletter({
+    inviteUrl:OTAKU_CHANNEL_INVITE_URL,
+    cacheFile:'otaku-channel.json',
+    jidKey:'otakuChannelJid',
+    titleKey:'otakuChannelTitle',
+  });
 }
 
 async function connectWhatsApp({freshPairing=false}={}){
@@ -301,6 +331,7 @@ async function connectWhatsApp({freshPairing=false}={}){
       state.lastError=null;
       state.qr=null;
       try{await resolveChannel();}catch(e){state.lastError=`channel: ${e?.message||e}`;}
+      try{await resolveOtakuChannel();}catch(e){state.lastError=`otaku-channel: ${e?.message||e}`;}
       processQueue().catch(()=>{});
     }
 
@@ -525,9 +556,10 @@ async function processQueue(){
       if(job.status!=='pending'||Number(job.nextAttemptAt||0)>Date.now()) continue;
       try{
         job.attempts=Number(job.attempts||0)+1;
-        if(job.destination==='channel'&&(!job.jid||job.jid==='__CHANNEL__')){
-          const resolved=await resolveChannel();
-          if(!resolved) throw new Error('Chaîne WhatsApp non résolue');
+        if(job.destination==='channel'&&(!job.jid||job.jid==='__CHANNEL__'||job.jid==='__OTAKU_CHANNEL__')){
+          const lifestyle=job.pub?.source==='tresor_universe'||job.jid==='__OTAKU_CHANNEL__';
+          const resolved=lifestyle?await resolveOtakuChannel():await resolveChannel();
+          if(!resolved) throw new Error(lifestyle?'Chaîne WhatsApp Otaku non résolue':'Chaîne WhatsApp non résolue');
           job.jid=resolved;
         }
         await sendPublication(job.jid,job.destination,job.pub);
@@ -553,7 +585,10 @@ function plan(raw){
   if(dedupeSeen(pub)) return {duplicate:true,pub,route:routePublication(pub)};
   const route=routePublication(pub);
   if(route.group) enqueue('group',GROUP_JID,pub);
-  if(route.channel) enqueue('channel',state.channelJid||'__CHANNEL__',pub);
+  if(route.channel){
+    const lifestyle=pub.source==='tresor_universe';
+    enqueue('channel',lifestyle?(state.otakuChannelJid||'__OTAKU_CHANNEL__'):(state.channelJid||'__CHANNEL__'),pub);
+  }
   addHistory({type:'planned',publicationId:pub.id,source:pub.source,route,textPreview:pub.text.slice(0,180)});
   processQueue().catch(()=>{});
   return {duplicate:false,pub,route};
@@ -578,12 +613,13 @@ const server=http.createServer(async(req,res)=>{
       const token=String(req.headers.authorization||'').replace(/^Bearer\s+/i,''); if(!WEBHOOK_TOKEN||!safeEq(token,WEBHOOK_TOKEN)) return json(res,401,{error:'unauthorized'});
       const q=await body(req); const out=plan(q); return json(res,202,{ok:true,duplicate:out.duplicate,route:out.route});
     }
-    if(req.method==='GET'&&url.pathname==='/api/status') return json(res,200,{whatsapp:{status:state.status,connectedAt:state.connectedAt,channelJid:state.channelJid,channelTitle:state.channelTitle,lastError:state.lastError,presentationNewsletterJid:PRESENTATION_NEWSLETTER_JID},history:[]});
+    if(req.method==='GET'&&url.pathname==='/api/status') return json(res,200,{whatsapp:{status:state.status,connectedAt:state.connectedAt,channelJid:state.channelJid,channelTitle:state.channelTitle,otakuChannelJid:state.otakuChannelJid,otakuChannelTitle:state.otakuChannelTitle,lastError:state.lastError,presentationNewsletterJid:PRESENTATION_NEWSLETTER_JID},history:[]});
     if(req.method==='POST'&&url.pathname==='/api/pair'){ const q=await body(req); return json(res,200,{ok:true,...await requestPairingCode(q.phone)}); }
     if(req.method==='POST'&&url.pathname==='/api/resolve-channel'){ const jid=await resolveChannel(); return json(res,200,{ok:true,jid,title:state.channelTitle}); }
+    if(req.method==='POST'&&url.pathname==='/api/resolve-otaku-channel'){ const jid=await resolveOtakuChannel(); return json(res,200,{ok:true,jid,title:state.otakuChannelTitle}); }
     if(!authed(req)) return json(res,401,{error:'unauthorized'});
     if(req.method==='POST'&&url.pathname==='/api/reset'){
-      await resetAuthForPairing(); state.channelJid=null;state.channelTitle=null;fs.rmSync(f('channel.json'),{force:true}); await connectWhatsApp(); return json(res,200,{ok:true});
+      await resetAuthForPairing(); state.channelJid=null;state.channelTitle=null;state.otakuChannelJid=null;state.otakuChannelTitle=null;fs.rmSync(f('channel.json'),{force:true});fs.rmSync(f('otaku-channel.json'),{force:true}); await connectWhatsApp(); return json(res,200,{ok:true});
     }
     return json(res,404,{error:'not_found'});
   }catch(e){ logger.error({err:e},'request failed'); return json(res,500,{error:String(e?.message||e)}); }
