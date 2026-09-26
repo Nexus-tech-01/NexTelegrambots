@@ -124,6 +124,25 @@ function creatorFormattingEntities(model){
   }).filter(Boolean);
 }
 
+function menuFormattingEntities(model,maxLength=4096){
+  return (model?.entities||[]).map(e=>{
+    if(e.offset+e.length>maxLength)return null;
+    if(e.type==='blockquote'){
+      return new Api.MessageEntityBlockquote({offset:e.offset,length:e.length,collapsed:false});
+    }
+    if(e.type==='expandable_blockquote'){
+      return new Api.MessageEntityBlockquote({offset:e.offset,length:e.length,collapsed:true});
+    }
+    if(e.type==='bot_command'){
+      return new Api.MessageEntityBotCommand({offset:e.offset,length:e.length});
+    }
+    if(e.type==='text_link'){
+      return new Api.MessageEntityTextUrl({offset:e.offset,length:e.length,url:e.url});
+    }
+    return null;
+  }).filter(Boolean);
+}
+
 async function sendCreator(runtime,peer){
   const {client,account}=runtime;
   const settings=await settingsFor(account.telegramUserId);
@@ -189,13 +208,22 @@ async function sendMenu(runtime,peer){
       try{
         return await client.sendFile(peer,{
           file:model.photoUrl,
-          caption:String(model.text||'NexAI').slice(0,1024)
+          caption:String(model.text||'NexAI').slice(0,1024),
+          formattingEntities:menuFormattingEntities(model,1024)
         });
       }catch(photoError){
         console.error('[NexAccount menu]',String(account.telegramUserId),'fallback-photo:failed',String(photoError?.message||photoError).slice(0,350));
       }
     }
-    return sendText(client,peer,String(model.text||'NexAI'));
+    const fallback=String(model.text||'NexAI').slice(0,4096);
+    try{
+      return await client.sendMessage(peer,{
+        message:fallback,
+        formattingEntities:menuFormattingEntities(model,4096)
+      });
+    }catch{
+      return sendBrandedText(client,peer,fallback);
+    }
   }
 }
 
