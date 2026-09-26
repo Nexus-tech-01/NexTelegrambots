@@ -437,7 +437,7 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
     const files=[
       {name:'title.txt',data:Buffer.from(title,'utf8')},
       {name:'author.txt',data:Buffer.from(author,'utf8')},
-      {name:'tray.png',data:tray}
+      {name:'cover.png',data:tray}
     ];
     stickers.slice(0,30).forEach((item,i)=>files.push({
       name:'sticker_'+String(i+1).padStart(2,'0')+'.webp',
