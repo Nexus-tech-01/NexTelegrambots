@@ -19,7 +19,7 @@ const NEXCANAL_HANDOFF_COLLECTION='nexanime_nexcanal_handoffs';
 const NEXCANAL_HANDOFF_TIMEOUT_MS=Math.max(15_000,Number(process.env.NEXANIME_NEXCANAL_HANDOFF_TIMEOUT_MS||120_000));
 const DISCOVERY_MS=Math.max(15*60*1000,Number(process.env.NEXANIME_DISCOVERY_MS||6*60*60*1000));
 const PUBLISH_MS=Math.max(5000,Number(process.env.NEXANIME_PUBLISH_MS||15000));
-const INTER_SERIES_MS=Math.max(60_000,Number(process.env.NEXANIME_INTER_SERIES_MS||15*60*1000));
+const INTER_SERIES_MS=Math.max(60_000,Number(process.env.NEXANIME_INTER_SERIES_MS||2*60*60*1000));
 const PUBLISHER_LEASE_GRACE_MS=Math.max(INTER_SERIES_MS+60_000,Number(process.env.NEXANIME_PUBLISHER_LEASE_GRACE_MS||INTER_SERIES_MS+5*60*1000));
 const POLL_MS=Math.max(30000,Number(process.env.NEXANIME_POLL_MS||60000));
 const STALE_PUBLISH_MS=Math.max(2*60*1000,Number(process.env.NEXANIME_STALE_PUBLISH_MS||10*60*1000));
@@ -1381,10 +1381,23 @@ async function chooseActiveSeries(d){
     });
     if(remaining>0)return current.activeSeriesKey;
 
-    const candidates=await queuedSeriesCandidates(d);
-    const next=candidates?.[0]?._id||'';
+    let next='';
+    const forcedNext=String(current?.forcedNextSeriesKey||'');
+    if(forcedNext){
+      const forcedExists=await d.collection('nexanime_queue').countDocuments({
+        seriesKey:forcedNext,status:'queued',kind:'episode'
+      });
+      if(forcedExists>0)next=forcedNext;
+    }
+    if(!next){
+      const candidates=await queuedSeriesCandidates(d);
+      next=candidates?.[0]?._id||'';
+    }
     if(next){
-      const cooldownUntil=new Date(Date.now()+INTER_SERIES_MS);
+      const skipCooldown=Boolean(
+        forcedNext&&next===forcedNext&&current?.skipCooldownForForcedNext===true
+      );
+      const cooldownUntil=skipCooldown?now:new Date(Date.now()+INTER_SERIES_MS);
       await scheduler.updateOne(
         {_id:'scheduler'},
         {$set:{
@@ -1393,7 +1406,10 @@ async function chooseActiveSeries(d){
           plannedSeriesKey:next,
           cooldownUntil,
           updatedAt:now
-        },$unset:{activeSeriesKey:'',activeSeriesStartedAt:''}},
+        },$unset:{
+          activeSeriesKey:'',activeSeriesStartedAt:'',
+          forcedNextSeriesKey:'',skipCooldownForForcedNext:''
+        }},
         {upsert:true}
       );
       await preparePlannedSeries(d,next);
@@ -1403,7 +1419,10 @@ async function chooseActiveSeries(d){
     await scheduler.updateOne(
       {_id:'scheduler'},
       {$set:{lastCompletedSeriesKey:current.activeSeriesKey,lastSeriesCompletedAt:now,updatedAt:now},
-       $unset:{activeSeriesKey:'',activeSeriesStartedAt:'',plannedSeriesKey:'',plannedAt:'',plannedSummary:'',cooldownUntil:''}},
+       $unset:{
+         activeSeriesKey:'',activeSeriesStartedAt:'',plannedSeriesKey:'',plannedAt:'',
+         plannedSummary:'',cooldownUntil:'',forcedNextSeriesKey:'',skipCooldownForForcedNext:''
+       }},
       {upsert:true}
     );
   }
@@ -1689,6 +1708,35 @@ async function claimNext(runtime){
   if(!nextEpisode)return null;
   const season=nextEpisode.season??1;
   const episode=nextEpisode.episode;
+
+  // Never jump over a missing integer episode inside a season. If episode N-1
+  // is absent, hold this series and let source discovery/backfill fill the gap.
+  // This prevents sequences such as 14 -> 16 or 1 -> 3 from reaching the channel.
+  if(Number.isInteger(Number(episode))&&Number(episode)>1){
+    const previousEpisode=Number(episode)-1;
+    const previousPublished=await d.collection('nexanime_publications').findOne({
+      seriesKey,kind:'episode',season,episode:previousEpisode,purgedAt:{$exists:false}
+    },{projection:{_id:1}});
+    if(!previousPublished){
+      await d.collection('nexanime_config').updateOne(
+        {_id:'scheduler'},
+        {$set:{
+          gapDetected:{
+            seriesKey,season,expectedEpisode:previousEpisode,blockedEpisode:Number(episode),
+            detectedAt:new Date()
+          },
+          updatedAt:new Date()
+        }},
+        {upsert:true}
+      );
+      return null;
+    }
+  }
+  await d.collection('nexanime_config').updateOne(
+    {_id:'scheduler'},
+    {$unset:{gapDetected:''},$set:{updatedAt:new Date()}},
+    {upsert:true}
+  ).catch(()=>{});
 
   if(await suppressAlreadyPublishedEpisode(d,seriesKey,season,episode)){
     return claimNext(runtime);
@@ -1979,24 +2027,43 @@ async function purgePublishedEpisodeImageCards(runtime){
       recoveredReason:'multi_source_validation'
     });
     if(repairPending>0){
-      resumedSeries=repairSeries;
       const repairNow=new Date();
-      await scheduler.updateOne(
-        {_id:'scheduler'},
-        {$set:{
-          activeSeriesKey:repairSeries,
-          activeSeriesStartedAt:repairNow,
-          repairResumeAt:repairNow,
-          repairResumeReason:'recovered_identity_mismatch',
-          updatedAt:repairNow
-        },$unset:{
-          plannedSeriesKey:'',
-          plannedAt:'',
-          plannedSummary:'',
-          cooldownUntil:''
-        }},
-        {upsert:true}
-      );
+      const activeKey=String(schedulerState?.activeSeriesKey||'');
+      const activeRemaining=activeKey?await queue.countDocuments({
+        seriesKey:activeKey,status:{$in:['queued','publishing']}
+      }):0;
+      if(activeKey&&activeKey!==repairSeries&&activeRemaining>0){
+        // Recovery work must never interrupt the series currently being
+        // published. Queue it behind the active series instead.
+        await scheduler.updateOne(
+          {_id:'scheduler'},
+          {$set:{
+            forcedNextSeriesKey:repairSeries,
+            repairQueuedAt:repairNow,
+            repairResumeReason:'recovered_identity_mismatch_queued',
+            updatedAt:repairNow
+          }},
+          {upsert:true}
+        );
+      }else{
+        resumedSeries=repairSeries;
+        await scheduler.updateOne(
+          {_id:'scheduler'},
+          {$set:{
+            activeSeriesKey:repairSeries,
+            activeSeriesStartedAt:repairNow,
+            repairResumeAt:repairNow,
+            repairResumeReason:'recovered_identity_mismatch',
+            updatedAt:repairNow
+          },$unset:{
+            plannedSeriesKey:'',
+            plannedAt:'',
+            plannedSummary:'',
+            cooldownUntil:''
+          }},
+          {upsert:true}
+        );
+      }
     }
   }
 
