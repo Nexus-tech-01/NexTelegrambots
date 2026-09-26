@@ -140,6 +140,12 @@ for(const pattern of forbiddenDownloaderRelayPatterns){
 }
 if(!downloadSource.includes('tdownv4.sl-bjs.workers.dev'))errors.push('tiktok-http-fallback-missing');
 if(!downloadSource.includes('/opt/nex/tools/yt-dlp-full/bin/yt-dlp'))errors.push('full-ytdlp-preferred-path-missing');
+if(!downloadSource.includes("http://127.0.0.1:9000/"))errors.push('private-cobalt-local-route-missing');
+for(const dead of ['https://api.cobalt.tools/','https://cobalt.drgns.space/','https://cobalt.api.timelessnesses.me/','https://savefrom.net/api/convert']){
+  if(downloadSource.includes(dead))errors.push('dead-social-provider-still-present:'+dead);
+}
+if(!downloadSource.includes("downloadMode:'audio'"))errors.push('private-cobalt-audio-fallback-missing');
+if(!downloadSource.includes("replace(/&amp;/gi,'&')"))errors.push('cobalt-url-normalization-missing');
 for(const marker of ['sendLocalSocial','SnapchatSpotlight','capcutMedia','detectDownloadService','COBALT_HTTP_HOSTS']){
   if(!downloadSource.includes(marker)&&marker!=='SnapchatSpotlight')errors.push('social-download-marker-missing:'+marker);
 }
