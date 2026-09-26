@@ -34,8 +34,8 @@ const HEALTH_FILE = path.resolve(
 );
 
 const POLL_MS = Math.max(
-  1000,
-  Math.min(30000, Number(process.env.NEXMETA_PAGE_POLL_MS || 1500))
+  500,
+  Math.min(30000, Number(process.env.NEXMETA_PAGE_POLL_MS || 800))
 );
 
 const MAX_ROWS = Math.max(
@@ -627,10 +627,16 @@ function replyText(data) {
     }
   }
 
-  return parts.join('\n\n').trim().slice(0, 7000);
+  return parts
+    .join('\n\n')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .trim()
+    .slice(0, 7000);
 }
 
-function splitMessage(text, max = 1800) {
+function splitMessage(text, max = 5000) {
   const value = String(text || '').trim();
 
   if (!value) return [];
@@ -680,11 +686,11 @@ async function openRow(tab, row) {
     row.y + row.height / 2
   );
 
-  for (let i = 0; i < 10; i += 1) {
-    await sleep(100);
+  for (let i = 0; i < 12; i += 1) {
+    await sleep(50);
     const current = await selectedConversationId(tab);
 
-    if (current && (current !== before || i >= 2)) {
+    if (current && (current !== before || i >= 1)) {
       return current;
     }
   }
@@ -721,7 +727,7 @@ async function sendMessage(tab, text) {
     let composer = await findComposer(tab);
 
     if (!composer) {
-      await sleep(700);
+      await sleep(250);
       composer = await findComposer(tab);
     }
 
@@ -730,10 +736,26 @@ async function sendMessage(tab, text) {
     }
 
     await composer.handle.focus();
-    await composer.handle.type(chunk, { delay: 1 });
-    await sleep(60);
+
+    const lines = String(chunk)
+      .replace(/\r\n?/g, '\n')
+      .split('\n');
+
+    for (let i = 0; i < lines.length; i += 1) {
+      if (lines[i]) {
+        await composer.handle.type(lines[i], { delay: 0 });
+      }
+
+      if (i < lines.length - 1) {
+        await tab.keyboard.down('Shift');
+        await composer.handle.press('Enter');
+        await tab.keyboard.up('Shift');
+      }
+    }
+
+    await sleep(20);
     await composer.handle.press('Enter');
-    await sleep(250);
+    await sleep(120);
   }
 }
 
