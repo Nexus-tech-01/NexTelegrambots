@@ -1,37 +1,51 @@
 import crypto from 'node:crypto';
+import { db } from './store.mjs';
 
-const rows=new Map();
-const MAX_ROWS=500;
 const TTL_MS=90_000;
+let indexReady=false;
 
-function sweep(){
-  const now=Date.now();
-  for(const [key,row] of rows){
-    if(row.expiresAt<=now)rows.delete(key);
+async function collection(){
+  const d=await db();
+  const c=d.collection('nexaccount_inline_responses');
+  if(!indexReady){
+    indexReady=true;
+    await Promise.all([
+      c.createIndex({expiresAt:1},{expireAfterSeconds:0}),
+      c.createIndex({createdAt:-1})
+    ]).catch(error=>{
+      indexReady=false;
+      throw error;
+    });
   }
-  if(rows.size<=MAX_ROWS)return;
-  const ordered=[...rows.entries()].sort((a,b)=>a[1].createdAt-b[1].createdAt);
-  for(const [key] of ordered.slice(0,rows.size-MAX_ROWS))rows.delete(key);
+  return c;
 }
 
-export function putInlineResponse(text,{ttlMs=TTL_MS}={}){
-  sweep();
-  const token=crypto.randomBytes(9).toString('base64url');
-  rows.set(token,{
+export async function putInlineResponse(text,{ttlMs=TTL_MS}={}){
+  const token=crypto.randomBytes(12).toString('base64url');
+  const now=new Date();
+  const ttl=Math.max(10_000,Math.min(300_000,Number(ttlMs)||TTL_MS));
+  const c=await collection();
+  await c.insertOne({
+    _id:token,
     text:String(text??'').slice(0,4096),
-    createdAt:Date.now(),
-    expiresAt:Date.now()+Math.max(10_000,Math.min(300_000,Number(ttlMs)||TTL_MS))
+    createdAt:now,
+    expiresAt:new Date(now.getTime()+ttl)
   });
   return token;
 }
 
-export function getInlineResponse(token){
-  sweep();
-  const row=rows.get(String(token||''));
-  if(!row||row.expiresAt<=Date.now())return null;
-  return row;
+export async function getInlineResponse(token){
+  const c=await collection();
+  const row=await c.findOne({
+    _id:String(token||''),
+    expiresAt:{$gt:new Date()}
+  });
+  if(!row)return null;
+  return {text:String(row.text||''),createdAt:row.createdAt,expiresAt:row.expiresAt};
 }
 
-export function deleteInlineResponse(token){
-  return rows.delete(String(token||''));
+export async function deleteInlineResponse(token){
+  const c=await collection();
+  const result=await c.deleteOne({_id:String(token||'')});
+  return result.deletedCount===1;
 }
