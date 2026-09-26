@@ -61,8 +61,10 @@ assert.ok(!runtimeSource.includes('Le menu inline est temporairement indisponibl
 assert.match(runtimeSource,/import \{ menuModel, stylesModel \} from '\.\/menu\.mjs';/,'runtime must import styles fallback model');
 assert.match(runtimeSource,/\[NexAccount styles\].*inline:failed/s,'style selector must log inline failures');
 assert.match(runtimeSource,/stylesModel\(\{account,settings\}\)/,'style selector must fall back to a direct styles model');
-assert.match(menuSource,/commandText\(visibleCommands,style,settings\.prefix\|\|'\.'\)/,'menu commands must use configured NexAccount prefix');
-assert.ok(!menuSource.includes("type:'bot_command'"),'NexAccount commands must not be emitted as Bot API slash-command entities');
+assert.match(menuSource,/const command=slashCommand\(line\.name\)/,'menu commands must display Telegram slash commands');
+assert.match(menuSource,/type:'bot_command'/,'menu slash commands must be emitted as clickable Telegram bot_command entities');
+assert.match(menuSource,/quoteRange=\{start:shift,length:ct\.text\.length\}/,'category commands must be inside the expandable section');
+assert.match(menuSource,/ownerToken/,'menu header must preserve the real Telegram username');
 assert.match(menuSource,/menu:styles/,'home menu must expose styles callback');
 assert.match(menuSource,/style:set:/,'styles must be selectable with callbacks');
 assert.match(menuSource,/menuImageStyle/,'custom artwork must be bound to a style');
