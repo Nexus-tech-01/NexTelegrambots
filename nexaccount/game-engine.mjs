@@ -76,10 +76,10 @@ function aiMove(board){
 export const GAME_ENGINE_COMMANDS=new Set(['riddle','quiz','tictactoe']);
 export function canHandleGameCommand(name){return GAME_ENGINE_COMMANDS.has(String(name||'').toLowerCase())}
 
-export async function handleGameCommand({runtime,event,name,args=[]}){
+export async function handleGameCommand({runtime,event,name,args=[],reply=null}){
   const {client,account}=runtime,peer=event.message.peerId;
   const k=key(account,event),input=args.join(' ').trim();
-  const say=t=>client.sendMessage(peer,{message:String(t)});
+  const say=t=>typeof reply==='function'?reply(String(t)):client.sendMessage(peer,{message:String(t)});
 
   if(name==='riddle'){
     const state=getState(k);
