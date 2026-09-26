@@ -87,7 +87,13 @@ async function cascade(label,attempts){
       errors.push(name+': empty');
     }catch(e){errors.push(name+': '+String(e.message||e))}
   }
-  throw new Error(label+' indisponible · '+errors.slice(-4).join(' | '));
+  // Provider diagnostics belong in server logs, not in Telegram chats.
+  // Exposing raw HTTP codes/hosts made transient upstream failures look like
+  // bot commands firing by themselves and leaked implementation details.
+  if(errors.length)console.warn('[NexAi fallback]',label,errors.slice(-6).join(' | '));
+  const error=new Error(label+' indisponible pour le moment');
+  error.details=errors;
+  throw error;
 }
 export async function responseBuffer(r,maxBytes,onProgress=null){
   const declared=Number(r.headers.get('content-length')||0);
@@ -164,15 +170,15 @@ async function youtubeAudio(input){
 
   const attempts=[];
   if(target?.url){
-    const u=encodeURIComponent(target.url);
     attempts.push(
-      ['EliteProTech',async()=>{
-        const d=await json('https://eliteprotech-apis.zone.id/ytdown?url='+u+'&format=mp3');
-        return d?.success&&d?.downloadURL?{url:d.downloadURL,title:d.title||target.title}:null;
-      }],
-      ['Okatsu',async()=>{
-        const d=await json('https://okatsu-rolezapiiz.vercel.app/downloader/ytmp3?url='+u);
-        return d?.dl?{url:d.dl,title:d.title||target.title}:null;
+      ['Cobalt local',async()=>{
+        const d=await postJson('http://127.0.0.1:9000/',{
+          url:target.url,
+          downloadMode:'audio',
+          audioFormat:'mp3'
+        });
+        const v=cobaltUrl(d);
+        return v?{url:v,title:target.title}:null;
       }]
     );
   }
@@ -181,15 +187,16 @@ async function youtubeAudio(input){
 }
 async function youtubeVideo(input){
   const target=await resolveYoutube(input);
-  const u=encodeURIComponent(target.url);
   const result=await cascade('vidéo YouTube',[
-    ['EliteProTech',async()=>{
-      const d=await json('https://eliteprotech-apis.zone.id/ytdown?url='+u+'&format=mp4');
-      return d?.success&&d?.downloadURL?{url:d.downloadURL,title:d.title||target.title}:null;
-    }],
-    ['Okatsu',async()=>{
-      const d=await json('https://okatsu-rolezapiiz.vercel.app/downloader/ytmp4?url='+u);
-      return d?.result?.mp4?{url:d.result.mp4,title:d.result.title||target.title}:null;
+    ['Cobalt local',async()=>{
+      const d=await postJson('http://127.0.0.1:9000/',{
+        url:target.url,
+        downloadMode:'auto',
+        videoQuality:'max',
+        allowH265:false
+      });
+      const v=cobaltUrl(d);
+      return v?{url:v,title:target.title}:null;
     }]
   ]);
   return {...result,target};
