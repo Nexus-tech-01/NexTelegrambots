@@ -134,6 +134,25 @@ for(let style=1;style<=31;style++){
   assert.ok(!/\bpage\s+\d+/i.test(modelA.text),'style '+style+' must not paginate categories');
 }
 
+const headerSignatures=new Set();
+for(let style=1;style<=31;style++){
+  const model=await menuModel({
+    account:{telegramUserId:'770000',username:'header_probe',firstName:'Header',premium:true},
+    settings:{style,prefix:'§',language:'fr',botDisplayName:'NexAi'},
+    commands:registry,
+    includeArtwork:false
+  });
+  const lines=model.text.split('\n');
+  assert.ok(lines.length>=5&&lines.length<=7,'style '+style+' header must stay compact');
+  assert.ok(model.text.length<=420,'style '+style+' header is too verbose for Telegram');
+  assert.ok(model.text.includes('@header_probe'),'style '+style+' header must use the active session identity');
+  assert.ok(model.text.includes('§'),'style '+style+' header must use the active session prefix');
+  assert.ok(model.entities.some(x=>x.type==='blockquote'&&x.offset===0),'style '+style+' home header must be a real Telegram quote');
+  headerSignatures.add(model.text);
+}
+assert.equal(headerSignatures.size,31,'all 31 styles must keep visually distinct headers');
+assert.doesNotMatch(menuSource,/tresor20009/i,'menu UI must never hardcode a specific Telegram session username');
+assert.doesNotMatch(themeSource,/tresor20009/i,'theme UI must never hardcode a specific Telegram session username');
 
 assert.match(styleSource,/INLINE_PHOTO_MAX_BYTES=5\*1024\*1024/,'inline photo size guard missing');
 assert.match(styleSource,/image\/jpeg/,'inline artwork must validate JPEG content');
