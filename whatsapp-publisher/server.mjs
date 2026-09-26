@@ -120,10 +120,15 @@ function normalize(input={}){
     fileName:String(input.media.fileName||input.media.filename||''),
     mimetype:String(input.media.mimetype||'')
   }:null;
+  const source=String(input.source||'manual');
+  const sourceMessageId=input.sourceMessageId||null;
+  const deterministicId=sourceMessageId!=null
+    ? crypto.createHash('sha256').update(source+':'+String(sourceMessageId)).digest('hex').slice(0,32)
+    : crypto.randomUUID();
   return {
-    id:input.id||crypto.randomUUID(),
-    source:String(input.source||'manual'),
-    sourceMessageId:input.sourceMessageId||null,
+    id:input.id||deterministicId,
+    source,
+    sourceMessageId,
     text:String(input.text||input.caption||'').trim(),
     media:m,
     buttons,
@@ -164,6 +169,12 @@ async function send(jid,pub){
 let queueRunning=false;
 function enqueue(publication,destination,jid){
   const q=readJson(QUEUE,[]);
+  const existing=q.find(x=>
+    String(x?.publication?.id||'')===String(publication?.id||'') &&
+    String(x?.destination||'')===String(destination||'') &&
+    ['pending','done'].includes(String(x?.status||''))
+  );
+  if(existing)return {...existing,deduplicated:true};
   const item={
     id:crypto.randomUUID(),
     status:'pending',
