@@ -8,6 +8,7 @@ import { cfg } from './config.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { patchSettings, settingsFor } from './store.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
+import { renderTgsToAnimatedWebp } from './lottie-renderer.mjs';
 
 const FFMPEG=String(process.env.FFMPEG_PATH||'ffmpeg');
 const MAX_SOURCE_BYTES=Math.max(1024*1024,Number(process.env.NEXAI_STICKER_MAX_SOURCE_BYTES||25*1024*1024));
@@ -188,7 +189,8 @@ async function startProgress(client,peer,text){
 async function whatsappStickerWebp(source){
   const mime=String(source?.mime||'').toLowerCase();
   if(mime.includes('tgsticker')||mime.includes('x-tgsticker')){
-    throw new Error('sticker TGS ignoré : conversion Lottie indisponible');
+    const buffer=await renderTgsToAnimatedWebp(source.buffer,{size:512,targetFps:15,maxSeconds:6});
+    return {buffer,animated:true};
   }
   const animated=mime.includes('webm')||mime.startsWith('video/');
   const input=tmp(mime.includes('webm')?'webm':animated?'mp4':mime.includes('png')?'png':mime.includes('webp')?'webp':'jpg');
