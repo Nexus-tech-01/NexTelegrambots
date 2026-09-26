@@ -96,13 +96,14 @@ async function connectBrowser() {
   });
 }
 
-async function facebookPage(browser) {
-  const pages = await browser.pages();
-  return (
-    pages.find(page => /(?:facebook|messenger)\.com/i.test(page.url())) ||
-    pages[0] ||
-    null
-  );
+async function createWorkerPage(browser) {
+  const page = await browser.newPage();
+
+  await page.setExtraHTTPHeaders({
+    'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.7'
+  }).catch(() => {});
+
+  return page;
 }
 
 async function loggedIn(page) {
@@ -591,15 +592,52 @@ async function main() {
   });
 
   let browser = null;
+  let page = null;
+  let stopping = false;
 
-  for (;;) {
+  const closeWorkerResources = async () => {
+    try {
+      if (page && !page.isClosed()) {
+        await page.close();
+      }
+    } catch {}
+
+    try {
+      if (browser?.connected) {
+        await browser.disconnect();
+      }
+    } catch {}
+
+    page = null;
+    browser = null;
+  };
+
+  const shutdown = async signal => {
+    if (stopping) return;
+    stopping = true;
+    console.log('[NexMeta Personal] shutting down', { signal });
+    await closeWorkerResources();
+  };
+
+  process.once('SIGTERM', () => {
+    shutdown('SIGTERM')
+      .finally(() => process.exit(0));
+  });
+
+  process.once('SIGINT', () => {
+    shutdown('SIGINT')
+      .finally(() => process.exit(0));
+  });
+
+  while (!stopping) {
     try {
       if (!browser?.connected) {
         browser = await connectBrowser();
       }
 
-      const page = await facebookPage(browser);
-      if (!page) throw new Error('facebook_page_missing');
+      if (!page || page.isClosed()) {
+        page = await createWorkerPage(browser);
+      }
 
       if (!await loggedIn(page)) {
         console.log('[NexMeta Personal] waiting for Facebook login');
@@ -615,14 +653,12 @@ async function main() {
         String(error?.message || error)
       );
 
-      try {
-        await browser?.disconnect();
-      } catch {}
-
-      browser = null;
+      await closeWorkerResources();
     }
 
-    await sleep(POLL_MS);
+    if (!stopping) {
+      await sleep(POLL_MS);
+    }
   }
 }
 
