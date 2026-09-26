@@ -25,6 +25,13 @@ const BUTTON_LABELS={
   PREMIUM:'PREMIUM',
   OWNER:'OWNER'
 };
+const STYLE_BUTTON_LABELS={
+  1:'DARK',2:'NARUTO',3:'SHADOW',4:'HACKER',5:'MANHWA',6:'AI',7:'RUBY',8:'GOJO',
+  9:'OREKI',10:'MARIN',11:'JIN-WOO',12:'MADARA',13:'AIZEN',14:'LELOUCH',15:'EREN',
+  16:'ITACHI',17:'YHWACH',18:'BUSINESS',19:'MERCHANT',20:'PURGE',21:'MIO',22:'NAZUNA',
+  23:'WAGURI',24:'ALYA',25:'ANNA',26:'HOSHINA',27:'BACHIRA',28:'RIN',29:'POWER',
+  30:'SHINOBU',31:'BENIMARU'
+};
 const STYLE_EMOJI_FALLBACK={
   1:'🕯',2:'🍃',6:'⭐',7:'🌸',8:'👁',10:'🎀',11:'🗡',12:'👁',13:'🪷',
   14:'👁',15:'⚔',16:'👁',17:'👑',19:'🌒',20:'☄',21:'🌙',22:'🦇',
@@ -216,7 +223,8 @@ export async function stylesModel({account,settings}){
   for(let i=0;i<styles.length;i+=2){
     keyboard.push(styles.slice(i,i+2).map(s=>{
       const active=Number(settings.style)===s.id;
-      return button((active?'✓ ':'')+String(s.id)+' · '+toSmallCaps(s.name),'style:set:'+s.id,active?'success':'primary','style');
+      const short=STYLE_BUTTON_LABELS[s.id]||s.name;
+      return button((active?'✓ ':'')+String(s.id).padStart(2,'0')+' · '+toSmallCaps(short),'style:set:'+s.id,active?'success':'primary','style');
     }));
   }
   keyboard.push([button((emojiId('back')?'':'↩ ')+toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back')]);
