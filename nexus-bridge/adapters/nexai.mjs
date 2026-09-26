@@ -264,6 +264,67 @@ function productFromText(text) {
   ) || null;
 }
 
+function socialReply(text, language) {
+  const raw = clean(text)
+    .toLowerCase()
+    .replace(/[’]/g, "'")
+    .replace(/[!?.,;:]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!raw) return '';
+
+  if (language === 'fr') {
+    const howAreYou =
+      /^(?:(?:ok|d'accord|daccord|dac)\s+)?(?:(?:sinon|non genre)\s+)?(?:(?:est ce que|es ce que)\s+)?(?:cv|ca va|ça va|sa va|tu vas bien|vous allez bien|comment tu vas|comment allez vous)$/i;
+    if (howAreYou.test(raw)) {
+      return /vous|allez vous/.test(raw)
+        ? 'Oui, ça va bien 😄 Et vous ?'
+        : 'Oui, ça va bien 😄 Et toi ?';
+    }
+
+    if (/^(?:salut|slt|coucou|cc|hey|hello|yo|wesh|wsh|bonjour|bonsoir)$/i.test(raw)) {
+      return /bonjour|bonsoir/.test(raw)
+        ? 'Salut 😄 Ça va ?'
+        : 'Hey 😄 Ça va ?';
+    }
+
+    if (/^(?:merci|mercii+|merci beaucoup|thx|thanks)$/i.test(raw)) {
+      return 'Avec plaisir 😄';
+    }
+
+    if (/^(?:ok|okay|d'accord|daccord|dac|ça marche|ca marche)$/i.test(raw)) {
+      return 'Ça marche 👌';
+    }
+
+    if (/^(?:mdr+|lol+|ptdr+)$/i.test(raw)) {
+      return '😂';
+    }
+  } else {
+    if (/^(?:(?:ok|okay)\s+)?(?:(?:so|anyway)\s+)?(?:how are you|you good|u good|wyd how are you)$/i.test(raw)) {
+      return "I'm good 😄 How about you?";
+    }
+
+    if (/^(?:hi|hey|hello|yo|sup)$/i.test(raw)) {
+      return 'Hey 😄 How are you?';
+    }
+
+    if (/^(?:thanks|thank you|thx)$/i.test(raw)) {
+      return 'Anytime 😄';
+    }
+
+    if (/^(?:ok|okay|got it|cool)$/i.test(raw)) {
+      return 'Got it 👌';
+    }
+
+    if (/^(?:lol+|lmao+)$/i.test(raw)) {
+      return '😂';
+    }
+  }
+
+  return '';
+}
+
 const PLAN_INTENT_RE =
   /(?:premium|pro\b|plus\b|business|agency|payant|payante|prix|tarif|co[uû]t|combien|stars?|abonnement|subscription|pricing|price|paid|cost|plans?)/i;
 
@@ -350,6 +411,9 @@ function planSentence(product, language, { detailed = false } = {}) {
 function canonicalReply(text, language, context = {}) {
   const value = clean(text);
 
+  const social = socialReply(value, language);
+  if (social) return social;
+
   if (asksAboutNonPublic(value)) {
     return nonPublicReply(language);
   }
@@ -434,6 +498,7 @@ function systemPrompt(language) {
     catalogFr + salesFr + ' ' +
     'N’invente jamais de cofondateur, de membre d’équipe, de nom de personne, de date, de rôle, de prix, de disponibilité, de site officiel ou de service client. ' +
     'Réponds dans la langue de l’utilisateur, naturellement, clairement et une seule fois. Par défaut, fais court : 1 à 3 phrases. Sur Messenger, n’utilise aucun Markdown visible (**gras**, # titres, tableaux avec |, etc.), aucun titre inutile et aucune longue liste. Donne uniquement l’information demandée ; développe seulement si l’utilisateur demande plus de détails. ' +
+    'En conversation ordinaire, sois chaleureux, vivant, sociable et spontané. Comprends le français familier et les abréviations de chat (par exemple « cv » signifie « ça va » quand le contexte est clairement une discussion informelle). Adapte naturellement le tutoiement ou le vouvoiement au ton de la personne. Réagis d’abord à ce qu’elle vient de dire au lieu de réciter une formule de support. Ne ramène pas chaque échange aux bots, aux produits ou à « comment puis-je vous aider ». Si la personne bavarde, bavarde avec elle ; une touche légère d’humour ou un emoji est acceptable sans en abuser. Tu restes NexAI : ne prétends jamais être Stacy et ne copies pas son identité ni sa personnalité romantique. ' +
     'N’invente jamais d’actions qui n’ont pas réellement été exécutées.';
 
   const identityEn =
@@ -443,6 +508,7 @@ function systemPrompt(language) {
     catalogEn + salesEn + ' ' +
     'Never invent a cofounder, team member, person, date, role, price, availability, official website, or customer-support service. ' +
     'Reply naturally, clearly, in the user’s language, and only once. Keep the default reply short: 1 to 3 sentences. On Messenger, use no visible Markdown (**bold**, # headings, pipe tables, etc.), no unnecessary heading, and no long list. Give only what was asked; expand only when the user asks for more detail. ' +
+    'In ordinary conversation, be warm, lively, socially fluent, and spontaneous. Understand casual chat abbreviations, match the person’s level of formality, and respond to the social intent before sounding like customer support. Do not drag every exchange back to bots, products, or “how can I help”. If the person is just chatting, chat naturally; light humor or an occasional emoji is fine. You remain NexAI: never claim to be Stacy and do not copy her identity or romantic persona. ' +
     'Never claim an action happened unless it actually did.';
 
   const canonical = language === 'fr' ? identityFr : identityEn;
@@ -464,14 +530,14 @@ async function requestCompletion(messages) {
     body: JSON.stringify({
       model,
       messages,
-      temperature: Number(process.env.NEXAI_TEMPERATURE || 0.7),
+      temperature: Number(process.env.NEXAI_TEMPERATURE || 0.8),
       max_tokens: Math.max(
         96,
-        Math.min(600, Number(process.env.NEXAI_MAX_TOKENS || 320))
+        Math.min(450, Number(process.env.NEXAI_MAX_TOKENS || 240))
       )
     }),
     signal: AbortSignal.timeout(
-      Math.max(5000, Math.min(60000, Number(process.env.NEXAI_TIMEOUT_MS || 25000)))
+      Math.max(4000, Math.min(30000, Number(process.env.NEXAI_TIMEOUT_MS || 15000)))
     )
   });
 
