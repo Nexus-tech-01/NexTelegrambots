@@ -53,6 +53,7 @@ assert.match(inlineSource,/bot\.command\('menu'/,'/menu handler must exist');
 assert.match(inlineSource,/bot\.command\('help'/,'/help handler must exist');
 assert.match(inlineSource,/ctx\.callbackQuery\.inline_message_id\|\|ctx\.callbackQuery\.message/,'callbacks must support inline and direct bot messages');
 assert.match(inlineSource,/article-portable/,'inline fallback must preserve an interactive article result');
+assert.match(inlineSource,/function portableEntities/,'portable menu fallback must preserve clickable slash-command entities');
 assert.match(inlineSource,/action==='menu:styles'/,'styles menu callback must be handled');
 assert.match(inlineSource,/action\.startsWith\('style:set:'\)/,'style selection callback must be handled');
 assert.match(inlineSource,/patchSettings\(accountId,\{style:styleId\}\)/,'style callback must persist selection');
