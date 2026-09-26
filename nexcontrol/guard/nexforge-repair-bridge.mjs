@@ -81,7 +81,10 @@ async function hostRpc(name,payload){
 }
 async function createTaskDirect(args){
   const externalRef='nexguard:'+crypto.createHash('sha256').update(JSON.stringify({
-    project:args.project,title:args.title,origin:args.payload?.origin,signature:args.payload?.incidentSignature,kind:args.payload?.incidentKind
+    project:args.project,
+    origin:args.payload?.origin,
+    kind:args.payload?.incidentKind,
+    target:args.payload?.target||''
   })).digest('hex').slice(0,40);
   const result=await hostRpc('nxf_host_create_repair_task',{
     p_agent_id:HOST_AGENT_ID,
@@ -116,12 +119,20 @@ let stopping=false;
 process.on('SIGTERM',()=>stopping=true);
 process.on('SIGINT',()=>stopping=true);
 
+function stableTarget(row){
+  return String(row.target||row.evidence?.name||row.evidence?.service||row.evidence?.target||'').trim().slice(0,180);
+}
 function taskKey(source,row){
-  return String(row.incidentSignature||row.signature||row.id||crypto.createHash('sha1').update(JSON.stringify(row)).digest('hex'))+'|'+String(row.kind||'repair')+'|'+source;
+  const identity={
+    source:String(source||''),
+    kind:String(row.incidentKind||row.kind||'repair'),
+    target:stableTarget(row)
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(identity)).digest('hex').slice(0,32);
 }
 function taskTitle(source,row){
   const label=String(row.incidentKind||row.kind||'repair').replace(/[_-]+/g,' ').trim();
-  const target=String(row.target||row.evidence?.name||'').trim();
+  const target=stableTarget(row);
   return ('['+source+'] '+label+(target?' · '+target:'')).slice(0,180);
 }
 function taskDescription(source,row){
@@ -157,6 +168,7 @@ async function postRow(source,row){
       incidentSignature:String(row.incidentSignature||row.signature||''),
       incidentKind:String(row.incidentKind||row.kind||'repair'),
       sourceEventId:String(row.id||''),
+      target:stableTarget(row),
       createdAt:String(row.createdAt||row.detectedAt||nowIso())
     }
   };
