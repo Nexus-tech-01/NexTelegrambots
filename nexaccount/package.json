@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node daemon.mjs",
-    "check": "for f in *.mjs core/*.mjs scripts/*.mjs; do node --check \"$f\"; done && node scripts/validate-registry.mjs && node scripts/test-core-architecture.mjs && node scripts/audit-command-routing.mjs && node scripts/test-sharding.mjs && node scripts/test-group-commands.mjs && node scripts/test-anime-ingest.mjs && node scripts/test-menu-resilience.mjs && node scripts/test-critical-routes.mjs && node scripts/test-media-send.mjs && node scripts/test-wastickers.mjs"
+    "check": "for f in *.mjs core/*.mjs scripts/*.mjs; do node --check \"$f\"; done && node scripts/validate-registry.mjs && node scripts/test-core-architecture.mjs && node scripts/audit-command-routing.mjs && node scripts/test-sharding.mjs && node scripts/test-group-commands.mjs && node scripts/test-anime-ingest.mjs && node scripts/test-menu-resilience.mjs && node scripts/test-critical-routes.mjs && node scripts/test-media-send.mjs && node scripts/test-wastickers.mjs && node scripts/test-tgs-renderer.mjs"
   },
   "dependencies": {
     "grammy": "1.46.0",
