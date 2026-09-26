@@ -314,6 +314,69 @@ export const LEGACY_ALIASES={
   img:'toimage',pass:'genpass',math:'calc',screen:'ssweb',screenshot:'ssweb',
   pp:'getpp',profilepic:'getpp',url:'tourl',
   stickerpack:'mypacks',wapack:'exportwhatsapp',
+
+  // General/account shortcuts.
+  m:'menu',commands:'menu',cmds:'menu',h:'help',creatorinfo:'creator',
+  me:'account',profile:'account',connect:'pair',linkdevice:'pair',
+  prefs:'settings',preferences:'settings',mystats:'stats',setprefix:'prefix',
+  lang:'language',sessioninfo:'device',reactauto:'autoreact',replyauto:'autoreply',
+  botai:'aimode',typingmode:'autotyping',setbotname:'botname',setmenuimage:'menuimage',
+
+  // AI and download shortcuts.
+  ask:'ai',chat:'ai',coder:'code',ds:'deepseek',
+  music:'song',yta:'song',ytmusic:'song',audio:'song',
+  ytv:'video',ytvideo:'video',mp4:'video',vid:'video',get:'download',
+  igvideo:'instagram',instadl:'instagram',facebookdl:'facebook',
+  tik:'tiktok',tok:'tiktok',tiktokvideo:'tiktok',pindownload:'pinterest',
+  snapdlvideo:'snapchat',capcutvideo:'capcut',tweetvideo:'twitter',
+  redditvideo:'reddit',scdlmusic:'soundcloud',vimeodl:'vimeo',
+  mp3:'tomp3',toaudio:'tomp3',paroles:'lyrics',lyric:'lyrics',
+  identify:'shazam',identifyaudio:'shazam',app:'apk',appsearch:'apk',
+
+  // Group/admin shortcuts.
+  gname:'groupname',gstats:'groupstats',adminlist:'admins',mods:'admins',
+  makeadmin:'promote',admin:'promote',unadmin:'demote',remove:'kick',
+  strike:'warn',warns:'warnings',clearwarnings:'clearwarns',
+  invite:'grouplink',link:'grouplink',everyone:'tagall',all:'tagall',
+  htag:'hidetag',wtag:'mediatag',wc:'welcome',bye:'goodbye',
+  setwc:'setwelcome',setbye:'setgoodbye',accept:'approve',acceptall:'approveall',
+  pending:'approvepending',slow:'slowmode',lockchat:'mutechat',unlockchat:'unmutechat',
+  ruleset:'setrules',cmdset:'setcommand',announce:'broadcast',
+  groupconfig:'config',perms:'permissions',saveconfig:'backup',loadconfig:'restore',
+
+  // Protection shortcuts.
+  nolink:'antilink',nospam:'antispam',noraid:'antiraid',notag:'antitag',
+  nomention:'antigroupmention',nobadword:'antibadword',badwords:'blacklist',
+  allowwords:'whitelist',security:'risk',
+
+  // Tools/media shortcuts.
+  trans:'translate',voice:'tts',qrmake:'qr',shorturl:'tinyurl',
+  topdf:'texttopdf',image:'toimage',password:'genpass',flip:'fliptext',
+  calculator:'calc',sc:'smallcaps',browser:'browse',webshot:'ssweb',
+  desktopshot:'sswebpc',contacts:'vcf',mixemoji:'emojimix',
+  name:'getname',aboutuser:'getabout',photo:'getpp',
+  upload:'tourl',cut:'crop',scale:'resize',soundinfo:'analyzesound',viewonce:'vv',
+
+  // Fun/search shortcuts.
+  truthgame:'truth',daregame:'dare',funny:'joke',nice:'compliment',
+  puzzle:'riddle',questions:'quiz',xo:'tictactoe',
+  temp:'weather',dictionary:'define',movie:'imdb',phone:'gsmarena',
+
+  // Anime shortcuts.
+  ani:'animeinfo',infoanime:'animeinfo',animefind:'anisearch',
+  charinfo:'character',voiceactor:'seiyuu',calendar:'animecalendar',
+  nowairing:'airing',nextanime:'upcoming',bestanime:'topanime',bestmanga:'topmanga',
+  randanime:'randomanime',randmanga:'randommanga',recanime:'recommendanime',
+  animeyear:'animebyyear',animeseason:'animebyseason',ep:'episode',eps:'episodes',
+  animeed:'endingsearch',animesong:'anisong',animeost:'ost',
+  aniimage:'animeimage',aniwallpaper:'wallpaperanime',aniavatar:'avataranime',
+  anibanner:'banneranime',husband:'husbando',guessani:'guessanime',
+  guesschar:'guesscharacter',guessop:'guessopening',aniquiz:'animequiz',
+  listanime:'animelist',listmanga:'mangalist',plan:'planned',
+  animefav:'favoriteanime',charfav:'favoritechar',historyanime:'animehistory',
+  compareanime:'animecompare',comparechar:'charcompare',factsanime:'animefacts',
+  factschar:'characterfacts',anibirthday:'birthdayanime',charbirthday:'birthdaychar',
+  countdown:'animecountdown',
   animesearch:'anisearch',searchanime:'anisearch',
   mangasearch:'manga',searchmanga:'manga',mangainfo:'manga',
   scheduleanime:'animecalendar',trendanime:'trendinganime',similar:'recommendanime',
