@@ -209,8 +209,11 @@ async function tiktokMedia(client,peer,url){
     ]);
   }catch(apiError){
     const local=String(localError?.message||localError||'inconnu').replace(/\s+/g,' ').slice(-700);
-    const remote=String(apiError?.message||apiError).replace(/\s+/g,' ').slice(-1200);
-    throw new Error('TikTok indisponible · yt-dlp local: '+local+' | '+remote);
+    const blocked=/ip address is blocked|nil_core_data|unexpected response from webpage request/i.test(local);
+    if(blocked){
+      throw new Error("TikTok refuse l’accès à cette vidéo depuis le serveur. Aucun bot Telegram tiers n’est utilisé.");
+    }
+    throw new Error("TikTok indisponible actuellement. Aucun bot Telegram tiers n’est utilisé.");
   }
 }
 async function instagramMedia(url){
