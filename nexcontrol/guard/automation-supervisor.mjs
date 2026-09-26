@@ -382,6 +382,8 @@ async function auditAnime(){
     await emitIncident('anime_cross_series_concurrent_publish','critical',{series:publishingSeries,items:publishingRows.slice(0,50)},'Stop concurrent cross-series publishing, inspect the global publisher lease and scheduler ownership, then verify only one active series can claim items.');
   }
 
+  if(!state.animeEnforcementSince)state.animeEnforcementSince=nowIso();
+  const animeEnforcementSince=normalizeDate(state.animeEnforcementSince);
   const bySeries=new Map();
   for(const p of recentPublications){
     const key=String(p.seriesKey||'');
@@ -391,25 +393,38 @@ async function auditAnime(){
   }
   const synopsisViolations=[];
   const orderViolations=[];
+  const historicalSynopsisViolations=[];
+  const historicalOrderViolations=[];
   for(const [seriesKey,rows] of bySeries){
     const chronological=[...rows].sort((a,b)=>normalizeDate(a.publishedAt)-normalizeDate(b.publishedAt));
     const presentation=chronological.find(x=>x.kind==='presentation'&&(x.episode==null));
     const episodes=chronological.filter(x=>x.kind==='episode'&&x.episode!=null);
     if(episodes.length){
-      if(!presentation||normalizeDate(episodes[0].publishedAt)<normalizeDate(presentation.publishedAt)){
-        synopsisViolations.push({seriesKey,title:episodes[0]?.title||presentation?.title||'',firstEpisode:episodes[0]?.episode,episodeMessageId:episodes[0]?.telegramMessageId,presentationMessageId:presentation?.telegramMessageId||null});
+      const firstEpisode=episodes[0];
+      const firstEnforcedEpisode=episodes.find(x=>normalizeDate(x.publishedAt)>=animeEnforcementSince);
+      if(!presentation||normalizeDate(firstEpisode.publishedAt)<normalizeDate(presentation.publishedAt)){
+        const row={seriesKey,title:firstEpisode?.title||presentation?.title||'',firstEpisode:firstEpisode?.episode,episodeMessageId:firstEpisode?.telegramMessageId,presentationMessageId:presentation?.telegramMessageId||null};
+        if(firstEnforcedEpisode&&(!presentation||normalizeDate(firstEnforcedEpisode.publishedAt)<normalizeDate(presentation.publishedAt))){
+          synopsisViolations.push({...row,enforcedEpisodeMessageId:firstEnforcedEpisode.telegramMessageId});
+        }else{
+          historicalSynopsisViolations.push(row);
+        }
       }
       let prev=null;
       for(const ep of episodes){
         const cur={season:Number(ep.season??1),episode:Number(ep.episode)};
         if(prev&&(cur.season<prev.season||(cur.season===prev.season&&cur.episode<prev.episode))){
-          orderViolations.push({seriesKey,title:ep.title,previous:prev,current:cur,messageId:ep.telegramMessageId});
+          const row={seriesKey,title:ep.title,previous:prev,current:cur,messageId:ep.telegramMessageId};
+          if(normalizeDate(ep.publishedAt)>=animeEnforcementSince)orderViolations.push(row);
+          else historicalOrderViolations.push(row);
           break;
         }
         prev=cur;
       }
     }
   }
+  metric('anime.historicalSynopsisViolations',historicalSynopsisViolations.length);
+  metric('anime.historicalOrderViolations',historicalOrderViolations.length);
 
   if(synopsisViolations.length){
     await emitIncident('anime_synopsis_order_violation','critical',{violations:synopsisViolations.slice(0,30)},'For future items, keep the hard synopsis gate enabled. For affected history, verify the correct anime identity and repair channel ordering only with explicit, verified Telegram message operations.');
@@ -454,6 +469,9 @@ async function auditAnime(){
     synopsisViolations:synopsisViolations.length,
     orderViolations:orderViolations.length,
     suppressedQueuedDuplicates:suppressed,
+    historicalSynopsisViolations:historicalSynopsisViolations.length,
+    historicalOrderViolations:historicalOrderViolations.length,
+    enforcementSince:state.animeEnforcementSince,
     gapDetected:scheduler?.gapDetected||null,
     engineAudit
   };
