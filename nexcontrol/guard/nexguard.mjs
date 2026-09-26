@@ -182,7 +182,10 @@ async function registerIncident(t,result,entry){
 
 async function processTarget(t){
   const key=String(t.name||t.service||t.url||t.path||crypto.createHash('sha1').update(JSON.stringify(t)).digest('hex'));
-  const entry=state.targets[key]||{failures:0,successes:0,lastRepairAt:0,lastIncidentAt:0};
+  const entry=state.targets[key]||{failures:0,successes:0,lastRepairAt:0,lastIncidentAt:0,lastCheckedMs:0};
+  const targetIntervalMs=Math.max(settings.intervalMs,Number(t.intervalMs||settings.intervalMs));
+  if(Date.now()-Number(entry.lastCheckedMs||0)<targetIntervalMs)return;
+  entry.lastCheckedMs=Date.now();
   const result=await runCheck(t);
   entry.lastCheckedAt=nowIso();
   entry.lastResult=result;
