@@ -10,6 +10,7 @@ import { canHandleStickerCommand, handleStickerCommand } from './sticker-engine.
 import { canHandleAiCommand, handleAiCommand } from './ai-engine.mjs';
 import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
+import { createProgress } from './response-ui.mjs';
 
 const DL_MAP={
   cobalt:'facebook',facebook:'facebook',
@@ -396,6 +397,9 @@ async function doModeration(client,peer,message,name,args){
 }
 
 export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,sendInline}){
+  const progressFor=async label=>{
+    try{return await createProgress(runtime.client,event.message.peerId,label)}catch{return null}
+  };
   const {client,account}=runtime;
   const peer=event.message.peerId;
   const reply=text=>sendText(client,peer,String(text??''));
@@ -446,10 +450,16 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(name==='repo'){await sendText(client,peer,'Nextech : https://github.com/Nexus-tech-01');return true}
 
   if(name==='vv'){
+    const progress=await progressFor('Récupération du média');
     try{
+      if(progress)await progress.step('Média éphémère · récupération…');
       await recoverOwnViewOnce(client,peer,event.message,account,mediaCta);
       try{await client.deleteMessages(peer,[event.message.id],{revoke:true})}catch{}
-    }catch(e){await sendText(client,peer,'VV · '+String(e?.message||e))}
+      if(progress)await progress.done('Média récupéré');
+    }catch(e){
+      if(progress)await progress.fail('VV · '+String(e?.message||e).slice(0,180));
+      else await sendText(client,peer,'VV · '+String(e?.message||e));
+    }
     return true;
   }
 
@@ -963,14 +973,21 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
 
   if(name==='tourl'||name==='pixupload'){
-    const reply=await repliedMessage(client,peer,event.message);
-    if(!reply?.media){await sendText(client,peer,'Réponds à un média.');return true}
+    const source=await repliedMessage(client,peer,event.message);
+    if(!source?.media){await sendText(client,peer,'Réponds à un média.');return true}
+    const progress=await progressFor('Upload média');
     try{
-      const buffer=await client.downloadMedia(reply);
+      if(progress)await progress.step('Upload média · téléchargement Telegram…');
+      const buffer=await client.downloadMedia(source);
       if(!buffer)throw new Error('média vide');
+      if(progress)await progress.step('Upload média · envoi vers l’hébergeur…');
       const url=await uploadCatbox(Buffer.from(buffer),'nexai-'+Date.now()+'.bin');
       await sendText(client,peer,url);
-    }catch(e){await sendText(client,peer,'Upload impossible : '+e.message)}
+      if(progress)await progress.done('Upload média terminé');
+    }catch(e){
+      if(progress)await progress.fail('Upload impossible · '+String(e?.message||e).slice(0,180));
+      else await sendText(client,peer,'Upload impossible : '+e.message);
+    }
     return true;
   }
   if(name==='vcf'){
@@ -995,10 +1012,13 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     await sendTelegramMedia(client,peer,Buffer.from(svg),{fileName:'nexai-text.svg',caption:'NexAi · Image SVG',mimeType:'image/svg+xml',kind:'document',afterSend:mediaCta});return true;
   }
   if(name==='crop'||name==='resize'){
-    const reply=await repliedMessage(client,peer,event.message);
-    if(!reply?.media){await sendText(client,peer,'Réponds à une image avec .'+name+(name==='resize'?' 800x800':''));return true}
+    const source=await repliedMessage(client,peer,event.message);
+    if(!source?.media){await sendText(client,peer,'Réponds à une image avec .'+name+(name==='resize'?' 800x800':''));return true}
+    const progress=await progressFor(name==='crop'?'Recadrage image':'Redimensionnement image');
     try{
-      const buffer=await client.downloadMedia(reply);if(!buffer)throw new Error('média vide');
+      if(progress)await progress.step('Image · téléchargement Telegram…');
+      const buffer=await client.downloadMedia(source);if(!buffer)throw new Error('média vide');
+      if(progress)await progress.step('Image · préparation…');
       const src=await uploadCatbox(Buffer.from(buffer),'image.jpg');
       let width=800,height=800;
       if(name==='resize'){
@@ -1006,8 +1026,13 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       }
       const mode=name==='crop'?'fit=cover&a=attention&':'fit=contain&';
       const u='https://images.weserv.nl/?url='+encodeURIComponent(src)+'&w='+width+'&h='+height+'&'+mode+'output=jpg';
+      if(progress)await progress.step('Image · récupération du résultat…');
       await sendRemoteFile(client,peer,u,{caption:'NexAi · '+name,name:name+'.jpg',afterSend:mediaCta});
-    }catch(e){await sendText(client,peer,'Traitement image impossible : '+e.message)}
+      if(progress)await progress.done('Traitement image terminé');
+    }catch(e){
+      if(progress)await progress.fail('Traitement image impossible · '+String(e?.message||e).slice(0,180));
+      else await sendText(client,peer,'Traitement image impossible : '+e.message);
+    }
     return true;
   }
   if(name==='analyzesound'){
