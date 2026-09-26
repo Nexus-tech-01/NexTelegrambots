@@ -1,0 +1,7 @@
+[Unit]
+Description=NEX LiteAPK publication watchdog
+After=network-online.target nex-liteapks-watcher.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/node /opt/nex/current/watchers/liteapks-watchdog.mjs

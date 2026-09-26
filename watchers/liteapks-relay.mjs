@@ -654,6 +654,7 @@ async function run(session){
   };
   void runEngagement(true);
   let nextEngagementAt=Date.now()+engagementPollMs;
+  let nextHeartbeatAt=0;
 
   // Migrate the old LiteAPK cursor if this is the first v2 run.
   try{
@@ -680,6 +681,18 @@ async function run(session){
     try{
       await withTimeout(discover(c,st,sources),opTimeoutMs,'source discovery');
       kickWorkers(c,publisher,destination,st,sources);
+      if(Date.now()>=nextHeartbeatAt){
+        nextHeartbeatAt=Date.now()+60_000;
+        st.health={
+          lastCycleAt:Date.now(),
+          queueLength:Array.isArray(st.queue)?st.queue.length:0,
+          deadLetterLength:Array.isArray(st.deadLetter)?st.deadLetter.length:0,
+          processing:processing.size,
+          lastBatchAt:Number(publicationState(st).lastBatchAt||0),
+          nextPublicationAt:nextPublicationAt(st)
+        };
+        await save(st);
+      }
       if(Date.now()>=nextMediaCleanupAt){
         nextMediaCleanupAt=Date.now()+mediaTmpCleanupMs;
         await cleanupMediaTmp().catch(e=>warn('media tmp cleanup failed',e?.message||e));
