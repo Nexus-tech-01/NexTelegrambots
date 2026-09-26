@@ -158,32 +158,50 @@ async function youtubeVideo(input){
 }
 async function tiktokMedia(client,peer,url){
   if(!/tiktok\.com\//i.test(url))throw new Error('lien TikTok invalide');
-  return cascade('TikTok',[
-    ['Siputzx',async()=>{
-      const d=await json('https://api.siputzx.my.id/api/d/tiktok?url='+encodeURIComponent(url));
-      const v=d?.data?.urls?.[0]||d?.data?.video_url||d?.data?.url||d?.data?.download_url;
-      if(!isHttp(v))return null;
-      const title=d?.data?.metadata?.title||'TikTok';
-      await sendRemote(client,peer,v,{caption:'NexAi · Download\n'+title+'\nSource : Siputzx',fileName:'tiktok.mp4'});
-      return {sent:true,title};
-    }],
-    ['TikWM',async()=>{
-      const r=await postForm('https://www.tikwm.com/api/',{url,hd:'1'});
-      const d=await r.json();
-      const v=d?.data?.hdplay||d?.data?.play;
-      if(!isHttp(v))return null;
-      const title=d?.data?.title||'TikTok';
-      await sendRemote(client,peer,v,{caption:'NexAi · Download\n'+title+'\nSource : TikWM',fileName:'tiktok.mp4'});
-      return {sent:true,title};
-    }],
-    ['Cobalt',async()=>{
-      const d=await postJson('https://api.cobalt.tools/',{url,downloadMode:'auto',videoQuality:'max',allowH265:false});
-      const v=cobaltUrl(d);
-      if(!v)return null;
-      await sendRemote(client,peer,v,{caption:'NexAi · Download\nTikTok\nSource : Cobalt',fileName:'tiktok.mp4'});
-      return {sent:true,title:'TikTok'};
-    }]
-  ]);
+
+  // Prefer the local downloader. Public APIs frequently rate-limit/block server
+  // traffic (403/503), so they are fallbacks rather than the only path.
+  let localError=null;
+  try{
+    await sendLocalTikTok(client,peer,url);
+    return {sent:true,title:'TikTok',source:'yt-dlp local'};
+  }catch(error){
+    localError=error;
+    console.warn('[NexAi download TikTok local]',String(error?.message||error).slice(0,700));
+  }
+
+  try{
+    return await cascade('TikTok',[
+      ['Siputzx',async()=>{
+        const d=await json('https://api.siputzx.my.id/api/d/tiktok?url='+encodeURIComponent(url));
+        const v=d?.data?.urls?.[0]||d?.data?.video_url||d?.data?.url||d?.data?.download_url;
+        if(!isHttp(v))return null;
+        const title=d?.data?.metadata?.title||'TikTok';
+        await sendRemote(client,peer,v,{caption:'NexAi · Download\n'+title+'\nSource : Siputzx',fileName:'tiktok.mp4'});
+        return {sent:true,title};
+      }],
+      ['TikWM',async()=>{
+        const r=await postForm('https://www.tikwm.com/api/',{url,hd:'1'});
+        const d=await r.json();
+        const v=d?.data?.hdplay||d?.data?.play;
+        if(!isHttp(v))return null;
+        const title=d?.data?.title||'TikTok';
+        await sendRemote(client,peer,v,{caption:'NexAi · Download\n'+title+'\nSource : TikWM',fileName:'tiktok.mp4'});
+        return {sent:true,title};
+      }],
+      ['Cobalt',async()=>{
+        const d=await postJson('https://api.cobalt.tools/',{url,downloadMode:'auto',videoQuality:'max',allowH265:false});
+        const v=cobaltUrl(d);
+        if(!v)return null;
+        await sendRemote(client,peer,v,{caption:'NexAi · Download\nTikTok\nSource : Cobalt',fileName:'tiktok.mp4'});
+        return {sent:true,title:'TikTok'};
+      }]
+    ]);
+  }catch(apiError){
+    const local=String(localError?.message||localError||'inconnu').replace(/\s+/g,' ').slice(-700);
+    const remote=String(apiError?.message||apiError).replace(/\s+/g,' ').slice(-1200);
+    throw new Error('TikTok indisponible · yt-dlp local: '+local+' | '+remote);
+  }
 }
 async function instagramMedia(url){
   if(!/instagram\.com\//i.test(url)&&!/instagr\.am\//i.test(url))throw new Error('lien Instagram invalide');
@@ -286,6 +304,61 @@ function runYtDlp(args,timeout=180000){
       resolve({stdout:String(stdout||''),stderr:String(stderr||'')});
     });
   });
+}
+
+async function localTikTokFile(url){
+  if(!fs.existsSync(YTDLP))throw new Error('yt-dlp local absent');
+  if(!/tiktok\.com\//i.test(clean(url)))throw new Error('lien TikTok invalide');
+
+  const base='nexai-tiktok-'+process.pid+'-'+Date.now()+'-'+crypto.randomBytes(4).toString('hex');
+  const template=path.join(os.tmpdir(),base+'-%(id)s.%(ext)s');
+  const common=[
+    '--no-playlist','--no-progress','--quiet','--no-warnings',
+    '--restrict-filenames','--max-filesize',String(MAX_MEDIA_BYTES),
+    '--print','after_move:filepath','-o',template
+  ];
+  const variants=[
+    [...common,'--impersonate','chrome','-f','bv*+ba/b','--merge-output-format','mp4',url],
+    [...common,'-f','bv*+ba/b','--merge-output-format','mp4',url]
+  ];
+
+  let file='',lastError=null;
+  try{
+    for(const args of variants){
+      try{
+        const out=await runYtDlp(args);
+        const lines=out.stdout.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+        file=lines[lines.length-1]||'';
+        if(file&&fs.existsSync(file))break;
+        lastError=new Error('yt-dlp n’a produit aucun fichier');
+      }catch(error){
+        lastError=error;
+      }
+    }
+    if(!file||!fs.existsSync(file))throw lastError||new Error('yt-dlp n’a produit aucun fichier');
+    const buffer=fs.readFileSync(file);
+    if(!buffer.length)throw new Error('yt-dlp a produit un média vide');
+    if(buffer.length>MAX_MEDIA_BYTES)throw new Error('fichier trop volumineux ('+Math.round(buffer.length/1024/1024)+' Mo)');
+    return {buffer,fileName:'tiktok.mp4',mimeType:'video/mp4'};
+  }finally{
+    if(file)try{fs.unlinkSync(file)}catch{}
+    try{
+      for(const name of fs.readdirSync(os.tmpdir())){
+        if(name.startsWith(base+'-'))try{fs.unlinkSync(path.join(os.tmpdir(),name))}catch{}
+      }
+    }catch{}
+  }
+}
+
+async function sendLocalTikTok(client,peer,url){
+  const media=await localTikTokFile(url);
+  await sendTelegramMedia(client,peer,media.buffer,{
+    fileName:media.fileName,
+    caption:'NexAi · Download\nTikTok\nSource : yt-dlp local',
+    mimeType:media.mimeType,
+    kind:'video'
+  });
+  return true;
 }
 
 async function localYoutubeFile(input,mode='audio'){
