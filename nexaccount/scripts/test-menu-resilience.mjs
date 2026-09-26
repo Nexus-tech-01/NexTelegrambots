@@ -48,6 +48,7 @@ const inlineSource=fs.readFileSync(path.join(ROOT,'inline-bot.mjs'),'utf8');
 const runtimeSource=fs.readFileSync(path.join(ROOT,'runtime.mjs'),'utf8');
 const menuSource=fs.readFileSync(path.join(ROOT,'menu.mjs'),'utf8');
 const styleSource=fs.readFileSync(path.join(ROOT,'styles.mjs'),'utf8');
+const generatedStyles=JSON.parse(fs.readFileSync(path.join(ROOT,'generated','dipper-styles.json'),'utf8'));
 
 assert.match(inlineSource,/bot\.command\('menu'/,'/menu handler must exist');
 assert.match(inlineSource,/bot\.command\('help'/,'/help handler must exist');
@@ -71,6 +72,10 @@ assert.match(menuSource,/style:set:/,'styles must be selectable with callbacks')
 assert.match(menuSource,/menuImageStyle/,'custom artwork must be bound to a style');
 assert.match(menuSource,/Number\(settings\?\.menuImageStyle\|\|0\)===Number\(styleId\)/,'style binding guard missing');
 assert.match(menuSource,/resolveInlinePhoto/,'custom artwork must be validated before inline use');
+assert.ok(Object.keys(generatedStyles.themes||{}).length>=31,'all 31 public Dipper styles must be bundled');
+assert.equal(Number(generatedStyles.themes?.['20']?.id),20,'style20 must be present in the bundled catalog');
+assert.match(styleSource,/for\(let start=0;start<urls\.length;start\+=4\)/,'artwork resolver must scan beyond the first broken URL batch');
+assert.match(styleSource,/Telegram can still fetch the public JPEG/,'direct JPEG Telegram fallback missing');
 assert.equal(new Set(CATEGORY_ORDER).size,CATEGORY_ORDER.length,'menu categories must not be duplicated');
 assert.match(styleSource,/INLINE_PHOTO_MAX_BYTES=5\*1024\*1024/,'inline photo size guard missing');
 assert.match(styleSource,/image\/jpeg/,'inline artwork must validate JPEG content');
