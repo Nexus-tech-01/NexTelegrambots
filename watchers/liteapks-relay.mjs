@@ -12,6 +12,8 @@ const apiHash=(process.env.NEXCANAL__WATCHER_API_HASH||process.env.NEXGROUP__TEL
 const sessionFile=process.env.NEXCANAL__WATCHER_SESSION_FILE||'/home/container/.nexcontrol/nexcanal-reader-session.txt';
 const stateFile=process.env.NEXCANAL__WATCHER_STATE_FILE||'/home/container/.nexcontrol/nexcanal-watch-state-v2.json';
 const mediaTmpDir=process.env.NEXCANAL__WATCHER_MEDIA_TMP||'/home/container/.nexcontrol/nexcanal-media';
+const mediaTmpRetentionMs=Math.max(60*60*1000,Number(process.env.NEXCANAL__WATCHER_MEDIA_RETENTION_MS||24*60*60*1000));
+const mediaTmpCleanupMs=Math.max(60*1000,Number(process.env.NEXCANAL__WATCHER_MEDIA_CLEANUP_MS||15*60*1000));
 const watcherIdentityFile=process.env.NEXCANAL__WATCHER_ID_FILE||'/home/container/.nexcontrol/nexcanal-watcher-id.txt';
 const poll=Math.max(1500,Number(process.env.NEXCANAL__WATCHER_POLL_MS||2500));
 // Keep scanning continuously, but pace public publication by logical batch.
@@ -236,7 +238,7 @@ async function media(c,m){
   if(!b)throw new Error('media download failed');
   return Buffer.isBuffer(b)?b:Buffer.from(b);
 }
-async function cleanupMediaTmp(maxAgeMs=6*60*60*1000){
+async function cleanupMediaTmp(maxAgeMs=mediaTmpRetentionMs){
   await fs.mkdir(mediaTmpDir,{recursive:true});
   const now=Date.now();
   const entries=await fs.readdir(mediaTmpDir,{withFileTypes:true}).catch(()=>[]);
@@ -247,14 +249,35 @@ async function cleanupMediaTmp(maxAgeMs=6*60*60*1000){
     await fs.rm(full,{recursive:true,force:true}).catch(()=>{});
   }
 }
-async function mediaToFile(c,m,name){
+async function mediaToFile(c,m,name,cacheKey=''){
   await fs.mkdir(mediaTmpDir,{recursive:true});
-  const safe=String(name||`package-${m.id}.apk`).replace(/[^A-Za-z0-9._ -]+/g,'_').slice(-180)||`package-${m.id}.apk`;
-  const target=path.join(mediaTmpDir,`${m.id}-${Date.now()}-${safe}`);
-  const out=await c.downloadMedia(m.media,{outputFile:target});
-  const file=typeof out==='string'&&out?out:target;
-  const st=await fs.stat(file);
-  return {file,size:st.size,cleanup:async()=>{await fs.rm(file,{force:true}).catch(()=>{});if(file!==target)await fs.rm(target,{force:true}).catch(()=>{});}};
+  const safe=String(name||`package-${m.id}.apk`).replace(/[^A-Za-z0-9._ -]+/g,'_').slice(-160)||`package-${m.id}.apk`;
+  const tag=String(cacheKey||m.id||'apk').replace(/[^A-Za-z0-9._-]+/g,'_').slice(-80)||String(m.id||'apk');
+  const target=path.join(mediaTmpDir,`${tag}-${safe}`);
+  try{
+    const existing=await fs.stat(target);
+    if(existing.isFile()&&existing.size>0){
+      const now=new Date();
+      await fs.utimes(target,now,now).catch(()=>{});
+      return {file:target,size:existing.size,cleanup:async()=>{await fs.rm(target,{force:true}).catch(()=>{});}};
+    }
+  }catch{}
+  const partial=target+`.part-${process.pid}-${Date.now()}`;
+  try{
+    const out=await c.downloadMedia(m.media,{outputFile:partial});
+    const file=typeof out==='string'&&out?out:partial;
+    const st=await fs.stat(file);
+    if(!st.isFile()||st.size<=0)throw new Error('media download produced an empty file');
+    if(file!==target){
+      await fs.rm(target,{force:true}).catch(()=>{});
+      await fs.rename(file,target);
+    }
+    const ready=await fs.stat(target);
+    return {file:target,size:ready.size,cleanup:async()=>{await fs.rm(target,{force:true}).catch(()=>{});}};
+  }catch(error){
+    await fs.rm(partial,{force:true}).catch(()=>{});
+    throw error;
+  }
 }
 async function postDescriptor(c,m,sourceKind){
   const u=chooseUrl(m),text=clean(m,sourceKind,u),kb=markup(u);
@@ -264,7 +287,7 @@ async function postDescriptor(c,m,sourceKind){
   }
   if(text||kb)return bot('sendMessage',{chat_id:`@${dst}`,text:text||'Download',reply_markup:kb,disable_web_page_preview:true});
 }
-async function postApk(c,publisher,dstEntity,m,sourceKind,linked){
+async function postApk(c,publisher,dstEntity,m,sourceKind,linked,item){
   const name=filename(m)||`package-${m.id}.apk`;
   const u=chooseUrl(m);
   const text=clean(m,sourceKind,u);
@@ -298,10 +321,21 @@ async function postApk(c,publisher,dstEntity,m,sourceKind,linked){
     },{field:'document',buf:b,name,mime:m.document?.mimeType||'application/vnd.android.package-archive'});
   }
   if(!linked&&u&&(text||kb))await bot('sendMessage',{chat_id:`@${dst}`,text:text||name,reply_markup:kb,disable_web_page_preview:true});
-  const tmp=await withTimeout(mediaToFile(c,m,name),180000,'large APK download');
+  const tmp=await withTimeout(mediaToFile(c,m,name,item?.key||String(m.id||'')),180000,'large APK download');
+  let published=false;
   try{
-    return await withTimeout(publisher.sendFile(dstEntity,{file:new CustomFile(name,tmp.size,tmp.file),caption:linked||u?'':text.slice(0,1024),forceDocument:true,workers:1}),180000,'large APK upload');
-  }finally{await tmp.cleanup();}
+    const result=await withTimeout(
+      publisher.sendFile(dstEntity,{file:new CustomFile(name,tmp.size,tmp.file),caption:linked||u?'':text.slice(0,1024),forceDocument:true,workers:1}),
+      180000,
+      'large APK upload'
+    );
+    published=true;
+    return result;
+  }finally{
+    // Keep a complete local copy when publication fails so the retry reuses it.
+    // Delete it only after Telegram confirms the destination upload.
+    if(published)await tmp.cleanup();
+  }
 }
 
 async function load(){
@@ -494,7 +528,7 @@ async function processItem(c,publisher,destination,st,sources,item){
       if(Date.now()<nextAt)return {done:false,deferUntil:nextAt,reason:'publication-gap'};
     }
 
-    await postApk(c,publisher,destination,m,source.kind,!!linked);
+    await postApk(c,publisher,destination,m,source.kind,!!linked,item);
     if(linked)linked.used=true;
     pruneDescriptors(ss);
 
@@ -578,6 +612,7 @@ function kickWorkers(c,publisher,destination,st,sources){
 async function run(session){
   if(!token||!apiId||!apiHash||!session)throw new Error('missing NexCanal watcher credentials');
   await cleanupMediaTmp();
+  let nextMediaCleanupAt=Date.now()+mediaTmpCleanupMs;
   const c=new TelegramClient(new StringSession(session),apiId,apiHash,{connectionRetries:10,autoReconnect:true,floodSleepThreshold:60});
   await c.connect();
   if(!(await c.isUserAuthorized()))throw new Error('watcher session is not authorized');
@@ -645,6 +680,10 @@ async function run(session){
     try{
       await withTimeout(discover(c,st,sources),opTimeoutMs,'source discovery');
       kickWorkers(c,publisher,destination,st,sources);
+      if(Date.now()>=nextMediaCleanupAt){
+        nextMediaCleanupAt=Date.now()+mediaTmpCleanupMs;
+        await cleanupMediaTmp().catch(e=>warn('media tmp cleanup failed',e?.message||e));
+      }
       if(Date.now()>=nextEngagementAt){
         nextEngagementAt=Date.now()+engagementPollMs;
         void runEngagement(false);
