@@ -121,6 +121,10 @@ export async function saveAccount({me,session,phone}){
       style:cfg.defaultStyle,
       prefix:'.',
       accessMode:'private',
+      botDisplayName:'NexAi',
+      menuImageUrl:'',
+      menuImageStyle:0,
+      customEmojiIds:{},
       autoReact:{enabled:cfg.autoReact,mode:'smart',targets:[...cfg.autoReactTargets],reactions:['🔥','❤️','👍']},
       autoJoin:{enabled:cfg.autoJoin,targets:[...cfg.autoJoinTargets]},
       welcome:{enabled:true,text:preferredLanguage==='fr'?'Bienvenue {name} dans {group}.':'Welcome {name} to {group}.'},
@@ -274,6 +278,7 @@ export async function savePairingState(state){
     telegramUserId:String(state.account.telegramUserId||''),
     username:String(state.account.username||''),
     firstName:String(state.account.firstName||''),
+    lastName:String(state.account.lastName||''),
     premium:state.account.premium===true,
     phoneMasked:String(state.account.phoneMasked||'')
   }:null;
