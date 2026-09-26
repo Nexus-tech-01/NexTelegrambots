@@ -288,9 +288,9 @@ export const ANIME_ENGINE_COMMANDS=new Set([
 
 export function canHandleAnimeCommand(name){return ANIME_ENGINE_COMMANDS.has(String(name||'').toLowerCase())}
 
-export async function handleAnimeCommand({runtime,event,name,args=[]}){
+export async function handleAnimeCommand({runtime,event,name,args=[],reply=null}){
   const {client,account}=runtime,peer=event.message.peerId,raw=args.join(' ').trim();
-  const say=t=>sendText(client,peer,t);
+  const say=t=>typeof reply==='function'?reply(t):sendText(client,peer,t);
   const image=(u,c)=>sendImage(client,peer,u,c);
   const need=()=>{if(!raw)throw new Error('argument manquant pour .'+name)};
 
