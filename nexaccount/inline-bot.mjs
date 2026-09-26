@@ -109,7 +109,8 @@ function portableMarkup(markup){
 }
 
 function portableEntities(entities,maxLength){
-  return (entities||[]).filter(e=>e.type==='bot_command'&&e.offset+e.length<=maxLength);
+  const safe=new Set(['bot_command','blockquote','expandable_blockquote','text_link']);
+  return (entities||[]).filter(e=>safe.has(e.type)&&e.offset+e.length<=maxLength);
 }
 
 function textInputContent(model,entities){
