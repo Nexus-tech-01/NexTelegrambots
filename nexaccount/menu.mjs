@@ -83,13 +83,16 @@ export async function menuModel({account,settings,commands,view='home',category=
   const style=await getStyle(settings.style||1);
   const owner=isOwnerId(account.telegramUserId);
   const visible=c=>!c.hidden&&(!c.ownerOnly||owner);
-  const header=await renderDipperHeader(style.id,{
+  const rawOwnerName=account.username?'@'+account.username:(account.firstName||localized(settings,'Utilisateur','User'));
+  const ownerToken=account.username?'@@998877665544332211@@':rawOwnerName;
+  let header=await renderDipperHeader(style.id,{
     botName:String(settings.botDisplayName||'NexAi · Dipper').slice(0,64),
-    ownerName:account.username?'@'+account.username:(account.firstName||localized(settings,'Utilisateur','User')),
+    ownerName:ownerToken,
     rank:owner?'owner':account.premium?'premium':'free',
     prefix:settings.prefix||'.',
     count:commandStats(commands).tokens
   });
+  if(account.username)header=header.replaceAll(ownerToken,rawOwnerName);
   let body=header,spans=[],quoteRange=null;
 
   if(view==='category'&&category){
