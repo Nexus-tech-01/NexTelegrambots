@@ -3,6 +3,7 @@ import { canHandleDownloadCommand, handleDownloadCommand } from '../dipper-fallb
 import { canHandleAiCommand, handleAiCommand } from '../ai-engine.mjs';
 import { canHandleStickerCommand, handleStickerCommand } from '../sticker-engine.mjs';
 import { canHandleGameCommand, handleGameCommand } from '../game-engine.mjs';
+import { createProgress } from '../response-ui.mjs';
 
 const ENGINE_LABELS={
   anime:'Anime',
@@ -16,11 +17,18 @@ function canonicalName(cmd){
   return String(cmd?.aliasFor||cmd?.name||cmd?.handler||'').toLowerCase();
 }
 
-async function guarded({label,name,sendText,peer,run}){
+async function guarded({label,name,sendText,client,peer,run}){
+  let progress=null;
   try{
-    await run();
+    progress=await createProgress(client,peer,label+' · '+name);
+  }catch{}
+  try{
+    await run(progress);
+    if(progress)await progress.done(label+' · '+name+' terminé');
   }catch(error){
-    await sendText(peer,label+' · '+name+' : '+String(error?.message||error).slice(0,500));
+    const reason=String(error?.message||error).replace(/\s+/g,' ').slice(0,500);
+    if(progress)await progress.fail(label+' · '+reason);
+    else await sendText(peer,label+' · '+name+' : '+reason);
   }
   return true;
 }
@@ -39,8 +47,8 @@ export async function routeEngineCommand({cmd,runtime,event,args=[],sendText}){
       return true;
     }
     return guarded({
-      label:ENGINE_LABELS[engine],name,peer,sendText:(p,t)=>sendText(runtime.client,p,t),
-      run:()=>handleAnimeCommand({runtime,event,name,args})
+      label:ENGINE_LABELS[engine],name,client:runtime.client,peer,sendText:(p,t)=>sendText(runtime.client,p,t),
+      run:progress=>handleAnimeCommand({runtime,event,name,args,progress})
     });
   }
 
@@ -50,8 +58,8 @@ export async function routeEngineCommand({cmd,runtime,event,args=[],sendText}){
       return true;
     }
     return guarded({
-      label:ENGINE_LABELS[engine],name,peer,sendText:(p,t)=>sendText(runtime.client,p,t),
-      run:()=>handleAiCommand({runtime,event,name,args})
+      label:ENGINE_LABELS[engine],name,client:runtime.client,peer,sendText:(p,t)=>sendText(runtime.client,p,t),
+      run:progress=>handleAiCommand({runtime,event,name,args,progress})
     });
   }
 
@@ -61,8 +69,8 @@ export async function routeEngineCommand({cmd,runtime,event,args=[],sendText}){
       return true;
     }
     return guarded({
-      label:ENGINE_LABELS[engine],name,peer,sendText:(p,t)=>sendText(runtime.client,p,t),
-      run:()=>handleDownloadCommand({client:runtime.client,peer,name,args,event})
+      label:ENGINE_LABELS[engine],name,client:runtime.client,peer,sendText:(p,t)=>sendText(runtime.client,p,t),
+      run:progress=>handleDownloadCommand({client:runtime.client,peer,name,args,event,progress})
     });
   }
 
@@ -72,8 +80,8 @@ export async function routeEngineCommand({cmd,runtime,event,args=[],sendText}){
       return true;
     }
     return guarded({
-      label:ENGINE_LABELS[engine],name,peer,sendText:(p,t)=>sendText(runtime.client,p,t),
-      run:()=>handleStickerCommand({runtime,event,name,args})
+      label:ENGINE_LABELS[engine],name,client:runtime.client,peer,sendText:(p,t)=>sendText(runtime.client,p,t),
+      run:progress=>handleStickerCommand({runtime,event,name,args,progress})
     });
   }
 
@@ -83,8 +91,8 @@ export async function routeEngineCommand({cmd,runtime,event,args=[],sendText}){
       return true;
     }
     return guarded({
-      label:ENGINE_LABELS[engine],name,peer,sendText:(p,t)=>sendText(runtime.client,p,t),
-      run:()=>handleGameCommand({runtime,event,name,args})
+      label:ENGINE_LABELS[engine],name,client:runtime.client,peer,sendText:(p,t)=>sendText(runtime.client,p,t),
+      run:progress=>handleGameCommand({runtime,event,name,args,progress})
     });
   }
 
