@@ -1,8 +1,23 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseCommand } from '../core/command-parser.mjs';
 import { commandMap } from '../commands.mjs';
 
 const commands=commandMap();
+
+const HERE=path.dirname(fileURLToPath(import.meta.url));
+const commandSource=fs.readFileSync(path.join(HERE,'..','commands.mjs'),'utf8');
+const aliasStart=commandSource.indexOf('export const LEGACY_ALIASES');
+const aliasEnd=commandSource.indexOf('export const REMOVED_COMMANDS',aliasStart);
+const aliasSource=commandSource.slice(aliasStart,aliasEnd);
+const aliasKeys=[...aliasSource.matchAll(/\b([A-Za-z0-9_]+)\s*:\s*'[^']+'/g)].map(m=>m[1].toLowerCase());
+const seen=new Set();
+for(const key of aliasKeys){
+  assert.ok(!seen.has(key),'duplicate alias key in LEGACY_ALIASES: '+key);
+  seen.add(key);
+}
 
 const cases=[
   ['/S','sticker',[]],
