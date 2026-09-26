@@ -479,7 +479,8 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
       fileName:safe+'.wastickers',
       mimeType:'application/zip',
       kind:'document',
-      caption:'NexAi · WhatsApp stickers · '+Math.min(stickers.length,30)+' sticker(s) · '+stickers.filter(x=>x.animated).length+' animé(s)'+(skipped?' · '+skipped+' ignoré(s)':'')
+      caption:'NexAi · WhatsApp stickers · '+Math.min(stickers.length,30)+' sticker(s) · '+stickers.filter(x=>x.animated).length+' animé(s)'+(skipped?' · '+skipped+' ignoré(s)':''),
+      afterSend:typeof reply==='function'?()=>reply(''):null
     });
     if(typeof progress.done==='function')await progress.done('WhatsApp stickers · pack prêt');
     else await progress.update('✅ WhatsApp stickers · pack prêt.');
@@ -510,6 +511,7 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
     await rememberPack(account.telegramUserId,{name:newName,title,link:packLink(newName),count:added,updatedAt:Date.now()});
     if(typeof progress.done==='function')await progress.done('Pack cloné · '+added+' sticker(s)\n'+packLink(newName));
     else await progress.update('✅ Pack cloné · '+added+' sticker(s)\n'+packLink(newName));
+    if(typeof reply==='function')await reply('');
     return true;
   }
 
@@ -529,8 +531,10 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
     const pack=await ensureDefaultPack(runtime,prepared);
     const set=await waitTelegramSet(client,pack);
     const doc=set.documents?.[set.documents.length-1];
-    if(doc)await sendStickerDocument(client,peer,doc);
-    else await say('Sticker ajouté au pack : '+packLink(pack));
+    if(doc){
+      await sendStickerDocument(client,peer,doc);
+      if(typeof reply==='function')await reply('');
+    }else await say('Sticker ajouté au pack : '+packLink(pack));
     return true;
   }
 
