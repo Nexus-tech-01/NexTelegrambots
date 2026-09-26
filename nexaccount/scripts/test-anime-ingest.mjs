@@ -174,6 +174,35 @@ console.log('NexAnime ingest regression tests: OK');
   assert.equal(c.reason,'caption_filename_title_conflict');
 }
 
+
+
+// same anime name but conflicting caption/file episode numbers must be quarantined
+{
+  const c=__test.classifyMessage(
+    fileMessage(
+      'Classroom_of_the_Elite_S04E15_VOSTFR_1080p.mkv',
+      'Classroom of the Elite S04E16 VOSTFR'
+    ),
+    {username:'anime_source',title:'Anime Source'}
+  );
+  assert.equal(c.kind,'conflict');
+  assert.equal(c.reason,'caption_filename_episode_conflict');
+}
+
+// if caption omits the season, inherit it from the filename when episode number agrees
+{
+  const c=__test.classifyMessage(
+    fileMessage(
+      'Classroom_of_the_Elite_S04E15_VOSTFR_1080p.mkv',
+      'Classroom of the Elite Episode 15 VOSTFR'
+    ),
+    {username:'anime_source',title:'Anime Source'}
+  );
+  assert.equal(c.kind,'episode');
+  assert.equal(c.season,4);
+  assert.equal(c.episode,15);
+}
+
 // the final source guard must reject the wrong episode even if the anime is correct
 {
   const ok=__test.episodeIdentityCompatible(
