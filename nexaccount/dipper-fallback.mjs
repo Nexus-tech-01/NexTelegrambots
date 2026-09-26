@@ -834,7 +834,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
       console.warn('[NexAi download yt-dlp audio]',String(localError?.message||localError).slice(0,500));
     }
     const r=await youtubeAudio(input);
-    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'audio')+'.mp3',afterSend:mediaCta,onDownloadProgress:remotePercent,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
+    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'audio')+'.mp3',afterSend:mediaCta,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
     return true;
   }
   if(command==='video'){
@@ -844,7 +844,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
       console.warn('[NexAi download yt-dlp video]',String(localError?.message||localError).slice(0,500));
     }
     const r=await youtubeVideo(input);
-    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'video')+'.mp4',afterSend:mediaCta,onDownloadProgress:remotePercent,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
+    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'video')+'.mp4',afterSend:mediaCta,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
     return true;
   }
   if(command==='tiktok'){
@@ -867,7 +867,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
     const urls=(r.urls||[]).slice(0,10);
     if(!urls.length)throw new Error('aucun média Instagram');
     for(let i=0;i<urls.length;i++){
-      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\nInstagram · '+r.source:'',fileName:'instagram-'+(i+1),afterSend:i===urls.length-1?mediaCta:null,onDownloadProgress:remotePercent,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
+      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\nInstagram · '+r.source:'',fileName:'instagram-'+(i+1),afterSend:i===urls.length-1?mediaCta:null,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
     }
     return true;
   }
@@ -876,7 +876,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
     try{return await sendLocalSocial(client,peer,input,'Facebook',mediaCta,progressPercent('Facebook'),uploadPercent)}
     catch(localError){console.warn('[NexAi download Facebook local]',String(localError?.message||localError).slice(0,500))}
     const r=await facebookMedia(input);
-    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\nFacebook · '+r.source,fileName:'facebook.mp4',afterSend:mediaCta,onDownloadProgress:remotePercent,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
+    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\nFacebook · '+r.source,fileName:'facebook.mp4',afterSend:mediaCta,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
     return true;
   }
   if(command==='pinterest'){
@@ -884,7 +884,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
     try{return await sendLocalSocial(client,peer,input,'Pinterest',mediaCta,progressPercent('Pinterest'),uploadPercent)}
     catch(localError){console.warn('[NexAi download Pinterest local]',String(localError?.message||localError).slice(0,500))}
     const r=await pinterestMedia(input);
-    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+(r.author?'\nAuteur : '+r.author:'')+'\nSource : '+r.source,fileName:'pinterest',afterSend:mediaCta,onDownloadProgress:remotePercent,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
+    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+(r.author?'\nAuteur : '+r.author:'')+'\nSource : '+r.source,fileName:'pinterest',afterSend:mediaCta,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
     return true;
   }
 
@@ -896,7 +896,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
     const urls=(r.urls||[]).slice(0,10);
     if(!urls.length)throw new Error('aucun média Snapchat');
     for(let i=0;i<urls.length;i++){
-      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\nSnapchat · '+r.source:'',fileName:'snapchat-'+(i+1),afterSend:i===urls.length-1?mediaCta:null,onDownloadProgress:remotePercent,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
+      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\nSnapchat · '+r.source:'',fileName:'snapchat-'+(i+1),afterSend:i===urls.length-1?mediaCta:null,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
     }
     return true;
   }
@@ -908,7 +908,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
     const urls=(r.urls||[]).slice(0,5);
     if(!urls.length)throw new Error('aucun média CapCut');
     for(let i=0;i<urls.length;i++){
-      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\nCapCut · '+r.source:'',fileName:'capcut-'+(i+1)+'.mp4',afterSend:i===urls.length-1?mediaCta:null,onDownloadProgress:remotePercent,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
+      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\nCapCut · '+r.source:'',fileName:'capcut-'+(i+1)+'.mp4',afterSend:i===urls.length-1?mediaCta:null,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
     }
     return true;
   }
@@ -921,7 +921,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
     const urls=(r.urls||[]).slice(0,10);
     if(!urls.length)throw new Error('aucun média '+label);
     for(let i=0;i<urls.length;i++){
-      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\n'+label+' · '+r.source:'',fileName:command+'-'+(i+1),afterSend:i===urls.length-1?mediaCta:null,onDownloadProgress:remotePercent,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
+      await sendRemote(client,peer,urls[i],{caption:i===0?'NexAi · Download\n'+label+' · '+r.source:'',fileName:command+'-'+(i+1),afterSend:i===urls.length-1?mediaCta:null,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
     }
     return true;
   }
@@ -934,7 +934,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
         console.warn('[NexAi download yt-dlp tomp3]',String(localError?.message||localError).slice(0,500));
       }
       const r=await youtubeAudio(input);
-      await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'audio')+'.mp3',afterSend:mediaCta,onDownloadProgress:remotePercent,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
+      await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\nSource : '+r.source,fileName:safeName(r.title||'audio')+'.mp3',afterSend:mediaCta,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
       return true;
     }
     return localToMp3(client,peer,event?.message,mediaCta);
@@ -976,7 +976,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
   if(command==='apk'){
     await step('APK · recherche de l’application…');
     const r=await apkSearch(input);
-    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\n'+r.pkg+' · '+r.version+'\nSource : F-Droid',fileName:safeName(r.pkg+'_'+r.version)+'.apk',maxBytes:MAX_MEDIA_BYTES,afterSend:mediaCta,onDownloadProgress:remotePercent,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
+    await sendRemote(client,peer,r.url,{caption:'NexAi · Download\n'+r.title+'\n'+r.pkg+' · '+r.version+'\nSource : F-Droid',fileName:safeName(r.pkg+'_'+r.version)+'.apk',maxBytes:MAX_MEDIA_BYTES,afterSend:mediaCta,onDownloadProgress:remotePercent,onUploadProgress:uploadPercent});
     return true;
   }
   return false;
