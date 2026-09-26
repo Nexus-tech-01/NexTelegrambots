@@ -129,16 +129,6 @@ async function youtubeAudio(input){
   if(target?.url){
     const u=encodeURIComponent(target.url);
     attempts.push(
-      ['Cobalt local',async()=>{
-        const d=await postJson('http://127.0.0.1:9000/',{
-          url:target.url,
-          downloadMode:'audio',
-          audioFormat:'mp3',
-          audioBitrate:'128'
-        });
-        const v=cobaltUrl(d);
-        return v?{url:v,title:target.title||'YouTube'}:null;
-      }],
       ['EliteProTech',async()=>{
         const d=await json('https://eliteprotech-apis.zone.id/ytdown?url='+u+'&format=mp3');
         return d?.success&&d?.downloadURL?{url:d.downloadURL,title:d.title||target.title}:null;
@@ -156,11 +146,6 @@ async function youtubeVideo(input){
   const target=await resolveYoutube(input);
   const u=encodeURIComponent(target.url);
   const result=await cascade('vidéo YouTube',[
-    ['Cobalt local',async()=>{
-      const d=await postJson('http://127.0.0.1:9000/',{url:target.url,downloadMode:'auto',videoQuality:'720',allowH265:false});
-      const v=cobaltUrl(d);
-      return v?{url:v,title:target.title||'YouTube'}:null;
-    }],
     ['EliteProTech',async()=>{
       const d=await json('https://eliteprotech-apis.zone.id/ytdown?url='+u+'&format=mp4');
       return d?.success&&d?.downloadURL?{url:d.downloadURL,title:d.title||target.title}:null;
@@ -555,15 +540,39 @@ const COBALT_HTTP_HOSTS=[
   'http://127.0.0.1:9000/'
 ];
 
+
+async function cobaltTunnelHasData(url){
+  const target=clean(url);
+  if(!isHttp(target))return false;
+  try{
+    const r=await fetch(target,{
+      headers:{'user-agent':UA,accept:'*/*'},
+      signal:AbortSignal.timeout(25000)
+    });
+    if(!r.ok)return false;
+    const declared=r.headers.get('content-length');
+    if(declared!==null&&Number(declared)===0)return false;
+    const reader=r.body?.getReader?.();
+    if(!reader)return declared===null||Number(declared)>0;
+    const first=await reader.read();
+    try{await reader.cancel()}catch{}
+    return !!first?.value?.length;
+  }catch{
+    return false;
+  }
+}
+
 async function cobaltMedia(url,label){
   const attempts=COBALT_HTTP_HOSTS.map(host=>['Cobalt '+new URL(host).hostname,async()=>{
     const d=await postJson(host,{url,downloadMode:'auto',videoQuality:'max',allowH265:false});
     if(d?.status==='picker'&&Array.isArray(d.picker)){
-      const urls=d.picker.map(x=>x?.url).filter(isHttp);
+      const urls=d.picker.map(x=>x?.url).filter(isHttp).map(x=>String(x).replace(/&amp;/gi,'&'));
       if(urls.length)return {urls,title:label};
     }
     const v=cobaltUrl(d);
-    return v?{urls:[v],title:label}:null;
+    if(!v)return null;
+    if(d?.status==='tunnel'&&!(await cobaltTunnelHasData(v)))throw new Error('tunnel Cobalt vide');
+    return {urls:[v],title:label};
   }]);
   return cascade(label,attempts);
 }
