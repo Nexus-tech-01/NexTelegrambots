@@ -86,7 +86,7 @@ async function sendText(client,peer,text){
   const value=String(text);
   if(cfg.botUsername){
     try{
-      const token=putInlineResponse(value);
+      const token=await putInlineResponse(value);
       return await sendInline(client,peer,'reply:'+token);
     }catch(error){
       console.warn('[NexAccount inline reply fallback]',String(error?.message||error).slice(0,250));
