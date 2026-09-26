@@ -311,7 +311,7 @@ async function pinterestMedia(url){
 }
 async function lyricsSearch(raw){
   const value=clean(raw);
-  if(!value)throw new Error('usage : .lyrics artiste - titre');
+  if(!value)throw new Error('usage : /Lyrics artiste - titre');
   let artist='',title=value;
   if(value.includes(' - ')){const parts=value.split(' - ');artist=parts.shift().trim();title=parts.join(' - ').trim()}
   const attempts=[
@@ -854,7 +854,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
   }
   if(command==='download'){
     await step('Téléchargement · détection de la source…');
-    if(!isHttp(input))throw new Error('usage : .download <lien>');
+    if(!isHttp(input))throw new Error('usage : /Download <lien>');
     const detected=detectDownloadService(input);
     if(detected)return executeDipperFallback({client,peer,name:detected,args:[input],event,progress,reply});
     return sendLocalSocial(client,peer,input,'Media',mediaCta,progressPercent('Téléchargement'),uploadPercent);
