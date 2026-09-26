@@ -64,6 +64,8 @@ const settings={
   failureThreshold:Math.max(1,Number(config.failureThreshold||2)),
   repairCooldownMs:Math.max(30000,Number(config.repairCooldownMs||300000)),
   verifyDelayMs:Math.max(1000,Number(config.verifyDelayMs||8000)),
+  verifyAttempts:Math.max(1,Number(config.verifyAttempts||4)),
+  verifyRetryMs:Math.max(1000,Number(config.verifyRetryMs||5000)),
   targets:Array.isArray(config.targets)?config.targets:[]
 };
 
@@ -235,19 +237,28 @@ async function processTarget(t){
     return;
   }
 
-  await sleep(settings.verifyDelayMs);
-  const verified=await runCheck(t);
-  entry.lastRepairVerification=verified;
+  const verifyAttempts=Math.max(1,Number(t?.repair?.verifyAttempts||t?.verifyAttempts||settings.verifyAttempts));
+  const verifyRetryMs=Math.max(1000,Number(t?.repair?.verifyRetryMs||t?.verifyRetryMs||settings.verifyRetryMs));
+  const verificationChecks=[];
+  await sleep(Math.max(1000,Number(t?.repair?.verifyDelayMs||t?.verifyDelayMs||settings.verifyDelayMs)));
+  let verified={ok:false,error:'repair_verification_not_run'};
+  for(let attempt=1;attempt<=verifyAttempts;attempt++){
+    verified=await runCheck(t);
+    verificationChecks.push({attempt,at:nowIso(),...verified});
+    if(verified.ok)break;
+    if(attempt<verifyAttempts)await sleep(verifyRetryMs);
+  }
+  entry.lastRepairVerification={...verified,attempts:verificationChecks.length,checks:verificationChecks};
   if(verified.ok){
     entry.failures=0;
     entry.lastHealthyAt=nowIso();
-    await appendJsonl(INCIDENTS_FILE,{id:crypto.randomUUID(),kind:'auto_repaired',signature:incident.signature,target:incident.target,repairedAt:nowIso(),repair,verification:verified});
+    await appendJsonl(INCIDENTS_FILE,{id:crypto.randomUUID(),kind:'auto_repaired',signature:incident.signature,target:incident.target,repairedAt:nowIso(),repair,verification:entry.lastRepairVerification});
   }else{
     await appendJsonl(REPAIR_QUEUE,{
       id:crypto.randomUUID(),kind:'repair_unverified',priority:'critical',createdAt:nowIso(),
       incidentSignature:incident.signature,target:incident.target,
       instruction:'The safe repair ran but health is still failing. Escalate to an AI worker through NexForge; lock the resource, inspect logs, patch, test, deploy, verify or roll back.',
-      evidence:verified
+      evidence:entry.lastRepairVerification
     });
   }
 }
