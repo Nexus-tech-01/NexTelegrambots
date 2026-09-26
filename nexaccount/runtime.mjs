@@ -210,21 +210,10 @@ async function sendMenu(runtime,peer){
     const settings=await settingsFor(account.telegramUserId);
     const model=await menuModel({account,settings,commands,view:'home'});
 
-    // Last-resort degradation: keep the real menu content and the artwork of
-    // the active style. Do not display the old alarming "temporarily unavailable"
-    // banner; users can still run every listed command while the inline layer
-    // recovers on the next .menu.
-    if(model.photoUrl){
-      try{
-        return await client.sendFile(peer,{
-          file:model.photoUrl,
-          caption:String(model.text||'NexAI').slice(0,1024),
-          formattingEntities:menuFormattingEntities(model,1024)
-        });
-      }catch(photoError){
-        console.error('[NexAccount menu]',String(account.telegramUserId),'fallback-photo:failed',String(photoError?.message||photoError).slice(0,350));
-      }
-    }
+    // Last-resort degradation stays TEXT-only. A media fallback would force
+    // the menu into Telegram's 1024-char caption limit and recreate the old
+    // image/header shifting problem. The next .menu attempt can recover the
+    // full artwork + inline keyboard path.
     const fallback=String(model.text||'NexAI').slice(0,4096);
     try{
       return await client.sendMessage(peer,{
