@@ -143,7 +143,10 @@ function stripNoiseTitle(raw='',episodeToken=''){
 }
 function usableTitleCandidate(value=''){
   const t=String(value||'').trim();
-  return t.length>=2 && !/^(episode|ep|e|vf|vostfr|vo)$/i.test(t);
+  if(t.length<2||/^(episode|ep|e|vf|vostfr|vo)$/i.test(t))return false;
+  // Numeric storage filenames such as "5423777.mp4" are Telegram/file IDs,
+  // not series titles. Treating them as titles creates false caption/file conflicts.
+  return /[a-z]/i.test(norm(t));
 }
 function strongTitleCandidate(value=''){
   const t=cleanSeriesTitle(value);
