@@ -38,6 +38,11 @@ assert.equal(article.type,'article');
 assert.deepEqual(article.input_message_content.entities,[]);
 assert.equal(article.reply_markup.inline_keyboard[0][0].callback_data,'menu:home|999');
 
+const cachedPhoto=__test.inlineCachedPhotoResult(model,'999','cached-x','telegram-file-id',false);
+assert.equal(cachedPhoto.type,'photo');
+assert.equal(cachedPhoto.photo_file_id,'telegram-file-id');
+assert.equal(cachedPhoto.reply_markup.inline_keyboard[0][0].callback_data,'menu:home|999');
+
 assert.deepEqual(
   __test.telegramCommandMenu().map(x=>x.command),
   ['start','menu','help','pair','language','creator'],
@@ -54,6 +59,8 @@ assert.match(inlineSource,/bot\.command\('menu'/,'/menu handler must exist');
 assert.match(inlineSource,/bot\.command\('help'/,'/help handler must exist');
 assert.match(inlineSource,/ctx\.callbackQuery\.inline_message_id\|\|ctx\.callbackQuery\.message/,'callbacks must support inline and direct bot messages');
 assert.match(inlineSource,/article-portable/,'inline fallback must preserve an interactive article result');
+assert.match(inlineSource,/cachePhotoFileId/,'inline artwork must be cached as a Telegram file_id');
+assert.match(inlineSource,/photo_file_id/,'cached inline photo result must use Telegram media');
 assert.match(inlineSource,/function portableEntities/,'portable menu fallback must preserve clickable slash-command entities');
 assert.match(inlineSource,/action==='menu:styles'/,'styles menu callback must be handled');
 assert.match(inlineSource,/action\.startsWith\('style:set:'\)/,'style selection callback must be handled');
