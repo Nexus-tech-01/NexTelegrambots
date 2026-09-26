@@ -169,6 +169,23 @@ assert.ok(brandedA.text.includes('NexAi Alpha'),'style 1 must use the session bo
 assert.ok(brandedB.text.includes('NexAi Beta'),'style 9 must use the session bot display name');
 assert.ok(!brandedB.text.includes('NexAi Alpha'),'bot display name leaked between sessions');
 
+const homeOne=await menuModel({
+  account:{telegramUserId:'6601',username:'layout_test',firstName:'Layout',premium:true},
+  settings:{style:1,prefix:'.',language:'fr'},
+  commands:registry,
+  includeArtwork:false
+});
+const homeLast=await menuModel({
+  account:{telegramUserId:'6601',username:'layout_test',firstName:'Layout',premium:true},
+  settings:{style:31,prefix:'.',language:'fr'},
+  commands:registry,
+  includeArtwork:false
+});
+const callbackLayout=model=>model.reply_markup.inline_keyboard.map(row=>row.map(b=>b.callback_data||('url:'+b.url)));
+assert.deepEqual(callbackLayout(homeOne),callbackLayout(homeLast),'changing style must never move or reorder menu buttons');
+assert.ok(homeOne.reply_markup.inline_keyboard.every(row=>row.length>=1&&row.length<=2),'Telegram home keyboard rows must stay compact and aligned');
+
+
 
 
 console.log('menu resilience regression tests: ok');
