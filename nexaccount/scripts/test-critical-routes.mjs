@@ -49,7 +49,7 @@ for(const cmd of anime){
   if(!canHandleAnimeCommand(cmd.aliasFor||cmd.name))errors.push('anime-route:'+cmd.name);
 }
 
-for(const name of ['account','pair','sessions','settings','prefix','mode','language']){
+for(const name of ['account','pair','sessions','settings','prefix','mode','language','menuemoji']){
   requireCommand(name,{privateOnly:true,selfOnly:true});
 }
 
@@ -179,6 +179,6 @@ console.log(JSON.stringify({
   games:3,
   anime:anime.length,
   protections:8,
-  accountControls:7,
+  accountControls:8,
   noSilentUnknown:true
 },null,2));
