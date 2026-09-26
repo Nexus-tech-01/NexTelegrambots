@@ -1,0 +1,20 @@
+{
+  "name": "@nextech/nexmeta",
+  "version": "0.8.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test",
+    "start:pterodactyl": "node ../pterodactyl/start.mjs",
+    "session-agent": "node src/session-agent.mjs"
+  },
+  "dependencies": {
+    "mongodb": "^6.9.0",
+    "puppeteer-core": "^25.0.4",
+    "@sparticuz/chromium": "^153.0.0"
+  }
+}

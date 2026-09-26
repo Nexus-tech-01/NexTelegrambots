@@ -1,0 +1,32 @@
+name: NexMeta Native APK Export
+
+on:
+  push:
+    branches:
+      - feature/nexmeta-v1
+    paths:
+      - '.github/workflows/nexmeta-native-android.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch validated APK
+        run: |
+          curl --fail --location --retry 3 \
+            'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-apk-export-9f07f2' \
+            -o NexMeta-Native-Android-1.0.0.apk
+          test "$(stat -c%s NexMeta-Native-Android-1.0.0.apk)" -eq 30300
+          echo '506409501e127502a1cd82322ba35ea18424149062d897226cdaaf206824f113  NexMeta-Native-Android-1.0.0.apk' | sha256sum -c -
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexMeta-Native-Android-1.0.0
+          path: NexMeta-Native-Android-1.0.0.apk
+          if-no-files-found: error
+          retention-days: 7

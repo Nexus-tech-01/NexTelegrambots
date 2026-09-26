@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "NexMeta Companion",
+  "version": "0.3.0",
+  "description": "Connects your already-authenticated Facebook/Messenger browser session to NexMeta without exporting Facebook cookies.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "alarms",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://www.facebook.com/*",
+    "https://web.facebook.com/*",
+    "https://facebook.com/*",
+    "https://www.messenger.com/*",
+    "https://messenger.com/*",
+    "https://ojbyvjqurlamplmujmyu.supabase.co/*",
+    "https://m.facebook.com/*",
+    "https://*.facebook.com/*",
+    "https://*.messenger.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "NexMeta Companion",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.facebook.com/*",
+        "https://web.facebook.com/*",
+        "https://facebook.com/*",
+        "https://www.messenger.com/*",
+        "https://messenger.com/*",
+        "https://m.facebook.com/*",
+        "https://*.facebook.com/*",
+        "https://*.messenger.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,85 @@
+name: NexMeta CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/nexmeta-v1
+    paths:
+      - "nexmeta/**"
+      - "nexcontrol/lib/nexmeta-client.mjs"
+      - "nexcontrol/ui/meta-page.mjs"
+      - "nexcontrol/api/index.mjs"
+      - "nexus-bridge/**"
+      - "pterodactyl/**"
+      - ".github/workflows/nexmeta-ci.yml"
+  pull_request:
+    paths:
+      - "nexmeta/**"
+      - "nexcontrol/lib/nexmeta-client.mjs"
+      - "nexcontrol/ui/meta-page.mjs"
+      - "nexcontrol/api/index.mjs"
+      - "nexus-bridge/**"
+      - "pterodactyl/**"
+      - ".github/workflows/nexmeta-ci.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: nexmeta
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install
+      - run: npm test
+      - run: node --test ../nexus-bridge/test/*.test.mjs
+      - run: node --test ../pterodactyl/*.test.mjs
+      - run: |
+          node --check src/config.mjs
+          node --check src/security.mjs
+          node --check src/store.mjs
+          node --check src/normalizer.mjs
+          node --check src/token-vault.mjs
+          node --check src/meta-oauth.mjs
+          node --check src/meta-webhooks.mjs
+          node --check src/meta-diagnostics.mjs
+          node --check src/messenger-profile.mjs
+          node --check src/meta-client.mjs
+          node --check src/router.mjs
+          node --check src/identity-link.mjs
+          node --check src/processor.mjs
+          node --check src/readiness.mjs
+          node --check src/control-actions.mjs
+          node --check src/handler.mjs
+          node --check src/server.mjs
+          node --check src/session-agent.mjs
+          node --check src/personal-watcher.mjs
+          node --check src/page-worker.mjs
+          node --check src/page-publisher.mjs
+          node --check src/companion.mjs
+          node --check ../nexcontrol/lib/nexmeta-client.mjs
+          node --check ../nexcontrol/ui/meta-page.mjs
+          node --check ../nexcontrol/api/index.mjs
+          node --check ../nexus-bridge/receiver.mjs
+          node --check ../nexus-bridge/adapter-loader.mjs
+          node --check ../nexus-bridge/gateway-wrapper.mjs
+          node --check ../nexus-bridge/discover-bot-cores.mjs
+          node --check ../nexus-bridge/media-registry.mjs
+          node --check ../nexus-bridge/nexdownloader-direct-core.mjs
+          node --check ../nexus-bridge/adapters/auto.mjs
+          node --check ../nexus-bridge/adapters/nexdownloader.mjs
+          node --check ../nexus-bridge/adapters/nexgame.mjs
+          node --check ../nexus-bridge/adapters/nexstick.mjs
+          node --check ../nexus-bridge/adapters/nexgroup.mjs
+          node --check ../nexus-bridge/adapters/nexcanal.mjs
+          node --check ../nexus-bridge/adapters/nexwhisper.mjs
+          node --check ../nexus-bridge/adapters/nexai.mjs
+          node --check ../pterodactyl/start.mjs
+          node --check ../pterodactyl/routing.mjs
+          node --check ../pterodactyl/check.mjs
+          node --check ../pterodactyl/generate-secrets.mjs

@@ -31,11 +31,26 @@ RUN set -eux; \
     for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do test -d "/app/bots/$bot"; done; \
     rm -f /tmp/render-src.b64.part-* /tmp/nexus-bots.tar.xz
 
+# Overlay the Nexus protocol receiver after extracting the canonical bundle.
+# The receiver is deliberately not auto-mounted into the live gateway until
+# the real bot-core adapters are wired; shipping the module in the image keeps
+# the integration reversible and avoids modifying the opaque source archive.
+COPY nexus-bridge /app/nexus-bridge
+RUN node --check /app/nexus-bridge/receiver.mjs \
+ && node --check /app/nexus-bridge/adapter-loader.mjs \
+ && node --check /app/nexus-bridge/gateway-wrapper.mjs \
+ && node --check /app/nexus-bridge/media-registry.mjs \
+ && node --check /app/nexus-bridge/nexdownloader-direct-core.mjs \
+ && node --check /app/nexus-bridge/adapters/nexdownloader.mjs \
+ && test -f /app/nexus-bridge/README.md
+
 # Secrets are supplied only through Render environment variables.
 # Never COPY a repository .env file into the image.
 RUN python3 -m pip install --break-system-packages --no-cache-dir -r bots/nexdownloader/requirements.txt
-RUN node scripts/install-all.mjs && node scripts/build-all.mjs
+RUN node scripts/install-all.mjs \
+ && node scripts/build-all.mjs \
+ && node /app/nexus-bridge/discover-bot-cores.mjs
 
 EXPOSE 10000
 
-CMD ["sh", "-c", "if [ -z \"${NEXUS_PUBLIC_BASE_URL:-}\" ] && [ -n \"${RENDER_EXTERNAL_HOSTNAME:-}\" ]; then export NEXUS_PUBLIC_BASE_URL=\"https://${RENDER_EXTERNAL_HOSTNAME}\"; fi; node scripts/preflight.mjs && exec node scripts/orchestrator.mjs"]
+CMD ["sh", "-c", "if [ -z \"${NEXUS_PUBLIC_BASE_URL:-}\" ] && [ -n \"${RENDER_EXTERNAL_HOSTNAME:-}\" ]; then export NEXUS_PUBLIC_BASE_URL=\"https://${RENDER_EXTERNAL_HOSTNAME}\"; fi; node scripts/preflight.mjs && if [ \"${NEXUS_BRIDGE_PROXY_ENABLED:-false}\" = \"true\" ]; then exec node /app/nexus-bridge/gateway-wrapper.mjs; else exec node scripts/orchestrator.mjs; fi"]

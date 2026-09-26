@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NexMeta Companion</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<main>
+  <div class="brand">NEXMETA COMPANION</div>
+  <h1>Facebook session bridge</h1>
+  <p class="muted">Relie la session Facebook déjà ouverte dans ce navigateur à NexMeta.</p>
+
+  <section id="pairedView" class="card hidden">
+    <div class="status-line">
+      <span class="dot online"></span>
+      <strong>Companion connecté</strong>
+    </div>
+    <div class="meta" id="deviceMeta"></div>
+    <button id="refreshBtn" class="secondary">Actualiser</button>
+    <button id="unpairBtn" class="danger">Déconnecter ce navigateur</button>
+  </section>
+
+  <section id="pairView" class="card">
+    <label for="pairCode">Code de pairing</label>
+    <input id="pairCode" autocomplete="one-time-code" spellcheck="false" maxlength="32" placeholder="ABCD1234">
+
+    <label for="deviceName">Nom du navigateur</label>
+    <input id="deviceName" maxlength="120" placeholder="Mon navigateur Facebook">
+
+    <details>
+      <summary>Serveur</summary>
+      <label for="serverUrl">NexMeta public URL</label>
+      <input id="serverUrl" spellcheck="false">
+    </details>
+
+    <button id="pairBtn">Connecter</button>
+  </section>
+
+  <div id="message" class="message hidden"></div>
+
+  <p class="foot">
+    Le Companion n’exporte ni mot de passe Facebook ni cookie de session vers NexMeta.
+  </p>
+</main>
+<script src="popup.js"></script>
+</body>
+</html>
