@@ -34,8 +34,8 @@ const HEALTH_FILE = path.resolve(
 );
 
 const POLL_MS = Math.max(
-  3000,
-  Math.min(30000, Number(process.env.NEXMETA_PAGE_POLL_MS || 6000))
+  1000,
+  Math.min(30000, Number(process.env.NEXMETA_PAGE_POLL_MS || 1500))
 );
 
 const MAX_ROWS = Math.max(
@@ -101,12 +101,58 @@ function clean(value) {
     .trim();
 }
 
+function comparable(value) {
+  return clean(value)
+    .toLowerCase()
+    .replace(/[’]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function outboundKey(config, conversationId) {
+  return hash(
+    config.assetId +
+    '\n' +
+    conversationId
+  ).slice(0, 40);
+}
+
+function isRecentOutboundEcho(config, conversationId, text) {
+  const row = state.outbound?.[
+    outboundKey(config, conversationId)
+  ];
+
+  if (!row || Date.now() - Number(row.at || 0) > 2 * 60_000) {
+    return false;
+  }
+
+  const current = comparable(text);
+  const sent = comparable(row.text);
+
+  if (!current || !sent) return false;
+
+  return (
+    current === sent ||
+    sent.startsWith(current) ||
+    current.startsWith(sent)
+  );
+}
+
+function rememberOutbound(config, conversationId, text) {
+  state.outbound ||= {};
+  state.outbound[outboundKey(config, conversationId)] = {
+    text: clean(text).slice(0, 2500),
+    at: Date.now()
+  };
+}
+
 function emptyState() {
   return {
-    version: 2,
+    version: 3,
     pages: {},
     processed: {},
-    pending: {}
+    pending: {},
+    outbound: {}
   };
 }
 
@@ -127,6 +173,10 @@ async function loadState() {
       pending:
         data?.pending && typeof data.pending === 'object'
           ? data.pending
+          : {},
+      outbound:
+        data?.outbound && typeof data.outbound === 'object'
+          ? data.outbound
           : {}
     };
   } catch {
@@ -151,11 +201,21 @@ async function saveState() {
       .slice(0, 500)
   );
 
+  const outbound = Object.fromEntries(
+    Object.entries(state.outbound || {})
+      .filter(([, row]) =>
+        Date.now() - Number(row?.at || 0) < 5 * 60_000
+      )
+      .sort((a, b) => Number(b[1]?.at || 0) - Number(a[1]?.at || 0))
+      .slice(0, 500)
+  );
+
   const payload = {
-    version: 2,
+    version: 3,
     pages: state.pages || {},
     processed,
     pending,
+    outbound,
     updatedAt: new Date().toISOString()
   };
 
@@ -613,12 +673,21 @@ async function selectedConversationId(tab) {
 }
 
 async function openRow(tab, row) {
+  const before = await selectedConversationId(tab);
+
   await tab.mouse.click(
     row.x + row.width / 2,
     row.y + row.height / 2
   );
 
-  await sleep(1200);
+  for (let i = 0; i < 10; i += 1) {
+    await sleep(100);
+    const current = await selectedConversationId(tab);
+
+    if (current && (current !== before || i >= 2)) {
+      return current;
+    }
+  }
 
   return selectedConversationId(tab);
 }
@@ -661,10 +730,10 @@ async function sendMessage(tab, text) {
     }
 
     await composer.handle.focus();
-    await composer.handle.type(chunk, { delay: 5 });
-    await sleep(180);
+    await composer.handle.type(chunk, { delay: 1 });
+    await sleep(60);
     await composer.handle.press('Enter');
-    await sleep(650);
+    await sleep(250);
   }
 }
 
@@ -704,6 +773,19 @@ async function processRow(config, tab, pageState, row) {
   const conversationId =
     await openRow(tab, row) ||
     row.rowKey;
+
+  if (isRecentOutboundEcho(config, conversationId, text)) {
+    pageState.rows[row.rowKey] = row.fingerprint;
+    await saveState();
+
+    safeLog('outbound_echo_ignored', {
+      page: config.name,
+      thread: hash(conversationId).slice(0, 12),
+      length: text.length
+    });
+
+    return;
+  }
 
   const eventId = hash(
     config.assetId +
@@ -769,6 +851,17 @@ async function processRow(config, tab, pageState, row) {
 
   if (response) {
     await sendMessage(tab, response);
+    rememberOutbound(config, conversationId, response);
+    await saveState();
+
+    const refreshedRows = await listRows(tab).catch(() => []);
+    const refreshed = refreshedRows.find(
+      item => item.rowKey === row.rowKey
+    );
+
+    if (refreshed) {
+      pageState.rows[row.rowKey] = refreshed.fingerprint;
+    }
   }
 
   state.processed[eventId] = Date.now();
