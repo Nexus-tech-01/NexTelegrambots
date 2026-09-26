@@ -14,6 +14,9 @@ docker run -d \
   --restart unless-stopped \
   --init \
   --read-only \
+  --security-opt no-new-privileges=true \
+  --log-opt max-size=10m \
+  --log-opt max-file=3 \
   -p "127.0.0.1:${PORT}:9000/tcp" \
   -e "API_URL=${API_URL}" \
   "$IMAGE"
