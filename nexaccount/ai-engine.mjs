@@ -191,7 +191,7 @@ function peerKey(event){
   return String(event?.chatId||m?.chatId||m?.peerId?.channelId||m?.peerId?.chatId||m?.peerId?.userId||'global');
 }
 
-export async function handleAiCommand({runtime,event,name,args=[],reply=null}){
+export async function handleAiCommand({runtime,event,name,args=[],reply=null,progress=null}){
   const {client,account}=runtime,peer=event.message.peerId;
   const prompt=args.join(' ').trim();
   if(!prompt)throw new Error('Écris ta demande après .'+name+'.');
@@ -200,6 +200,7 @@ export async function handleAiCommand({runtime,event,name,args=[],reply=null}){
     const {Api}=await import('teleproto');
     await client.invoke(new Api.messages.SetTyping({peer:input,action:new Api.SendMessageTypingAction({})})).catch(()=>{});
   }catch{}
+  if(progress?.step)await progress.step('IA · analyse de la demande…');
   const result=await generateAiReply({
     accountId:account.telegramUserId,
     peer:peerKey(event),
@@ -207,6 +208,7 @@ export async function handleAiCommand({runtime,event,name,args=[],reply=null}){
     mode:name,
     language:account.preferredLanguage||account.telegramLanguage||'fr'
   });
+  if(progress?.step)await progress.step('IA · préparation de la réponse…');
   if(typeof reply==='function')await reply(result.text);
   else await client.sendMessage(peer,{message:result.text});
   return true;
