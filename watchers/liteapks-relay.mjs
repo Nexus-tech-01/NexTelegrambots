@@ -347,7 +347,7 @@ async function mediaToFile(c,m,name,cacheKey=''){
           for await(const chunk of c.iterDownload(location,{
             offset,
             ...(remaining?{limit:remaining}:{}),
-            requestSize:1024*1024,
+            requestSize:512*1024,
             dcId:Number(m.document?.dcId||0)||undefined,
             requestTimeout:120000
           })){
