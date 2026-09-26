@@ -159,3 +159,39 @@ console.log('NexAnime ingest regression tests: OK');
   assert.equal(c.season,4);
   assert.equal(c.episode,16);
 }
+
+
+// conflicting caption/file anime identities must never be published
+{
+  const c=__test.classifyMessage(
+    fileMessage(
+      'Classroom_of_the_Elite_S04E15_VOSTFR_1080p.mkv',
+      'Daemons of the Shadow Realm S01E01 VOSTFR'
+    ),
+    {username:'anime_source',title:'Anime Source'}
+  );
+  assert.equal(c.kind,'conflict');
+  assert.equal(c.reason,'caption_filename_title_conflict');
+}
+
+// the final source guard must reject the wrong episode even if the anime is correct
+{
+  const ok=__test.episodeIdentityCompatible(
+    {kind:'episode',title:'Classroom of the Elite',anilistId:123,season:4,episode:15},
+    {kind:'episode',title:'Classroom of the Elite',season:4,episode:15},
+    {ok:true,canonicalTitle:'Classroom of the Elite',anilistId:123}
+  );
+  const wrongEpisode=__test.episodeIdentityCompatible(
+    {kind:'episode',title:'Classroom of the Elite',anilistId:123,season:4,episode:15},
+    {kind:'episode',title:'Classroom of the Elite',season:4,episode:16},
+    {ok:true,canonicalTitle:'Classroom of the Elite',anilistId:123}
+  );
+  const wrongAnime=__test.episodeIdentityCompatible(
+    {kind:'episode',title:'Classroom of the Elite',anilistId:123,season:4,episode:15},
+    {kind:'episode',title:'Daemons of the Shadow Realm',season:4,episode:15},
+    {ok:true,canonicalTitle:'Daemons of the Shadow Realm',anilistId:999}
+  );
+  assert.equal(ok,true);
+  assert.equal(wrongEpisode,false);
+  assert.equal(wrongAnime,false);
+}
