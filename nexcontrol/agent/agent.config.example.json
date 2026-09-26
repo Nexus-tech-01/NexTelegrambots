@@ -134,6 +134,33 @@
         "stop",
         "restart"
       ]
+    },
+    "nexguard": {
+      "unit": "nexguard.service",
+      "description": "NexGuard autonomous self-test and self-healing supervisor",
+      "actions": [
+        "start",
+        "stop",
+        "restart"
+      ]
+    },
+    "nex-automation-supervisor": {
+      "unit": "nex-automation-supervisor.service",
+      "description": "Nexus strict cross-platform automation supervisor",
+      "actions": [
+        "start",
+        "stop",
+        "restart"
+      ]
+    },
+    "nexforge-repair-bridge": {
+      "unit": "nexforge-repair-bridge.service",
+      "description": "NexGuard to NexForge shared AI repair bridge",
+      "actions": [
+        "start",
+        "stop",
+        "restart"
+      ]
     }
   }
 }
