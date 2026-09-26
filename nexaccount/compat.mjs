@@ -1086,12 +1086,12 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
         configured.length?('Configurés : '+configured.map(k=>k.replace(/^NEXAI_EMOJI_/,'')).join(', ')):'Configurés : aucun',
         '',
         'Réponds à un message contenant un emoji personnalisé avec :',
-        '.menuemoji current',
-        '.menuemoji anime',
-        '.menuemoji download',
-        '.menuemoji style_7',
+        '/Menuemoji current',
+        '/Menuemoji anime',
+        '/Menuemoji download',
+        '/Menuemoji style_7',
         '',
-        'Pour retirer : .menuemoji reset <clé> · ou .menuemoji reset all'
+        'Pour retirer : /Menuemoji reset <clé> · ou /Menuemoji reset all'
       ].join('\n'));
       return true;
     }
@@ -1104,7 +1104,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
         return true;
       }
       const key=menuEmojiSettingKey(rawKey,settings);
-      if(!key){await sendText(client,peer,'Clé emoji inconnue. Utilise .menuemoji list.');return true}
+      if(!key){await sendText(client,peer,'Clé emoji inconnue. Utilise /Menuemoji list.');return true}
       delete current[key];
       await patchSettings(account.telegramUserId,{customEmojiIds:current});
       await sendText(client,peer,'Emoji retiré : '+key.replace(/^NEXAI_EMOJI_/,''));
@@ -1112,12 +1112,12 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     }
 
     const key=menuEmojiSettingKey(args[0],settings);
-    if(!key){await sendText(client,peer,'Clé emoji inconnue. Utilise .menuemoji list.');return true}
+    if(!key){await sendText(client,peer,'Clé emoji inconnue. Utilise /Menuemoji list.');return true}
     const reply=await repliedMessage(client,peer,event.message);
     const directId=clean(args[1]);
     const id=customEmojiDocumentId(reply)||(/^\d{5,}$/.test(directId)?directId:'');
     if(!id){
-      await sendText(client,peer,'Réponds à un message contenant le custom emoji Telegram à utiliser, puis relance .menuemoji '+clean(args[0])+'.');
+      await sendText(client,peer,'Réponds à un message contenant le custom emoji Telegram à utiliser, puis relance /Menuemoji '+clean(args[0])+'.');
       return true;
     }
     current[key]=id;
