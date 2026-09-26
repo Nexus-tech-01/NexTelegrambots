@@ -297,6 +297,21 @@ export const LEGACY_ALIASES={
   aveu:'truth',epreuve:'dare',bouffon:'joke',charme:'compliment',
   premiumemoji:'emoji_status',
   viewonce:'vv',tovv:'vv',
+
+  // Short, human-friendly aliases. They remain hidden from category menus and
+  // always resolve to one canonical command.
+  s:'sticker',st:'sticker',stick:'sticker',stickers:'sticker',
+  sinfo:'stickerinfo',stickerdetails:'stickerinfo',
+  clone:'clonepack',take:'clonepack',packclone:'clonepack',
+  newpack:'createpack',makepack:'createpack',packcreate:'createpack',
+  packs:'mypacks',wastickers:'exportwhatsapp',exportwa:'exportwhatsapp',waexport:'exportwhatsapp',
+  tt:'tiktok',tiktokdl:'tiktok',insta:'instagram',ig:'instagram',fb:'facebook',
+  pin:'pinterest',pindl:'pinterest',snapvideo:'snapchat',cap:'capcut',x:'twitter',
+  scmusic:'soundcloud',redd:'reddit',vim:'vimeo',
+  tr:'translate',say:'tts',qrcode:'qr',shorten:'tinyurl',pdf:'texttopdf',
+  img:'toimage',pass:'genpass',math:'calc',screen:'ssweb',screenshot:'ssweb',
+  pp:'getpp',profilepic:'getpp',url:'tourl',
+  stickerpack:'mypacks',wapack:'exportwhatsapp',
   animesearch:'anisearch',searchanime:'anisearch',
   mangasearch:'manga',searchmanga:'manga',mangainfo:'manga',
   scheduleanime:'animecalendar',trendanime:'trendinganime',similar:'recommendanime',
