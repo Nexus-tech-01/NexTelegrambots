@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { __test } from '../inline-bot.mjs';
-import { CATEGORY_ORDER } from '../commands.mjs';
+import { CATEGORY_ORDER, commandMap } from '../commands.mjs';
+import { menuModel } from '../menu.mjs';
 
 const HERE=path.dirname(fileURLToPath(import.meta.url));
 const ROOT=path.dirname(HERE);
@@ -92,6 +93,27 @@ assert.match(styleSource,/for\(let start=0;start<urls\.length;start\+=4\)/,'artw
 assert.match(styleSource,/files\.catbox\.moe/,'Catbox artwork conversion guard missing');
 assert.match(styleSource,/img\.vxs\.nl/,'verified JPEG conversion proxy missing');
 assert.equal(new Set(CATEGORY_ORDER).size,CATEGORY_ORDER.length,'menu categories must not be duplicated');
+
+// Every public style must keep a complete category inside one Telegram text
+// message, quote only the compact header, and resolve identity per session.
+const registry=commandMap();
+for(let style=1;style<=31;style++){
+  const accountA={telegramUserId:'991'+style,username:'alpha_'+style,firstName:'Alpha',premium:style%2===0};
+  const accountB={telegramUserId:'881'+style,username:'beta_'+style,firstName:'Beta',premium:false};
+  const settings={style,prefix:style%2===0?'!':'.',language:'fr'};
+  const modelA=await menuModel({account:accountA,settings,commands:registry,view:'category',category:'ANIME'});
+  const modelB=await menuModel({account:accountB,settings,commands:registry,view:'category',category:'ANIME'});
+  assert.equal(modelA.photoUrl,'','long categories must be full text messages, not truncated photo captions');
+  assert.ok(modelA.text.length<=4096,'style '+style+' Anime menu exceeds Telegram text limit');
+  assert.ok(modelA.text.includes('@alpha_'+style),'style '+style+' must render active session username');
+  assert.ok(modelB.text.includes('@beta_'+style),'style '+style+' must not reuse another session username');
+  assert.ok(!modelB.text.includes('@alpha_'+style),'style '+style+' leaked session identity');
+  assert.ok(modelA.entities.some(x=>x.type==='blockquote'&&x.offset===0),'style '+style+' header must be a Telegram blockquote');
+  assert.ok(modelA.entities.some(x=>x.type==='bot_command'),'style '+style+' commands must stay clickable');
+  assert.ok(!/\bpage\s+\d+/i.test(modelA.text),'style '+style+' must not paginate categories');
+}
+
+
 assert.match(styleSource,/INLINE_PHOTO_MAX_BYTES=5\*1024\*1024/,'inline photo size guard missing');
 assert.match(styleSource,/image\/jpeg/,'inline artwork must validate JPEG content');
 
