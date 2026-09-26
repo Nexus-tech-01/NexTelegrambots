@@ -281,11 +281,7 @@ async function characterArtwork(styleId){
 export async function resolveStyleImage(styleId,fallback=''){
   const s=await getStyle(styleId);
   const key=Number(s.id)||1;
-  let urls=randomOrder([...envStyleImages(key),...(s.images||[])]);
-  if(!urls.length){
-    const character=await characterArtwork(key);
-    if(character)urls.push(character);
-  }
+  const urls=randomOrder([...envStyleImages(key),...(s.images||[])]);
   const last=lastStyleImage.get(key);
   if(urls.length>1&&urls[0]===last){
     const swap=1+Math.floor(Math.random()*(urls.length-1));
@@ -293,9 +289,8 @@ export async function resolveStyleImage(styleId,fallback=''){
   }
   if(fallback)urls.push(fallback);
 
-  // Probe in small parallel batches instead of stopping after the first four.
-  // Several historical Dipper URLs are dead, so a valid image later in the
-  // style list must still be reachable without making the query serial/slow.
+  // Probe configured/historical artwork first. Several Dipper URLs are old,
+  // so scan the full list instead of treating "has URLs" as "has a valid image".
   for(let start=0;start<urls.length;start+=4){
     const candidates=urls.slice(start,start+4);
     const resolved=await Promise.all(candidates.map(url=>directImage(url)));
@@ -304,6 +299,15 @@ export async function resolveStyleImage(styleId,fallback=''){
       if((s.images||[]).includes(candidates[i]))lastStyleImage.set(key,candidates[i]);
       return resolved[i];
     }
+  }
+
+  // Character themes get a live AniList fallback only after every configured
+  // and bundled artwork failed. This fixes styles whose legacy URLs still
+  // exist in the catalog but are no longer reachable.
+  const character=await characterArtwork(key);
+  if(character){
+    const resolved=await directImage(character);
+    if(resolved)return resolved;
   }
   return '';
 }
