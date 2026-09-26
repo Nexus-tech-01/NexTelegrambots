@@ -155,6 +155,26 @@ assert.equal(new Set(emojiRanges).size,emojiRanges.length,'custom emoji entity r
 delete process.env.NEXAI_EMOJI_STYLE_7;
 delete process.env.NEXAI_EMOJI_ANIME;
 
+const sessionEmojiModel=await menuModel({
+  account:{telegramUserId:'7800',username:'session_emoji',firstName:'Session',premium:true},
+  settings:{
+    style:2,prefix:'.',language:'fr',
+    customEmojiIds:{
+      NEXAI_EMOJI_STYLE_2:'5368324170671202300',
+      NEXAI_EMOJI_ANIME:'5368324170671202301'
+    }
+  },
+  commands:registry,
+  view:'category',
+  category:'ANIME',
+  includeArtwork:false
+});
+const sessionEmojiIds=sessionEmojiModel.entities
+  .filter(x=>x.type==='custom_emoji')
+  .map(x=>x.custom_emoji_id);
+assert.ok(sessionEmojiIds.includes('5368324170671202300'),'session style custom emoji ID must override environment defaults');
+assert.ok(sessionEmojiIds.includes('5368324170671202301'),'session category custom emoji ID must be applied');
+
 const brandedA=await menuModel({
   account:{telegramUserId:'5511',username:'brand_a',firstName:'A',premium:false},
   settings:{style:1,prefix:'.',language:'fr',botDisplayName:'NexAi Alpha'},
