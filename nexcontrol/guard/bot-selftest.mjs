@@ -9,9 +9,9 @@ const ROOT=path.resolve(process.env.NEX_ROOT||(fssync.existsSync('/opt/nex/curre
 const TIMEOUT=Math.max(30_000,Number(process.env.NEXGUARD_BOT_TEST_TIMEOUT_MS||5*60*1000));
 const MAX_FILES=Math.max(20,Number(process.env.NEXGUARD_BOT_TEST_MAX_FILES||250));
 const DEFAULT_COMPONENTS=[
-  {name:'nexaccount',candidates:['nexaccount','/opt/nex/apps/public/nexai/current']},
+  {name:'nexaccount',candidates:['/opt/nex/apps/public/nexai/current','nexaccount']},
   {name:'nexgroup',candidates:['bots/nexgroup','/opt/nex/apps/public/nexgroup/current']},
-  {name:'nexcanal',candidates:['nexcanal','bots/nexcanal','/opt/nex/apps/user-automation/nexcanal/current']},
+  {name:'nexcanal',candidates:['/opt/nex/apps/user-automation/nexcanal/current','nexcanal','bots/nexcanal']},
   {name:'nexgame',candidates:['bots/nexgame','/opt/nex/apps/public/nexgame/current']},
   {name:'nexdownloader',candidates:['bots/nexdownloader','/opt/nex/apps/public/nexdownloader/current']},
   {name:'nexstick',candidates:['bots/nexstick','/opt/nex/apps/public/nexstick/current']},
