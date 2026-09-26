@@ -62,6 +62,10 @@ function webPairActive(userId){
   return false;
 }
 
+function callbackAccessAllowed(clickerId,accountId,accessMode='private'){
+  return String(accessMode)==='public'||String(clickerId)===String(accountId);
+}
+
 function connectMarkup(lang){
   return {
     inline_keyboard:[[
@@ -528,12 +532,13 @@ export async function startInlineBot(){
     console.log('[NexAI callback] received',raw.slice(0,120),'from='+String(ctx.from?.id||''),'inline='+String(!!ctx.callbackQuery.inline_message_id));
     if(cut<0){await ctx.answerCallbackQuery();return}
     const action=raw.slice(0,cut),accountId=raw.slice(cut+1);
-    if(String(ctx.from.id)!==String(accountId)){
+    const account=await accountRecord(accountId);
+    if(!account||account.enabled!==true){await ctx.answerCallbackQuery({text:'Compte déconnecté.'});return}
+    const settings=await settingsFor(accountId);
+    if(!callbackAccessAllowed(ctx.from.id,accountId,settings.accessMode)){
       await ctx.answerCallbackQuery({text:'Ce menu appartient au compte connecté.',show_alert:false});
       return;
     }
-    const account=await accountRecord(accountId);
-    if(!account||account.enabled!==true){await ctx.answerCallbackQuery({text:'Compte déconnecté.'});return}
     let model;
     let callbackText='';
     let replaceMedia=false;
@@ -589,4 +594,4 @@ export async function stopInlineBot(){
 }
 
 
-export const __test={stampMarkup,portableMarkup,inlineResult,inlineCachedPhotoResult,inlineReplyModel,telegramCommandMenu};
+export const __test={stampMarkup,portableMarkup,inlineResult,inlineCachedPhotoResult,inlineReplyModel,telegramCommandMenu,callbackAccessAllowed};
