@@ -710,7 +710,7 @@ export function canHandleDownloadCommand(name){
 }
 export const canUseDipperFallback=canHandleDownloadCommand;
 
-export async function executeDipperFallback({client,peer,name,args=[],event,progress=null}){
+export async function executeDipperFallback({client,peer,name,args=[],event,progress=null,reply=null}){
   const command=String(name||'').toLowerCase();
   const input=args.join(' ').trim();
   const step=async label=>{
@@ -747,7 +747,7 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
     await step('Téléchargement · détection de la source…');
     if(!isHttp(input))throw new Error('usage : .download <lien>');
     const detected=detectDownloadService(input);
-    if(detected)return executeDipperFallback({client,peer,name:detected,args:[input],event,progress});
+    if(detected)return executeDipperFallback({client,peer,name:detected,args:[input],event,progress,reply});
     return sendLocalSocial(client,peer,input,'Media');
   }
   if(command==='instagram'){
@@ -835,21 +835,23 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
     const r=await lyricsSearch(input);
     const body=String(r.lyrics||'');
     const clipped=body.length>3500?body.slice(0,3500)+'\n…':body;
-    await client.sendMessage(peer,{message:[
+    const message=[
       'NexAi · Download',
       r.artist?('Artiste : '+r.artist):'',
       'Titre : '+r.title,
       'Source : '+r.source,
       '',
       clipped
-    ].filter(Boolean).join('\n')});
+    ].filter(Boolean).join('\n');
+    if(typeof reply==='function')await reply(message);
+    else await client.sendMessage(peer,{message});
     return true;
   }
   if(command==='shazam'){
     await step('Shazam · analyse audio…');
     const r=await identifyAudio(client,peer,event?.message);
     const links=[r.spotify?.external_urls?.spotify,r.apple_music?.url].filter(Boolean);
-    await client.sendMessage(peer,{message:[
+    const message=[
       'NexAi · Download',
       'Titre : '+(r.title||'?'),
       'Artiste : '+(r.artist||'?'),
@@ -857,7 +859,9 @@ export async function executeDipperFallback({client,peer,name,args=[],event,prog
       r.release_date?('Date : '+r.release_date):'',
       'Source : AudD',
       ...links
-    ].filter(Boolean).join('\n')});
+    ].filter(Boolean).join('\n');
+    if(typeof reply==='function')await reply(message);
+    else await client.sendMessage(peer,{message});
     return true;
   }
   if(command==='apk'){
