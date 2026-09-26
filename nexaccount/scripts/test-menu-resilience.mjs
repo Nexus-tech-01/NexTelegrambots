@@ -207,6 +207,17 @@ const callbackLayout=model=>model.reply_markup.inline_keyboard.map(row=>row.map(
 assert.deepEqual(callbackLayout(homeOne),callbackLayout(homeLast),'changing style must never move or reorder menu buttons');
 assert.ok(homeOne.reply_markup.inline_keyboard.every(row=>row.length>=1&&row.length<=2),'Telegram home keyboard rows must stay compact and aligned');
 
+const categoryCta=await menuModel({
+  account:{telegramUserId:'6602',username:'cta_test',firstName:'CTA',premium:true},
+  settings:{style:1,prefix:'.',language:'fr'},
+  commands:registry,
+  view:'category',category:'TOOLS',
+  includeArtwork:false
+});
+assert.ok(categoryCta.reply_markup.inline_keyboard.some(row=>row.some(b=>b.url&&String(b.url).includes('t.me'))),'category replies must keep a Nextech URL button when configured');
+assert.equal(categoryCta.reply_markup.inline_keyboard[0].length,1,'category back button must keep its own stable row');
+
+
 
 
 
