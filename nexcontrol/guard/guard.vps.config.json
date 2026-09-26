@@ -176,7 +176,8 @@
       ],
       "cwd": "/opt/nex/apps/public/nexai/current",
       "timeoutMs": 480000,
-      "intervalMs": 3600000
+      "intervalMs": 3600000,
+      "initialDelayMs": 120000
     },
     {
       "name": "Bot fleet self-test",
@@ -187,7 +188,8 @@
       ],
       "cwd": "/opt/nex/apps/internal/nexguard/current",
       "timeoutMs": 600000,
-      "intervalMs": 1800000
+      "intervalMs": 1800000,
+      "initialDelayMs": 180000
     },
     {
       "name": "NexGuard self regression",
@@ -199,7 +201,8 @@
       ],
       "cwd": "/opt/nex/apps/internal/nexguard/current",
       "timeoutMs": 120000,
-      "intervalMs": 1800000
+      "intervalMs": 1800000,
+      "initialDelayMs": 60000
     }
   ]
 }
