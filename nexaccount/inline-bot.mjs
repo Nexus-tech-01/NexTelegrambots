@@ -72,11 +72,15 @@ function portableMarkup(markup){
   return copy;
 }
 
+function portableEntities(entities,maxLength){
+  return (entities||[]).filter(e=>e.type==='bot_command'&&e.offset+e.length<=maxLength);
+}
+
 function inlineResult(model,accountId,id='menu',forceArticle=false,portable=false){
   const stamped=stampMarkup(model.reply_markup,accountId);
   const reply_markup=portable?portableMarkup(stamped):stamped;
-  const captionEntities=portable?[]:model.entities.filter(e=>e.offset+e.length<=1024);
-  const textEntities=portable?[]:model.entities.filter(e=>e.offset+e.length<=4096);
+  const captionEntities=portable?portableEntities(model.entities,1024):model.entities.filter(e=>e.offset+e.length<=1024);
+  const textEntities=portable?portableEntities(model.entities,4096):model.entities.filter(e=>e.offset+e.length<=4096);
   if(model.photoUrl&&!forceArticle){
     return {
       type:'photo',id,
@@ -138,6 +142,7 @@ async function sendModelMessage(ctx,model,accountId){
 
   try{
     return await ctx.reply(model.text.slice(0,4096),{
+      entities:portableEntities(model.entities,4096),
       link_preview_options:{is_disabled:true},
       reply_markup:plain
     });
@@ -168,7 +173,7 @@ async function editInline(ctx,model,accountId,{replaceMedia=false}={}){
           type:'photo',
           media:model.photoUrl,
           caption:model.text.slice(0,1024),
-          caption_entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=1024):[]
+          caption_entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=1024):portableEntities(model.entities,1024)
         },{reply_markup});
         return 'media-'+kind;
       }catch(error){
@@ -181,7 +186,7 @@ async function editInline(ctx,model,accountId,{replaceMedia=false}={}){
     try{
       await ctx.editMessageCaption({
         caption:model.text.slice(0,1024),
-        caption_entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=1024):[],
+        caption_entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=1024):portableEntities(model.entities,1024),
         reply_markup
       });
       return 'caption-'+kind;
@@ -193,7 +198,7 @@ async function editInline(ctx,model,accountId,{replaceMedia=false}={}){
   for(const [kind,reply_markup] of markups){
     try{
       await ctx.editMessageText(model.text.slice(0,4096),{
-        entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=4096):[],
+        entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=4096):portableEntities(model.entities,4096),
         link_preview_options:{is_disabled:true},
         reply_markup
       });
