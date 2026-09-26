@@ -19,6 +19,10 @@ const stamped=__test.stampMarkup(markup,'999');
 assert.equal(stamped.inline_keyboard[0][0].callback_data,'menu:home|999');
 assert.equal(markup.inline_keyboard[0][0].callback_data,'menu:home','stampMarkup must not mutate source');
 
+assert.equal(__test.callbackAccessAllowed('999','999','private'),true,'private mode must allow the connected account');
+assert.equal(__test.callbackAccessAllowed('111','999','private'),false,'private mode must reject other users');
+assert.equal(__test.callbackAccessAllowed('111','999','public'),true,'public mode must allow other users to use inline menu callbacks');
+
 const portable=__test.portableMarkup(stamped);
 assert.equal(portable.inline_keyboard[0][0].callback_data,'menu:home|999');
 assert.equal(portable.inline_keyboard[0][0].style,undefined);
