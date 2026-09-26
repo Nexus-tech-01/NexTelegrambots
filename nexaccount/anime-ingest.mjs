@@ -2387,3 +2387,219 @@ export async function setAnimeMediaPolicy(policy='authorized_only'){
   }
   return {ok:true,mediaPolicy:value};
 }
+
+
+export async function animeSupervisorAudit({repair=false,source='automation-supervisor'}={}){
+  await ensureIndexes();
+  const d=await db(),now=new Date();
+  const incidents=[],repairs=[];
+  const queue=d.collection('nexanime_queue');
+  const publications=d.collection('nexanime_publications');
+  const schedulerCollection=d.collection('nexanime_config');
+
+  if(repair){
+    const recovered=await reconcileStalePublishing();
+    if(recovered)repairs.push({kind:'stale-publishing',repaired:recovered});
+  }
+
+  const scheduler=await schedulerCollection.findOne({_id:'scheduler'});
+  const activeSeriesKey=String(scheduler?.activeSeriesKey||'');
+
+  if(activeSeriesKey){
+    const foreignPublishing=await queue.find({
+      status:'publishing',
+      seriesKey:{$ne:activeSeriesKey}
+    }).project({_id:1,seriesKey:1,title:1,season:1,episode:1,claimAt:1,claimBy:1}).limit(100).toArray();
+
+    if(foreignPublishing.length){
+      incidents.push({
+        kind:'concurrent-series',
+        target:'anime-scheduler',
+        severity:'critical',
+        message:'Une autre série est en état publishing pendant la série active.',
+        activeSeriesKey,
+        items:foreignPublishing.map(x=>({id:String(x._id),seriesKey:x.seriesKey,title:x.title,season:x.season,episode:x.episode}))
+      });
+      if(repair){
+        const ids=foreignPublishing.map(x=>x._id);
+        const r=await queue.updateMany(
+          {_id:{$in:ids},status:'publishing'},
+          {$set:{status:'queued',updatedAt:now,supervisorRecoveredAt:now,supervisorRecoveredReason:'foreign_series_during_active_series'},$unset:{claimAt:'',claimBy:''}}
+        );
+        repairs.push({kind:'concurrent-series',requeued:Number(r.modifiedCount||0)});
+      }
+    }
+  }
+
+  const queuedEpisodes=await queue.find({
+    status:{$in:['queued','publishing']},
+    kind:'episode',
+    seriesKey:{$type:'string'}
+  }).project({_id:1,seriesKey:1,season:1,episode:1,status:1}).limit(2000).toArray();
+
+  const publishedKeys=new Map();
+  for(const item of queuedEpisodes){
+    const key=[item.seriesKey,Number(item.season??1),Number(item.episode)].join('|');
+    if(!publishedKeys.has(key)){
+      publishedKeys.set(key,await publications.findOne({
+        seriesKey:item.seriesKey,kind:'episode',season:item.season??1,episode:item.episode,purgedAt:{$exists:false}
+      },{projection:{_id:1,telegramMessageId:1,publishedAt:1}}));
+    }
+    if(publishedKeys.get(key)){
+      incidents.push({
+        kind:'already-published-queued',
+        target:item.seriesKey,
+        severity:'warning',
+        message:'Un épisode déjà publié est encore présent dans la file.',
+        seriesKey:item.seriesKey,season:item.season??1,episode:item.episode,status:item.status
+      });
+      if(repair){
+        await suppressAlreadyPublishedEpisode(d,item.seriesKey,item.season??1,item.episode);
+      }
+    }
+  }
+  if(repair){
+    const repairedCount=incidents.filter(x=>x.kind==='already-published-queued').length;
+    if(repairedCount)repairs.push({kind:'already-published-queued',suppressed:repairedCount});
+  }
+
+  const duplicatePublished=await publications.aggregate([
+    {$match:{kind:'episode',purgedAt:{$exists:false},seriesKey:{$type:'string'}}},
+    {$group:{
+      _id:{seriesKey:'$seriesKey',season:{$ifNull:['$season',1]},episode:'$episode'},
+      count:{$sum:1},
+      rows:{$push:{dedupeKey:'$dedupeKey',telegramMessageId:'$telegramMessageId',language:'$language',quality:'$quality',publishedAt:'$publishedAt'}}
+    }},
+    {$match:{count:{$gt:1}}},
+    {$sort:{count:-1}},
+    {$limit:50}
+  ]).toArray();
+  for(const dup of duplicatePublished){
+    incidents.push({
+      kind:'published-duplicate',
+      target:dup._id?.seriesKey||'anime',
+      severity:'critical',
+      message:'Le même épisode existe plusieurs fois dans les publications enregistrées.',
+      seriesKey:dup._id?.seriesKey,season:dup._id?.season,episode:dup._id?.episode,count:dup.count,rows:dup.rows
+    });
+  }
+
+  const seriesToCheck=new Set();
+  if(activeSeriesKey)seriesToCheck.add(activeSeriesKey);
+  const nextSeries=await queue.aggregate([
+    {$match:{status:'queued',kind:'episode',seriesKey:{$type:'string'}}},
+    {$group:{_id:'$seriesKey',first:{$min:'$createdAt'}}},
+    {$sort:{first:1}},
+    {$limit:12}
+  ]).toArray();
+  for(const row of nextSeries)if(row?._id)seriesToCheck.add(String(row._id));
+
+  for(const seriesKey of seriesToCheck){
+    const [queuedPresentation,publishedPresentation,episodeCount]=await Promise.all([
+      queue.findOne({seriesKey,kind:'presentation',status:{$in:['queued','publishing']},$or:[{episode:null},{episode:{$exists:false}}]},{projection:{_id:1}}),
+      publications.findOne({seriesKey,kind:'presentation',purgedAt:{$exists:false},$or:[{episode:null},{episode:{$exists:false}}]},{projection:{_id:1,publishedAt:1}}),
+      queue.countDocuments({seriesKey,kind:'episode',status:{$in:['queued','publishing']}})
+    ]);
+    if(episodeCount>0&&!queuedPresentation&&!publishedPresentation){
+      incidents.push({
+        kind:'missing-synopsis',
+        target:seriesKey,
+        severity:'critical',
+        message:'Des épisodes sont prêts mais aucun synopsis général n’est prêt ou publié.',
+        seriesKey,episodeCount
+      });
+      if(repair){
+        await ensureGeneralPresentation(d,seriesKey);
+        const after=await queue.findOne({seriesKey,kind:'presentation',status:'queued',$or:[{episode:null},{episode:{$exists:false}}]},{projection:{_id:1}});
+        repairs.push({kind:'missing-synopsis',seriesKey,created:Boolean(after)});
+      }
+    }
+  }
+
+  const orderRows=await publications.aggregate([
+    {$match:{purgedAt:{$exists:false},seriesKey:{$type:'string'},kind:{$in:['presentation','episode']}}},
+    {$sort:{publishedAt:1,_id:1}},
+    {$group:{_id:'$seriesKey',rows:{$push:{kind:'$kind',season:'$season',episode:'$episode',publishedAt:'$publishedAt',telegramMessageId:'$telegramMessageId'}}}},
+    {$limit:100}
+  ]).toArray();
+
+  for(const series of orderRows){
+    const rows=series.rows||[];
+    const firstEpisode=rows.find(x=>x.kind==='episode');
+    const firstPresentation=rows.find(x=>x.kind==='presentation'&&(x.episode==null));
+    if(firstEpisode&&(!firstPresentation||new Date(firstPresentation.publishedAt||0)>new Date(firstEpisode.publishedAt||0))){
+      incidents.push({
+        kind:'synopsis-order',
+        target:String(series._id),
+        severity:'critical',
+        message:'Un épisode a été publié avant le synopsis général.',
+        seriesKey:String(series._id),
+        firstEpisode,
+        firstPresentation:firstPresentation||null
+      });
+    }
+
+    const lastBySeason=new Map();
+    for(const row of rows.filter(x=>x.kind==='episode'&&Number.isFinite(Number(x.episode)))){
+      const season=Number(row.season??1),episode=Number(row.episode);
+      const last=lastBySeason.get(season);
+      if(last!=null&&episode<last){
+        incidents.push({
+          kind:'episode-order',
+          target:String(series._id),
+          severity:'warning',
+          message:'Ordre décroissant détecté dans l’historique de publication.',
+          seriesKey:String(series._id),season,previousEpisode:last,episode
+        });
+        break;
+      }
+      lastBySeason.set(season,Math.max(last??-Infinity,episode));
+    }
+  }
+
+  if(scheduler?.gapDetected){
+    incidents.push({
+      kind:'episode-gap',
+      target:String(scheduler.gapDetected.seriesKey||activeSeriesKey||'anime'),
+      severity:'critical',
+      message:'La publication est volontairement bloquée car un épisode précédent manque.',
+      ...scheduler.gapDetected
+    });
+  }
+
+  const quarantineCount=await queue.countDocuments({status:'quarantine'});
+  if(quarantineCount>0){
+    incidents.push({
+      kind:'quarantine',
+      target:'anime-queue',
+      severity:quarantineCount>=10?'critical':'warning',
+      message:quarantineCount+' élément(s) sont en quarantaine.',
+      count:quarantineCount
+    });
+  }
+
+  await schedulerCollection.updateOne(
+    {_id:'supervisor'},
+    {$set:{
+      lastAuditAt:now,
+      source:String(source||'automation-supervisor'),
+      repairEnabled:repair===true,
+      incidentCount:incidents.length,
+      repairCount:repairs.length,
+      incidents:incidents.slice(0,100),
+      repairs:repairs.slice(0,100),
+      updatedAt:now
+    }},
+    {upsert:true}
+  );
+
+  return {
+    ok:incidents.every(x=>x.severity!=='critical'),
+    repaired:repair===true,
+    activeSeriesKey:activeSeriesKey||null,
+    incidents,
+    repairs,
+    quarantineCount,
+    auditedAt:now
+  };
+}
