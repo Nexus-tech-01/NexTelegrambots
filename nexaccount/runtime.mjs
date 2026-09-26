@@ -228,8 +228,9 @@ async function handleStyle(runtime,peer,args,inlineName=''){
     return;
   }
   await patchSettings(account.telegramUserId,{style:n});
-  const s=styles.find(x=>x.id===n);
-  await sendText(client,peer,'Style changé : '+s.name+' ('+n+').');
+  // Re-render immediately so a text command such as .style20 visibly applies
+  // the new theme/artwork without requiring a second .menu command.
+  return sendMenu(runtime,peer);
 }
 
 const LOCAL_OWNER_COMMANDS=new Set([
