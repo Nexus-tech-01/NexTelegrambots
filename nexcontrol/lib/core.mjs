@@ -4,13 +4,13 @@ import { MongoClient, ObjectId } from 'mongodb';
 let clientPromise, indexed = false;
 export const X = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const A = s => X(s).replace(/`/g, '&#96;');
-export const env = n => { const v = n==='MONGODB_URI' ? (process.env.MONGODB_URI || process.env.NEXUS_MONGODB_URI) : process.env[n]; if(!v) throw new Error(n==='MONGODB_URI' ? 'MONGODB_URI or NEXUS_MONGODB_URI missing' : `${n} missing`); return v; };
+export const env = n => { if(!process.env[n]) throw new Error(`${n} missing`); return process.env[n]; };
 const hash = s => crypto.createHash('sha256').update(s).digest('hex');
 const sign = s => crypto.createHmac('sha256', env('SESSION_SECRET')).update(s).digest('base64url');
 
 export async function db(){
   clientPromise ??= new MongoClient(env('MONGODB_URI')).connect();
-  const d = (await clientPromise).db(process.env.NEXCONTROL_DB_NAME || process.env.NEXUS_NEXCONTROL_DB_NAME || 'nexcontrol');
+  const d = (await clientPromise).db(process.env.NEXCONTROL_DB_NAME || 'nexcontrol');
   if(!indexed){
     indexed = true;
     await Promise.all([

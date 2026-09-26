@@ -13,9 +13,17 @@ NexControl est le centre de contrôle web de la flotte de bots Nextech. Il est c
 - Campagnes multi-bot immédiates ou programmées.
 - File de livraison : chaque bot récupère uniquement ses propres jobs.
 - Envoi de texte ou d'une image par URL avec légende.
-- Gestion du `retry_after` Telegram côté client bot et remise en file bornée côté serveur.
+- Gestion du `retry_after` Telegram côté client bot.
 - Authentification administrateur par cookie signé HttpOnly.
 - Clés bot individuelles stockées côté serveur uniquement sous forme de hash SHA-256 ; clé de flotte conservée uniquement dans les variables d’environnement.
+
+## Fichiers
+
+- `api/index.mjs` : dashboard + API administrateur + API des bots.
+- `bot-sdk/nexcontrol-client.mjs` : client à intégrer dans chaque bot Telegram.
+- `bot-sdk/telegraf-example.mjs` : exemple Telegraf.
+- `bot-sdk/node-telegram-bot-api-example.mjs` : exemple node-telegram-bot-api.
+- `vercel.json` : routage Vercel.
 
 ## Variables Vercel
 
@@ -29,13 +37,15 @@ NEXCONTROL_FLEET_KEY=une-cle-flotte-longue-et-aleatoire
 
 ## Déploiement
 
-Dans le dépôt `Nexus-tech-01/NexTelegrambots`, NexControl se trouve sur la branche `feature/nexcontrol-v1` dans le dossier `nexcontrol/`.
+Dans le dépôt `Nexus-tech-01/NexTelegrambots`, la V1 se trouve sur la branche `feature/nexcontrol-v1` dans le dossier `nexcontrol/`.
 
-Configuration Vercel :
+Pour Vercel, crée un projet avec :
 
 - Repository : `Nexus-tech-01/NexTelegrambots`
-- Branch : `feature/nexcontrol-v1`
+- Branch : `feature/nexcontrol-v1` pour le premier test
 - Root Directory : `nexcontrol`
+
+Ajoute ensuite les quatre variables ci-dessus.
 
 ## Connecter la flotte v61.07
 
@@ -50,4 +60,10 @@ Le launcher v61.07 enregistre automatiquement NexGame, NexCanal, NexDownloader, 
 
 ## Limitation Telegram importante
 
-Telegram Bot API ne fournit pas de méthode globale permettant de demander la liste complète des groupes où un bot est présent. NexControl construit donc son registre à partir des updates reçues et des IDs de chats déjà connus, puis vérifie chaque destination avec Telegram avant d'afficher si la publication est possible.
+Telegram Bot API ne fournit pas une méthode globale du genre « liste tous les groupes où ce bot est présent ». NexControl construit donc son registre à partir des updates que le bot reçoit et des IDs de chats déjà connus. Pour reprendre immédiatement les anciens groupes après installation, on peut aussi appeler :
+
+```js
+await control.syncChats(existingGroupAndChannelIds)
+```
+
+en récupérant ces IDs depuis la base actuelle du bot.
