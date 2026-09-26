@@ -29,6 +29,7 @@ const spamWindows=new Map();
 const commandDeduper=createCommandDeduper();
 const aiAutoWindows=new Map();
 let reconcilingRuntimes=false;
+let currentResponseAccountId='';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const ANIME_PRIMARY_PUBLISHER_ENABLED=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXANIME_PRIMARY_PUBLISHER_ENABLED||'').trim());
 const ANIME_PRIMARY_PUBLISHER_USERNAME=String(process.env.NEXANIME_PRIMARY_PUBLISHER_USERNAME||'').trim().replace(/^@/,'').toLowerCase();
@@ -86,7 +87,7 @@ async function sendText(client,peer,text){
   const value=String(text);
   if(cfg.botUsername){
     try{
-      const token=await putInlineResponse(value);
+      const token=await putInlineResponse(value,{accountId:currentResponseAccountId||''});
       return await sendInline(client,peer,'reply:'+token);
     }catch(error){
       console.warn('[NexAccount inline reply fallback]',String(error?.message||error).slice(0,250));
@@ -369,6 +370,7 @@ async function enforceCommandContext(runtime,event,cmd,displayName){
 
 async function handleCommand(runtime,event,parsed){
   const {client,account}=runtime;
+  currentResponseAccountId=String(account.telegramUserId||'');
   const peer=event.message.peerId;
   if(/^style\d+$/i.test(parsed.name))return handleStyle(runtime,peer,[],parsed.name);
   if(parsed.name==='style')return handleStyle(runtime,peer,parsed.args);
