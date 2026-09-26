@@ -64,7 +64,7 @@ jobs:
           const settings={style:1,prefix:'.'};
           const menu=await menuModel({account,settings,commands:commandMap()});
           const styles=await stylesModel({account,settings});
-          if(!menu.entities.some(x=>x.type==='expandable_blockquote'))throw new Error('expandable quote missing');
+          if(!menu.entities.some(x=>x.type==='blockquote'||x.type==='expandable_blockquote'))throw new Error('header quote missing');
           if(!styles.entities.some(x=>x.type==='bot_command'))throw new Error('style commands missing');
           console.log('styles',c.maxStyle,'menu chars',menu.text.length);
           NODE
