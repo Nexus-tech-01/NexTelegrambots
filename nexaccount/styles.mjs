@@ -190,11 +190,20 @@ async function directImage(url){
   const verified=await jpegUrl(candidate);
   if(verified)return cacheImage(url,verified);
 
-  // Some CDNs (notably Imgur) reject this server's validation request while
-  // Telegram can still fetch the public JPEG itself. For an explicit direct
-  // JPEG URL, let Telegram attempt it; inline-bot.mjs already falls back to
-  // the article result if Telegram rejects the photo.
-  if(/\.jpe?g(?:[?#].*)?$/i.test(candidate))return cacheImage(url,candidate);
+  // Dipper historically stores a few valid Catbox PNG/WebP artworks, while
+  // Telegram inline photo results require JPEG. Convert those known public
+  // Catbox assets through a read-only image proxy, then validate the JPEG
+  // before exposing it to Telegram. This avoids random dead Imgur fallbacks.
+  try{
+    const parsed=new URL(candidate);
+    if(parsed.hostname==='files.catbox.moe'&&/\.(?:png|webp)$/i.test(parsed.pathname)){
+      const source=encodeURIComponent(parsed.hostname+parsed.pathname+parsed.search);
+      for(const base of ['https://img.vxs.nl/','https://g.misakamoe.com/']){
+        const converted=await jpegUrl(base+'?url='+source+'&output=jpg&q=86');
+        if(converted)return cacheImage(url,converted);
+      }
+    }
+  }catch{}
 
   return cacheImage(url,'');
 }
