@@ -1,0 +1,19 @@
+[Unit]
+Description=NexGuard autonomous bot self-test and self-healing supervisor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/nex/current
+Environment=NEX_ROOT=/opt/nex/current
+Environment=NEXGUARD_CONFIG=/opt/nex/current/nexcontrol/guard/guard.config.json
+EnvironmentFile=-/etc/nex/nexguard.env
+ExecStart=/usr/bin/node /opt/nex/current/nexcontrol/guard/nexguard.mjs
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
