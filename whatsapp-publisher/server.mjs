@@ -129,18 +129,62 @@ async function telegramFileUrl(fileId){
   return `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${j.result.file_path}`;
 }
 
+function mediaMeta(name='',reportedType='',reportedMime=''){
+  const fileName=String(name||'').trim();
+  const lower=fileName.toLowerCase();
+  let type=String(reportedType||'document').toLowerCase();
+  let mimetype=String(reportedMime||'').toLowerCase();
+
+  // File extension is authoritative for files whose identity depends on it.
+  // Telegram often labels APKs as application/octet-stream; passing that to
+  // WhatsApp makes the client present the package as a generic BIN file.
+  if(lower.endsWith('.apk')){
+    type='document';
+    mimetype='application/vnd.android.package-archive';
+  }else if(lower.endsWith('.xapk')||lower.endsWith('.apks')||lower.endsWith('.apkm')){
+    type='document';
+    mimetype='application/zip';
+  }else if(/\.(?:jpe?g)$/i.test(lower)){
+    type='photo';
+    mimetype='image/jpeg';
+  }else if(lower.endsWith('.png')){
+    type='photo';
+    mimetype='image/png';
+  }else if(lower.endsWith('.webp')){
+    type='photo';
+    mimetype='image/webp';
+  }else if(lower.endsWith('.gif')){
+    type='animation';
+    mimetype='image/gif';
+  }else if(lower.endsWith('.mp4')){
+    if(type!=='document') type='video';
+    mimetype='video/mp4';
+  }else if(!mimetype){
+    mimetype=type==='photo'||type==='image'?'image/jpeg':
+      type==='video'||type==='animation'?'video/mp4':
+      type==='audio'||type==='voice'?'audio/mpeg':
+      'application/octet-stream';
+  }
+  return {fileName,type,mimetype};
+}
+
 function normalizeMedia(input){
   const arr = Array.isArray(input) ? input : (input ? [input] : []);
   return arr.map((m,i)=>{
     const rawLocal=String(m?.localPath||m?.local_path||'');
     const localPath=rawLocal&&path.resolve(rawLocal).startsWith('/var/lib/nex/tmp/internal-automation/')?path.resolve(rawLocal):'';
+    const meta=mediaMeta(
+      String(m?.fileName||m?.original_name||m?.filename||`media-${i+1}`),
+      String(m?.type||m?.media_type||'document'),
+      String(m?.mimetype||m?.mime_type||'')
+    );
     return {
-      type:String(m?.type||m?.media_type||'document').toLowerCase(),
+      type:meta.type,
       fileId:String(m?.fileId||m?.telegram_file_id||m?.telegramFileId||''),
       url:String(m?.url||''),
       localPath,
-      fileName:String(m?.fileName||m?.original_name||m?.filename||`media-${i+1}`),
-      mimetype:String(m?.mimetype||m?.mime_type||''),
+      fileName:meta.fileName,
+      mimetype:meta.mimetype,
       position:Number(m?.position??i),
     };
   }).filter(m=>m.fileId||m.url||m.localPath).sort((a,b)=>a.position-b.position);
@@ -386,12 +430,13 @@ async function sendOneMedia(jid,item,caption,contextInfo){
     if(!url) throw new Error('URL média introuvable');
     source={url};
   }
-  const type=String(item.type||'').toLowerCase();
+  const meta=mediaMeta(item.fileName,item.type,item.mimetype);
+  const type=meta.type;
   const ctx=contextInfo?{contextInfo}:{};
-  if(type==='photo'||type==='image') return socket.sendMessage(jid,{image:source,caption,...ctx});
-  if(type==='video'||type==='animation') return socket.sendMessage(jid,{video:source,caption,...ctx});
-  if(type==='audio'||type==='voice') return socket.sendMessage(jid,{audio:source,mimetype:item.mimetype||'audio/mpeg',...ctx});
-  return socket.sendMessage(jid,{document:source,mimetype:item.mimetype||'application/vnd.android.package-archive',fileName:item.fileName||'fichier',caption,...ctx});
+  if(type==='photo'||type==='image') return socket.sendMessage(jid,{image:source,caption,mimetype:meta.mimetype,...ctx});
+  if(type==='video'||type==='animation') return socket.sendMessage(jid,{video:source,caption,mimetype:meta.mimetype,...ctx});
+  if(type==='audio'||type==='voice') return socket.sendMessage(jid,{audio:source,mimetype:meta.mimetype,...ctx});
+  return socket.sendMessage(jid,{document:source,mimetype:meta.mimetype,fileName:meta.fileName||'fichier',caption,...ctx});
 }
 
 async function sendPublication(jid,destination,pub){
