@@ -21,6 +21,7 @@ import { routeEngineCommand } from './core/engine-router.mjs';
 import { animeBeginRebuild, animeDedupePublishedEpisodeVariants, animeDiscoverNow, animeIngestStatus, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
 import { sendBrandedText } from './response-ui.mjs';
+import { putInlineResponse } from './inline-response-store.mjs';
 
 const commands=commandMap();
 const runtimes=new Map();
@@ -82,7 +83,16 @@ function claimCommand(telegramUserId,message){
 }
 
 async function sendText(client,peer,text){
-  return sendBrandedText(client,peer,String(text));
+  const value=String(text);
+  if(cfg.botUsername){
+    try{
+      const token=putInlineResponse(value);
+      return await sendInline(client,peer,'reply:'+token);
+    }catch(error){
+      console.warn('[NexAccount inline reply fallback]',String(error?.message||error).slice(0,250));
+    }
+  }
+  return sendBrandedText(client,peer,value);
 }
 
 function ownerFormattingEntities(text){
