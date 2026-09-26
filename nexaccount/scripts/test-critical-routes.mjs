@@ -76,6 +76,7 @@ const secondaryAnimeSource=fs.readFileSync(path.join(ROOT,'anime-secondary-reade
 const daemonSource=fs.readFileSync(path.join(ROOT,'daemon.mjs'),'utf8');
 const downloadSource=fs.readFileSync(path.join(ROOT,'dipper-fallback.mjs'),'utf8');
 const stickerSource=fs.readFileSync(path.join(ROOT,'sticker-engine.mjs'),'utf8');
+const controlSource=fs.readFileSync(path.join(ROOT,'..','nexcontrol','api','index.mjs'),'utf8');
 
 for(const marker of [
   "if(parsed.name==='menu')return sendMenu(runtime,peer)",
@@ -98,6 +99,13 @@ if(!secondaryAnimeSource.includes("NEXANIME_SECONDARY_ENABLED"))errors.push('sec
 if(!secondaryAnimeSource.includes("reason:'disabled'"))errors.push('secondary-anime-disabled-state-missing');
 if(secondaryAnimeSource.includes("||'/home/container/.nexcontrol/nexcanal-reader-session.txt'"))errors.push('legacy-secondary-session-fallback-still-present');
 if(!cliSource.includes("case 'command-test':"))errors.push('live-command-diagnostic-cli-missing');
+if(!cliSource.includes("case 'group-smoke':"))errors.push('live-group-smoke-cli-missing');
+if(!daemonSource.includes("url.pathname==='/diagnostics/group'"))errors.push('live-group-smoke-http-route-missing');
+if(!controlSource.includes("u.pathname==='/api/nexaccount/engines'"))errors.push('nexcontrol-engine-diagnostic-route-missing');
+if(!controlSource.includes("u.pathname==='/api/nexaccount/diagnostics/menu'"))errors.push('nexcontrol-menu-diagnostic-route-missing');
+if(!controlSource.includes("u.pathname==='/api/nexaccount/diagnostics/command'"))errors.push('nexcontrol-command-diagnostic-route-missing');
+if(!controlSource.includes("u.pathname==='/api/nexaccount/diagnostics/group'"))errors.push('nexcontrol-group-diagnostic-route-missing');
+if(!controlSource.includes("['group-smoke',telegramUserId]"))errors.push('nexcontrol-group-smoke-cli-bridge-missing');
 if(!runtime.includes("out:true"))errors.push('diagnostic-command-not-self-authored');
 if(!runtime.includes("const {account}=runtime;"))errors.push('diagnostic-command-account-not-bound');
 if(!daemonSource.includes('NEXACCOUNT_STARTUP_SMOKE'))errors.push('startup-smoke-flag-missing');

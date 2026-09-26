@@ -173,6 +173,11 @@ async function route(req,res){
       if(!q.telegramUserId)return json(res,400,{ok:false,error:'telegramUserId required'});
       return json(res,200,await runtimeMenuProbe(q.telegramUserId,q.peer||'me'));
     }
+    if(req.method==='POST'&&url.pathname==='/diagnostics/group'){
+      const q=await body(req);
+      if(!q.telegramUserId)return json(res,400,{ok:false,error:'telegramUserId required'});
+      return json(res,200,await runtimeGroupSmoke(q.telegramUserId));
+    }
     if(req.method==='POST'&&url.pathname==='/settings'){
       const q=await body(req);
       if(!q.telegramUserId)return json(res,400,{ok:false,error:'telegramUserId required'});

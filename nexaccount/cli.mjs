@@ -5,12 +5,12 @@ const port=Number(process.env.NEXACCOUNT_PORT||(3491+workerIndex));
 const base='http://127.0.0.1:'+port;
 const controlKey=String(process.env.NEXACCOUNT_CONTROL_KEY||process.env.NEXCONTROL_FLEET_KEY||process.env.NEXACCOUNT_SESSION_KEY||process.env.NEXCONTROL_SESSION_SECRET||process.env.SESSION_SECRET||'').trim();
 
-async function call(method,path,payload){
+async function call(method,path,payload,timeoutMs=30000){
   const r=await fetch(base+path,{
     method,
     headers:{...(payload?{'content-type':'application/json'}:{}),...(controlKey?{'x-nexaccount-key':controlKey}:{})},
     body:payload?JSON.stringify(payload):undefined,
-    signal:AbortSignal.timeout(30000)
+    signal:AbortSignal.timeout(timeoutMs)
   });
   const text=await r.text();
   let data;try{data=JSON.parse(text)}catch{data={ok:false,error:text}}
@@ -47,6 +47,10 @@ try{
       if(!args[0]||!args[1])throw new Error('telegram user id and command text required');
       out=await call('POST','/diagnostics/command',{telegramUserId:args[0],text:args[1],peer:args[2]||'me'});
       break;
+    case 'group-smoke':
+      if(!args[0])throw new Error('telegram user id required');
+      out=await call('POST','/diagnostics/group',{telegramUserId:args[0]},120000);
+      break;
     case 'anime-status':out=await call('GET','/anime/status');break;
     case 'anime-discover':out=await call('POST','/anime/discover',{username:args[0]||''});break;
     case 'anime-retry':out=await call('POST','/anime/retry',{includeQuarantine:true,includeFailures:true});break;
@@ -73,7 +77,7 @@ try{
       out=await call('GET','/pair/status?id='+encodeURIComponent(args[0]));
       break;
     default:
-      throw new Error('usage: cli.mjs health|accounts|engines|menu-probe TELEGRAM_USER_ID [peer]|command-test TELEGRAM_USER_ID TEXT [peer]|anime-status|anime-discover [@username]|anime-retry|anime-rebuild [@username] [deadline]|public-key|secure ENVELOPE|pair-status ID');
+      throw new Error('usage: cli.mjs health|accounts|engines|menu-probe TELEGRAM_USER_ID [peer]|command-test TELEGRAM_USER_ID TEXT [peer]|group-smoke TELEGRAM_USER_ID|anime-status|anime-discover [@username]|anime-retry|anime-rebuild [@username] [deadline]|public-key|secure ENVELOPE|pair-status ID');
   }
   process.stdout.write(JSON.stringify(out));
 }catch(e){
