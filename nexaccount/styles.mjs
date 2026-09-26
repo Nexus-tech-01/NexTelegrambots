@@ -205,14 +205,17 @@ export async function resolveStyleImage(styleId,fallback=''){
   }
   if(fallback)urls.push(fallback);
 
-  // Keep inline answers fast: probe only a small randomized window in parallel.
-  // A broken image host must never hold the whole Telegram query for tens of seconds.
-  const candidates=urls.slice(0,4);
-  const resolved=await Promise.all(candidates.map(url=>directImage(url)));
-  for(let i=0;i<candidates.length;i++){
-    if(!resolved[i])continue;
-    if((s.images||[]).includes(candidates[i]))lastStyleImage.set(key,candidates[i]);
-    return resolved[i];
+  // Probe in small parallel batches instead of stopping after the first four.
+  // Several historical Dipper URLs are dead, so a valid image later in the
+  // style list must still be reachable without making the query serial/slow.
+  for(let start=0;start<urls.length;start+=4){
+    const candidates=urls.slice(start,start+4);
+    const resolved=await Promise.all(candidates.map(url=>directImage(url)));
+    for(let i=0;i<candidates.length;i++){
+      if(!resolved[i])continue;
+      if((s.images||[]).includes(candidates[i]))lastStyleImage.set(key,candidates[i]);
+      return resolved[i];
+    }
   }
   return '';
 }
