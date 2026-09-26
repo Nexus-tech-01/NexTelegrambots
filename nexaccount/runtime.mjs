@@ -31,10 +31,10 @@ const aiAutoWindows=new Map();
 let reconcilingRuntimes=false;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const ANIME_PRIMARY_PUBLISHER_ENABLED=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXANIME_PRIMARY_PUBLISHER_ENABLED||'').trim());
-const ANIME_PRIMARY_PUBLISHER_USERNAME=String(process.env.NEXANIME_PRIMARY_PUBLISHER_USERNAME||'tresor20001').trim().replace(/^@/,'').toLowerCase();
+const ANIME_PRIMARY_PUBLISHER_USERNAME=String(process.env.NEXANIME_PRIMARY_PUBLISHER_USERNAME||'').trim().replace(/^@/,'').toLowerCase();
 
 function isPrimaryAnimePublisher(account){
-  if(!ANIME_PRIMARY_PUBLISHER_ENABLED)return false;
+  if(!ANIME_PRIMARY_PUBLISHER_ENABLED||!ANIME_PRIMARY_PUBLISHER_USERNAME)return false;
   const username=String(account?.username||'').trim().replace(/^@/,'').toLowerCase();
   return Boolean(username&&username===ANIME_PRIMARY_PUBLISHER_USERNAME);
 }
