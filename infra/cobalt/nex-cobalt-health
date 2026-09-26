@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if ! curl -fsS --max-time 8 http://127.0.0.1:9000/ >/dev/null; then
+  docker restart nex-cobalt >/dev/null
+fi
