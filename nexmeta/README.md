@@ -232,6 +232,25 @@ The design follows **USE_SECRET, not READ_SECRET**:
 - OAuth state is one-time and expiring
 - pairing codes are one-time, hashed and expiring
 
+### Primary VPS persistent-browser mode
+
+On a dedicated VPS, run one persistent Chromium instance with a stable profile and
+DevTools bound to loopback (`127.0.0.1:9223`). Point the session agent, personal
+Messenger worker and Page worker at that same browser.
+
+Use separate supervised services for:
+
+- `nexmeta-session.service`
+- `nexmeta-bridge.service`
+- `nexmeta-personal-worker.service`
+- `nexmeta-page-worker.service`
+
+Set `NEXMETA_BROWSER_DEBUG_URL=http://127.0.0.1:9223` and
+`NEXMETA_PERSONAL_WATCHER=0` on the session service. The dedicated personal
+worker owns its own browser tab, while the Page worker owns separate Page tabs.
+Do not run a second all-in-one `nexmeta-runtime.service` beside these services:
+it duplicates the bridge/browser activity and can reintroduce navigation races.
+
 ## Deployment
 
 See:
