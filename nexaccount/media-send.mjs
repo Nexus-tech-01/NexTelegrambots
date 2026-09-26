@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { brandedText } from './response-ui.mjs';
 
 const MIME_BY_EXT={
   '.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp','.gif':'image/gif',
@@ -180,14 +181,19 @@ export async function sendTelegramMedia(client,peer,data,{
   await writeFile(filePath,media.buffer);
 
   try{
+    const branded=String(caption||'').length<=980?brandedText(caption||''):{text:String(caption||'').slice(0,1024),entities:[]};
+    const mergedEntities=[
+      ...(Array.isArray(formattingEntities)?formattingEntities:[]),
+      ...branded.entities
+    ];
     return await client.sendFile(peer,{
       file:filePath,
       fileName:media.fileName,
-      caption,
+      caption:branded.text,
       forceDocument:media.kind==='document',
       supportsStreaming:media.kind==='video'&&(media.mimeType==='video/mp4'||media.mimeType==='video/quicktime'),
       voiceNote:voiceNote===true&&media.kind==='audio',
-      formattingEntities,
+      formattingEntities:mergedEntities,
       buttons,
       replyTo,
       silent,
