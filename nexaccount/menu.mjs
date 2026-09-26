@@ -109,7 +109,12 @@ function themeCustomEmojiSpans(text,styleId,category=null){
   out.push(...emojiEntitySpans(text,glyph,emojiId('style_'+Number(styleId))));
   if(category){
     const catGlyph=FALLBACK_EMOJI[category];
-    out.push(...emojiEntitySpans(text,catGlyph,emojiId(CATEGORY_ICONS[category])));
+    // Telegram rejects overlapping MessageEntityCustomEmoji ranges. When the
+    // character theme and the category intentionally use the same glyph (for
+    // example Ruby + Anime = 🌸), keep the theme entity instead of stacking two.
+    if(catGlyph&&catGlyph!==glyph){
+      out.push(...emojiEntitySpans(text,catGlyph,emojiId(CATEGORY_ICONS[category])));
+    }
   }
   return out;
 }
