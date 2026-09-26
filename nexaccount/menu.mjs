@@ -136,7 +136,7 @@ function displayUser(account,settings){
   return full||localized(settings,'Utilisateur Telegram','Telegram User');
 }
 
-export async function menuModel({account,settings,commands,view='home',category=null}){
+export async function menuModel({account,settings,commands,view='home',category=null,includeArtwork=true}){
   const groups=commandsByCategory(commands);
   const style=await getStyle(settings.style||1);
   const owner=isOwnerId(account.telegramUserId);
@@ -205,9 +205,9 @@ export async function menuModel({account,settings,commands,view='home',category=
     text,
     entities:expandableEntities(text,spans,quoteRange,themeCustomEmojiSpans(text,style.id,view==='category'?category:null)),
     reply_markup:{inline_keyboard:buttons},
-    // Long category lists cannot fit in a Telegram photo caption. Keep artwork
-    // attached to home/styles and use a single full text message for categories.
-    photoUrl:view==='category'?'':await menuArtwork(settings,style.id)
+    // Artwork is a link preview above an editable text message, so categories
+    // keep the same image/header alignment without the 1024-char media-caption limit.
+    photoUrl:includeArtwork?await menuArtwork(settings,style.id):''
   };
 }
 
