@@ -167,7 +167,7 @@ async function modelFor(account,query){
   const q=rawQuery.toLowerCase();
   if(q.startsWith('reply:')){
     const token=rawQuery.slice('reply:'.length).trim();
-    const row=await getInlineResponse(token);
+    const row=await getInlineResponse(token,account.telegramUserId);
     return inlineReplyModel(row?.text||'Réponse expirée. Relance la commande.');
   }
   if(q==='styles'||q==='style')return stylesModel({account,settings});
