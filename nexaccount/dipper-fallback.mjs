@@ -156,6 +156,62 @@ async function youtubeVideo(input){
   ]);
   return {...result,target};
 }
+function waitMs(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
+
+function telegramMessageIsVideo(message){
+  const doc=message?.document||message?.media?.document||null;
+  const mime=String(doc?.mimeType||doc?.mime_type||'').toLowerCase();
+  if(mime.startsWith('video/'))return true;
+  const attrs=Array.isArray(doc?.attributes)?doc.attributes:[];
+  return attrs.some(a=>/DocumentAttributeVideo/i.test(String(a?.className||a?.constructor?.name||'')));
+}
+
+async function telegramTikTokRelay(client,peer,url){
+  const configured=String(process.env.NEXAI_TIKTOK_TELEGRAM_BOTS||'@ttgrab_bot,@SaveOFFbot,@ttiktok_downloader_bot')
+    .split(',').map(x=>x.trim()).filter(Boolean);
+  const errors=[];
+
+  for(const botName of configured){
+    let entity=null,sent=null;
+    const cleanupIds=[];
+    try{
+      entity=await client.getEntity(botName);
+      sent=await client.sendMessage(entity,{message:url});
+      if(sent?.id)cleanupIds.push(sent.id);
+
+      const deadline=Date.now()+35000;
+      while(Date.now()<deadline){
+        const rows=await client.getMessages(entity,{limit:20});
+        const list=Array.isArray(rows)?rows:[rows].filter(Boolean);
+        const fresh=list
+          .filter(m=>Number(m?.id||0)>Number(sent?.id||0)&&m?.out!==true)
+          .sort((a,b)=>Number(a.id||0)-Number(b.id||0));
+        for(const message of fresh){
+          if(message?.id&&!cleanupIds.includes(message.id))cleanupIds.push(message.id);
+          if(!telegramMessageIsVideo(message))continue;
+          const data=Buffer.from(await client.downloadMedia(message,{workers:1}));
+          if(!data.length)continue;
+          if(data.length>MAX_MEDIA_BYTES)throw new Error('média Telegram trop volumineux');
+          await sendTelegramMedia(client,peer,data,{
+            fileName:'tiktok.mp4',
+            mimeType:String(message?.document?.mimeType||message?.media?.document?.mimeType||'video/mp4'),
+            kind:'video',
+            caption:'NexAi · Download\nTikTok\nSource : '+botName+' · relais Telegram'
+          });
+          try{if(cleanupIds.length)await client.deleteMessages(entity,cleanupIds,{revoke:true})}catch{}
+          return {sent:true,title:'TikTok',source:botName};
+        }
+        await waitMs(1500);
+      }
+      throw new Error('aucune vidéo reçue en 35 s');
+    }catch(error){
+      errors.push(botName+': '+String(error?.message||error).replace(/\s+/g,' ').slice(-400));
+      try{if(entity&&cleanupIds.length)await client.deleteMessages(entity,cleanupIds,{revoke:true})}catch{}
+    }
+  }
+  throw new Error('relais Telegram indisponible · '+errors.join(' | '));
+}
+
 async function tiktokMedia(client,peer,url){
   if(!/tiktok\.com\//i.test(url))throw new Error('lien TikTok invalide');
 
@@ -198,9 +254,14 @@ async function tiktokMedia(client,peer,url){
       }]
     ]);
   }catch(apiError){
-    const local=String(localError?.message||localError||'inconnu').replace(/\s+/g,' ').slice(-700);
-    const remote=String(apiError?.message||apiError).replace(/\s+/g,' ').slice(-1200);
-    throw new Error('TikTok indisponible · yt-dlp local: '+local+' | '+remote);
+    try{
+      return await telegramTikTokRelay(client,peer,url);
+    }catch(relayError){
+      const local=String(localError?.message||localError||'inconnu').replace(/\s+/g,' ').slice(-500);
+      const remote=String(apiError?.message||apiError).replace(/\s+/g,' ').slice(-700);
+      const relay=String(relayError?.message||relayError).replace(/\s+/g,' ').slice(-900);
+      throw new Error('TikTok indisponible · local: '+local+' | API: '+remote+' | '+relay);
+    }
   }
 }
 async function instagramMedia(url){
