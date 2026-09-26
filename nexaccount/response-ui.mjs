@@ -8,7 +8,8 @@ export function brandedText(value,{signature=true}={}){
   const base=String(value??'');
   if(!signature||!cfg.nextechUrl)return {text:base,entities:[]};
   const label='By Nextech';
-  const text=base.replace(/\s+$/,'')+'\n\n'+label;
+  const cleanBase=base.replace(/\s+$/,'');
+  const text=(cleanBase?cleanBase+'\n\n':'')+label;
   const start=text.lastIndexOf(label);
   return {
     text,
