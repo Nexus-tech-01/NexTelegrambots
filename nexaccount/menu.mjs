@@ -75,7 +75,14 @@ async function menuArtwork(settings,styleId){
     const custom=await resolveInlinePhoto(bound);
     if(custom)return custom;
   }
-  return resolveStyleImage(styleId,'');
+  const themed=await resolveStyleImage(styleId,'');
+  if(themed)return themed;
+
+  // Historical Dipper styles 11–20 have no dedicated artwork in the source
+  // catalog. Never leave their menu blank: use the stable Dark/NexAI artwork
+  // until a style-specific image is configured.
+  if(Number(styleId)!==1)return resolveStyleImage(1,'');
+  return '';
 }
 
 export async function menuModel({account,settings,commands,view='home',category=null,page=0}){
