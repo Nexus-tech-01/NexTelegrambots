@@ -361,7 +361,7 @@ export async function stickerEngineDiagnostic({force=false}={}){
   return value;
 }
 
-export async function handleStickerCommand({runtime,event,name,args=[]}){
+export async function handleStickerCommand({runtime,event,name,args=[],progress:externalProgress=null}){
   const {client,account}=runtime,peer=event.message.peerId;
   const say=t=>client.sendMessage(peer,{message:String(t)});
 
@@ -391,7 +391,7 @@ export async function handleStickerCommand({runtime,event,name,args=[]}){
   }
 
   if(name==='exportwhatsapp'){
-    const progress=await startProgress(client,peer,'⏳ WhatsApp stickers · préparation du pack…');
+    const progress=externalProgress||await startProgress(client,peer,'⏳ WhatsApp stickers · préparation du pack…');
     const set=await sourceSet(client,source).catch(()=>null);
     const docs=(set?.documents?.length?set.documents:[documentOf(source)]).filter(Boolean).slice(0,Math.min(MAX_EXPORT,30));
     if(!docs.length)throw new Error('Aucun sticker à exporter.');
@@ -435,7 +435,8 @@ export async function handleStickerCommand({runtime,event,name,args=[]}){
       kind:'document',
       caption:'NexAi · WhatsApp stickers · '+Math.min(stickers.length,30)+' sticker(s)'+(skipped?' · '+skipped+' ignoré(s)':'')
     });
-    await progress.update('✅ WhatsApp stickers · pack prêt.');
+    if(typeof progress.done==='function')await progress.done('WhatsApp stickers · pack prêt');
+    else await progress.update('✅ WhatsApp stickers · pack prêt.');
     return true;
   }
 
@@ -445,7 +446,7 @@ export async function handleStickerCommand({runtime,event,name,args=[]}){
     const title=clean(args.join(' '))||automaticPackTitle(account);
     const newName=packName(account.telegramUserId,title);
     const docs=set.documents.slice(0,MAX_CLONE);
-    const progress=await startProgress(client,peer,'⏳ Clone pack · 0/'+docs.length+'…');
+    const progress=externalProgress||await startProgress(client,peer,'⏳ Clone pack · 0/'+docs.length+'…');
     let added=0;
     for(let i=0;i<docs.length;i++){
       try{
@@ -461,7 +462,8 @@ export async function handleStickerCommand({runtime,event,name,args=[]}){
     }
     if(!added)throw new Error('Aucun sticker du pack n’a pu être cloné.');
     await rememberPack(account.telegramUserId,{name:newName,title,link:packLink(newName),count:added,updatedAt:Date.now()});
-    await progress.update('✅ Pack cloné · '+added+' sticker(s)\n'+packLink(newName));
+    if(typeof progress.done==='function')await progress.done('Pack cloné · '+added+' sticker(s)\n'+packLink(newName));
+    else await progress.update('✅ Pack cloné · '+added+' sticker(s)\n'+packLink(newName));
     return true;
   }
 
