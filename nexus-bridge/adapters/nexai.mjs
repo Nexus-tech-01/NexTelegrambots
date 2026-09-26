@@ -41,7 +41,7 @@ const model = configuredModel;
 const providerReady = Boolean(apiUrl && model);
 const history = new Map();
 const HISTORY_TTL_MS = 20 * 60 * 1000;
-const MAX_HISTORY_MESSAGES = 12;
+const MAX_HISTORY_MESSAGES = 8;
 
 export const adapterManifest = Object.freeze({
   version: '1.0.0',
@@ -264,6 +264,26 @@ function productFromText(text) {
   ) || null;
 }
 
+const PLAN_INTENT_RE =
+  /(?:premium|pro\b|plus\b|business|agency|payant|payante|prix|tarif|co[uû]t|combien|stars?|abonnement|subscription|pricing|price|paid|cost|plans?)/i;
+
+const PLAN_DETAIL_RE =
+  /(?:d[ée]tail|avantages?|fonctions?|fonctionnalit[ée]s?|features?|inclut|compris|obtiens?|compare|comparaison|diff[ée]rence|limites?|quotas?)/i;
+
+function isPlanIntent(text) {
+  return PLAN_INTENT_RE.test(clean(text));
+}
+
+function isPlanDetailIntent(text) {
+  return PLAN_DETAIL_RE.test(clean(text));
+}
+
+function recentPlanContext(messages = []) {
+  return messages
+    .slice(-4)
+    .some(message => isPlanIntent(message?.content || ''));
+}
+
 function asksAboutNonPublic(text) {
   const value = clean(text).toLowerCase();
   return INTERNAL_OR_UNFINISHED.some(name => value.includes(name));
@@ -288,24 +308,53 @@ function productsSentence(language) {
     : 'Nextech\'s public Telegram products are:\n\n' + products;
 }
 
-function planSentence(product, language) {
+function planSentence(product, language, { detailed = false } = {}) {
   if (!product) {
     return language === 'fr'
-      ? 'Je peux te donner les offres d’un bot précis. Dis-moi lequel : NexCanal Manager, NexGroup Manager, NexDownloader, NexGame, NexStick, NexWhisper ou Stacy.'
-      : 'I can give you the plans for a specific bot. Tell me which one: NexCanal Manager, NexGroup Manager, NexDownloader, NexGame, NexStick, NexWhisper, or Stacy.';
+      ? 'Quel bot ? NexCanal, NexGroup, NexDownloader, NexGame, NexStick, NexWhisper ou Stacy.'
+      : 'Which bot? NexCanal, NexGroup, NexDownloader, NexGame, NexStick, NexWhisper, or Stacy.';
+  }
+
+  if (!detailed) {
+    const compact = {
+      nexcanal: {
+        fr: 'NexCanal Manager : Premium 750 Stars/30 jours, Business 1 500, Agency 3 500. Free : 1 canal.',
+        en: 'NexCanal Manager: Premium 750 Stars/30 days, Business 1,500, Agency 3,500. Free: 1 channel.'
+      },
+      nexgroup: {
+        fr: 'NexGroup Manager : Premium 299 Stars/30 jours, Pro 799. Free : jusqu’à 2 groupes.',
+        en: 'NexGroup Manager: Premium 299 Stars/30 days, Pro 799. Free: up to 2 groups.'
+      },
+      nexdownloader: {
+        fr: 'NexDownloader : Plus 200 Stars/30 jours, Pro 450. Une version Free est disponible.',
+        en: 'NexDownloader: Plus 200 Stars/30 days, Pro 450. A Free plan is available.'
+      },
+      nexgame: {
+        fr: 'NexGame : Premium 99 Stars/30 jours, 249/90 jours ou 799/365 jours.',
+        en: 'NexGame: Premium 99 Stars/30 days, 249/90 days, or 799/365 days.'
+      },
+      nexstick: {
+        fr: 'NexStick : Premium 100 Stars/30 jours. Free : 2 clonages/semaine et 14 exports WhatsApp/semaine.',
+        en: 'NexStick: Premium 100 Stars/30 days. Free: 2 clones/week and 14 WhatsApp exports/week.'
+      },
+      nexwhisper: {
+        fr: 'NexWhisper : Pro 25 Stars/30 jours.',
+        en: 'NexWhisper: Pro 25 Stars/30 days.'
+      },
+      stacy: {
+        fr: 'Stacy n’a pas de plan Premium public : elle est gratuite. Les cadeaux en Stars sont facultatifs et ne débloquent aucune fonction.',
+        en: 'Stacy has no public Premium plan: she is free. Stars gifts are optional and unlock no features.'
+      }
+    };
+
+    return compact[product.key]?.[language === 'fr' ? 'fr' : 'en'] || product.name;
   }
 
   const lines = PUBLIC_PLANS[product.key]?.[language === 'fr' ? 'fr' : 'en'] || [];
-
-  return [
-    product.name,
-    ...lines.map(line => '• ' + line),
-    '',
-    product.url
-  ].join('\n');
+  return [product.name, ...lines.map(line => '• ' + line)].join('\n');
 }
 
-function canonicalReply(text, language) {
+function canonicalReply(text, language, context = {}) {
   const value = clean(text);
 
   if (asksAboutNonPublic(value)) {
@@ -319,11 +368,11 @@ function canonicalReply(text, language) {
     return ownerSentence(language);
   }
 
-  const planIntent =
-    /(?:premium|pro\b|plus\b|business|agency|payant|payante|prix|tarif|co[uû]t|combien|stars?|abonnement|subscription|pricing|price|paid|cost|plans?)/i;
-
-  if (planIntent.test(value)) {
-    return planSentence(productFromText(value), language);
+  const product = productFromText(value);
+  if (isPlanIntent(value) || (context.planFollowUp && product)) {
+    return planSentence(product, language, {
+      detailed: isPlanDetailIntent(value)
+    });
   }
 
   const productIntent =
@@ -365,7 +414,7 @@ function systemPrompt(language) {
     'Ton rôle public est de présenter et recommander uniquement ces sept bots. ' +
     'Ne mentionne jamais spontanément les projets internes, privés ou inachevés. Si un utilisateur en nomme explicitement un, ne révèle aucun détail : dis seulement qu’il ne fait pas partie du catalogue public disponible, puis recentre vers une solution publique pertinente. ' +
     'Agis comme un conseiller produit et commercial très compétent, mais sans pression : commence par comprendre le besoin, puis recommande au maximum un ou deux produits qui répondent réellement à ce besoin. ' +
-    'Présente dans cet ordre : résultat concret pour la personne, fonctions utiles, raison pour laquelle le produit correspond à son besoin, puis lien officiel. ' +
+    'Présente dans cet ordre : résultat concret pour la personne, fonctions utiles, puis raison pour laquelle le produit correspond à son besoin. N’ajoute le lien officiel que si la personne le demande, veut essayer le produit ou si le lien est nécessaire pour agir. ' +
     'Ne transforme pas chaque réponse en publicité. Ne répète pas une offre refusée. N’utilise jamais de fausse urgence, de rareté inventée, de faux témoignage, de fausses réductions ou de promesse impossible. ' +
     'Ne commence pas une première présentation par le prix, sauf si la personne demande explicitement le prix, les plans, Premium/Pro/Plus/Business/Agency, un abonnement, ou si la fonction demandée nécessite réellement une offre payante. ' +
     'Présente Premium au bon moment : quand la personne manifeste une intention claire, demande une fonction avancée, atteint ou évoque une limite gratuite, veut un usage intensif, compare des offres, ou demande si le service est payant. ' +
@@ -377,7 +426,7 @@ function systemPrompt(language) {
     'Your public role is to present and recommend only these seven bots. ' +
     'Never proactively mention internal, private, or unfinished projects. If a user explicitly names one, reveal no internal detail: only say it is not part of the available public catalog, then redirect to a relevant public solution. ' +
     'Act as a highly capable product and sales advisor without pressure: understand the need first, then recommend at most one or two products that genuinely fit. ' +
-    'Present in this order: concrete outcome for the person, useful features, why the product matches the need, then the official link. ' +
+    'Present in this order: concrete outcome for the person, useful features, then why the product matches the need. Add the official link only if the person asks for it, wants to try the product, or the link is needed to act. ' +
     'Do not turn every answer into an ad. Do not repeat an offer after refusal. Never use fake urgency, invented scarcity, fake testimonials, fake discounts, or impossible promises. ' +
     'Do not lead a first introduction with price unless the person explicitly asks about price, plans, Premium/Pro/Plus/Business/Agency, a subscription, or the requested feature genuinely requires a paid offer. ' +
     'Introduce Premium at the right moment: when the person shows clear intent, asks for an advanced feature, reaches or discusses a free limit, needs intensive usage, compares offers, or asks whether the service is paid. ' +
@@ -391,7 +440,7 @@ function systemPrompt(language) {
     'Lorsque tu présentes Trésor HONTONNOU, n’écris jamais son pseudonyme entre parenthèses après son nom : utilise la formulation « plus connu sous le pseudonyme de ». ' +
     catalogFr + salesFr + ' ' +
     'N’invente jamais de cofondateur, de membre d’équipe, de nom de personne, de date, de rôle, de prix, de disponibilité, de site officiel ou de service client. ' +
-    'Réponds dans la langue de l’utilisateur, naturellement, clairement et une seule fois. ' +
+    'Réponds dans la langue de l’utilisateur, naturellement, clairement et une seule fois. Par défaut, fais court : 1 à 3 phrases, sans tableau Markdown, sans titre inutile et sans liste longue. Donne uniquement l’information demandée ; développe seulement si l’utilisateur demande plus de détails. ' +
     'N’invente jamais d’actions qui n’ont pas réellement été exécutées.';
 
   const identityEn =
@@ -400,7 +449,7 @@ function systemPrompt(language) {
     'When introducing Trésor HONTONNOU, never put the pseudonym in parentheses after the name; use the wording “better known by the pseudonym”. ' +
     catalogEn + salesEn + ' ' +
     'Never invent a cofounder, team member, person, date, role, price, availability, official website, or customer-support service. ' +
-    'Reply naturally, clearly, in the user’s language, and only once. ' +
+    'Reply naturally, clearly, in the user’s language, and only once. Keep the default reply short: 1 to 3 sentences, no Markdown tables, no unnecessary heading, and no long list. Give only what was asked; expand only when the user asks for more detail. ' +
     'Never claim an action happened unless it actually did.';
 
   const canonical = language === 'fr' ? identityFr : identityEn;
@@ -424,8 +473,8 @@ async function requestCompletion(messages) {
       messages,
       temperature: Number(process.env.NEXAI_TEMPERATURE || 0.7),
       max_tokens: Math.max(
-        128,
-        Math.min(4096, Number(process.env.NEXAI_MAX_TOKENS || 1200))
+        96,
+        Math.min(600, Number(process.env.NEXAI_MAX_TOKENS || 320))
       )
     }),
     signal: AbortSignal.timeout(
@@ -486,9 +535,11 @@ export async function handle(envelope) {
     };
   }
 
-  const canonical = canonicalReply(prompt, lang);
+  const previous = readHistory(envelope);
+  const canonical = canonicalReply(prompt, lang, {
+    planFollowUp: recentPlanContext(previous)
+  });
   if (canonical) {
-    const previous = readHistory(envelope);
     writeHistory(envelope, [
       ...previous,
       { role: 'user', content: prompt.slice(0, 12000) },
@@ -510,7 +561,6 @@ export async function handle(envelope) {
     };
   }
 
-  const previous = readHistory(envelope);
   const messages = [
     { role: 'system', content: systemPrompt(lang) },
     ...previous,
