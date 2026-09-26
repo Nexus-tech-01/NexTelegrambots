@@ -10,6 +10,7 @@ import { canHandleStickerCommand, handleStickerCommand } from './sticker-engine.
 import { canHandleAiCommand, handleAiCommand } from './ai-engine.mjs';
 import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
+import { commandMap } from './commands.mjs';
 import { createProgress } from './response-ui.mjs';
 
 const DL_MAP={
@@ -445,7 +446,33 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
   if(name==='stylelist'){await sendInline(client,peer,'styles');return true}
   if(name==='ping')return false;
-  if(name==='help'){await sendText(client,peer,'Utilise .menu pour parcourir toutes les catégories et commandes.');return true}
+  if(name==='help'){
+    const query=clean(args[0]).replace(/^\//,'').toLowerCase();
+    if(!query){
+      await sendText(client,peer,'Utilise /Menu pour parcourir les catégories. Pour les alias : /Help <commande>, par exemple /Help Clonepack.');
+      return true;
+    }
+    const registry=commandMap();
+    const found=registry.get(query);
+    if(!found){
+      await sendText(client,peer,'Commande inconnue : /'+query);
+      return true;
+    }
+    const canonical=found.aliasFor||found.name;
+    const base=registry.get(canonical)||found;
+    const aliases=[...registry.values()]
+      .filter(x=>x.hidden===true&&x.aliasFor===canonical)
+      .map(x=>'/'+x.name)
+      .sort((a,b)=>a.length-b.length||a.localeCompare(b))
+      .slice(0,24);
+    await sendText(client,peer,[
+      '/'+canonical,
+      base.description||'Commande NexAi',
+      'Catégorie : '+String(base.category||'MAIN'),
+      aliases.length?'Alias : '+aliases.join(' · '):'Alias : aucun'
+    ].join('\n'));
+    return true;
+  }
   if(name==='support'){await sendText(client,peer,'Support : https://t.me/tresor20001');return true}
   if(name==='repo'){await sendText(client,peer,'Nextech : https://github.com/Nexus-tech-01');return true}
 
