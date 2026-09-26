@@ -70,7 +70,13 @@ const REQUIRED_ALIAS_TARGETS={
   clone:'clonepack',take:'clonepack',packclone:'clonepack',
   newpack:'createpack',makepack:'createpack',
   wastickers:'exportwhatsapp',exportwa:'exportwhatsapp',
-  tr:'translate',qrcode:'qr',shorten:'tinyurl'
+  tr:'translate',qrcode:'qr',shorten:'tinyurl',
+  music:'song',yta:'song',ytv:'video',mp4:'video',get:'download',
+  me:'account',profile:'account',lang:'language',setprefix:'prefix',
+  all:'tagall',htag:'hidetag',makeadmin:'promote',unadmin:'demote',
+  nolink:'antilink',nospam:'antispam',
+  webshot:'ssweb',upload:'tourl',viewonce:'vv',
+  ani:'animeinfo',ep:'episode',eps:'episodes',recanime:'recommendanime'
 };
 for(const [alias,target] of Object.entries(REQUIRED_ALIAS_TARGETS)){
   const cmd=commands.get(alias);
