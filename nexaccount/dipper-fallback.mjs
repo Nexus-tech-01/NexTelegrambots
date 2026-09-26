@@ -534,7 +534,7 @@ async function localSocialFiles(url,label='Media',onProgress=null){
   try{
     for(const args of variants){
       try{
-        const out=await runYtDlp(args);
+        const out=await runYtDlp(args,180000,onProgress);
         const printed=out.stdout.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
         paths=[...new Set(printed.filter(p=>fs.existsSync(p)))];
         if(!paths.length){
