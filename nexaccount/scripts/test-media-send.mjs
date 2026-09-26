@@ -68,6 +68,8 @@ const fakeClient={
     assert.equal(peer,'peer');
     assert.equal(body.compare(png),0);
     assert.equal(options.forceDocument,false);
+    assert.equal(options.caption,'By Nextech');
+    assert.equal(options.formattingEntities.length,1,'media caption must contain the clickable Nextech text-link entity');
     return {ok:true,file:options.file};
   }
 };
