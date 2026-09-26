@@ -46,6 +46,8 @@ jobs:
         run: node nexaccount/scripts/test-wastickers.mjs
       - name: TGS decoder regression
         run: node nexaccount/scripts/test-tgs-renderer.mjs
+      - name: Alias parser regression
+        run: node nexaccount/scripts/test-alias-parser.mjs
       - name: Menu resilience regression
         run: node nexaccount/scripts/test-menu-resilience.mjs
       - name: Critical public routes regression
