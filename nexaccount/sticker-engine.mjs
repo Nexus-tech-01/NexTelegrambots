@@ -185,15 +185,31 @@ async function startProgress(client,peer,text){
     }
   };
 }
-async function whatsappStaticWebp(source){
+async function whatsappStickerWebp(source){
   const mime=String(source?.mime||'').toLowerCase();
   if(mime.includes('tgsticker')||mime.includes('x-tgsticker')){
-    throw new Error('sticker TGS non convertible sans moteur Lottie');
+    throw new Error('sticker TGS ignoré : conversion Lottie indisponible');
   }
-  const input=tmp(mime.includes('webm')?'webm':mime.includes('video')?'mp4':mime.includes('png')?'png':mime.includes('webp')?'webp':'jpg');
+  const animated=mime.includes('webm')||mime.startsWith('video/');
+  const input=tmp(mime.includes('webm')?'webm':animated?'mp4':mime.includes('png')?'png':mime.includes('webp')?'webp':'jpg');
   const output=tmp('webp');
   fs.writeFileSync(input,source.buffer);
   try{
+    if(animated){
+      for(const fps of [20,15,12]){
+        for(const quality of [62,50,40,32,24]){
+          await exec(FFMPEG,[
+            '-hide_banner','-loglevel','error','-y','-i',input,'-t','6',
+            '-vf',"fps="+fps+",scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba",
+            '-an','-loop','0','-c:v','libwebp','-lossless','0','-compression_level','6','-q:v',String(quality),output
+          ]);
+          const b=fs.readFileSync(output);
+          if(b.length<=500*1024)return {buffer:b,animated:true};
+        }
+      }
+      throw new Error('sticker animé WhatsApp > 500 Ko après optimisation');
+    }
+
     for(const quality of [72,58,44,30,20]){
       await exec(FFMPEG,[
         '-hide_banner','-loglevel','error','-y','-i',input,
@@ -201,11 +217,12 @@ async function whatsappStaticWebp(source){
         '-frames:v','1','-c:v','libwebp','-lossless','0','-compression_level','6','-q:v',String(quality),output
       ]);
       const b=fs.readFileSync(output);
-      if(b.length<=100*1024)return b;
+      if(b.length<=100*1024)return {buffer:b,animated:false};
     }
     throw new Error('sticker WhatsApp > 100 Ko après optimisation');
   }finally{cleanup(input,output)}
 }
+
 async function whatsappTray(webp){
   const input=tmp('webp'),output=tmp('png');
   fs.writeFileSync(input,webp);
@@ -401,7 +418,7 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
     for(let i=0;i<docs.length;i++){
       try{
         const raw=await downloadDocument(client,docs[i]);
-        const webp=await whatsappStaticWebp(raw);
+        const webp=await whatsappStickerWebp(raw);
         stickers.push(webp);
       }catch(error){
         skipped++;
@@ -412,8 +429,8 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
       }
     }
     if(!stickers.length)throw new Error('Aucun sticker du pack n’a pu être converti pour WhatsApp.');
-    while(stickers.length<3)stickers.push(Buffer.from(stickers[0]));
-    const tray=await whatsappTray(stickers[0]);
+    while(stickers.length<3)stickers.push({buffer:Buffer.from(stickers[0].buffer),animated:stickers[0].animated===true});
+    const tray=await whatsappTray(stickers[0].buffer);
 
     const title=clean(set?.set?.title)||automaticPackTitle(account);
     const author=accountDisplayName(account);
@@ -422,9 +439,9 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
       {name:'author.txt',data:Buffer.from(author,'utf8')},
       {name:'tray.png',data:tray}
     ];
-    stickers.slice(0,30).forEach((data,i)=>files.push({
+    stickers.slice(0,30).forEach((item,i)=>files.push({
       name:'sticker_'+String(i+1).padStart(2,'0')+'.webp',
-      data
+      data:item.buffer
     }));
     const pack=makeZip(files);
     const safe=safeBase(title,48)||'nexai-pack';
@@ -433,7 +450,7 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
       fileName:safe+'.wastickers',
       mimeType:'application/zip',
       kind:'document',
-      caption:'NexAi · WhatsApp stickers · '+Math.min(stickers.length,30)+' sticker(s)'+(skipped?' · '+skipped+' ignoré(s)':'')
+      caption:'NexAi · WhatsApp stickers · '+Math.min(stickers.length,30)+' sticker(s) · '+stickers.filter(x=>x.animated).length+' animé(s)'+(skipped?' · '+skipped+' ignoré(s)':'')
     });
     if(typeof progress.done==='function')await progress.done('WhatsApp stickers · pack prêt');
     else await progress.update('✅ WhatsApp stickers · pack prêt.');
