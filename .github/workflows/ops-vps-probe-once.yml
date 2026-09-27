@@ -12,9 +12,16 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Read VPS runtime state
+      - name: Start VPS server
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-restart-once"
+      - name: Wait for boot
+        run: sleep 18
+      - name: Verify VPS runtime state
         shell: bash
         run: |
           set -euo pipefail
