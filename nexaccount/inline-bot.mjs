@@ -271,7 +271,7 @@ async function sendModelMessage(ctx,model,accountId){
   const attempts=[
     ['text-rich',model.text,model.entities.filter(e=>e.offset+e.length<=4096),preview,rich],
     ['text-portable-buttons',model.text,model.entities.filter(e=>e.offset+e.length<=4096),preview,plain],
-    ['text-no-emoji',noEmoji.text,noEmoji.entities,{is_disabled:true},plain]
+    ['text-no-artwork',noEmoji.text,noEmoji.entities,{is_disabled:true},plain]
   ];
 
   for(const [kind,messageText,entities,link_preview_options,reply_markup] of attempts){
@@ -309,7 +309,7 @@ async function editInline(ctx,model,accountId,{replaceMedia=false}={}){
   const textAttempts=[
     ['rich',model.text,rich,model.entities.filter(e=>e.offset+e.length<=4096),preview],
     ['portable-buttons',model.text,portableMarkup(rich),model.entities.filter(e=>e.offset+e.length<=4096),preview],
-    ['no-emoji',noEmoji.text,portableMarkup(rich),noEmoji.entities,{is_disabled:true}]
+    ['no-artwork',noEmoji.text,portableMarkup(rich),noEmoji.entities,{is_disabled:true}]
   ];
   for(const [kind,messageText,reply_markup,entities,link_preview_options] of textAttempts){
     try{
