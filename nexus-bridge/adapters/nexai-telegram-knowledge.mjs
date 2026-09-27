@@ -25,13 +25,23 @@ async function loadLiveTelegramRegistry() {
       const commands = module.commandMap();
       if (!(commands instanceof Map) || commands.size < 1) continue;
 
-      const stats = typeof module.commandStats === 'function'
+      const rawStats = typeof module.commandStats === 'function'
         ? module.commandStats(commands)
-        : {
-            tokens: commands.size,
-            canonical: [...commands.values()].filter(command => !command?.hidden).length,
-            aliases: [...commands.values()].filter(command => command?.aliasFor).length
-          };
+        : {};
+
+      const canonicalNames = new Set(
+        [...commands.values()]
+          .map(command => clean(command?.aliasFor || command?.name))
+          .filter(Boolean)
+      );
+
+      const stats = {
+        ...rawStats,
+        tokens: Number(rawStats?.tokens) || commands.size,
+        canonical: Number(rawStats?.canonical) || canonicalNames.size,
+        aliases: Number(rawStats?.aliases) ||
+          [...commands.values()].filter(command => command?.aliasFor).length
+      };
 
       const byCategory = typeof module.commandsByCategory === 'function'
         ? module.commandsByCategory(commands)
