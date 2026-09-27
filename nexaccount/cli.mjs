@@ -53,6 +53,7 @@ try{
       break;
     case 'anime-status':out=await call('GET','/anime/status');break;
     case 'anime-discover':out=await call('POST','/anime/discover',{username:args[0]||''});break;
+    case 'anime-publish-now':out=await call('POST','/anime/publish-now',{username:args[0]||''},180000);break;
     case 'anime-retry':out=await call('POST','/anime/retry',{includeQuarantine:true,includeFailures:true});break;
     case 'anime-dedupe':out=await call('POST','/anime/dedupe',{username:args.find(x=>!x.startsWith('--'))||'',execute:args.includes('--execute')},300000);break;
     case 'anime-rebuild':out=await call('POST','/anime/rebuild',{username:args[0]||'',deadline:args[1]||null});break;
@@ -78,7 +79,7 @@ try{
       out=await call('GET','/pair/status?id='+encodeURIComponent(args[0]));
       break;
     default:
-      throw new Error('usage: cli.mjs health|accounts|engines|menu-probe TELEGRAM_USER_ID [peer]|command-test TELEGRAM_USER_ID TEXT [peer]|group-smoke TELEGRAM_USER_ID|anime-status|anime-discover [@username]|anime-retry|anime-dedupe [@username] [--execute]|anime-rebuild [@username] [deadline]|public-key|secure ENVELOPE|pair-status ID');
+      throw new Error('usage: cli.mjs health|accounts|engines|menu-probe TELEGRAM_USER_ID [peer]|command-test TELEGRAM_USER_ID TEXT [peer]|group-smoke TELEGRAM_USER_ID|anime-status|anime-discover [@username]|anime-publish-now [@username]|anime-retry|anime-dedupe [@username] [--execute]|anime-rebuild [@username] [deadline]|public-key|secure ENVELOPE|pair-status ID');
   }
   process.stdout.write(JSON.stringify(out));
 }catch(e){
