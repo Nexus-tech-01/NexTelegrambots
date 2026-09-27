@@ -52,6 +52,12 @@ async function loadHostEnvironment(){
 }
 
 await loadHostEnvironment();
+const productionMode=process.argv.includes('--production');
+if(productionMode){
+  // The main VPS must always run the full command runtime. A stale host-level
+  // pairing-only flag from the legacy bridge must never silence every account.
+  process.env.NEXACCOUNT_PAIRING_ONLY='false';
+}
 const stateDir=path.resolve(here,'.runtime');
 const workerIndex=Math.max(0,Number(process.env.NEXACCOUNT_WORKER_INDEX||0));
 const workerSuffix=workerIndex===0?'':'-worker-'+workerIndex;
