@@ -77,6 +77,42 @@ assert.ok(hidden.flatMap(x=>x.entities).every(e=>e instanceof Api.InputMessageEn
 assert.equal(hidden.reduce((n,x)=>n+x.entities.length,0),130,'hidetag must mention every member');
 assert.ok(hidden.every(x=>!x.text.includes('User')),'hidetag must not expose member names');
 
+{
+  const sent=[];
+  const deleted=[];
+  const source={id:42,message:'Message original à republier',entities:[]};
+  const client={
+    getParticipants:async()=>people,
+    getMessages:async()=>[source],
+    getInputEntity:async user=>{
+      const u=typeof user==='object'&&user?.id?user:people.find(p=>String(p.id)===String(user))||people[0];
+      return new Api.InputPeerUser({userId:u.id,accessHash:u.accessHash});
+    },
+    sendMessage:async(_peer,payload)=>{
+      sent.push({text:String(payload.message||''),entities:payload.formattingEntities||[]});
+      return payload;
+    },
+    deleteMessages:async(_peer,ids,options)=>{
+      deleted.push({ids:[...ids],options});
+      return true;
+    }
+  };
+  const runtime={client,account:{telegramUserId:'999999999'}};
+  const event={message:{id:99,peerId:'peer',replyTo:{replyToMsgId:42}}};
+  const handled=await handleCompatCommand({
+    runtime,event,name:'hidetag',args:[],cmd:{engine:'group'},
+    sendText:async(_client,_peer,text)=>sent.push({text:String(text),entities:[]}),
+    sendInline:async()=>{}
+  });
+  assert.equal(handled,true,'reply hidetag must be handled');
+  assert.equal(sent.length,3,'reply hidetag must preserve chunking for all members');
+  assert.ok(sent.every(x=>x.text.startsWith(source.message)),'reply hidetag must resend the replied message');
+  assert.equal(sent.reduce((n,x)=>n+x.entities.filter(e=>e instanceof Api.InputMessageEntityMentionName).length,0),130,'reply hidetag must keep all mentions hidden');
+  assert.deepEqual(deleted.map(x=>x.ids),[[99]],'reply hidetag must delete the command message');
+}
+assert.match(compatSource,/sendHiddenTaggedCopy\(client,peer,list,source\)/,'hidetag replies must use the replied-message copy path');
+assert.match(compatSource,/signature:false/,'hidetag media copies must not append Nextech branding');
+
 const admins=await run('tagadmin');
 assert.equal(admins.reduce((n,x)=>n+x.entities.length,0),3,'tagadmin must mention admins only');
 
