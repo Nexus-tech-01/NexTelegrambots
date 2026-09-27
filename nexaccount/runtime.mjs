@@ -20,7 +20,7 @@ import { createRuntimeContext, clearRuntimeTimers } from './core/runtime-context
 import { routeEngineCommand } from './core/engine-router.mjs';
 import { animeBeginRebuild, animeDedupePublishedEpisodeVariants, animeDiscoverNow, animeIngestStatus, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
-import { sendBrandedText } from './response-ui.mjs';
+import { ensurePremiumEmojiPalette, sendBrandedText } from './response-ui.mjs';
 import { putInlineResponse } from './inline-response-store.mjs';
 
 const commands=commandMap();
@@ -915,6 +915,12 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
   });
   runtime.setPresenceEnabled=enabled=>configurePresence(runtime,enabled);
   runtimes.set(id,runtime);
+
+  if(account.premium===true){
+    ensurePremiumEmojiPalette(client,id,{premium:true}).catch(error=>{
+      console.warn('[NexAccount premium-emoji]',id,String(error?.message||error).slice(0,220));
+    });
+  }
 
   client.addEventHandler(async event=>{
     markRuntimeUpdate(runtime);
