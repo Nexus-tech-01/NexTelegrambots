@@ -754,6 +754,44 @@ async function enqueueCandidate(runtime,entity,message,c,{mode='live'}={}){
   const dedupeKey=c.kind==='episode'?releaseKey(c):presentationKey(c);
   const priority=mode==='live'?1000:100;
   const seriesKey=norm(c.title);
+
+  // Verified per-season limits are durable ingestion guards. They are only
+  // populated after an external season identity/count has been verified.
+  // This prevents a stale/misclassified source post (for example a bogus E17
+  // on an 8-episode season) from recreating the same scheduler gap on rescan.
+  if(c.kind==='episode'&&Number.isFinite(Number(c.episode))){
+    const season=Number(c.season??1);
+    const constraint=await d.collection('nexanime_series_constraints').findOne({
+      seriesKey,season,enabled:{$ne:false}
+    });
+    const maxEpisode=Number(constraint?.maxEpisode||0);
+    if(maxEpisode>0&&Number(c.episode)>maxEpisode){
+      await d.collection('nexanime_queue').updateOne(
+        {dedupeKey},
+        {
+          $setOnInsert:{
+            dedupeKey,kind:c.kind,seriesKey,title:c.title,season,episode:c.episode,
+            language:c.language||'',quality:c.quality||'',destination:'@'+DESTINATION,
+            mode,createdAt:now,attempts:0
+          },
+          $set:{
+            status:'rejected',
+            rejectionReason:'episode_exceeds_verified_season_count',
+            verifiedMaxEpisode:maxEpisode,
+            updatedAt:now
+          },
+          $max:{priority},
+          $addToSet:{sources:source},
+          $unset:{claimAt:'',claimBy:'',lastError:'',quarantineReason:''}
+        },
+        {upsert:true}
+      );
+      runtime.animeIngest ??={};
+      runtime.animeIngest.rejected=(runtime.animeIngest.rejected||0)+1;
+      return dedupeKey;
+    }
+  }
+
   const payload={
     dedupeKey,status:'queued',kind:c.kind,seriesKey,title:c.title,anilistId:c.anilistId??null,ingestedAt:now,
     season:c.season??null,episode:c.episode??null,language:c.language||'',
