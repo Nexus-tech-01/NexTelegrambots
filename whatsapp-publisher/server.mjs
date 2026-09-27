@@ -53,7 +53,7 @@ let processing = false;
 let lastPairRequestAt = 0;
 let pairingResetInProgress = false;
 let commandEngine = null;
-const MENU_IMAGE_B64_PATH = path.join(DATA_DIR,'nexai-menu.jpg.b64');
+const MENU_IMAGE_B64_PATH = path.join(DATA_DIR,'assets','nexai-menu.b64');
 
 async function resetAuthForPairing(){
   if(pairingResetInProgress) throw new Error('Une préparation de connexion WhatsApp est déjà en cours.');
@@ -333,7 +333,7 @@ async function connectWhatsApp({freshPairing=false}={}){
       if(!jid) return false;
       // Ignore only the initial encrypted backlog. Live private chats must stay
       // available because NexAI commands are intentionally usable in DM too.
-      if(Date.now()-socketStartedAt<45000) return true;
+      if(!registered && Date.now()-socketStartedAt<45000) return true;
       return /@broadcast$/.test(jid);
     },
     generateHighQualityLinkPreview:true,
@@ -343,15 +343,6 @@ async function connectWhatsApp({freshPairing=false}={}){
   socket=sock;
 
   sock.ev.on('creds.update',saveCreds);
-  attachWhatsAppCommandEngine(sock,{
-    state,
-    dataDir:DATA_DIR,
-    menuImageB64Path:path.join(DATA_DIR,'assets','nexai-menu.b64'),
-    getNewsletterInfo:()=>({
-      jid:state.channelJid||PRESENTATION_NEWSLETTER_JID,
-      name:state.channelTitle||'Nextech',
-    }),
-  });
   try{commandEngine?.detach?.();}catch{}
   commandEngine=attachWhatsAppCommandEngine(sock,{
     state,
