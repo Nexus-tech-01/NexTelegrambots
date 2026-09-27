@@ -7,11 +7,13 @@ function discoverRuntimePort(){
   const explicit=Number(process.env.NEXACCOUNT_PORT||0);
   if(Number.isInteger(explicit)&&explicit>0&&explicit<65536)return explicit;
   try{
-    for(const pid of fs.readdirSync('/proc').filter(x=>/^\\d+$/.test(x))){
+    const numeric=x=>x&&[...x].every(ch=>ch>='0'&&ch<='9');
+    for(const pid of fs.readdirSync('/proc').filter(numeric)){
       try{
-        const cmd=fs.readFileSync('/proc/'+pid+'/cmdline','utf8').replace(/\\0/g,' ');
-        if(!/(?:\\/nexai\\/current|\\/nexaccount)\\/daemon\\.mjs(?:\\s|$)/.test(cmd))continue;
-        const env=fs.readFileSync('/proc/'+pid+'/environ','utf8').split('\\0');
+        const zero=String.fromCharCode(0);
+        const cmd=fs.readFileSync('/proc/'+pid+'/cmdline').toString().split(zero).join(' ');
+        if(!cmd.includes('/nexai/current/daemon.mjs')&&!cmd.includes('/nexaccount/daemon.mjs'))continue;
+        const env=fs.readFileSync('/proc/'+pid+'/environ').toString().split(zero);
         const row=env.find(x=>x.startsWith('NEXACCOUNT_PORT='));
         const found=Number(row?.slice('NEXACCOUNT_PORT='.length)||0);
         if(Number.isInteger(found)&&found>0&&found<65536)return found;
