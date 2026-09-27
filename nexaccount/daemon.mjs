@@ -12,6 +12,7 @@ import { animeRetryQueue, animeSystemStatus } from './anime-ingest.mjs';
 import { secondaryAnimeStatus, startSecondaryAnimeReader, stopSecondaryAnimeReader } from './anime-secondary-reader.mjs';
 
 assertCoreConfig();
+const PAIRING_ONLY=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXACCOUNT_PAIRING_ONLY||'').trim());
 
 function json(res,status,data){
   const body=JSON.stringify(data);
@@ -33,6 +34,11 @@ async function body(req){
 }
 
 async function onPaired(client,account){
+  if(PAIRING_ONLY){
+    console.log('[NexAccount pairing-only] saved account '+String(account?.telegramUserId||'')+' for the production runtime');
+    try{await client.disconnect()}catch{}
+    return;
+  }
   if(!(await loadBotToken())){
     try{
       const made=await ensureNexAiBot(client,account);
@@ -109,6 +115,7 @@ async function route(req,res){
         botUsername:cfg.botUsername||null,
         worker:{id:cfg.workerId,index:cfg.workerIndex,count:cfg.workerCount,capacity:cfg.maxRuntimesPerWorker},
         runtimeCount:runtimes.length,
+        pairingOnly:PAIRING_ONLY,
         secondaryAnime:secondaryAnimeStatus()
       });
     }
@@ -216,33 +223,37 @@ async function route(req,res){
 
 const server=http.createServer((req,res)=>route(req,res));
 server.listen(cfg.port,cfg.host,async()=>{
-  console.log('[NexAccount] local control http://'+cfg.host+':'+cfg.port);
-  if(cfg.coordinator)await startInlineBot().catch(e=>console.error('[NexAI bot]',e));
-  const loaded=await loadSavedRuntimes().catch(e=>{console.error('[NexAccount restore]',e);return[]});
-  if(cfg.coordinator)await startSecondaryAnimeReader().catch(e=>console.error('[NexAnime secondary]',e));
-  console.log('[NexAccount] worker '+cfg.workerIndex+'/'+cfg.workerCount+(cfg.coordinator?' · coordinator':'')+' restored '+loaded.length+' account(s), capacity '+cfg.maxRuntimesPerWorker);
-  await runStartupSmoke().catch(error=>console.error('[NexAccount startup-smoke]',String(error?.message||error)));
+  console.log('[NexAccount] local control http://'+cfg.host+':'+cfg.port+(PAIRING_ONLY?' · pairing-only':''));
+  if(cfg.coordinator&&!PAIRING_ONLY)await startInlineBot().catch(e=>console.error('[NexAI bot]',e));
+  const loaded=PAIRING_ONLY
+    ?[]
+    :await loadSavedRuntimes().catch(e=>{console.error('[NexAccount restore]',e);return[]});
+  if(cfg.coordinator&&!PAIRING_ONLY)await startSecondaryAnimeReader().catch(e=>console.error('[NexAnime secondary]',e));
+  console.log('[NexAccount] worker '+cfg.workerIndex+'/'+cfg.workerCount+(cfg.coordinator?' · coordinator':'')+(PAIRING_ONLY?' · pairing-only':'')+' restored '+loaded.length+' account(s), capacity '+cfg.maxRuntimesPerWorker);
+  if(!PAIRING_ONLY)await runStartupSmoke().catch(error=>console.error('[NexAccount startup-smoke]',String(error?.message||error)));
 });
 
-const reconcile=setInterval(()=>reconcileRuntimes().catch(e=>console.error('[NexAccount reconcile]',e)),cfg.reconcileMs);
-reconcile.unref();
+const reconcile=PAIRING_ONLY
+  ?null
+  :setInterval(()=>reconcileRuntimes().catch(e=>console.error('[NexAccount reconcile]',e)),cfg.reconcileMs);
+reconcile?.unref?.();
 
 const cleanup=setInterval(()=>cleanupPairings().catch(e=>console.error('[NexAccount pairing cleanup]',e)),60000);
 cleanup.unref();
 
-if(cfg.coordinator)ensureAnalyticsIndex({maxAgeMs:0,waitForFirst:false}).catch(e=>console.error('[NexAI analytics]',e));
-const analyticsRefresh=cfg.coordinator
+if(cfg.coordinator&&!PAIRING_ONLY)ensureAnalyticsIndex({maxAgeMs:0,waitForFirst:false}).catch(e=>console.error('[NexAI analytics]',e));
+const analyticsRefresh=cfg.coordinator&&!PAIRING_ONLY
   ? setInterval(()=>ensureAnalyticsIndex({maxAgeMs:0,waitForFirst:false}).catch(e=>console.error('[NexAI analytics]',e)),5*60*1000)
   : null;
 analyticsRefresh?.unref?.();
 
 async function shutdown(){
   clearInterval(cleanup);
-  clearInterval(reconcile);
+  if(reconcile)clearInterval(reconcile);
   if(analyticsRefresh)clearInterval(analyticsRefresh);
   try{server.close()}catch{}
-  if(cfg.coordinator)await stopInlineBot();
-  if(cfg.coordinator)await stopSecondaryAnimeReader().catch(()=>{});
+  if(cfg.coordinator&&!PAIRING_ONLY)await stopInlineBot();
+  if(cfg.coordinator&&!PAIRING_ONLY)await stopSecondaryAnimeReader().catch(()=>{});
   await stopRuntimes();
   await closeStore();
   process.exit(0);
