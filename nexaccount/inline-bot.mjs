@@ -2,7 +2,7 @@ import { Bot, InputFile } from 'grammy';
 import { cfg, isOwnerId } from './config.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { commandMap } from './commands.mjs';
-import { accountRecord, settingsFor, patchSettings } from './store.mjs';
+import { accountRecord, settingsFor, patchSettings, saveSharedBotIdentity } from './store.mjs';
 import { menuModel, stylesModel } from './menu.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { getInlineResponse } from './inline-response-store.mjs';
@@ -729,7 +729,11 @@ export async function startInlineBot(){
   await syncTelegramCommandMenu(bot).catch(e=>console.error('[NexAI commands]',String(e?.description||e?.message||e)));
   bot.start({drop_pending_updates:false}).catch(e=>console.error('[NexAI start]',e));
   const me=await bot.api.getMe();
-  cfg.botUsername=cfg.botUsername||me.username;
+  cfg.botUsername=String(me.username||cfg.botUsername||'').replace(/^@/,'');
+  await saveSharedBotIdentity({
+    username:cfg.botUsername,
+    telegramBotId:String(me.id||'')
+  }).catch(error=>console.warn('[NexAI bot identity] persist_failed',String(error?.message||error).slice(0,180)));
   console.log('[NexAccount] inline bot @'+me.username+' online');
   return bot;
 }

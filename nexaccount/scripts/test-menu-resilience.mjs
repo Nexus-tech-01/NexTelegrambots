@@ -103,8 +103,10 @@ assert.ok(!runtimeSource.includes('Le menu inline est temporairement indisponibl
 assert.match(runtimeSource,/import \{ menuModel, stylesModel \} from '\.\/menu\.mjs';/,'runtime must import styles fallback model');
 assert.match(runtimeSource,/\[NexAccount styles\].*inline:failed/s,'style selector must log inline failures');
 assert.match(runtimeSource,/stylesModel\(\{account,settings\}\)/,'style selector must fall back to a direct styles model');
-assert.match(runtimeSource,/resolveBotUsername\(\)/,'runtime must resolve the inline bot identity on every worker');
-assert.match(runtimeSource,/resolveBotUsername\(\{refresh:true\}\)/,'inline transport must refresh a stale bot username before degrading');
+assert.match(runtimeSource,/runtimeBotUsername\(\)/,'runtime must resolve the inline bot identity on every worker');
+assert.match(runtimeSource,/runtimeBotUsername\(\{refresh:true\}\)/,'inline transport must refresh a stale bot username before degrading');
+assert.match(runtimeSource,/sharedBotIdentity\(\)/,'runtime workers must be able to recover the NexAI bot identity from shared storage');
+assert.match(inlineSource,/saveSharedBotIdentity/,'the coordinator must persist the verified NexAI bot identity for other workers');
 assert.match(secretsSource,/api\.telegram\.org\/bot.*\/getMe/,'bot username resolver must verify identity through Telegram getMe');
 assert.match(pairingSource,/Command: menu/,'new accounts must be instructed to use bare menu');
 assert.match(pairingSource,/Commande : menu/,'French pairing instructions must use bare menu');

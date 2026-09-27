@@ -5,7 +5,7 @@ import { NewMessage } from 'teleproto/events/index.js';
 import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { cfg, isOwnerId } from './config.mjs';
 import { commandMap } from './commands.mjs';
-import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, claimCommandDelivery, disableAccount, enableAccount, listAccountsForWorker, patchSettings, releaseRuntimeLease, renewRuntimeLease, settingsFor } from './store.mjs';
+import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, claimCommandDelivery, disableAccount, enableAccount, listAccountsForWorker, patchSettings, releaseRuntimeLease, renewRuntimeLease, settingsFor, sharedBotIdentity } from './store.mjs';
 import { listStyles } from './styles.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { recordEvent } from './analytics.mjs';
@@ -266,9 +266,25 @@ async function sendCreator(runtime,peer){
   }
 }
 
+async function runtimeBotUsername({refresh=false}={}){
+  // The coordinator persists the verified inline-bot identity in Mongo so
+  // workers running in separate processes/containers do not depend on a local
+  // token file or an in-memory cfg.botUsername value.
+  try{
+    const shared=await sharedBotIdentity();
+    if(shared?.username){
+      cfg.botUsername=shared.username;
+      return shared.username;
+    }
+  }catch(error){
+    console.warn('[NexAccount bot identity] shared_lookup_failed',String(error?.message||error).slice(0,180));
+  }
+  return resolveBotUsername({refresh});
+}
+
 async function sendInline(client,peer,query){
   const inputPeer=await client.getInputEntity(peer);
-  let botUsername=await resolveBotUsername();
+  let botUsername=await runtimeBotUsername();
   if(!botUsername)throw new Error('NEXAI_BOT_USERNAME/NEXAI_BOT_TOKEN non configuré');
   const errors=[];
   // Telegram uses random_id as the idempotency key for message sends.
@@ -296,7 +312,7 @@ async function sendInline(client,peer,query){
       // A stale/missing username is recoverable from the bot token. Refresh it
       // before falling back to a plain-text menu.
       if(attempt===0){
-        const refreshed=await resolveBotUsername({refresh:true}).catch(()=> '');
+        const refreshed=await runtimeBotUsername({refresh:true}).catch(()=> '');
         if(refreshed)botUsername=refreshed;
       }
 
@@ -1019,7 +1035,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
   // Warm the shared NexAI bot identity for every runtime worker so the first
   // "menu" command of a newly connected account does not fall through to the
   // text-only emergency renderer.
-  await resolveBotUsername().catch(error=>{
+  await runtimeBotUsername().catch(error=>{
     console.warn('[NexAccount bot identity]',id,String(error?.message||error).slice(0,180));
   });
   try{
