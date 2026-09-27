@@ -212,6 +212,24 @@ export async function acquireRuntimeLease(telegramUserId,workerId=cfg.workerId,t
   }
 }
 
+function workerIdentity(value){
+  const raw=String(value||'');
+  const at=raw.lastIndexOf(':');
+  if(at<1)return {host:raw,pid:0};
+  return {host:raw.slice(0,at),pid:Number(raw.slice(at+1))||0};
+}
+
+function deadPreviousWorkerOnSameHost(previousOwner,currentOwner){
+  const previous=workerIdentity(previousOwner),current=workerIdentity(currentOwner);
+  if(!previous.host||previous.host!==current.host||!previous.pid||previous.pid===current.pid)return false;
+  try{
+    process.kill(previous.pid,0);
+    return false;
+  }catch{
+    return true;
+  }
+}
+
 export async function acquireSessionLease(fingerprint,telegramUserId,workerId=cfg.workerId,ttlMs=cfg.runtimeLeaseMs){
   const key=String(fingerprint||'').trim().toLowerCase();
   const id=String(telegramUserId||'');
@@ -219,14 +237,38 @@ export async function acquireSessionLease(fingerprint,telegramUserId,workerId=cf
   if(!/^[a-f0-9]{64}$/.test(key)||!id)return false;
   const d=await db(),now=new Date(),expiresAt=new Date(Date.now()+ttlMs);
   const leases=d.collection('nexaccount_session_leases');
-  const filter={_id:key,$or:[
-    {workerId:owner,telegramUserId:id},
-    {expiresAt:{$lte:now}},
-    {expiresAt:{$exists:false}}
-  ]};
   const set={$set:{workerId:owner,telegramUserId:id,expiresAt,updatedAt:now}};
-  const updated=await leases.updateOne(filter,set);
+
+  // Fast path for the current owner or an expired/unowned lease.
+  const updated=await leases.updateOne(
+    {_id:key,$or:[
+      {workerId:owner,telegramUserId:id},
+      {expiresAt:{$lte:now}},
+      {expiresAt:{$exists:false}}
+    ]},
+    set
+  );
   if(updated.matchedCount===1)return true;
+
+  const existing=await leases.findOne({_id:key},{projection:{workerId:1,telegramUserId:1,expiresAt:1}});
+  if(existing){
+    // A supervised restart changes only the PID portion of cfg.workerId.
+    // Reclaim immediately only when the previous owner belongs to the same
+    // host, the same Telegram account, and that previous local PID is dead.
+    // A live same-host process or any different host must retain the lease.
+    if(
+      String(existing.telegramUserId||'')===id&&
+      deadPreviousWorkerOnSameHost(existing.workerId,owner)
+    ){
+      const reclaimed=await leases.updateOne(
+        {_id:key,workerId:String(existing.workerId||''),telegramUserId:id},
+        set
+      );
+      return reclaimed.matchedCount===1;
+    }
+    return false;
+  }
+
   try{
     await leases.insertOne({_id:key,workerId:owner,telegramUserId:id,expiresAt,updatedAt:now,createdAt:now});
     return true;
