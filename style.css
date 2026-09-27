@@ -271,3 +271,8 @@ body.menu-open .menu-toggle span:nth-child(3){transform:translateY(-5.6px) rotat
 body.menu-open{overflow:hidden}
 @media(max-width:640px){.side-menu-head{height:68px;flex-basis:68px;padding-left:64px}.top-left{gap:10px}.menu-toggle{width:34px;height:34px;border-radius:11px}.menu-toggle span{width:16px}.side-menu{width:min(390px,94vw)}}
 @media(prefers-reduced-motion:reduce){.side-menu,.menu-backdrop,.section-panel,.menu-reveal,.menu-toggle span,.section-chevron{transition-duration:.001ms!important}}
+
+.menu-close{position:absolute;z-index:5;left:clamp(18px,4vw,56px);top:20px;width:38px;height:38px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.04);display:grid;place-content:center;padding:0;opacity:0;transform:scale(.85) rotate(-18deg);transition:opacity .25s .14s,transform .38s .08s cubic-bezier(.16,1,.3,1),background .2s}
+.menu-layer.open .menu-close{opacity:1;transform:none}.menu-close:hover{background:rgba(255,255,255,.075)}
+.menu-close span{position:absolute;left:10px;top:17px;width:17px;height:1.6px;border-radius:99px;background:#d7e0eb}.menu-close span:first-child{transform:rotate(45deg)}.menu-close span:last-child{transform:rotate(-45deg)}
+@media(max-width:640px){.menu-close{left:15px;top:17px;width:34px;height:34px;border-radius:11px}.menu-close span{left:9px;top:15px;width:16px}}

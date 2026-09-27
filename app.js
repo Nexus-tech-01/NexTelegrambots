@@ -325,6 +325,7 @@ function startup(){
 
 $('menuToggle').addEventListener('click',()=>setMenu(!document.body.classList.contains('menu-open')));
 $('menuBackdrop').addEventListener('click',()=>setMenu(false));
+$('menuClose').addEventListener('click',()=>setMenu(false));
 document.querySelectorAll('[data-menu-section]').forEach(trigger=>trigger.addEventListener('click',()=>toggleSection(trigger.dataset.menuSection)));
 document.querySelectorAll('.side-menu a[target="_blank"]').forEach(link=>link.addEventListener('click',()=>setMenu(false)));
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.body.classList.contains('menu-open'))setMenu(false)});
