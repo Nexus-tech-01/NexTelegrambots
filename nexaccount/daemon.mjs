@@ -37,7 +37,7 @@ async function onPaired(client,account){
   if(PAIRING_ONLY){
     console.log('[NexAccount pairing-only] saved account '+String(account?.telegramUserId||'')+' for the production runtime');
     try{await client.disconnect()}catch{}
-    return;
+    return true;
   }
   if(!(await loadBotToken())){
     try{
@@ -50,7 +50,9 @@ async function onPaired(client,account){
       console.error('[NexAccount BotFactory]',String(e?.message||e));
     }
   }
-  await attachConnectedClient(client,account);
+  const runtime=await attachConnectedClient(client,account);
+  if(!runtime)throw new Error('RUNTIME_HANDOFF_BUSY');
+  return true;
 }
 
 setPairingConnectedHandler(onPaired);
