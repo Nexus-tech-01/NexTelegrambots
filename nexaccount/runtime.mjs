@@ -104,17 +104,28 @@ async function startEmbeddedLiteApkScanner(runtime){
       expectedUsername:LITEAPK_SCANNER_USERNAME
     }));
     runtime.liteApksScannerPromise=promise;
+    runtime.liteApksScannerStartedAt=new Date();
+    runtime.liteApksScannerLastError='';
     promise.then(()=>{
       if(runtime.liteApksScannerPromise===promise){
         runtime.liteApksScannerPromise=null;
         runtime.liteApksScannerAbort=null;
       }
+      if(controller.signal.aborted)return;
+      runtime.liteApksScannerExitCount=Number(runtime.liteApksScannerExitCount||0)+1;
+      runtime.liteApksScannerLastExitAt=new Date();
+      runtime.liteApksScannerLastError='embedded_scanner_exited';
+      console.warn('[NexAccount LiteAPK]',String(runtime.account.telegramUserId),'embedded scanner exited unexpectedly; reconcile will restart it');
     }).catch(async error=>{
       if(runtime.liteApksScannerPromise===promise){
         runtime.liteApksScannerPromise=null;
         runtime.liteApksScannerAbort=null;
       }
-      console.error('[NexAccount LiteAPK]',String(runtime.account.telegramUserId),telegramRuntimeErrorText(error).slice(0,500));
+      if(controller.signal.aborted)return;
+      runtime.liteApksScannerExitCount=Number(runtime.liteApksScannerExitCount||0)+1;
+      runtime.liteApksScannerLastExitAt=new Date();
+      runtime.liteApksScannerLastError=telegramRuntimeErrorText(error).slice(0,500);
+      console.error('[NexAccount LiteAPK]',String(runtime.account.telegramUserId),runtime.liteApksScannerLastError);
       if(isAuthKeyDuplicatedError(error))await quarantineAuthKeyDuplicated(runtime,error,'liteapk-embedded').catch(()=>{});
     });
     console.log('[NexAccount LiteAPK] embedded scanner started @'+username);
@@ -1532,6 +1543,57 @@ export async function reconnectRuntime(telegramUserId){
   return connectSavedAccount({telegramUserId:id});
 }
 
+async function reconcileRuntimeAutomations(){
+  const repaired=[];
+  const now=Date.now();
+  for(const [id,runtime] of runtimes.entries()){
+    if(runtime?.sessionInvalidated===true||runtime?.client?.connected!==true)continue;
+
+    const username=String(runtime.account?.username||'').trim().replace(/^@/,'').toLowerCase();
+    if(username===LITEAPK_SCANNER_USERNAME){
+      if(runtime.liteApksScannerPromise){
+        const started=Date.parse(String(runtime.liteApksScannerStartedAt||''));
+        if(Number.isFinite(started)&&now-started>=10*60*1000&&Number(runtime.liteApksScannerExitCount||0)>0){
+          runtime.liteApksScannerExitCount=0;
+        }
+      }else{
+        const exits=Math.max(0,Number(runtime.liteApksScannerExitCount||0));
+        const backoffMs=Math.min(5*60*1000,Math.max(5000,5000*Math.pow(2,Math.min(exits,6))));
+        const lastExit=Date.parse(String(runtime.liteApksScannerLastExitAt||''));
+        const lastAttempt=Date.parse(String(runtime.liteApksScannerLastRestartAttemptAt||''));
+        const since=Math.max(Number.isFinite(lastExit)?lastExit:0,Number.isFinite(lastAttempt)?lastAttempt:0);
+        if(!since||now-since>=backoffMs){
+          runtime.liteApksScannerLastRestartAttemptAt=new Date();
+          const ok=await startEmbeddedLiteApkScanner(runtime).catch(error=>{
+            runtime.liteApksScannerLastError=telegramRuntimeErrorText(error).slice(0,500);
+            return false;
+          });
+          if(ok){
+            repaired.push({telegramUserId:id,username,automation:'liteapks'});
+            console.log('[NexAccount reconcile]',id,'restarted embedded LiteAPK scanner');
+          }
+        }
+      }
+    }
+
+    if(runtime.animeIngest?.enabled!==true){
+      const lastAttempt=Date.parse(String(runtime.animeIngestRestartAttemptAt||''));
+      if(!Number.isFinite(lastAttempt)||now-lastAttempt>=60*1000){
+        runtime.animeIngestRestartAttemptAt=new Date();
+        const ok=await startAnimeIngest(runtime).catch(error=>{
+          console.error('[NexAccount reconcile]',id,'anime restart failed',String(error?.message||error).slice(0,400));
+          return false;
+        });
+        if(ok){
+          repaired.push({telegramUserId:id,username,automation:'anime'});
+          console.log('[NexAccount reconcile]',id,'restarted anime ingest');
+        }
+      }
+    }
+  }
+  return repaired;
+}
+
 export async function reconcileRuntimes(){
   if(reconcilingRuntimes)return [];
   reconcilingRuntimes=true;
@@ -1539,8 +1601,9 @@ export async function reconcileRuntimes(){
     for(const id of [...runtimes.keys()]){
       if(cfg.workerCount>1&&!accountAssignedToWorker(id))await detachRuntime(id);
     }
+    const repaired=await reconcileRuntimeAutomations();
     const capacity=Math.max(0,cfg.maxRuntimesPerWorker-runtimes.size);
-    if(capacity<=0)return [];
+    if(capacity<=0)return repaired;
     const accounts=await listAccountsForWorker({limit:Math.max(cfg.maxRuntimesPerWorker,cfg.maxRuntimesPerWorker*2)});
     const pending=accounts.filter(a=>!runtimes.has(String(a.telegramUserId))).slice(0,capacity);
     const loaded=[];
@@ -1559,7 +1622,7 @@ export async function reconcileRuntimes(){
       }
     });
     await Promise.all(workers);
-    return loaded;
+    return [...repaired,...loaded];
   }finally{
     reconcilingRuntimes=false;
   }
@@ -1896,7 +1959,11 @@ export function runtimeStatus(){
     liteApks:{
       scanner:String(r.account?.username||'').trim().replace(/^@/,'').toLowerCase()===LITEAPK_SCANNER_USERNAME,
       running:Boolean(r.liteApksScannerPromise),
-      startedAt:r.liteApksScannerStartedAt||null
+      startedAt:r.liteApksScannerStartedAt||null,
+      exitCount:Number(r.liteApksScannerExitCount||0),
+      lastExitAt:r.liteApksScannerLastExitAt||null,
+      lastRestartAttemptAt:r.liteApksScannerLastRestartAttemptAt||null,
+      lastError:r.liteApksScannerLastError||''
     }
   }));
 }
