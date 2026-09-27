@@ -52,6 +52,7 @@ async function quarantineAuthKeyDuplicated(runtime,error,source='runtime'){
   runtime.authKeyQuarantinePromise=(async()=>{
     console.error('[NexAccount session]',id,'AUTH_KEY_DUPLICATED; disabling saved session source='+source,telegramRuntimeErrorText(error).slice(0,240));
     clearRuntimeTimers(runtime);
+    await stopEmbeddedLiteApkScanner(runtime).catch(()=>{});
     await stopAnimeIngest(runtime).catch(()=>{});
     try{await runtime.client?.disconnect?.()}catch{}
     runtimes.delete(id);
@@ -67,6 +68,58 @@ function isPrimaryAnimePublisher(account){
   if(!ANIME_PRIMARY_PUBLISHER_ENABLED||!ANIME_PRIMARY_PUBLISHER_USERNAME)return false;
   const username=String(account?.username||'').trim().replace(/^@/,'').toLowerCase();
   return Boolean(username&&username===ANIME_PRIMARY_PUBLISHER_USERNAME);
+}
+
+
+const LITEAPK_SCANNER_USERNAME=String(process.env.NEXCANAL__WATCHER_EXPECTED_USERNAME||'tresor20009').trim().replace(/^@/,'').toLowerCase();
+
+async function stopEmbeddedLiteApkScanner(runtime){
+  if(!runtime)return;
+  try{runtime.liteApksScannerAbort?.abort?.()}catch{}
+  const running=runtime.liteApksScannerPromise;
+  runtime.liteApksScannerAbort=null;
+  runtime.liteApksScannerPromise=null;
+  runtime.liteApksScannerStartedAt=null;
+  if(running){
+    await Promise.race([
+      Promise.resolve(running).catch(()=>null),
+      sleep(2500)
+    ]).catch(()=>{});
+  }
+}
+
+async function startEmbeddedLiteApkScanner(runtime){
+  if(!runtime?.client||!runtime?.account)return false;
+  const username=String(runtime.account.username||'').trim().replace(/^@/,'').toLowerCase();
+  if(!LITEAPK_SCANNER_USERNAME||username!==LITEAPK_SCANNER_USERNAME)return false;
+  if(runtime.liteApksScannerPromise)return true;
+  try{
+    const mod=await import('./automation/liteapks-relay.mjs');
+    if(typeof mod.startEmbeddedLiteApksRelay!=='function')throw new Error('embedded_liteapks_entry_missing');
+    const controller=new AbortController();
+    runtime.liteApksScannerAbort=controller;
+    runtime.liteApksScannerStartedAt=new Date();
+    const promise=Promise.resolve(mod.startEmbeddedLiteApksRelay(runtime.client,{signal:controller.signal}));
+    runtime.liteApksScannerPromise=promise;
+    promise.then(()=>{
+      if(runtime.liteApksScannerPromise===promise){
+        runtime.liteApksScannerPromise=null;
+        runtime.liteApksScannerAbort=null;
+      }
+    }).catch(async error=>{
+      if(runtime.liteApksScannerPromise===promise){
+        runtime.liteApksScannerPromise=null;
+        runtime.liteApksScannerAbort=null;
+      }
+      console.error('[NexAccount LiteAPK]',String(runtime.account.telegramUserId),telegramRuntimeErrorText(error).slice(0,500));
+      if(isAuthKeyDuplicatedError(error))await quarantineAuthKeyDuplicated(runtime,error,'liteapk-embedded').catch(()=>{});
+    });
+    console.log('[NexAccount LiteAPK] embedded scanner started @'+username);
+    return true;
+  }catch(error){
+    console.error('[NexAccount LiteAPK] start failed @'+username,String(error?.message||error).slice(0,500));
+    return false;
+  }
 }
 
 function randomLong(){
@@ -1142,6 +1195,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false,ses
   if(runtimes.has(id)){
     const old=runtimes.get(id);
     clearRuntimeTimers(old);
+    await stopEmbeddedLiteApkScanner(old).catch(()=>{});
     await stopAnimeIngest(old).catch(()=>{});
     try{await old.client.disconnect()}catch{}
     if(old.sessionFingerprint&&old.sessionFingerprint!==fingerprint){
@@ -1236,6 +1290,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false,ses
   });
 
   await startAnimeIngest(runtime).catch(e=>console.error('[NexAnime start]',id,String(e?.message||e)));
+  await startEmbeddedLiteApkScanner(runtime).catch(e=>console.error('[NexAccount LiteAPK start]',id,String(e?.message||e)));
 
   runAutoJoin(runtime).catch(()=>{});
   runtime.autoJoinTimer=setInterval(()=>runAutoJoin(runtime).catch(()=>{}),30*60*1000);
@@ -1281,6 +1336,7 @@ export async function detachRuntime(telegramUserId,{releaseLease=true}={}){
   const runtime=runtimes.get(id);
   if(runtime){
     clearRuntimeTimers(runtime);
+    await stopEmbeddedLiteApkScanner(runtime).catch(()=>{});
     await stopAnimeIngest(runtime).catch(()=>{});
     try{await runtime.client.disconnect()}catch{}
     runtimes.delete(id);
@@ -1653,13 +1709,19 @@ export function runtimeStatus(){
     lastCommandPollAt:r.lastCommandPollAt,
     commandPollFailures:r.commandPollFailures||0,
     workerId:cfg.workerId,
-    anime:animeIngestStatus(r)
+    anime:animeIngestStatus(r),
+    liteApks:{
+      scanner:String(r.account?.username||'').trim().replace(/^@/,'').toLowerCase()===LITEAPK_SCANNER_USERNAME,
+      running:Boolean(r.liteApksScannerPromise),
+      startedAt:r.liteApksScannerStartedAt||null
+    }
   }));
 }
 
 export async function stopRuntimes(){
   for(const [id,r] of runtimes.entries()){
     clearRuntimeTimers(r);
+    await stopEmbeddedLiteApkScanner(r).catch(()=>{});
     await stopAnimeIngest(r).catch(()=>{});
     try{await r.client.disconnect()}catch{}
     await releaseRuntimeLease(id).catch(()=>{});
