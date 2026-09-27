@@ -84,7 +84,7 @@ function connectMarkup(lang){
     inline_keyboard:[[
       {
         text:lang==='en'?'Open Mini App':'Ouvrir la Mini App',
-        web_app:{url:cfg.connectUrl}
+        web_app:{url:'https://nex-telegrambots.vercel.app/'}
       }
     ]]
   };
