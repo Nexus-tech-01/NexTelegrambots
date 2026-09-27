@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { Api, TelegramClient } from 'teleproto';
 import { StringSession } from 'teleproto/sessions/index.js';
 import { cfg } from './config.mjs';
-import { deletePairingState, pairingStateRecord, saveAccount, savePairingState } from './store.mjs';
+import { deletePairingState, enableAccount, pairingStateRecord, saveAccount, savePairingState } from './store.mjs';
 
 const pending=new Map();
 let defaultOnConnected=null;
@@ -124,7 +124,8 @@ async function finishPairing(state,user){
   const saved=await saveAccount({
     me,
     session:client.session.save(),
-    phone:state.phone
+    phone:state.phone,
+    enabled:false
   });
 
   state.stage='connected';
@@ -137,7 +138,11 @@ async function finishPairing(state,user){
   // personal engine is active after the account is actually ready to handle
   // commands.
   const handler=state.onConnected||defaultOnConnected;
-  await handler?.(client,saved);
+  const handoffResult=await handler?.(client,saved);
+  if(handler&&handoffResult===false)throw new Error('RUNTIME_HANDOFF_REFUSED');
+  await enableAccount(saved.telegramUserId);
+  saved.enabled=true;
+  state.account=saved;
   state.handedOff=true;
   await persist(state).catch(()=>{});
 
