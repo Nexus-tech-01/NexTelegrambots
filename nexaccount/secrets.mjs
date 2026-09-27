@@ -8,6 +8,7 @@ const here=path.dirname(fileURLToPath(import.meta.url));
 const defaultFile=path.join(here,'.runtime','nexai-bot-token.enc');
 const configuredFile=String(process.env.NEXAI_BOT_TOKEN_FILE||'').trim();
 const file=configuredFile?path.resolve(configuredFile):defaultFile;
+let botUsernameCache='';
 
 export async function saveBotToken(token){
   const value=String(token||'').trim();
@@ -30,4 +31,33 @@ export async function loadBotToken(){
     const token=Buffer.concat([decipher.update(encrypted),decipher.final()]).toString('utf8');
     return /^\d+:[A-Za-z0-9_-]{20,}$/.test(token)?token:'';
   }catch{return ''}
+}
+
+export async function resolveBotUsername({refresh=false}={}){
+  if(!refresh&&botUsernameCache)return botUsernameCache;
+
+  const configured=String(cfg.botUsername||'').trim().replace(/^@/,'');
+  const token=await loadBotToken();
+  if(token){
+    try{
+      const response=await fetch('https://api.telegram.org/bot'+token+'/getMe',{
+        signal:AbortSignal.timeout(5000)
+      });
+      const data=await response.json().catch(()=>null);
+      const username=String(data?.result?.username||'').trim().replace(/^@/,'');
+      if(response.ok&&data?.ok===true&&username){
+        botUsernameCache=username;
+        cfg.botUsername=username;
+        return username;
+      }
+    }catch(error){
+      console.warn('[NexAccount bot identity] getMe_failed',String(error?.message||error).slice(0,180));
+    }
+  }
+
+  if(configured){
+    botUsernameCache=configured;
+    return configured;
+  }
+  return '';
 }
