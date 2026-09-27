@@ -1,0 +1,36 @@
+name: Ops Anime Diagnostic Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-anime-diagnostic-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: VPS console
+        run: |
+          echo '=== CONSOLE ==='
+          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"
+          echo
+      - name: Root and app directories
+        run: |
+          echo '=== ROOT ==='
+          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-root-list-live"
+          echo
+          for d in bots services nexcanal data; do
+            echo "=== /$d ==="
+            curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=%2F$d"
+            echo
+          done
+      - name: Runtime snapshot
+        run: |
+          echo '=== RUNTIME ==='
+          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"
+          echo
