@@ -65,6 +65,9 @@ assert.ok(inlineReply.entities.some(x=>x.type==='text_link'&&x.url.includes('t.m
 assert.ok(inlineReply.entities.some(x=>x.type==='bot_command'),'slash commands in replies must stay clickable');
 assert.equal(inlineReply.reply_markup.inline_keyboard[0][0].icon_custom_emoji_id,'5368324170671202400','Nextech CTA must use the session custom emoji when configured');
 
+const inlineReplyFallback=__test.inlineReplyModel('Réponse test',{customEmojiIds:{}});
+assert.match(inlineReplyFallback.reply_markup.inline_keyboard[0][0].text,/^⚡\s/,'Nextech CTA must fall back to a normal emoji');
+
 assert.deepEqual(
   __test.telegramCommandMenu().map(x=>x.command),
   ['start','menu','help','pair','language','creator'],
@@ -223,6 +226,29 @@ const sessionEmojiIds=sessionEmojiModel.entities
   .map(x=>x.custom_emoji_id);
 assert.ok(sessionEmojiIds.includes('5368324170671202300'),'session style custom emoji ID must override environment defaults');
 assert.ok(sessionEmojiIds.includes('5368324170671202301'),'session category custom emoji ID must be applied');
+
+const normalFallbackModel=await menuModel({
+  account:{telegramUserId:'7801',username:'normal_fallback',firstName:'Fallback',premium:false},
+  settings:{style:2,prefix:'.',language:'fr',customEmojiIds:{}},
+  commands:registry,
+  view:'category',
+  category:'ANIME',
+  includeArtwork:false
+});
+assert.ok(normalFallbackModel.text.includes('🍃'),'missing animated style emoji must fall back to the normal style emoji');
+assert.ok(normalFallbackModel.text.includes('🌸'),'missing animated category emoji must fall back to the normal category emoji');
+assert.equal(normalFallbackModel.entities.some(x=>x.type==='custom_emoji'),false,'normal emoji fallback must not invent custom emoji entities');
+
+const normalFallbackHome=await menuModel({
+  account:{telegramUserId:'7802',username:'normal_button_fallback',firstName:'Fallback',premium:false},
+  settings:{style:1,prefix:'.',language:'fr',customEmojiIds:{}},
+  commands:registry,
+  includeArtwork:false
+});
+assert.ok(
+  normalFallbackHome.reply_markup.inline_keyboard.flat().some(button=>/^🏠\s/.test(String(button.text||''))),
+  'menu buttons must use a normal emoji when no animated custom emoji ID is available'
+);
 
 const brandedA=await menuModel({
   account:{telegramUserId:'5511',username:'brand_a',firstName:'A',premium:false},
