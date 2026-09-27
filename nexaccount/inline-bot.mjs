@@ -14,7 +14,7 @@ const commands=commandMap();
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
 const INLINE_CUSTOM_EMOJI_GLYPHS={
   WAIT:'⏳',CHECK:'✅',ERROR:'❌',
-  GENERAL:'🏠',ACCOUNT:'👤',AI:'🧠',DOWNLOAD:'📥',GROUP:'👥',SHIELD:'🛡️',
+  GENERAL:'🏠',ACCOUNT:'👤',AI:'🧠',DOWNLOAD:'📥',GROUP:'👥',SHIELD:'🔒',
   TOOLS:'🛠️',MEDIA:'🎞️',STICKER:'🎴',GAMES:'🎮',SEARCH:'🔎',ANIME:'🌸',
   PREMIUM:'👑',OWNER:'🔮',NEXTECH:'⚡',NEWS:'📰',DARK:'🕯️',BACK:'↩️',
   NEXT:'➡️',STYLE:'🎨'
