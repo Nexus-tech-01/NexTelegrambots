@@ -40,7 +40,10 @@ function glyphCustomEmojiId(glyph,customEmojiIds={}){
 }
 
 export function sanitizeAnimatedEmojiText(value,customEmojiIds={}){
-  return String(value??'').replace(EMOJI_TOKEN_RE,glyph=>glyphCustomEmojiId(glyph,customEmojiIds)?glyph:'');
+  // Keep the Unicode glyph in the text as a visual fallback. When a validated
+  // animated custom-emoji ID exists, animatedCustomEmojiEntitySpecs() overlays
+  // that same glyph with Telegram's animated entity instead.
+  return String(value??'');
 }
 
 export function animatedCustomEmojiEntitySpecs(text,customEmojiIds={}){
@@ -275,7 +278,7 @@ export async function sendBrandedText(client,peer,value,options={}){
 
 export async function createProgress(client,peer,label='Traitement',options={}){
   const customEmojiIds=options?.customEmojiIds||{};
-  const glyph=key=>/^\d{5,30}$/.test(String(customEmojiIds?.['NEXAI_EMOJI_'+key]||''))?PREMIUM_EMOJI_GLYPHS[key]+' ':'';
+  const glyph=key=>(PREMIUM_EMOJI_GLYPHS[key]||'')+((PREMIUM_EMOJI_GLYPHS[key]||'')?' ':'');
   const initial=glyph('WAIT')+clean(label)+'…';
   const sent=await client.sendMessage(peer,{
     message:initial,
