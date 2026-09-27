@@ -377,6 +377,79 @@ function ownerEntities(text){
   return entities;
 }
 
+async function sendBareLanguage(ctx,arg=''){
+  const value=String(arg||'').trim().toLowerCase();
+  if(value==='fr'||value==='en'){
+    await patchSettings(ctx.from.id,{language:value});
+    const t=value==='fr'?'🇫🇷 ʟᴀɴɢᴜᴇ • ғʀᴀɴçᴀɪѕ':'🇬🇧 ʟᴀɴɢᴜᴀɢᴇ • ᴇɴɢʟɪѕʜ';
+    return ctx.reply(t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
+  }
+  const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
+  const t=lang==='en'?'ᴜѕᴇ language fr ᴏʀ language en.':'ᴜᴛɪʟɪѕᴇ language fr ᴏᴜ language en.';
+  return ctx.reply(t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
+}
+
+async function handleBareDirectCommand(ctx,text){
+  const value=String(text||'').trim();
+  if(!value)return false;
+  const [rawName,...args]=value.split(/\s+/);
+  const name=String(rawName||'').toLowerCase();
+
+  if(name==='start'){await sendStart(ctx);return true}
+  if(name==='menu'||name==='help'){
+    const account=await accountRecord(ctx.from.id);
+    if(!account||account.enabled!==true){
+      const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
+      await sendPairLink(ctx,lang);
+      return true;
+    }
+    await recordEvent(ctx.from,'command',{source:'nexai',command:name,chatType:ctx.chat?.type||'private'}).catch(()=>{});
+    await sendDirectMenu(ctx,account,'menu');
+    return true;
+  }
+  if(name==='style'||name==='styles'){
+    const account=await accountRecord(ctx.from.id);
+    if(!account||account.enabled!==true){
+      const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
+      await sendPairLink(ctx,lang);
+      return true;
+    }
+    await sendDirectMenu(ctx,account,'styles');
+    return true;
+  }
+  if(['creator','about','founder','ceo'].includes(name)){await sendCreator(ctx);return true}
+  if(name==='language'){await sendBareLanguage(ctx,args[0]||'');return true}
+  if(name==='pair'){
+    if(ctx.chat?.type==='private'){
+      const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
+      await sendPairLink(ctx,lang);
+    }
+    return true;
+  }
+  if(name==='cancel'){
+    webPairUsers.delete(String(ctx.from.id));
+    const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
+    const t=lang==='en'?'✦ ᴄᴏɴɴᴇᴄᴛɪᴏɴ ᴘʀᴏᴍᴘᴛ ᴄʟᴏѕᴇᴅ.':'✦ ᴘᴀʀᴄᴏᴜʀѕ ᴅᴇ ᴄᴏɴɴᴇxɪᴏɴ ғᴇʀᴍé.';
+    await ctx.reply(t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
+    return true;
+  }
+  if(name==='ping'){
+    await recordEvent(ctx.from,'command',{source:'nexai',command:'ping',chatType:ctx.chat?.type||'private'}).catch(()=>{});
+    await ctx.reply('Pong');
+    return true;
+  }
+  if(name==='alive'){
+    await recordEvent(ctx.from,'command',{source:'nexai',command:'alive',chatType:ctx.chat?.type||'private'}).catch(()=>{});
+    await ctx.reply('NexAI · online');
+    return true;
+  }
+  if(['owner','users','botstats','activity','growth','commandstats','countries','languages','user'].includes(name)){
+    await sendOwner(ctx,name,args);
+    return true;
+  }
+  return false;
+}
+
 async function sendStart(ctx){
   const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
   const account=await accountRecord(ctx.from.id);
@@ -516,6 +589,11 @@ export async function startInlineBot(){
     if(ctx.chat?.type!=='private')return;
     const text=String(ctx.message.text||'').trim();
     if(text.startsWith('/'))return;
+
+    // The presentation bot also accepts native commands without a prefix.
+    // Only explicit known command names are consumed, so normal conversation
+    // text remains untouched.
+    if(await handleBareDirectCommand(ctx,text))return;
 
     // Telegram automatically invalidates account login codes sent as messages
     // to any Telegram chat. Protect users who still try the legacy DM flow.
