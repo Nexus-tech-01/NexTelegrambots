@@ -144,10 +144,11 @@ async function sendText(client,peer,text){
   const settings=accountId?await settingsFor(accountId).catch(()=>null):null;
   const customEmojiIds=settings?.customEmojiIds||{};
 
-  // A connected Premium user session can render Telegram custom emoji itself.
-  // Prefer that direct path so entities from the full @tresor20001 library are
-  // preserved instead of being stripped/degraded by Inline Mode.
-  if(runtime?.account?.premium===true){
+  // Try the rich direct path for every connected account. Premium accounts
+  // normally accept MessageEntityCustomEmoji directly. If Telegram rejects
+  // custom emoji for a non-Premium account, the inline NexAI fallback below
+  // can still deliver the same animated entities through the bot.
+  if(runtime?.account){
     try{
       return await sendBrandedText(client,peer,value,{
         customEmojiIds,
@@ -192,7 +193,7 @@ async function sendOwnerText(client,peer,text){
     return await sendBrandedText(client,peer,safe,{
       signature:false,
       customEmojiIds:settings?.customEmojiIds||{},
-      emojiLibrary:runtime?.account?.premium===true,
+      emojiLibrary:Boolean(runtime?.account),
       emojiLibrarySource:cfg.creatorUsername||'tresor20001',
       formattingEntities:ownerFormattingEntities(safe)
     });
