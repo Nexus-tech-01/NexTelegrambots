@@ -84,7 +84,7 @@ function start(name) {
   if (stopping.value) return null;
   const spec = commandSpec(name);
   const existing = children.get(name);
-  if (existing && existing.exitCode === null && !existing.killed) return existing;
+  if (existing && existing.exitCode === null && existing.signalCode === null) return existing;
 
   const child = spawn(spec.file, spec.args, {
     cwd: '/app',
@@ -138,14 +138,14 @@ async function readLiteHeartbeat() {
 
 async function restartWorker(name, reason) {
   const child = children.get(name);
-  if (!child || child.exitCode !== null || child.killed) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) {
     scheduleRestart(name, reason);
     return;
   }
   warn('restarting', name, reason);
   try { child.kill('SIGTERM'); } catch {}
   await sleep(5_000);
-  if (child.exitCode === null && !child.killed) {
+  if (child.exitCode === null && child.signalCode === null) {
     try { child.kill('SIGKILL'); } catch {}
   }
 }
@@ -175,7 +175,7 @@ async function shutdown(signal) {
   }
   await sleep(3_000);
   for (const child of children.values()) {
-    if (child.exitCode === null && !child.killed) {
+    if (child.exitCode === null && child.signalCode === null) {
       try { child.kill('SIGKILL'); } catch {}
     }
   }
