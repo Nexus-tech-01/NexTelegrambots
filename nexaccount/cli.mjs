@@ -1,7 +1,27 @@
+import fs from 'node:fs';
 import { decryptPairingEnvelope, pairingPublicKey } from './secure-rpc.mjs';
 
 const workerIndex=Math.max(0,Number(process.env.NEXACCOUNT_WORKER_INDEX||0));
-const port=Number(process.env.NEXACCOUNT_PORT||(3491+workerIndex));
+
+function discoverRuntimePort(){
+  const explicit=Number(process.env.NEXACCOUNT_PORT||0);
+  if(Number.isInteger(explicit)&&explicit>0&&explicit<65536)return explicit;
+  try{
+    for(const pid of fs.readdirSync('/proc').filter(x=>/^\\d+$/.test(x))){
+      try{
+        const cmd=fs.readFileSync('/proc/'+pid+'/cmdline','utf8').replace(/\\0/g,' ');
+        if(!/(?:\\/nexai\\/current|\\/nexaccount)\\/daemon\\.mjs(?:\\s|$)/.test(cmd))continue;
+        const env=fs.readFileSync('/proc/'+pid+'/environ','utf8').split('\\0');
+        const row=env.find(x=>x.startsWith('NEXACCOUNT_PORT='));
+        const found=Number(row?.slice('NEXACCOUNT_PORT='.length)||0);
+        if(Number.isInteger(found)&&found>0&&found<65536)return found;
+      }catch{}
+    }
+  }catch{}
+  return 3491+workerIndex;
+}
+
+const port=discoverRuntimePort();
 const base='http://127.0.0.1:'+port;
 const controlKey=String(process.env.NEXACCOUNT_CONTROL_KEY||process.env.NEXCONTROL_FLEET_KEY||process.env.NEXACCOUNT_SESSION_KEY||process.env.NEXCONTROL_SESSION_SECRET||process.env.SESSION_SECRET||'').trim();
 
