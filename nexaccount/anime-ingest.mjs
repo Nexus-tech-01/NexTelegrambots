@@ -2240,6 +2240,12 @@ export async function startAnimeIngest(runtime){
   }
   return true;
 }
+export async function animePublishNow(runtime){
+  if(!isPublisherRuntime(runtime))throw new Error('anime_publisher_runtime_required');
+  const published=await publishOne(runtime);
+  return {ok:true,published:Boolean(published),anime:animeIngestStatus(runtime)};
+}
+
 export async function stopAnimeIngest(runtime){
   if(!runtime?.animeIngest)return;
   if(runtime.animeIngest.discoveryTimer)clearInterval(runtime.animeIngest.discoveryTimer);
