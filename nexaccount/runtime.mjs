@@ -20,7 +20,7 @@ import { createRuntimeContext, clearRuntimeTimers } from './core/runtime-context
 import { routeEngineCommand } from './core/engine-router.mjs';
 import { animeBeginRebuild, animeDedupePublishedEpisodeVariants, animeDiscoverNow, animeIngestStatus, animePublishNow, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
-import { ensurePremiumEmojiPalette, sendBrandedText } from './response-ui.mjs';
+import { ensurePremiumEmojiPalette, sanitizeAnimatedEmojiText, sendBrandedText } from './response-ui.mjs';
 import { putInlineResponse } from './inline-response-store.mjs';
 
 const commands=commandMap();
@@ -147,7 +147,8 @@ async function sendText(client,peer,text){
       console.warn('[NexAccount inline reply fallback]',String(error?.message||error).slice(0,250));
     }
   }
-  return sendBrandedText(client,peer,value);
+  const settings=accountId?await settingsFor(accountId).catch(()=>null):null;
+  return sendBrandedText(client,peer,value,{customEmojiIds:settings?.customEmojiIds||{}});
 }
 
 function ownerFormattingEntities(text){
@@ -163,8 +164,16 @@ function ownerFormattingEntities(text){
 }
 
 async function sendOwnerText(client,peer,text){
-  try{return await client.sendMessage(peer,{message:String(text),formattingEntities:ownerFormattingEntities(String(text))})}
-  catch{return sendText(client,peer,text)}
+  const accountId=[...runtimes.entries()].find(([,runtime])=>runtime?.client===client)?.[0]||'';
+  const settings=accountId?await settingsFor(accountId).catch(()=>null):null;
+  const safe=sanitizeAnimatedEmojiText(String(text),settings?.customEmojiIds||{});
+  try{
+    return await sendBrandedText(client,peer,safe,{
+      signature:false,
+      customEmojiIds:settings?.customEmojiIds||{},
+      formattingEntities:ownerFormattingEntities(safe)
+    });
+  }catch{return sendText(client,peer,safe)}
 }
 
 function creatorFormattingEntities(model){
@@ -202,6 +211,15 @@ function menuFormattingEntities(model,maxLength=4096){
     }
     if(e.type==='text_link'){
       return new Api.MessageEntityTextUrl({offset:e.offset,length:e.length,url:e.url});
+    }
+    if(e.type==='custom_emoji'&&e.custom_emoji_id){
+      try{
+        return new Api.MessageEntityCustomEmoji({
+          offset:e.offset,
+          length:e.length,
+          documentId:BigInt(String(e.custom_emoji_id))
+        });
+      }catch{return null}
     }
     return null;
   }).filter(Boolean);
@@ -627,10 +645,28 @@ async function maybeAutoReact(runtime,event){
     return v===chatId||v===username;
   });
   if(!matched)return;
+  if(account.premium!==true||typeof Api.ReactionCustomEmoji!=='function')return;
   const reactions=Array.isArray(cfgReact.reactions)&&cfgReact.reactions.length?cfgReact.reactions:['🔥','❤️','👍'];
-  const emoticon=reactions[Math.floor(Math.random()*reactions.length)];
+  const keyForReaction=value=>{
+    const v=String(value||'').replace(/\uFE0F/g,'').trim();
+    if(v==='🔥')return 'FIRE';
+    if(v==='❤')return 'HEART';
+    if(v==='👍')return 'LIKE';
+    return '';
+  };
+  const animated=reactions.map(emoticon=>{
+    const key=keyForReaction(emoticon);
+    const id=String(settings?.customEmojiIds?.['NEXAI_EMOJI_'+key]||'').trim();
+    return key&&/^\d{5,30}$/.test(id)?id:'';
+  }).filter(Boolean);
+  if(!animated.length)return;
+  const documentId=animated[Math.floor(Math.random()*animated.length)];
   const peer=await client.getInputEntity(event.message.peerId);
-  await client.invoke(new Api.messages.SendReaction({peer,msgId:event.message.id,reaction:[new Api.ReactionEmoji({emoticon})]})).catch(()=>{});
+  await client.invoke(new Api.messages.SendReaction({
+    peer,
+    msgId:event.message.id,
+    reaction:[new Api.ReactionCustomEmoji({documentId:BigInt(documentId)})]
+  })).catch(()=>{});
 }
 
 async function maybeAutoModerate(runtime,event){

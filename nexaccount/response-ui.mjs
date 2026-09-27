@@ -5,16 +5,60 @@ import { patchSettings, settingsFor } from './store.mjs';
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
 const clean=v=>String(v??'').trim();
 
-const PREMIUM_EMOJI_GLYPHS={
+export const PREMIUM_EMOJI_GLYPHS=Object.freeze({
   WAIT:'⏳',CHECK:'✅',ERROR:'❌',
   GENERAL:'🏠',ACCOUNT:'👤',AI:'🧠',DOWNLOAD:'📥',GROUP:'👥',SHIELD:'🔒',
   TOOLS:'🛠️',MEDIA:'🎞️',STICKER:'🎴',GAMES:'🎮',SEARCH:'🔎',ANIME:'🌸',
   PREMIUM:'👑',OWNER:'🔮',NEXTECH:'⚡',NEWS:'📰',DARK:'🕯️',BACK:'↩️',
-  NEXT:'➡️',STYLE:'🎨'
-};
+  NEXT:'➡️',STYLE:'🎨',LINK:'🔗',LANGUAGE:'🌐',FIRE:'🔥',HEART:'❤️',LIKE:'👍',
+  STYLE_1:'🕯',STYLE_2:'🍃',STYLE_3:'🕶️',STYLE_4:'💻',STYLE_5:'⚔️',
+  STYLE_6:'⭐',STYLE_7:'🌸',STYLE_8:'👁',STYLE_9:'🌿',STYLE_10:'🎀',
+  STYLE_11:'🗡',STYLE_12:'👁',STYLE_13:'🪷',STYLE_14:'👁',STYLE_15:'⚔',
+  STYLE_16:'👁',STYLE_17:'👑',STYLE_18:'📊',STYLE_19:'🌒',STYLE_20:'☄',
+  STYLE_21:'🌙',STYLE_22:'🦇',STYLE_23:'🌸',STYLE_24:'❄',STYLE_25:'🍫',
+  STYLE_26:'⚔',STYLE_27:'⚽',STYLE_28:'🎯',STYLE_29:'🩸',STYLE_30:'🦋',
+  STYLE_31:'⛩'
+});
 const premiumEmojiAttempts=new Map();
 const PREMIUM_EMOJI_RETRY_MS=6*60*60*1000;
 const normalizeEmoji=value=>String(value??'').replace(/\uFE0F/g,'').replace(/\u200D/g,'').trim();
+const EMOJI_TOKEN_RE=/(?:\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3|\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?)*)/gu;
+
+function isAnimatedCustomEmojiDocument(document){
+  const mime=String(document?.mimeType||document?.mime_type||'').toLowerCase();
+  return mime==='application/x-tgsticker'||mime==='video/webm';
+}
+
+function glyphCustomEmojiId(glyph,customEmojiIds={}){
+  const expected=normalizeEmoji(glyph);
+  for(const [logical,candidate] of Object.entries(PREMIUM_EMOJI_GLYPHS)){
+    if(normalizeEmoji(candidate)!==expected)continue;
+    const id=String(customEmojiIds?.['NEXAI_EMOJI_'+logical]||'').trim();
+    if(/^\d{5,30}$/.test(id))return id;
+  }
+  return '';
+}
+
+export function sanitizeAnimatedEmojiText(value,customEmojiIds={}){
+  return String(value??'').replace(EMOJI_TOKEN_RE,glyph=>glyphCustomEmojiId(glyph,customEmojiIds)?glyph:'');
+}
+
+export function animatedCustomEmojiEntitySpecs(text,customEmojiIds={}){
+  const value=String(text??'');
+  const out=[];
+  for(const match of value.matchAll(EMOJI_TOKEN_RE)){
+    const glyph=match[0];
+    const id=glyphCustomEmojiId(glyph,customEmojiIds);
+    if(!id)continue;
+    out.push({
+      type:'custom_emoji',
+      offset:utf16len(value.slice(0,match.index)),
+      length:utf16len(glyph),
+      custom_emoji_id:id
+    });
+  }
+  return out;
+}
 
 function customEmojiAttr(document){
   return (document?.attributes||[]).find(a=>/DocumentAttributeCustomEmoji/i.test(String(a?.className||a?.constructor?.name||a?._||'')))||null;
@@ -25,26 +69,12 @@ function customEmojiId(document){
   return id==null?'':String(id);
 }
 
-function customEmojiEntities(text,customEmojiIds={},logicalKeys=['WAIT','CHECK','ERROR']){
-  const value=String(text??'');
-  const entities=[];
-  for(const logical of logicalKeys){
-    const glyph=PREMIUM_EMOJI_GLYPHS[logical];
-    const id=String(customEmojiIds?.['NEXAI_EMOJI_'+logical]||'').trim();
-    if(!glyph||!/^\d{5,30}$/.test(id))continue;
-    let from=0;
-    while(true){
-      const start=value.indexOf(glyph,from);
-      if(start<0)break;
-      entities.push(new Api.MessageEntityCustomEmoji({
-        offset:utf16len(value.slice(0,start)),
-        length:utf16len(glyph),
-        documentId:BigInt(id)
-      }));
-      from=start+glyph.length;
-    }
-  }
-  return entities;
+function customEmojiEntities(text,customEmojiIds={}){
+  return animatedCustomEmojiEntitySpecs(text,customEmojiIds).map(e=>new Api.MessageEntityCustomEmoji({
+    offset:e.offset,
+    length:e.length,
+    documentId:BigInt(e.custom_emoji_id)
+  }));
 }
 
 export async function ensurePremiumEmojiPalette(client,telegramUserId,{premium=false,keys=null,force=false}={}){
@@ -56,18 +86,49 @@ export async function ensurePremiumEmojiPalette(client,telegramUserId,{premium=f
     .map(v=>String(v||'').toUpperCase())
     .filter(v=>PREMIUM_EMOJI_GLYPHS[v]);
 
-  const missing=wanted.filter(key=>!/^\d{5,30}$/.test(String(settings?.customEmojiIds?.['NEXAI_EMOJI_'+key]||'')));
-  if(!missing.length)return settings;
-
-  const cacheKey=accountId+':'+missing.sort().join(',');
-  const last=premiumEmojiAttempts.get(cacheKey)||0;
-  if(!force&&Date.now()-last<PREMIUM_EMOJI_RETRY_MS)return settings;
-  premiumEmojiAttempts.set(cacheKey,Date.now());
-
   const Search=Api.messages?.SearchCustomEmoji;
   const GetDocs=Api.messages?.GetCustomEmojiDocuments;
   const current={...(settings.customEmojiIds||{})};
   let changed=false;
+
+  // Treat every persisted custom-emoji ID as untrusted until Telegram confirms
+  // that it is an animated TGS/WEBM document with the expected fallback glyph.
+  const configured=wanted
+    .map(key=>({key,id:String(current['NEXAI_EMOJI_'+key]||'').trim()}))
+    .filter(row=>/^\d{5,30}$/.test(row.id));
+  if(configured.length){
+    let verified=new Map();
+    if(typeof GetDocs==='function'){
+      try{
+        const docs=await client.invoke(new GetDocs({documentId:[...new Set(configured.map(row=>row.id))].map(id=>BigInt(id))}));
+        const list=Array.isArray(docs)?docs:(docs?.documents||[]);
+        verified=new Map(list.map(doc=>[customEmojiId(doc),doc]));
+      }catch(error){
+        console.warn('[NexAccount premium-emoji] validate-existing',String(error?.errorMessage||error?.message||error).slice(0,200));
+      }
+    }
+    for(const {key,id} of configured){
+      const doc=verified.get(id);
+      const alt=normalizeEmoji(customEmojiAttr(doc)?.alt||'');
+      if(!doc||!isAnimatedCustomEmojiDocument(doc)||alt!==normalizeEmoji(PREMIUM_EMOJI_GLYPHS[key])){
+        delete current['NEXAI_EMOJI_'+key];
+        changed=true;
+      }
+    }
+  }
+
+  const missing=wanted.filter(key=>!/^\d{5,30}$/.test(String(current['NEXAI_EMOJI_'+key]||'')));
+  if(!missing.length){
+    return changed?patchSettings(accountId,{customEmojiIds:current}):settings;
+  }
+
+  const cacheKey=accountId+':'+missing.slice().sort().join(',');
+  const last=premiumEmojiAttempts.get(cacheKey)||0;
+  if(!force&&Date.now()-last<PREMIUM_EMOJI_RETRY_MS){
+    return changed?patchSettings(accountId,{customEmojiIds:current}):settings;
+  }
+  premiumEmojiAttempts.set(cacheKey,Date.now());
+
   const candidates=new Map();
   const allIds=new Set();
 
@@ -100,7 +161,7 @@ export async function ensurePremiumEmojiPalette(client,telegramUserId,{premium=f
         for(const id of ids){
           const doc=byId.get(id);
           const alt=normalizeEmoji(customEmojiAttr(doc)?.alt||'');
-          if(doc&&alt===expected){
+          if(doc&&isAnimatedCustomEmojiDocument(doc)&&alt===expected){
             current['NEXAI_EMOJI_'+key]=id;
             changed=true;
             break;
@@ -153,7 +214,7 @@ export async function ensurePremiumEmojiPalette(client,telegramUserId,{premium=f
           for(const doc of result?.documents||[]){
             const docId=customEmojiId(doc);
             const alt=normalizeEmoji(customEmojiAttr(doc)?.alt||'');
-            if(!docId||!alt)continue;
+            if(!docId||!alt||!isAnimatedCustomEmojiDocument(doc))continue;
             for(const key of [...unresolved]){
               if(alt===normalizeEmoji(PREMIUM_EMOJI_GLYPHS[key])){
                 current['NEXAI_EMOJI_'+key]=docId;
@@ -193,21 +254,29 @@ export function brandedText(value,{signature=true}={}){
 }
 
 export async function sendBrandedText(client,peer,value,options={}){
-  const branded=brandedText(value,{signature:options.signature!==false});
+  const suppliedEntities=Array.isArray(options.formattingEntities)?options.formattingEntities:[];
+  const customEmojiIds=options?.customEmojiIds||{};
+  const safeValue=suppliedEntities.length
+    ?String(value??'')
+    :sanitizeAnimatedEmojiText(value,customEmojiIds);
+  const branded=brandedText(safeValue,{signature:options.signature!==false});
   const formattingEntities=[
-    ...(Array.isArray(options.formattingEntities)?options.formattingEntities:[]),
+    ...suppliedEntities,
+    ...customEmojiEntities(branded.text,customEmojiIds),
     ...branded.entities
   ];
+  const {customEmojiIds:_customEmojiIds,...telegramOptions}=options;
   return client.sendMessage(peer,{
     message:branded.text,
-    ...options,
+    ...telegramOptions,
     formattingEntities
   });
 }
 
 export async function createProgress(client,peer,label='Traitement',options={}){
   const customEmojiIds=options?.customEmojiIds||{};
-  const initial='⏳ '+clean(label)+'…';
+  const glyph=key=>/^\d{5,30}$/.test(String(customEmojiIds?.['NEXAI_EMOJI_'+key]||''))?PREMIUM_EMOJI_GLYPHS[key]+' ':'';
+  const initial=glyph('WAIT')+clean(label)+'…';
   const sent=await client.sendMessage(peer,{
     message:initial,
     formattingEntities:customEmojiEntities(initial,customEmojiIds)
@@ -230,14 +299,14 @@ export async function createProgress(client,peer,label='Traitement',options={}){
     id,
     get finished(){return state.finished},
     update:text=>edit(String(text)),
-    step:text=>edit('⏳ '+String(text)),
+    step:text=>edit(glyph('WAIT')+String(text)),
     async done(text){
       state.finished=true;
-      await edit('✅ '+String(text||label+' terminé'));
+      await edit(glyph('CHECK')+String(text||label+' terminé'));
     },
     async fail(text){
       state.finished=true;
-      await edit('❌ '+String(text||label+' impossible'));
+      await edit(glyph('ERROR')+String(text||label+' impossible'));
     }
   };
 }

@@ -9,6 +9,7 @@ import { getInlineResponse } from './inline-response-store.mjs';
 import { observeUser, recordEvent } from './analytics.mjs';
 import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
 import { listStyles, toSmallCaps } from './styles.mjs';
+import { animatedCustomEmojiEntitySpecs, sanitizeAnimatedEmojiText } from './response-ui.mjs';
 
 const commands=commandMap();
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
@@ -21,31 +22,7 @@ const INLINE_CUSTOM_EMOJI_GLYPHS={
 };
 
 function inlineCustomEmojiEntities(text,settings={}){
-  const value=String(text??'');
-  const out=[];
-  const occupied=[];
-  const overlaps=(a,b)=>occupied.some(r=>a<r.end&&b>r.start);
-  for(const [logical,glyph] of Object.entries(INLINE_CUSTOM_EMOJI_GLYPHS)){
-    const id=String(settings?.customEmojiIds?.['NEXAI_EMOJI_'+logical]||'').trim();
-    if(!/^\d{5,30}$/.test(id))continue;
-    let from=0;
-    while(true){
-      const start=value.indexOf(glyph,from);
-      if(start<0)break;
-      const end=start+glyph.length;
-      if(!overlaps(start,end)){
-        out.push({
-          type:'custom_emoji',
-          offset:utf16len(value.slice(0,start)),
-          length:utf16len(glyph),
-          custom_emoji_id:id
-        });
-        occupied.push({start,end});
-      }
-      from=end;
-    }
-  }
-  return out;
+  return animatedCustomEmojiEntitySpecs(text,settings?.customEmojiIds||{});
 }
 
 const webPairUsers=new Map();
@@ -153,6 +130,25 @@ function portableEntities(entities,maxLength){
   return (entities||[]).filter(e=>safe.has(e.type)&&e.offset+e.length<=maxLength);
 }
 
+function noEmojiPortableModel(model,maxLength=4096){
+  const source=String(model?.text||'').slice(0,maxLength);
+  const text=sanitizeAnimatedEmojiText(source,{});
+  const allowed=new Set(['bot_command','blockquote','expandable_blockquote','text_link']);
+  const entities=(model?.entities||[])
+    .filter(e=>allowed.has(e.type)&&e.offset>=0&&e.length>0&&e.offset+e.length<=source.length)
+    .map(e=>{
+      const before=source.slice(0,e.offset);
+      const inside=source.slice(e.offset,e.offset+e.length);
+      return {
+        ...e,
+        offset:utf16len(sanitizeAnimatedEmojiText(before,{})),
+        length:utf16len(sanitizeAnimatedEmojiText(inside,{}))
+      };
+    })
+    .filter(e=>e.length>0);
+  return {...model,text,entities};
+}
+
 function textInputContent(model,entities,disableArtwork=false){
   return {
     message_text:model.text.slice(0,4096),
@@ -166,12 +162,13 @@ function textInputContent(model,entities,disableArtwork=false){
 function inlineCachedPhotoResult(model,accountId,id,fileId,portable=false){
   const stamped=stampMarkup(model.reply_markup,accountId);
   const reply_markup=portable?portableMarkup(stamped):stamped;
-  const textEntities=portable?portableEntities(model.entities,4096):model.entities.filter(e=>e.offset+e.length<=4096);
+  const safeModel=portable?noEmojiPortableModel(model,4096):model;
+  const textEntities=portable?safeModel.entities:model.entities.filter(e=>e.offset+e.length<=4096);
   return {
     type:'photo',
     id,
     photo_file_id:fileId,
-    input_message_content:textInputContent(model,textEntities),
+    input_message_content:textInputContent(safeModel,textEntities),
     reply_markup
   };
 }
@@ -179,8 +176,9 @@ function inlineCachedPhotoResult(model,accountId,id,fileId,portable=false){
 function inlineResult(model,accountId,id='menu',forceArticle=false,portable=false,disableArtwork=false){
   const stamped=stampMarkup(model.reply_markup,accountId);
   const reply_markup=portable?portableMarkup(stamped):stamped;
-  const textEntities=portable?portableEntities(model.entities,4096):model.entities.filter(e=>e.offset+e.length<=4096);
-  const input_message_content=textInputContent(model,textEntities,disableArtwork);
+  const safeModel=portable?noEmojiPortableModel(model,4096):model;
+  const textEntities=portable?safeModel.entities:model.entities.filter(e=>e.offset+e.length<=4096);
+  const input_message_content=textInputContent(safeModel,textEntities,disableArtwork);
 
   // A photo result keeps a visual thumbnail in the inline picker, but
   // input_message_content makes Telegram send an editable TEXT message with
@@ -203,7 +201,7 @@ function inlineResult(model,accountId,id='menu',forceArticle=false,portable=fals
 }
 
 function inlineReplyModel(value,settings={}){
-  const raw=String(value??'').trim();
+  const raw=sanitizeAnimatedEmojiText(String(value??'').trim(),settings?.customEmojiIds||{});
   const label='By Nextech';
   const maxBase=Math.max(0,4096-label.length-2);
   const base=raw.slice(0,maxBase);
@@ -230,11 +228,7 @@ function inlineReplyModel(value,settings={}){
   }
 
   const button={text:'ɴᴇxᴛᴇᴄʜ',url:cfg.nextechUrl,style:'success'};
-  const customId=String(
-    settings?.customEmojiIds?.NEXAI_EMOJI_NEXTECH||
-    process.env.NEXAI_EMOJI_NEXTECH||
-    ''
-  ).trim();
+  const customId=String(settings?.customEmojiIds?.NEXAI_EMOJI_NEXTECH||'').trim();
   if(customId)button.icon_custom_emoji_id=customId;
 
   return {
@@ -273,15 +267,16 @@ async function sendModelMessage(ctx,model,accountId){
   const preview=model.photoUrl
     ?{url:model.photoUrl,prefer_large_media:true,show_above_text:true}
     :{is_disabled:true};
+  const noEmoji=noEmojiPortableModel(model,4096);
   const attempts=[
-    ['text-rich',model.entities.filter(e=>e.offset+e.length<=4096),preview,rich],
-    ['text-portable',portableEntities(model.entities,4096),preview,plain],
-    ['text-no-artwork',portableEntities(model.entities,4096),{is_disabled:true},plain]
+    ['text-rich',model.text,model.entities.filter(e=>e.offset+e.length<=4096),preview,rich],
+    ['text-portable-buttons',model.text,model.entities.filter(e=>e.offset+e.length<=4096),preview,plain],
+    ['text-no-artwork',noEmoji.text,noEmoji.entities,{is_disabled:true},plain]
   ];
 
-  for(const [kind,entities,link_preview_options,reply_markup] of attempts){
+  for(const [kind,messageText,entities,link_preview_options,reply_markup] of attempts){
     try{
-      return await ctx.reply(model.text.slice(0,4096),{
+      return await ctx.reply(messageText.slice(0,4096),{
         entities,
         link_preview_options,
         reply_markup
@@ -310,14 +305,15 @@ async function editInline(ctx,model,accountId,{replaceMedia=false}={}){
 
   // New menus are always editable text messages. Artwork is optional:
   // a dead/unsupported preview must never prevent categories or styles from loading.
+  const noEmoji=noEmojiPortableModel(model,4096);
   const textAttempts=[
-    ['rich',rich,model.entities.filter(e=>e.offset+e.length<=4096),preview],
-    ['portable',portableMarkup(rich),portableEntities(model.entities,4096),preview],
-    ['no-artwork',portableMarkup(rich),portableEntities(model.entities,4096),{is_disabled:true}]
+    ['rich',model.text,rich,model.entities.filter(e=>e.offset+e.length<=4096),preview],
+    ['portable-buttons',model.text,portableMarkup(rich),model.entities.filter(e=>e.offset+e.length<=4096),preview],
+    ['no-artwork',noEmoji.text,portableMarkup(rich),noEmoji.entities,{is_disabled:true}]
   ];
-  for(const [kind,reply_markup,entities,link_preview_options] of textAttempts){
+  for(const [kind,messageText,reply_markup,entities,link_preview_options] of textAttempts){
     try{
-      await ctx.editMessageText(model.text.slice(0,4096),{
+      await ctx.editMessageText(messageText.slice(0,4096),{
         entities,
         link_preview_options,
         reply_markup
@@ -334,8 +330,8 @@ async function editInline(ctx,model,accountId,{replaceMedia=false}={}){
     for(const [kind,reply_markup] of markups){
       try{
         await ctx.editMessageCaption({
-          caption:model.text,
-          caption_entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=1024):portableEntities(model.entities,1024),
+          caption:kind==='rich'?model.text:noEmojiPortableModel(model,1024).text,
+          caption_entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=1024):noEmojiPortableModel(model,1024).entities,
           reply_markup
         });
         return 'legacy-caption-'+kind;
@@ -381,7 +377,7 @@ async function sendBareLanguage(ctx,arg=''){
   const value=String(arg||'').trim().toLowerCase();
   if(value==='fr'||value==='en'){
     await patchSettings(ctx.from.id,{language:value});
-    const t=value==='fr'?'🇫🇷 ʟᴀɴɢᴜᴇ • ғʀᴀɴçᴀɪѕ':'🇬🇧 ʟᴀɴɢᴜᴀɢᴇ • ᴇɴɢʟɪѕʜ';
+    const t=value==='fr'?'ʟᴀɴɢᴜᴇ • ғʀᴀɴçᴀɪѕ':'ʟᴀɴɢᴜᴀɢᴇ • ᴇɴɢʟɪѕʜ';
     return ctx.reply(t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
   }
   const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
@@ -458,8 +454,8 @@ async function sendStart(ctx){
     return sendDirectMenu(ctx,account,'menu');
   }
   const text=lang==='en'
-    ? ['♰ ɴᴇxᴀɪ','','🔗 ᴄᴏɴɴᴇᴄᴛ ʏᴏᴜʀ ᴛᴇʟᴇɢʀᴀᴍ ᴀᴄᴄᴏᴜɴᴛ','/pair','','/creator','/language'].join('\n')
-    : ['♰ ɴᴇxᴀɪ','','🔗 ʀᴇʟɪᴇ ᴛᴏɴ ᴄᴏᴍᴘᴛᴇ ᴛᴇʟᴇɢʀᴀᴍ','/pair','','/creator','/language'].join('\n');
+    ? ['♰ ɴᴇxᴀɪ','','ᴄᴏɴɴᴇᴄᴛ ʏᴏᴜʀ ᴛᴇʟᴇɢʀᴀᴍ ᴀᴄᴄᴏᴜɴᴛ','/pair','','/creator','/language'].join('\n')
+    : ['♰ ɴᴇxᴀɪ','','ʀᴇʟɪᴇ ᴛᴏɴ ᴄᴏᴍᴘᴛᴇ ᴛᴇʟᴇɢʀᴀᴍ','/pair','','/creator','/language'].join('\n');
   return ctx.reply(text,{
     entities:quotedEntities(text,['/pair','/creator','/language']),
     reply_markup:connectMarkup(lang),
@@ -495,8 +491,13 @@ async function sendOwner(ctx,kind,args=[]){
   else if(kind==='languages')text=await languagesText(lang);
   else if(kind==='user')text=await userText(args[0]||'',lang);
   if(!text)return;
+  const settings=await settingsFor(ctx.from.id).catch(()=>null);
+  const safe=sanitizeAnimatedEmojiText(text,settings?.customEmojiIds||{});
   await recordEvent(ctx.from,'owner_command',{source:'nexai',command:kind,chatType:ctx.chat?.type||'private'}).catch(()=>{});
-  return ctx.reply(text,{entities:ownerEntities(text)});
+  return ctx.reply(safe,{entities:[
+    ...ownerEntities(safe),
+    ...animatedCustomEmojiEntitySpecs(safe,settings?.customEmojiIds||{})
+  ]});
 }
 
 function telegramCommandMenu(){
@@ -554,7 +555,7 @@ export async function startInlineBot(){
     const arg=String(ctx.match||'').trim().toLowerCase();
     if(arg==='fr'||arg==='en'){
       await patchSettings(ctx.from.id,{language:arg});
-      const t=arg==='fr'?'🇫🇷 ʟᴀɴɢᴜᴇ • ғʀᴀɴçᴀɪѕ':'🇬🇧 ʟᴀɴɢᴜᴀɢᴇ • ᴇɴɢʟɪѕʜ';
+      const t=arg==='fr'?'ʟᴀɴɢᴜᴇ • ғʀᴀɴçᴀɪѕ':'ʟᴀɴɢᴜᴀɢᴇ • ᴇɴɢʟɪѕʜ';
       return ctx.reply(t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
     }
     const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);

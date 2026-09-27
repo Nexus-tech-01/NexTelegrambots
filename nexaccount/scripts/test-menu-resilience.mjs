@@ -169,36 +169,40 @@ assert.equal(generatedStyles.themes?.['6']?.name,'Ai Hoshino','style 6 character
 assert.equal(generatedStyles.themes?.['7']?.name,'Ruby Hoshino','style 7 character name must be correct');
 assert.equal(generatedStyles.themes?.['26']?.name,'Soshiro Hoshina','style 26 character name must be correct');
 
-process.env.NEXAI_EMOJI_STYLE_2='5368324170671202286';
-process.env.NEXAI_EMOJI_ANIME='5368324170671202287';
 const emojiModel=await menuModel({
   account:{telegramUserId:'7788',username:'emoji_test',firstName:'Emoji',premium:true},
-  settings:{style:2,prefix:'.',language:'fr'},
+  settings:{
+    style:2,prefix:'.',language:'fr',
+    customEmojiIds:{
+      NEXAI_EMOJI_STYLE_2:'5368324170671202286',
+      NEXAI_EMOJI_ANIME:'5368324170671202287'
+    }
+  },
   commands:registry,
   view:'category',
   category:'ANIME',
   includeArtwork:false
 });
-assert.ok(emojiModel.entities.filter(x=>x.type==='custom_emoji').length>=2,'style/category custom emoji entities must activate when IDs are configured');
-delete process.env.NEXAI_EMOJI_STYLE_2;
-delete process.env.NEXAI_EMOJI_ANIME;
+assert.ok(emojiModel.entities.filter(x=>x.type==='custom_emoji').length>=2,'style/category custom emoji entities must activate when validated session IDs are configured');
 
-process.env.NEXAI_EMOJI_STYLE_7='5368324170671202290';
-process.env.NEXAI_EMOJI_ANIME='5368324170671202291';
 const overlapModel=await menuModel({
   account:{telegramUserId:'7799',username:'ruby_test',firstName:'Ruby',premium:true},
-  settings:{style:7,prefix:'.',language:'fr'},
+  settings:{
+    style:7,prefix:'.',language:'fr',
+    customEmojiIds:{
+      NEXAI_EMOJI_STYLE_7:'5368324170671202290',
+      NEXAI_EMOJI_ANIME:'5368324170671202291'
+    }
+  },
   commands:registry,
   view:'category',
   category:'ANIME',
-    includeArtwork:false
-  });
+  includeArtwork:false
+});
 const emojiRanges=overlapModel.entities
   .filter(x=>x.type==='custom_emoji')
   .map(x=>x.offset+':'+x.length);
 assert.equal(new Set(emojiRanges).size,emojiRanges.length,'custom emoji entity ranges must never overlap exactly');
-delete process.env.NEXAI_EMOJI_STYLE_7;
-delete process.env.NEXAI_EMOJI_ANIME;
 
 const sessionEmojiModel=await menuModel({
   account:{telegramUserId:'7800',username:'session_emoji',firstName:'Session',premium:true},
