@@ -2303,33 +2303,49 @@ export async function startAnimeIngest(runtime){
   const listener=isListenerRuntime(runtime)&&runtime?.animeScanDisabled!==true;
   const publisher=isPublisherRuntime(runtime);
   if(!listener&&!publisher)return false;
+  if(runtime?.animeIngest?.enabled===true)return true;
+
+  // A previous partial startup may have left timer handles behind. Clear them
+  // before rebuilding the ingest loop so reconciliation never creates duplicates.
+  await stopAnimeIngest(runtime).catch(()=>{});
   runtime.animeIngest={
     ...(runtime.animeIngest||{}),
-    enabled:true,destination:'@'+DESTINATION,listener,publisher,mediaPolicy:await currentMediaPolicy()
+    enabled:false,destination:'@'+DESTINATION,listener,publisher,mediaPolicy:await currentMediaPolicy()
   };
-  await ensureIndexes();
-  queueMicrotask(()=>cleanupTmpFiles().catch(()=>{}));
-  runtime.animeIngest.cleanupTimer=setInterval(()=>cleanupTmpFiles().catch(()=>{}),TMP_CLEANUP_MS);
-  runtime.animeIngest.cleanupTimer.unref?.();
-  if(listener){
-    queueMicrotask(()=>discoverSources(runtime).catch(e=>console.error('[NexAnime discovery]',String(e?.message||e))));
-    runtime.animeIngest.discoveryTimer=setInterval(
-      ()=>discoverSources(runtime).catch(e=>console.error('[NexAnime discovery]',String(e?.message||e))),
-      DISCOVERY_MS
-    );
-    runtime.animeIngest.discoveryTimer.unref?.();
-    runtime.animeIngest.pollTimer=setInterval(()=>pollAnimeSources(runtime).catch(()=>{}),POLL_MS);
-    runtime.animeIngest.pollTimer.unref?.();
+
+  try{
+    await ensureIndexes();
+    queueMicrotask(()=>cleanupTmpFiles().catch(()=>{}));
+    runtime.animeIngest.cleanupTimer=setInterval(()=>cleanupTmpFiles().catch(()=>{}),TMP_CLEANUP_MS);
+    runtime.animeIngest.cleanupTimer.unref?.();
+    if(listener){
+      queueMicrotask(()=>discoverSources(runtime).catch(e=>console.error('[NexAnime discovery]',String(e?.message||e))));
+      runtime.animeIngest.discoveryTimer=setInterval(
+        ()=>discoverSources(runtime).catch(e=>console.error('[NexAnime discovery]',String(e?.message||e))),
+        DISCOVERY_MS
+      );
+      runtime.animeIngest.discoveryTimer.unref?.();
+      runtime.animeIngest.pollTimer=setInterval(()=>pollAnimeSources(runtime).catch(()=>{}),POLL_MS);
+      runtime.animeIngest.pollTimer.unref?.();
+    }
+    if(publisher){
+      // Remove legacy per-episode poster cards that were already published before
+      // this fix. Real episode media and the one general synopsis are untouched.
+      await purgePublishedEpisodeImageCards(runtime);
+      runtime.animeIngest.publishTimer=setInterval(()=>publishOne(runtime).catch(()=>{}),PUBLISH_MS);
+      runtime.animeIngest.publishTimer.unref?.();
+      queueMicrotask(()=>publishOne(runtime).catch(()=>{}));
+    }
+    runtime.animeIngest.enabled=true;
+    runtime.animeIngest.lastStartedAt=new Date();
+    runtime.animeIngest.lastStartError='';
+    return true;
+  }catch(error){
+    runtime.animeIngest.lastStartError=String(error?.message||error).slice(0,500);
+    runtime.animeIngest.lastStartFailedAt=new Date();
+    await stopAnimeIngest(runtime).catch(()=>{});
+    throw error;
   }
-  if(publisher){
-    // Remove legacy per-episode poster cards that were already published before
-    // this fix. Real episode media and the one general synopsis are untouched.
-    await purgePublishedEpisodeImageCards(runtime);
-    runtime.animeIngest.publishTimer=setInterval(()=>publishOne(runtime).catch(()=>{}),PUBLISH_MS);
-    runtime.animeIngest.publishTimer.unref?.();
-    queueMicrotask(()=>publishOne(runtime).catch(()=>{}));
-  }
-  return true;
 }
 export async function animePublishNow(runtime){
   if(!isPublisherRuntime(runtime))throw new Error('anime_publisher_runtime_required');
@@ -2343,6 +2359,10 @@ export async function stopAnimeIngest(runtime){
   if(runtime.animeIngest.publishTimer)clearInterval(runtime.animeIngest.publishTimer);
   if(runtime.animeIngest.pollTimer)clearInterval(runtime.animeIngest.pollTimer);
   if(runtime.animeIngest.cleanupTimer)clearInterval(runtime.animeIngest.cleanupTimer);
+  runtime.animeIngest.discoveryTimer=null;
+  runtime.animeIngest.publishTimer=null;
+  runtime.animeIngest.pollTimer=null;
+  runtime.animeIngest.cleanupTimer=null;
   runtime.animeIngest.enabled=false;
 }
 export function animeIngestStatus(runtime){
@@ -2352,6 +2372,7 @@ export function animeIngestStatus(runtime){
     handoffWorker:a.publisher===true,publicPublisher:'@'+NEXCANAL_STAGE_BOT,destination:a.destination||'@'+DESTINATION,
     mediaPolicy:a.mediaPolicy||MEDIA_POLICY_DEFAULT,sources:a.sources||0,queued:a.queued||0,published:a.published||0,
     lastQueuedAt:a.lastQueuedAt||null,lastPublishedAt:a.lastPublishedAt||null,
+    lastStartedAt:a.lastStartedAt||null,lastStartFailedAt:a.lastStartFailedAt||null,lastStartError:a.lastStartError||'',
     lastDiscoveryAt:a.lastDiscoveryAt||null,lastBackfillAt:a.lastBackfillAt||null,
     lastBackfillCount:a.lastBackfillCount||0,lastPollAt:a.lastPollAt||null,
     lastPollCount:a.lastPollCount||0,discovering:a.discovering===true,polling:a.polling===true,
