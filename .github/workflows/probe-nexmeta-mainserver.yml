@@ -1,0 +1,102 @@
+name: Probe NexMeta main server
+
+on:
+  push:
+    branches:
+      - feature/nexmeta-v1
+    paths:
+      - ".github/workflows/probe-nexmeta-mainserver.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      NXC_BASE: https://nexcontrol-ochre.vercel.app
+      NXC_AGENT: nexus-main
+      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
+      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    steps:
+      - name: Probe active NexMeta runtime through NexControl Agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,json,time,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib,base64
+
+          BASE=os.environ['NXC_BASE'].rstrip('/')
+          AGENT=os.environ['NXC_AGENT']
+          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
+          SECRET=os.environ.get('NXC_SESSION_SECRET','')
+
+          jar=http.cookiejar.CookieJar()
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          cookie=''
+          if SECRET:
+              exp=int(time.time()*1000)+20*60*1000
+              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
+              sig=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
+              cookie=payload+'.'+sig
+          elif ADMIN:
+              data=urllib.parse.urlencode({'password':ADMIN}).encode()
+              op.open(urllib.request.Request(BASE+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=45).read()
+          else:
+              raise RuntimeError('No NexControl credential in Actions secrets')
+
+          def http(method,path,data=None,timeout=60):
+              headers={'Accept':'application/json'}
+              if cookie: headers['Cookie']='nexcontrol_session='+cookie
+              body=None
+              if data is not None:
+                  body=json.dumps(data,separators=(',',':')).encode()
+                  headers['Content-Type']='application/json'
+              req=urllib.request.Request(BASE+path,data=body,headers=headers,method=method)
+              try:
+                  with op.open(req,timeout=timeout) as r:
+                      raw=r.read().decode('utf-8','replace')
+                      return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  raise RuntimeError(f'HTTP {e.code} {path}: '+e.read().decode('utf-8','replace')[:2000])
+
+          def job(kind,payload=None,timeout=90):
+              j=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload or {}})
+              jid=j.get('jobId')
+              if not jid: raise RuntimeError(f'No jobId for {kind}: {j}')
+              end=time.time()+timeout
+              while time.time()<end:
+                  x=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid),timeout=45)
+                  st=x.get('status')
+                  if st=='succeeded': return x.get('result') or {}
+                  if st=='failed': raise RuntimeError(f'{kind} failed: {x.get("error")}')
+                  time.sleep(1)
+              raise TimeoutError(f'{kind} timeout: {jid}')
+
+          services=job('service.list',{'includeHealth':True},60)
+          wanted=[x for x in services.get('items',[]) if 'meta' in str(x.get('name','')).lower() or 'meta' in str(x.get('unit','')).lower()]
+          print('NEXMETA_SERVICES='+json.dumps(wanted,separators=(',',':')))
+
+          for path in [
+              'releases/nexmeta-acf36766/nexus-bridge/adapters/nexai.mjs',
+              'releases/nexmeta-acf36766/nexus-bridge/adapters/nexai-telegram-knowledge.mjs'
+          ]:
+              try:
+                  print('STAT '+path+' '+json.dumps(job('fs.stat',{'root':'nexus','path':path},45),separators=(',',':')))
+              except Exception as e:
+                  print('STAT_MISS '+path+' '+str(e)[:1000])
+
+          try:
+              tree=job('fs.tree',{'root':'nexus','path':'releases','maxDepth':2,'maxItems':1500},60)
+              rows=[x for x in tree.get('items',[]) if 'nexmeta' in str(x.get('path','')).lower()]
+              print('NEXMETA_RELEASE_TREE='+json.dumps(rows[-300:],separators=(',',':')))
+          except Exception as e:
+              print('TREE_ERROR='+str(e)[:2000])
+
+          for url in ['http://127.0.0.1:3012/health','http://127.0.0.1:10000/health/meta']:
+              try:
+                  print('HTTP '+url+' '+json.dumps(job('http.check',{'url':url,'timeoutMs':5000,'previewBytes':500},45),separators=(',',':')))
+              except Exception as e:
+                  print('HTTP_MISS '+url+' '+str(e)[:1000])
+          PY
