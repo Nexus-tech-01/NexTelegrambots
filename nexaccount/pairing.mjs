@@ -133,17 +133,20 @@ async function finishPairing(state,user){
   state.account=saved;
   await persist(state);
 
-  try{
-    const savedMessage=saved.preferredLanguage==='en'
-      ? 'NexAccount connected.\n\nYour personal engine is now active on this account.\nCommand: .menu'
-      : 'NexAccount connecté.\n\nLe moteur personnel est maintenant actif sur ce compte.\nCommande : .menu';
-    await client.sendMessage('me',{message:savedMessage});
-  }catch{}
-
+  // Attach the runtime first. The success message must only claim that the
+  // personal engine is active after the account is actually ready to handle
+  // commands.
   const handler=state.onConnected||defaultOnConnected;
   await handler?.(client,saved);
   state.handedOff=true;
   await persist(state).catch(()=>{});
+
+  try{
+    const savedMessage=saved.preferredLanguage==='en'
+      ? 'NexAccount connected.\n\nYour personal engine is now active on this account.\nCommand: menu'
+      : 'NexAccount connecté.\n\nLe moteur personnel est maintenant actif sur ce compte.\nCommande : menu';
+    await client.sendMessage('me',{message:savedMessage});
+  }catch{}
   console.log('[NexAccount pair]',state.id,'connected',String(saved.telegramUserId));
   return publicStatus(state,state.id);
 }
