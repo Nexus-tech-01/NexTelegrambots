@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0a0805">
+  <title>NexAI Connect</title>
+  <meta name="description" content="Connexion sécurisée d'un compte Telegram à NexAI">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="page">
+    <div class="hero-bg" aria-hidden="true"></div>
+    <header>
+      <div class="brand">
+        <span class="brand-mark">N</span>
+        <span>NexAI Connect<small>Secure account link</small></span>
+      </div>
+      <div class="head-actions">
+        <span class="gateway"><i></i><span data-i18n="gateway">Passerelle sécurisée</span></span>
+        <button id="langBtn" class="lang-btn" type="button">FR</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="intro">
+        <div class="eyebrow" data-i18n="eyebrow">NEXAI · CONNEXION DE COMPTE</div>
+        <h1 data-i18n-html="title">Relie ton compte.<span>Garde le contrôle.</span></h1>
+        <p class="lead" data-i18n="lead">Connecte ton compte Telegram à NexAI directement ici. Ton numéro, le code envoyé par Telegram, puis la 2FA uniquement si elle est activée.</p>
+
+        <div class="flow" aria-label="Étapes">
+          <span><b>01</b><em data-i18n="f1">Numéro</em></span><i>→</i>
+          <span><b>02</b><em data-i18n="f2">Code Telegram</em></span><i>→</i>
+          <span><b>03</b><em data-i18n="f3">2FA si nécessaire</em></span><i>→</i>
+          <span><b>04</b><em data-i18n="f4">Connecté</em></span>
+        </div>
+
+        <div class="trust-grid">
+          <article><span class="trust-icon">⌁</span><b data-i18n="s1">Chiffrement navigateur</b><p data-i18n="s1d">Le code et la 2FA sont chiffrés avant de quitter cet appareil.</p></article>
+          <article><span class="trust-icon">◈</span><b data-i18n="s2">Session côté serveur</b><p data-i18n="s2d">La session Telegram est enregistrée par NexAccount, pas dans le navigateur.</p></article>
+          <article><span class="trust-icon">✓</span><b data-i18n="s3">2FA conditionnelle</b><p data-i18n="s3d">Le mot de passe n'est demandé que si Telegram confirme qu'il est requis.</p></article>
+        </div>
+      </section>
+
+      <section class="connect-card" aria-label="Connexion Telegram">
+        <div class="card-head">
+          <div>
+            <div class="mini" data-i18n="cardEyebrow">SESSION TELEGRAM</div>
+            <h2 data-i18n="cardTitle">Connecter un compte</h2>
+            <p data-i18n="cardSub">Suis les étapes affichées. La page s'adapte automatiquement à la sécurité de ton compte.</p>
+          </div>
+          <span class="lock">⌾</span>
+        </div>
+
+        <div class="progress" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i></div>
+
+        <div class="form">
+          <section class="screen active" id="phoneScreen">
+            <label><span data-i18n="phoneLabel">Numéro Telegram</span><small data-i18n="phoneHint">format international</small></label>
+            <div class="field"><span>＋</span><input id="phone" type="tel" autocomplete="tel" placeholder="+229 01 00 00 00 00"></div>
+            <button class="primary" id="startBtn" type="button" data-i18n="sendCode">Recevoir le code</button>
+            <p class="notice" data-i18n="phoneNotice">Telegram enverra le code via l'application ou le canal disponible pour ton compte.</p>
+          </section>
+
+          <section class="screen" id="codeScreen">
+            <label><span data-i18n="codeLabel">Code reçu de Telegram</span><small data-i18n="codeHint">4 à 8 chiffres</small></label>
+            <div class="field"><span>✉</span><input id="code" class="code" inputmode="numeric" autocomplete="one-time-code" placeholder="•••••"></div>
+            <button class="primary" id="codeBtn" type="button" data-i18n="verifyCode">Valider le code</button>
+            <button class="secondary" id="backPhone" type="button" data-i18n="changeNumber">Changer de numéro</button>
+          </section>
+
+          <section class="screen" id="passwordScreen">
+            <label><span data-i18n="passLabel">Mot de passe 2FA</span><small data-i18n="passHint">requis par Telegram</small></label>
+            <div class="field"><span>●</span><input id="password" type="password" autocomplete="current-password" placeholder="••••••••"></div>
+            <button class="primary" id="passBtn" type="button" data-i18n="verify2fa">Valider la 2FA</button>
+            <p class="notice" data-i18n="passNotice">Ce champ apparaît uniquement parce que Telegram a indiqué que la vérification en deux étapes est activée.</p>
+          </section>
+
+          <section class="screen" id="successScreen">
+            <div class="success">
+              <div class="success-mark">✓</div>
+              <h3 data-i18n="doneTitle">Compte connecté</h3>
+              <p data-i18n="doneText">NexAccount a enregistré la session et NexAI peut maintenant fonctionner avec ce compte.</p>
+              <div class="account" id="accountBox"></div>
+              <button class="secondary" id="anotherBtn" type="button" data-i18n="another">Connecter un autre compte</button>
+            </div>
+          </section>
+          <div class="status" id="status" role="status" aria-live="polite"></div>
+        </div>
+        <p class="foot-note" data-i18n="footer">NexAI Connect ne te demandera jamais de créer un nouveau compte Telegram depuis cette page.</p>
+      </section>
+    </main>
+  </div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
