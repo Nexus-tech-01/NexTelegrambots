@@ -784,7 +784,6 @@ async function pollRecentCommands(runtime){
   try{
     if(!client.connected)return;
     const settings=await settingsFor(account.telegramUserId);
-    const prefix=String(settings.prefix||'.');
     const now=Date.now();
     // Only scan messages that appeared since the previous poll. Using the
     // runtime start forever caused the same historical command to become
@@ -964,7 +963,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
     markRuntimeUpdate(runtime);
     try{
       // Messages sent by this same account from another Telegram session may
-      // arrive with out=false. Treat self-authored dot commands as commands.
+      // arrive with out=false. Treat recognized self-authored commands as commands.
       if(await maybeHandleSelfCommand(runtime,event,'incoming-self'))return;
       if(await handleAnimeIngestEvent(runtime,event))return;
       await maybeAutoModerate(runtime,event);
