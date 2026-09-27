@@ -7,7 +7,7 @@ import { menuModel, stylesModel } from './menu.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { getInlineResponse } from './inline-response-store.mjs';
 import { observeUser, recordEvent } from './analytics.mjs';
-import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
+import { ownerPanelText, usersText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
 import { listStyles, toSmallCaps } from './styles.mjs';
 import { animatedCustomEmojiEntitySpecs, animatedCustomEmojiEntitySpecsFromLibrary, ensureEmojiLibraryPalette, sanitizeAnimatedEmojiText } from './response-ui.mjs';
 
@@ -496,7 +496,8 @@ async function sendOwner(ctx,kind,args=[]){
   if(!isOwnerId(ctx.from?.id))return;
   const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
   let text='';
-  if(kind==='owner'||kind==='users')text=await ownerPanelText(lang);
+  if(kind==='owner')text=await ownerPanelText(lang);
+  else if(kind==='users')text=await usersText(lang);
   else if(kind==='botstats')text=await botStatsText(lang);
   else if(kind==='activity')text=await activityText(lang);
   else if(kind==='growth')text=await growthText(lang);
