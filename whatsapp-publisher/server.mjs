@@ -225,8 +225,30 @@ function routePublication(pub){
 }
 
 function addHistory(entry){ const h=readJson('history.json',[]); h.unshift({at:new Date().toISOString(),...entry}); if(h.length>500)h.length=500; writeJson('history.json',h); }
-function enqueue(destination,jid,pub){ const q=readJson('queue.json',[]); q.push({id:crypto.randomUUID(),destination,jid,pub,status:'pending',attempts:0,nextAttemptAt:Date.now(),createdAt:new Date().toISOString()}); writeJson('queue.json',q); }
-function dedupeSeen(pub){ const h=readJson('history.json',[]); return h.some(x=>x.type==='planned'&&x.publicationId===pub.id); }
+function sameSourceMessage(a,b){
+  const as=sourceName(a?.source||''),bs=sourceName(b?.source||'');
+  const ai=a?.sourceMessageId,bi=b?.sourceMessageId;
+  return Boolean(as&&bs&&as===bs&&ai!=null&&bi!=null&&String(ai)===String(bi));
+}
+function enqueue(destination,jid,pub){
+  const q=readJson('queue.json',[]);
+  const existing=q.find(x=>
+    String(x?.destination||'')===String(destination) &&
+    ['pending','done'].includes(String(x?.status||'')) &&
+    (String(x?.pub?.id||'')===String(pub?.id||'')||sameSourceMessage(x?.pub,pub))
+  );
+  if(existing)return {...existing,deduplicated:true};
+  const item={id:crypto.randomUUID(),destination,jid,pub,status:'pending',attempts:0,nextAttemptAt:Date.now(),createdAt:new Date().toISOString()};
+  q.push(item);
+  writeJson('queue.json',q);
+  return item;
+}
+function dedupeSeen(pub){
+  const q=readJson('queue.json',[]);
+  if(q.some(x=>['pending','done'].includes(String(x?.status||''))&&(String(x?.pub?.id||'')===String(pub?.id||'')||sameSourceMessage(x?.pub,pub))))return true;
+  const h=readJson('history.json',[]);
+  return h.some(x=>x.type==='planned'&&(x.publicationId===pub.id||sameSourceMessage(x,pub)));
+}
 
 async function resolveNewsletter({inviteUrl,cacheFile,jidKey,titleKey}){
   if(!socket||state.status!=='connected') return null;
@@ -589,7 +611,7 @@ function plan(raw){
     const lifestyle=pub.source==='tresor_universe';
     enqueue('channel',lifestyle?(state.otakuChannelJid||'__OTAKU_CHANNEL__'):(state.channelJid||'__CHANNEL__'),pub);
   }
-  addHistory({type:'planned',publicationId:pub.id,source:pub.source,route,textPreview:pub.text.slice(0,180)});
+  addHistory({type:'planned',publicationId:pub.id,source:pub.source,sourceMessageId:pub.sourceMessageId,route,textPreview:pub.text.slice(0,180)});
   processQueue().catch(()=>{});
   return {duplicate:false,pub,route};
 }
