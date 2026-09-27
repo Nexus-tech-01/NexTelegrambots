@@ -6,6 +6,10 @@ import { parseCommand } from '../core/command-parser.mjs';
 import { commandMap } from '../commands.mjs';
 
 const commands=commandMap();
+const bareOptions={
+  allowBare:true,
+  isKnownCommand:name=>commands.has(name)
+};
 
 const HERE=path.dirname(fileURLToPath(import.meta.url));
 const commandSource=fs.readFileSync(path.join(HERE,'..','commands.mjs'),'utf8');
@@ -50,6 +54,24 @@ for(const [input,target,args] of cases){
 const dotted=parseCommand('.take Pack Perso','.');
 assert.equal(dotted.name,'take');
 assert.deepEqual(dotted.args,['Pack','Perso']);
+assert.equal(dotted.kind,'prefix');
 assert.equal(commands.get(dotted.name).aliasFor,'clonepack');
+
+const bare=parseCommand('take Pack Perso','.',bareOptions);
+assert.ok(bare,'known command must parse without a prefix');
+assert.equal(bare.name,'take');
+assert.deepEqual(bare.args,['Pack','Perso']);
+assert.equal(bare.kind,'bare');
+assert.equal(commands.get(bare.name).aliasFor,'clonepack');
+
+const bareCase=parseCommand('MUSIC never gonna give you up','.',bareOptions);
+assert.ok(bareCase,'known alias must parse without a prefix');
+assert.equal(bareCase.name,'music');
+assert.deepEqual(bareCase.args,['never','gonna','give','you','up']);
+assert.equal(bareCase.kind,'bare');
+
+assert.equal(parseCommand('hello there','.',bareOptions),null,'normal conversation must not become a command');
+assert.equal(parseCommand('take Pack Perso','.'),null,'bare parsing must stay opt-in');
+assert.equal(parseCommand('/take Pack Perso','.',bareOptions).kind,'slash');
 
 console.log('alias/parser regression tests: ok');
