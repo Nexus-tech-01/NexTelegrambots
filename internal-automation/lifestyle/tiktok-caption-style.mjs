@@ -95,11 +95,8 @@ function luxuryTemplate(analysis){
 export function buildStyledCaptions(candidate,analysis){
   const isOtaku=candidate?.source?.category==='amv_edit';
   const template=isOtaku?otakuTemplate(analysis):luxuryTemplate(analysis);
-  const creator=clean(candidate?.source?.username).replace(/^@/,'');
-  const url=clean(candidate?.item?.url);
-  const attribution=['','ㅤׄ 𝗌𝗈𝗎𝗋𝖼𝖾 · @'+creator,url].filter(Boolean).join('\n');
   return {
-    plain:(template+attribution).trim(),
+    plain:template.trim(),
     html:esc(template).trim()
   };
 }
