@@ -289,3 +289,16 @@ console.log('NexAnime ingest regression tests: OK');
   const s2=__test.releaseKey({title:'Devil May Cry',season:2,episode:1,language:'VF',quality:'1080p'});
   assert.notEqual(s1,s2);
 }
+
+
+// A temporarily unavailable source must stay retryable; quarantining the
+// expected episode would deadlock strict ordering for every following episode.
+{
+  const transient=new Error('source_message_unavailable_for_runtime');
+  transient.code='SOURCE_UNAVAILABLE';
+  assert.equal(__test.isTransientPublishError(transient),true);
+  assert.equal(__test.isTransientPublishError(new Error('source_message_unavailable_for_runtime')),true);
+  const permanent=new Error('source_identity_mismatch');
+  permanent.code='SOURCE_IDENTITY_MISMATCH';
+  assert.equal(__test.isTransientPublishError(permanent),false);
+}
