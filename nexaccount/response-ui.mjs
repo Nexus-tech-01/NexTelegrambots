@@ -5,13 +5,20 @@ import { patchSettings, settingsFor } from './store.mjs';
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
 const clean=v=>String(v??'').trim();
 
-const PREMIUM_EMOJI_GLYPHS={
+export const PREMIUM_EMOJI_GLYPHS=Object.freeze({
   WAIT:'⏳',CHECK:'✅',ERROR:'❌',
   GENERAL:'🏠',ACCOUNT:'👤',AI:'🧠',DOWNLOAD:'📥',GROUP:'👥',SHIELD:'🔒',
   TOOLS:'🛠️',MEDIA:'🎞️',STICKER:'🎴',GAMES:'🎮',SEARCH:'🔎',ANIME:'🌸',
   PREMIUM:'👑',OWNER:'🔮',NEXTECH:'⚡',NEWS:'📰',DARK:'🕯️',BACK:'↩️',
-  NEXT:'➡️',STYLE:'🎨'
-};
+  NEXT:'➡️',STYLE:'🎨',LINK:'🔗',LANGUAGE:'🌐',FIRE:'🔥',HEART:'❤️',LIKE:'👍',
+  STYLE_1:'🕯',STYLE_2:'🍃',STYLE_3:'🕶️',STYLE_4:'💻',STYLE_5:'⚔️',
+  STYLE_6:'⭐',STYLE_7:'🌸',STYLE_8:'👁',STYLE_9:'🌿',STYLE_10:'🎀',
+  STYLE_11:'🗡',STYLE_12:'👁',STYLE_13:'🪷',STYLE_14:'👁',STYLE_15:'⚔',
+  STYLE_16:'👁',STYLE_17:'👑',STYLE_18:'📊',STYLE_19:'🌒',STYLE_20:'☄',
+  STYLE_21:'🌙',STYLE_22:'🦇',STYLE_23:'🌸',STYLE_24:'❄',STYLE_25:'🍫',
+  STYLE_26:'⚔',STYLE_27:'⚽',STYLE_28:'🎯',STYLE_29:'🩸',STYLE_30:'🦋',
+  STYLE_31:'⛩'
+});
 const premiumEmojiAttempts=new Map();
 const PREMIUM_EMOJI_RETRY_MS=6*60*60*1000;
 const normalizeEmoji=value=>String(value??'').replace(/\uFE0F/g,'').replace(/\u200D/g,'').trim();
