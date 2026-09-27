@@ -227,10 +227,37 @@ function commandDeliveryKey(message){
   return peer+':'+String(message?.id||'0');
 }
 
+function commandSemanticDeliveryKey(message){
+  const stamp=messageTimestampMs(message);
+  const text=String(message?.message||message?.text||message?.rawText||'')
+    .trim()
+    .replace(/\\s+/g,' ')
+    .toLowerCase();
+  if(!stamp||!text)return '';
+  const digest=crypto.createHash('sha256').update(text,'utf8').digest('hex').slice(0,24);
+  const peer=String(
+    message?.peerId?.userId||
+    message?.peerId?.chatId||
+    message?.peerId?.channelId||
+    message?.chatId||
+    'peer'
+  );
+  return peer+':'+String(Math.floor(stamp/1000))+':'+digest;
+}
+
 async function claimCommand(telegramUserId,message){
   if(!commandDeduper.claim(telegramUserId,message))return false;
   try{
-    return await claimCommandDelivery(telegramUserId,commandDeliveryKey(message));
+    const idClaimed=await claimCommandDelivery(telegramUserId,commandDeliveryKey(message));
+    if(!idClaimed)return false;
+
+    // A reconnect/catch-up can occasionally surface the same Telegram command
+    // with a different update shape (and, on some clients, a different message
+    // id). Also claim a stable content+timestamp signature so that one human
+    // command can never execute twice across workers or daemon restarts.
+    const semanticKey=commandSemanticDeliveryKey(message);
+    if(!semanticKey)return true;
+    return await claimCommandDelivery(telegramUserId,'semantic:'+semanticKey);
   }catch(error){
     // Keep commands usable during a temporary MongoDB issue; the in-memory
     // guard still prevents duplicate handling inside this runtime.
@@ -1190,6 +1217,25 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
   const accessMode=settings.accessMode==='public'?'public':'private';
   const parsed=parseRuntimeCommand(textOf(message),settings,event);
   if(!parsed)return false;
+
+  // Bare commands ("sessions", "menu", ...) are convenient, but unlike an
+  // explicit prefix they are unsafe to replay from Telegram history. Accept
+  // them only while the originating message is fresh. This kills reconnect /
+  // catch-up loops without changing normal live command usage.
+  if(selfAuthored&&parsed.kind==='bare'){
+    const stamp=messageTimestampMs(message);
+    if(!stamp||Date.now()-stamp>90_000){
+      console.warn(
+        '[NexAccount stale-bare-command]',
+        String(account.telegramUserId),
+        parsed.name,
+        'source='+source,
+        'messageId='+String(message?.id||'')
+      );
+      return true;
+    }
+  }
+
   const universalPair=isUniversalPairCommand(parsed);
 
   // /pair, pair and its aliases must always be callable by a human user,
@@ -1261,16 +1307,20 @@ async function pollRecentCommands(runtime){
       // GetDialogs/GetHistory while the same MTProto session is under FloodWait.
       // The previous-poll watermark below is the replay boundary, and
       // claimCommand() is the durable duplicate guard.
+      // Never let the history fallback consume NexAI's own inline result.
+      if(messageWasSentViaBot(message))return;
+
       const selfAuthored=isSelfAuthoredMessage(message,account);
       const accessMode=settings.accessMode==='public'?'public':'private';
       const raw=textOf(message);
-      // The poller is a short-gap fallback for every supported command form:
-      // bare ("menu"), slash ("/menu") and the configured prefix (".menu").
-      // Replay remains bounded by the watermark + freshness checks above, while
-      // claimCommand() provides the durable duplicate guard across workers/restarts.
       const pollEvent={message,isGroup};
       const parsed=parseRuntimeCommand(raw,settings,pollEvent);
       if(!parsed)return;
+
+      // Prefixless/slash commands are recovered only from a very recent gap.
+      // Old history must never be treated as a new command after reconnect.
+      if(parsed.kind!=='prefix'&&(!stamp||now-stamp>45_000))return;
+
       if(!selfAuthored&&accessMode!=='public'&&!isUniversalPairCommand(parsed))return;
       await maybeHandleSelfCommand(runtime,pollEvent,'poll');
     }
