@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { Bot, InputFile } from 'grammy';
 import { cfg, isOwnerId } from './config.mjs';
 import { loadBotToken } from './secrets.mjs';
@@ -29,6 +30,25 @@ const webPairUsers=new Map();
 const photoFileIdCache=new Map();
 const photoCachePending=new Map();
 let bot;
+let replyArtworkBuffer=null;
+
+function nexAiReplyArtworkInput(){
+  if(!replyArtworkBuffer){
+    const encoded=fs.readFileSync(new URL('./assets/nexai-reply-artwork.jpg.b64',import.meta.url),'utf8').replace(/\\s+/g,'');
+    replyArtworkBuffer=Buffer.from(encoded,'base64');
+    if(!replyArtworkBuffer.length)throw new Error('nexai_reply_artwork_empty');
+  }
+  return new InputFile(replyArtworkBuffer,'nexai-reply-artwork.jpg');
+}
+
+async function sendReplyArtwork(ctx){
+  try{
+    return await ctx.replyWithPhoto(nexAiReplyArtworkInput());
+  }catch(error){
+    console.warn('[NexAI reply artwork]',String(error?.description||error?.message||error).slice(0,350));
+    return null;
+  }
+}
 
 async function cachePhotoFileId(photoUrl,chatId){
   const key=String(photoUrl||'').trim();
@@ -275,6 +295,7 @@ async function modelFor(account,query){
 }
 
 async function sendModelMessage(ctx,model,accountId){
+  await sendReplyArtwork(ctx);
   const rich=stampMarkup(model.reply_markup,accountId);
   const plain=portableMarkup(rich);
   const errors=[];
@@ -470,6 +491,7 @@ async function sendStart(ctx){
   const text=lang==='en'
     ? ['♰ ɴᴇxᴀɪ','','🔗 ᴄᴏɴɴᴇᴄᴛ ʏᴏᴜʀ ᴛᴇʟᴇɢʀᴀᴍ ᴀᴄᴄᴏᴜɴᴛ','/pair','','/creator','/language'].join('\n')
     : ['♰ ɴᴇxᴀɪ','','🔗 ʀᴇʟɪᴇ ᴛᴏɴ ᴄᴏᴍᴘᴛᴇ ᴛᴇʟᴇɢʀᴀᴍ','/pair','','/creator','/language'].join('\n');
+  await sendReplyArtwork(ctx);
   return ctx.reply(text,{
     entities:quotedEntities(text,['/pair','/creator','/language']),
     reply_markup:connectMarkup(lang),
