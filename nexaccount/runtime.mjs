@@ -868,10 +868,10 @@ async function pollRecentCommands(runtime){
       if(!message)return;
       const stamp=messageTimestampMs(message);
       if(stamp&&stamp<since)return;
-      // The poller is only a short-gap fallback, not a history replayer. This
-      // prevents old bare commands from being executed again after a restart,
-      // reconnect or in-memory dedupe expiry.
-      if(stamp&&now-stamp>60_000)return;
+      // Do not use a fixed "60 seconds old" cutoff here. Telegram can delay
+      // GetDialogs/GetHistory while the same MTProto session is under FloodWait.
+      // The previous-poll watermark below is the replay boundary, and
+      // claimCommand() is the durable duplicate guard.
       const selfAuthored=isSelfAuthoredMessage(message,account);
       const accessMode=settings.accessMode==='public'?'public':'private';
       if(!selfAuthored&&accessMode!=='public')return;
@@ -897,7 +897,10 @@ async function pollRecentCommands(runtime){
     // Also cover commands typed in normal chats. getDialogs already carries the
     // current top message; only fetch a short tail when a very recent dialog
     // changed after our command and hid it from the top slot.
-    const dialogs=await client.getDialogs({limit:24});
+    // Inspect more dialog heads without issuing GetHistory for every chat.
+    // A freshly sent command normally becomes the dialog's top message.
+    const dialogs=await client.getDialogs({limit:64});
+    let tailFetches=0;
     for(const dialog of dialogs){
       const top=dialog?.message;
       const topStamp=messageTimestampMs(top);
@@ -911,9 +914,13 @@ async function pollRecentCommands(runtime){
         (isSelfAuthoredMessage(top,account)||settings.accessMode==='public')&&
         !!topParsed;
 
-      if(!topIsOwnCommand&&topStamp&&now-topStamp<45000){
+      // Only a handful of recent chats need a history tail. Limiting these
+      // calls prevents command polling itself from triggering GetHistory FloodWait
+      // and starving the fallback that is supposed to recover missed updates.
+      if(!topIsOwnCommand&&topStamp&&now-topStamp<120000&&tailFetches<4){
+        tailFetches++;
         try{
-          const recent=await client.getMessages(dialog.inputEntity||dialog.entity||dialog,{limit:5});
+          const recent=await client.getMessages(dialog.inputEntity||dialog.entity||dialog,{limit:6});
           for(const message of [...recent].reverse())await inspect(message,dialog?.isGroup===true);
         }catch{}
       }
