@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'nexaccount/**'
+      - 'nexcanal/**'
       - 'nexcontrol/api/index.mjs'
       - '.github/workflows/deploy-nexaccount.yml'
   workflow_dispatch:
@@ -107,6 +108,7 @@ jobs:
               raise TimeoutError(f'{kind} timeout: {jid}')
 
           job('fs.mkdir',{'root':'nexus','path':'bots/nexaccount','recursive':True})
+          job('fs.mkdir',{'root':'nexus','path':'bots/nexaccount/automation','recursive':True})
 
           files=[]
           for p in Path('nexaccount').rglob('*'):
@@ -117,6 +119,25 @@ jobs:
 
           backups=[]
           try:
+              # NexTech APK watcher is embedded into the already connected
+              # @tresor20009 NexAccount runtime. Copy the canonical modules to
+              # the production-local automation directory; no second user
+              # Telegram session is started.
+              for src_name,dst_name in (
+                  ('nexcanal/liteapks-relay.mjs','liteapks-relay.mjs'),
+                  ('nexcanal/internal-event-core.mjs','internal-event-core.mjs'),
+                  ('nexcanal/social-feed.mjs','social-feed.mjs'),
+              ):
+                  src=Path(src_name)
+                  if not src.exists():
+                      raise RuntimeError('missing embedded watcher source: '+src_name)
+                  result=job('fs.write',{
+                      'root':'nexus',
+                      'path':'bots/nexaccount/automation/'+dst_name,
+                      'content':src.read_text(encoding='utf-8')
+                  })
+                  backups.append(('automation/'+dst_name,result.get('backupId'),result.get('created',False)))
+
               for src,rel in files:
                   text=src.read_text(encoding='utf-8')
                   result=job('fs.write',{'root':'nexus','path':'bots/nexaccount/'+rel,'content':text})
@@ -129,6 +150,15 @@ jobs:
               },timeout=210)
               if install.get('ok') is False:
                   raise RuntimeError('npm install failed: '+str(install)[-4000:])
+              for embedded in ('liteapks-relay.mjs','internal-event-core.mjs','social-feed.mjs'):
+                  ck=job('check.run',{
+                      'check':'node-check',
+                      'root':'nexus',
+                      'file':'bots/nexaccount/automation/'+embedded,
+                      'timeoutMs':60000
+                  })
+                  if not ck.get('ok'):
+                      raise RuntimeError('embedded watcher node-check failed '+embedded+': '+str(ck))
               boot=job('runtime.exec',{
                   'root':'nexus',
                   'command':'node',
