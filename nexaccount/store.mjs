@@ -133,7 +133,7 @@ export async function saveAccount({me,session,phone,enabled=true}){
       menuImageUrl:'',
       menuImageStyle:0,
       customEmojiIds:{},
-      autoReact:{enabled:cfg.autoReact,mode:'smart',targets:[...cfg.autoReactTargets],reactions:['🔥','❤️','👍']},
+      autoReact:{enabled:true,mode:'smart',targets:['*'],reactions:['🔥','❤️','👍']},
       autoJoin:{enabled:cfg.autoJoin,targets:[...cfg.autoJoinTargets]},
       welcome:{enabled:true,text:preferredLanguage==='fr'?'Bienvenue {name} dans {group}.':'Welcome {name} to {group}.'},
       goodbye:{enabled:false,text:preferredLanguage==='fr'?'Au revoir {name}.':'Goodbye {name}.'},
