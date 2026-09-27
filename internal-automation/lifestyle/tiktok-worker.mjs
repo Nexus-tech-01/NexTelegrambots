@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {analyzeTikTokVideo} from './tiktok-video-analyzer.mjs';
+import {analyzeTikTokVideo} from './tiktok-video-analyzer.mjs';\nimport {buildStyledCaptions} from './tiktok-caption-style.mjs';
 
 const run=promisify(execFile);
 const token=String(process.env.NEXCANAL__BOT_TOKEN||'').trim();
@@ -173,22 +173,6 @@ async function extractFrames(video,duration,dir){
   return frames;
 }
 
-function buildCaptions(candidate,analysis){
-  const heading=candidate.source.category==='amv_edit'?'✦ 𝗢𝗧𝗔𝗞𝗨 𝗣𝗢𝗘𝗠':'✦ 𝗟𝗨𝗫𝗨𝗥𝗬 𝗟𝗜𝗙𝗘';
-  const tags=(analysis.hashtags||[]).slice(0,5).map(x=>'#'+String(x).replace(/[^\p{L}\p{N}_]/gu,'')).filter(x=>x.length>1);
-  const plain=[
-    heading,'',analysis.poem.trim(),'',
-    'Source · @'+candidate.source.username,
-    tags.length?tags.join(' '):''
-  ].filter((x,i,a)=>x!==''||a[i-1]!=='').join('\n').trim().slice(0,1024);
-  const html=[
-    esc(heading),'',esc(analysis.poem.trim()),'',
-    '<a href="'+esc(candidate.item.url)+'">Source · @'+esc(candidate.source.username)+'</a>',
-    tags.length?tags.map(esc).join(' '):''
-  ].filter((x,i,a)=>x!==''||a[i-1]!=='').join('\n').trim().slice(0,1024);
-  return {plain,html};
-}
-
 async function telegramJson(method,body){
   const r=await fetch('https://api.telegram.org/bot'+token+'/'+method,{
     method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),
@@ -208,7 +192,7 @@ async function sendTelegramVideo(video,candidate,captions){
   form.append('parse_mode','HTML');
   form.append('supports_streaming','true');
   form.append('reply_markup',JSON.stringify({inline_keyboard:[[
-    {text:'Source TikTok',url:candidate.item.url}
+    {text:'source · @'+candidate.source.username,url:candidate.item.url}
   ]]}));
   const r=await fetch('https://api.telegram.org/bot'+token+'/sendVideo',{
     method:'POST',body:form,signal:AbortSignal.timeout(120000)
@@ -305,7 +289,7 @@ try{
     description:candidate.item.description,
     duration:finalInfo.duration
   });
-  const captions=buildCaptions(candidate,analysis);
+  const captions=buildStyledCaptions(candidate,analysis);
 
   if(dryRun){
     console.log(JSON.stringify({
