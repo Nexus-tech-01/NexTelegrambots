@@ -30,11 +30,15 @@ async function guarded({label,name,sendText,client,peer,run,progressEnabled=true
       const account=runtimeAccount;
       let customEmojiIds={};
       if(account?.premium===true){
-        const settings=await ensurePremiumEmojiPalette(client,account.telegramUserId,{
+        // Premium emoji synchronization must never block command execution.
+        // Keep the normal emoji fallback for this response and refresh the
+        // palette asynchronously for later messages.
+        ensurePremiumEmojiPalette(client,account.telegramUserId,{
           premium:true,
           keys:['WAIT','CHECK','ERROR']
+        }).catch(error=>{
+          console.warn('[NexAccount premium-emoji async]',String(error?.message||error).slice(0,220));
         });
-        customEmojiIds=settings?.customEmojiIds||{};
       }
       progress=await createProgress(client,peer,label+' · '+name,{customEmojiIds});
     }catch(error){
