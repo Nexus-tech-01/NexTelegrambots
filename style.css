@@ -492,3 +492,21 @@ body.menu-open .app-shell{
 @media(prefers-reduced-motion:reduce){
   body.menu-open .app-shell{transform:none}
 }
+
+/* Telegram profile photos 2026-09-27 */
+.project-icon,.network-icon{position:relative}
+.profile-photo{
+  position:absolute;
+  inset:0;
+  z-index:3;
+  display:block;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  object-position:center;
+  border-radius:inherit;
+  background:#0a0f16;
+}
+.project-icon>.profile-photo+svg,
+.network-icon>.profile-photo+svg{position:relative;z-index:1}
+.stacy-avatar .profile-photo{display:block!important}
