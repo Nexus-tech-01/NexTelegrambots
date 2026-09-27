@@ -1,4 +1,61 @@
+import { access } from 'node:fs/promises';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 const clean = value => String(value ?? '').trim();
+
+async function loadLiveTelegramRegistry() {
+  const candidates = [
+    clean(process.env.NEXAI_TELEGRAM_COMMANDS_FILE),
+    '/opt/nex/current/nexaccount/commands.mjs',
+    path.resolve(
+      process.env.NEXUS_ROOT || process.cwd(),
+      'nexaccount',
+      'commands.mjs'
+    )
+  ].filter(Boolean);
+
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      await access(candidate);
+
+      const module = await import(pathToFileURL(candidate).href);
+      if (typeof module.commandMap !== 'function') continue;
+
+      const commands = module.commandMap();
+      if (!(commands instanceof Map) || commands.size < 1) continue;
+
+      const stats = typeof module.commandStats === 'function'
+        ? module.commandStats(commands)
+        : {
+            tokens: commands.size,
+            canonical: [...commands.values()].filter(command => !command?.hidden).length,
+            aliases: [...commands.values()].filter(command => command?.aliasFor).length
+          };
+
+      const byCategory = typeof module.commandsByCategory === 'function'
+        ? module.commandsByCategory(commands)
+        : {};
+
+      return {
+        commands,
+        stats,
+        byCategory,
+        categoryOrder: Array.isArray(module.CATEGORY_ORDER)
+          ? module.CATEGORY_ORDER
+          : Object.keys(byCategory),
+        source: candidate
+      };
+    } catch {
+      // The Facebook adapter must remain bootable even when the Telegram
+      // runtime is hosted elsewhere or its registry is temporarily absent.
+    }
+  }
+
+  return null;
+}
+
+const LIVE_TELEGRAM_REGISTRY = await loadLiveTelegramRegistry();
 
 export const NEXAI_TELEGRAM_PROFILE = Object.freeze({
   name: 'NexAI',
@@ -103,6 +160,144 @@ function categoryList(language) {
     .join('\n');
 }
 
+function displayCommand(name) {
+  const value = clean(name);
+  if (!value) return '';
+  return '/' + value[0].toUpperCase() + value.slice(1);
+}
+
+function liveCanonicalCatalog(language) {
+  if (!LIVE_TELEGRAM_REGISTRY) return '';
+
+  const fr = language === 'fr';
+  const lines = [];
+
+  for (const category of LIVE_TELEGRAM_REGISTRY.categoryOrder) {
+    const commands = LIVE_TELEGRAM_REGISTRY.byCategory?.[category] || [];
+    if (!commands.length) continue;
+
+    lines.push('[' + category + ']');
+
+    for (const command of commands) {
+      const name = displayCommand(command?.name);
+      if (!name) continue;
+
+      const description = clean(command?.description);
+      const flags = [];
+
+      if (command?.ownerOnly) flags.push(fr ? 'propriétaire' : 'owner');
+      if (command?.adminOnly) flags.push(fr ? 'admin groupe' : 'group admin');
+      if (command?.groupOnly) flags.push(fr ? 'groupe' : 'group');
+      if (command?.privateOnly) flags.push(fr ? 'privé' : 'private');
+      if (command?.selfOnly) flags.push(fr ? 'compte connecté' : 'connected account');
+
+      const suffix = flags.length ? ' [' + flags.join(', ') + ']' : '';
+      lines.push(
+        name +
+        (description ? ' — ' + description : '') +
+        suffix
+      );
+    }
+  }
+
+  return lines.join('\n').slice(0, 28000);
+}
+
+function liveAliasCatalog() {
+  if (!LIVE_TELEGRAM_REGISTRY) return '';
+
+  return [...LIVE_TELEGRAM_REGISTRY.commands.values()]
+    .filter(command => command?.aliasFor)
+    .map(command => clean(command.name) + '→' + clean(command.aliasFor))
+    .filter(Boolean)
+    .join(', ')
+    .slice(0, 12000);
+}
+
+function liveStatsSentence(language) {
+  const stats = LIVE_TELEGRAM_REGISTRY?.stats;
+  if (!stats) {
+    return language === 'fr'
+      ? 'Le runtime valide au moins 500 tokens de commande uniques.'
+      : 'The runtime validates at least 500 unique command tokens.';
+  }
+
+  const tokens = Number(stats.tokens || 0);
+  const canonical = Number(stats.canonical || 0);
+  const aliases = Number(stats.aliases || 0);
+
+  return language === 'fr'
+    ? `Registre Telegram actuellement chargé : ${canonical} commandes canoniques, ${aliases} alias et ${tokens} tokens reconnus.`
+    : `Currently loaded Telegram registry: ${canonical} canonical commands, ${aliases} aliases and ${tokens} recognized tokens.`;
+}
+
+function liveCommandAnswer(text, language) {
+  if (!LIVE_TELEGRAM_REGISTRY) return '';
+
+  const tokens = [
+    ...String(text || '').matchAll(/\/([\p{L}\p{N}_-]{1,64})/gu)
+  ].map(match => match[1].normalize('NFKC').toLowerCase());
+
+  for (const token of tokens) {
+    const command = LIVE_TELEGRAM_REGISTRY.commands.get(token);
+    if (!command) continue;
+
+    const canonical = clean(command.aliasFor || command.name);
+    const canonicalCommand =
+      LIVE_TELEGRAM_REGISTRY.commands.get(canonical) ||
+      command;
+
+    const fr = language === 'fr';
+    const description = clean(canonicalCommand.description);
+    const rules = [];
+
+    if (canonicalCommand.ownerOnly) {
+      rules.push(fr ? 'réservée au propriétaire' : 'owner-only');
+    }
+    if (canonicalCommand.adminOnly) {
+      rules.push(fr ? 'droits administrateur requis' : 'admin rights required');
+    }
+    if (canonicalCommand.groupOnly) {
+      rules.push(fr ? 'utilisable en groupe' : 'group-only');
+    }
+    if (canonicalCommand.privateOnly) {
+      rules.push(fr ? 'utilisable en privé' : 'private-only');
+    }
+    if (canonicalCommand.selfOnly) {
+      rules.push(fr ? 'agit sur le compte connecté' : 'acts on the connected account');
+    }
+
+    const aliasNote = command.aliasFor
+      ? (
+          fr
+            ? ` ${displayCommand(token)} est un alias de ${displayCommand(canonical)}.`
+            : ` ${displayCommand(token)} is an alias of ${displayCommand(canonical)}.`
+        )
+      : '';
+
+    const ruleText = rules.length
+      ? (fr ? ' Règles : ' : ' Rules: ') + rules.join(', ') + '.'
+      : '';
+
+    return fr
+      ? `${displayCommand(canonical)} — ${description || 'commande NexAI Telegram'}.${aliasNote}${ruleText} Catégorie : ${clean(canonicalCommand.category) || 'GENERAL'}.`
+      : `${displayCommand(canonical)} — ${description || 'Telegram NexAI command'}.${aliasNote}${ruleText} Category: ${clean(canonicalCommand.category) || 'GENERAL'}.`;
+  }
+
+  return '';
+}
+
+export function telegramNexAiRegistryStatus() {
+  const stats = LIVE_TELEGRAM_REGISTRY?.stats;
+
+  return {
+    live: Boolean(LIVE_TELEGRAM_REGISTRY),
+    tokens: Number(stats?.tokens || 0),
+    canonical: Number(stats?.canonical || 0),
+    aliases: Number(stats?.aliases || 0)
+  };
+}
+
 function hasTelegramSignal(text) {
   return /(?:telegram|nexai01|nex\s*ai\s*(?:sur|on)?\s*telegram|multisession|multi[- ]?session|compte\s+telegram|telegram\s+account|mini\s*app|pairing)/i.test(text);
 }
@@ -176,10 +371,13 @@ export function telegramNexAiAnswer(text, language = 'fr') {
       : 'Telegram NexAI has 31 menu styles. It uses NexAI artwork in menu replies and prefers Telegram custom/animated emoji when the account and Telegram support them, with normal-emoji fallback so the interface remains readable.';
   }
 
+  const liveCommand = liveCommandAnswer(value, language);
+  if (liveCommand) return liveCommand;
+
   if (isCommandIntent(value)) {
     return (fr
-      ? 'NexAI Telegram est un assistant multi-session avec un registre fusionné de centaines de commandes (le runtime valide au moins 500 tokens uniques). Les grandes catégories sont :\n'
-      : 'Telegram NexAI is a multi-session assistant with a fused registry containing hundreds of commands (the runtime validates at least 500 unique command tokens). Main categories are:\n'
+      ? 'NexAI Telegram est un assistant multi-session. ' + liveStatsSentence(language) + ' Les grandes catégories sont :\\n'
+      : 'Telegram NexAI is a multi-session assistant. ' + liveStatsSentence(language) + ' Main categories are:\\n'
     ) + categoryList(language);
   }
 
@@ -191,6 +389,9 @@ export function telegramNexAiAnswer(text, language = 'fr') {
 export function telegramNexAiSystemContext(language = 'fr') {
   const fr = language === 'fr';
   const categories = categoryList(language);
+  const liveCatalog = liveCanonicalCatalog(language);
+  const liveAliases = liveAliasCatalog();
+  const liveStats = liveStatsSentence(language);
 
   if (fr) {
     return [
@@ -206,8 +407,13 @@ export function telegramNexAiSystemContext(language = 'fr') {
       '- N’affirme jamais qu’une action Telegram a été exécutée depuis Facebook si aucun adaptateur Telegram n’a confirmé l’action. Explique la fonction, donne la commande et le lien Telegram si nécessaire.',
       '- Ne révèle jamais de session StringSession, token BotFather, code de connexion, mot de passe 2FA, clé API, secret OAuth ou autre secret.',
       'CATÉGORIES TELEGRAM :',
-      categories
-    ].join('\n');
+      categories,
+      liveCatalog ? 'CATALOGUE CANONIQUE TELEGRAM ACTUEL :' : '',
+      liveCatalog,
+      liveAliases ? 'ALIAS TELEGRAM ACTUELLEMENT RECONNUS :' : '',
+      liveAliases,
+      'ÉTAT DU REGISTRE : ' + liveStats
+    ].filter(Boolean).join('\n');
   }
 
   return [
@@ -223,6 +429,11 @@ export function telegramNexAiSystemContext(language = 'fr') {
     '- Never claim a Telegram action ran from Facebook unless a Telegram adapter returned a confirmed success receipt. Explain the function, command, and Telegram link instead.',
     '- Never expose StringSession values, BotFather tokens, login codes, 2FA passwords, API keys, OAuth secrets, or other secrets.',
     'TELEGRAM CATEGORIES:',
-    categories
-  ].join('\n');
+    categories,
+    liveCatalog ? 'CURRENT TELEGRAM CANONICAL CATALOG:' : '',
+    liveCatalog,
+    liveAliases ? 'CURRENTLY RECOGNIZED TELEGRAM ALIASES:' : '',
+    liveAliases,
+    'REGISTRY STATE: ' + liveStats
+  ].filter(Boolean).join('\n');
 }
