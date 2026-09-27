@@ -80,14 +80,39 @@ if(await healthy()&&!restart){
   process.exit(0);
 }
 
+async function pidAlive(pid){
+  if(!pid)return false;
+  try{process.kill(pid,0);return true}catch{return false}
+}
+
+async function stopOldProcess(pid){
+  if(!pid||!(await pidAlive(pid)))return;
+  try{process.kill(pid,'SIGTERM')}catch{}
+  for(let i=0;i<60;i++){
+    if(!(await pidAlive(pid)))return;
+    await new Promise(r=>setTimeout(r,250));
+  }
+  console.warn('NexAccount old pid '+pid+' did not stop after SIGTERM; forcing SIGKILL');
+  try{process.kill(pid,'SIGKILL')}catch{}
+  for(let i=0;i<20;i++){
+    if(!(await pidAlive(pid)))return;
+    await new Promise(r=>setTimeout(r,250));
+  }
+  throw new Error('Refusing to start a second NexAccount daemon while pid '+pid+' is still alive');
+}
+
 if(restart){
   const pid=await oldPid();
-  if(pid){
-    try{process.kill(pid,'SIGTERM')}catch{}
-    for(let i=0;i<20;i++){
-      try{process.kill(pid,0)}catch{break}
-      await new Promise(r=>setTimeout(r,250));
-    }
+  await stopOldProcess(pid);
+  // A live listener with a missing/stale pid file is still an active daemon.
+  // Starting another process here would reuse the same MTProto StringSessions
+  // and Telegram would permanently invalidate those auth keys.
+  if(await healthy())throw new Error('Refusing duplicate NexAccount start: port '+port+' is still owned by an existing runtime');
+}else{
+  const pid=await oldPid();
+  if(pid&&await pidAlive(pid)){
+    console.log('NexAccount process already running pid='+pid);
+    process.exit(0);
   }
 }
 

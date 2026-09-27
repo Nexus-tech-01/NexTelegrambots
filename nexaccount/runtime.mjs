@@ -34,6 +34,34 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const ANIME_PRIMARY_PUBLISHER_ENABLED=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXANIME_PRIMARY_PUBLISHER_ENABLED||'').trim());
 const ANIME_PRIMARY_PUBLISHER_USERNAME=String(process.env.NEXANIME_PRIMARY_PUBLISHER_USERNAME||'').trim().replace(/^@/,'').toLowerCase();
 
+function telegramRuntimeErrorText(error){
+  return String(error?.errorMessage||error?.message||error||'');
+}
+
+function isAuthKeyDuplicatedError(error){
+  return /AUTH_KEY_DUPLICATED|AuthKeyDuplicatedError|Concurrent usage of the current session from multiple connections/i.test(telegramRuntimeErrorText(error));
+}
+
+async function quarantineAuthKeyDuplicated(runtime,error,source='runtime'){
+  if(!runtime)return false;
+  if(runtime.authKeyQuarantinePromise)return runtime.authKeyQuarantinePromise;
+  const id=String(runtime.account?.telegramUserId||'');
+  runtime.sessionInvalidated=true;
+  runtime.sessionInvalidatedAt=new Date();
+  runtime.sessionInvalidationReason='AUTH_KEY_DUPLICATED';
+  runtime.authKeyQuarantinePromise=(async()=>{
+    console.error('[NexAccount session]',id,'AUTH_KEY_DUPLICATED; disabling saved session source='+source,telegramRuntimeErrorText(error).slice(0,240));
+    clearRuntimeTimers(runtime);
+    await stopAnimeIngest(runtime).catch(()=>{});
+    try{await runtime.client?.disconnect?.()}catch{}
+    runtimes.delete(id);
+    await disableAccount(id).catch(e=>console.error('[NexAccount session]',id,'disable_failed',String(e?.message||e).slice(0,180)));
+    await releaseRuntimeLease(id).catch(()=>{});
+    return true;
+  })();
+  return runtime.authKeyQuarantinePromise;
+}
+
 function isPrimaryAnimePublisher(account){
   if(!ANIME_PRIMARY_PUBLISHER_ENABLED||!ANIME_PRIMARY_PUBLISHER_USERNAME)return false;
   const username=String(account?.username||'').trim().replace(/^@/,'').toLowerCase();
@@ -791,6 +819,10 @@ async function maintainPresence(runtime){
     await runtime.client.invoke(new Api.account.UpdateStatus({offline:false}));
     runtime.lastPresenceAt=new Date();
   }catch(error){
+    if(isAuthKeyDuplicatedError(error)){
+      await quarantineAuthKeyDuplicated(runtime,error,'presence');
+      return;
+    }
     console.warn('[NexAccount presence]',String(runtime.account.telegramUserId),String(error?.errorMessage||error?.message||error).slice(0,300));
   }
 }
@@ -834,6 +866,10 @@ async function syncRuntimeUpdates(runtime){
     runtime.lastCatchUpAt=new Date();
     runtime.catchUpFailures=0;
   }catch(error){
+    if(isAuthKeyDuplicatedError(error)){
+      await quarantineAuthKeyDuplicated(runtime,error,'updates');
+      return;
+    }
     runtime.catchUpFailures=(runtime.catchUpFailures||0)+1;
     console.error('[NexAccount updates]',String(account.telegramUserId),'catchup_failed',runtime.catchUpFailures,String(error?.errorMessage||error?.message||error).slice(0,500));
     if(runtime.catchUpFailures>=3){
@@ -999,6 +1035,10 @@ async function pollRecentCommands(runtime){
     runtime.lastCommandPollAt=new Date(now);
     runtime.commandPollFailures=0;
   }catch(error){
+    if(isAuthKeyDuplicatedError(error)){
+      await quarantineAuthKeyDuplicated(runtime,error,'command-poll');
+      return;
+    }
     runtime.commandPollFailures=(runtime.commandPollFailures||0)+1;
     console.error('[NexAccount command-poll]',String(account.telegramUserId),'failed',runtime.commandPollFailures,String(error?.errorMessage||error?.message||error).slice(0,500));
   }finally{
@@ -1254,7 +1294,7 @@ async function connectSavedAccount(publicAccount){
     return runtime?id:null;
   }catch(error){
     await releaseRuntimeLease(id).catch(()=>{});
-    if(error?.code==='SESSION_UNAUTHORIZED')await disableAccount(id).catch(()=>{});
+    if(isAuthKeyDuplicatedError(error)||error?.code==='SESSION_UNAUTHORIZED')await disableAccount(id).catch(()=>{});
     throw error;
   }
 }

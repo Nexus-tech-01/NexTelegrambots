@@ -1,4 +1,5 @@
 import { saveBotToken, loadBotToken } from './secrets.mjs';
+import { cfg } from './config.mjs';
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
@@ -30,9 +31,26 @@ async function configure(client,peer,username,command,value){
 export async function ensureNexAiBot(client,account){
   const existing=await loadBotToken();
   if(existing)return {created:false,reason:'already_configured'};
+
+  const accountUsername=String(account?.username||'').trim().replace(/^@/,'').toLowerCase();
+  const ownerUsername=String(cfg.creatorUsername||'').trim().replace(/^@/,'').toLowerCase();
+  if(ownerUsername&&accountUsername!==ownerUsername)return {created:false,reason:'owner_account_required'};
   if(account?.premium!==true)return {created:false,reason:'premium_owner_required'};
 
   const peer=await client.getInputEntity('@BotFather');
+  const knownUsername=String(cfg.botUsername||'').trim().replace(/^@/,'');
+  if(knownUsername){
+    await sendAndWait(client,peer,'/token').catch(()=>{});
+    const response=await sendAndWait(client,peer,'@'+knownUsername,22000).catch(()=> '');
+    const match=String(response||'').match(/\b\d{6,}:[A-Za-z0-9_-]{20,}\b/);
+    if(match){
+      await saveBotToken(match[0]);
+      return {created:false,recovered:true,username:knownUsername};
+    }
+    // A known bot identity must never silently turn into a newly-created bot.
+    return {created:false,reason:'known_bot_token_unavailable',username:knownUsername};
+  }
+
   const start=await sendAndWait(client,peer,'/newbot');
   if(/too many|try again later|flood/i.test(start))throw new Error('BotFather rate limit');
 
