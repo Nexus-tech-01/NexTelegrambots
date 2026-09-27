@@ -3,9 +3,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseCommand } from '../core/command-parser.mjs';
-import { commandMap } from '../commands.mjs';
+import { commandMap, commandStats } from '../commands.mjs';
 
 const commands=commandMap();
+const stats=commandStats(commands);
+const canonicalNames=new Set([...commands.values()].map(cmd=>cmd.aliasFor||cmd.name));
+assert.equal(stats.canonical,canonicalNames.size,'canonical command count must dedupe aliases');
+assert.ok(stats.canonical<stats.tokens,'accepted alias tokens must not inflate the canonical command count');
+
 const bareOptions={
   allowBare:true,
   isKnownCommand:name=>commands.has(name)
