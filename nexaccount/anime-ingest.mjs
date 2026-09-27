@@ -1318,11 +1318,18 @@ async function markPublication(item,sent,runtime){
     );
   }
 }
+function isTransientPublishError(error){
+  const code=String(error?.code||'');
+  const message=String(error?.message||error||'');
+  return code==='SOURCE_UNAVAILABLE'||message==='source_message_unavailable_for_runtime';
+}
+
 async function releaseClaim(item,error){
   const d=await db(),now=new Date();
   const attempts=Number(item.attempts||0)+1;
   const mediaPolicy=String(error?.code||'')==='MEDIA_POLICY';
   const identityMismatch=String(error?.code||'')==='SOURCE_IDENTITY_MISMATCH';
+  const transient=isTransientPublishError(error);
   await d.collection('nexanime_queue').updateOne(
     {_id:item._id},
     {$set:{
@@ -1332,7 +1339,11 @@ async function releaseClaim(item,error){
       updatedAt:now
     },$inc:{attempts:1},$unset:{claimAt:'',claimBy:''}}
   );
-  if(attempts>=5&&!mediaPolicy&&!identityMismatch){
+  // A temporarily unreachable source must never quarantine the missing episode:
+  // doing so creates a permanent gap deadlock (E(N) quarantined while E(N+1)
+  // is blocked by the strict ordering gate). Keep it queued so newly discovered
+  // alternate sources can be attached and retried safely.
+  if(attempts>=5&&!mediaPolicy&&!identityMismatch&&!transient){
     await d.collection('nexanime_queue').updateOne({_id:item._id},{$set:{status:'quarantine',quarantineReason:'publish_failures',updatedAt:now}});
   }
 }
@@ -2135,7 +2146,11 @@ async function publishOne(runtime){
       // falls through to the next source instead of failing on the first stale
       // or misidentified message.
       resolved=await resolveSource(runtime,item);
-      if(!resolved)throw new Error('source_message_unavailable_for_runtime');
+      if(!resolved){
+        const error=new Error('source_message_unavailable_for_runtime');
+        error.code='SOURCE_UNAVAILABLE';
+        throw error;
+      }
     }
     const sent=await publishViaNexCanal(runtime,item,resolved);
     await markPublication(item,sent,runtime);
@@ -2214,7 +2229,8 @@ export const __test={
   classifyMessage,sourceStats,titleSimilarity,releaseKey,presentationKey,
   cleanSeriesTitle,sourceTitleCandidate,deriveRawAnchors,commonPrefixTitle,verifyAnimeTitle,
   standardizedCaption,quotedCaption,titleFromMessage,titleEvidenceFromMessage,titlesClearlyConflict,
-  episodeEvidenceFromMessage,meaningfulTitleSimilarity,bestAnchor,episodeVariantScore,episodeIdentityCompatible
+  episodeEvidenceFromMessage,meaningfulTitleSimilarity,bestAnchor,episodeVariantScore,episodeIdentityCompatible,
+  isTransientPublishError
 };
 
 
@@ -2684,12 +2700,53 @@ export async function animeSupervisorAudit({repair=false,source='automation-supe
   }
 
   if(scheduler?.gapDetected){
+    const gap={...scheduler.gapDetected};
+    if(repair&&gap.seriesKey&&Number.isFinite(Number(gap.expectedEpisode))){
+      const missing=await queue.findOne({
+        seriesKey:String(gap.seriesKey),
+        kind:'episode',
+        season:Number(gap.season??1),
+        episode:Number(gap.expectedEpisode),
+        status:'quarantine',
+        quarantineReason:'publish_failures'
+      });
+      if(missing){
+        const retry=await queue.updateOne(
+          {_id:missing._id,status:'quarantine',quarantineReason:'publish_failures'},
+          {$set:{
+            status:'queued',
+            attempts:0,
+            supervisorRecoveredAt:now,
+            supervisorRecoveredReason:'episode_gap_retry',
+            updatedAt:now
+          },$unset:{
+            quarantineReason:'',claimAt:'',claimBy:''
+          }}
+        );
+        if(Number(retry.modifiedCount||0)>0){
+          repairs.push({
+            kind:'episode-gap',
+            seriesKey:String(gap.seriesKey),
+            season:Number(gap.season??1),
+            episode:Number(gap.expectedEpisode),
+            requeued:1
+          });
+          await schedulerCollection.updateOne(
+            {_id:'scheduler'},
+            {$unset:{gapDetected:''},$set:{updatedAt:now}}
+          );
+          gap.requeuedMissingEpisode=true;
+        }
+      }
+    }
     incidents.push({
       kind:'episode-gap',
-      target:String(scheduler.gapDetected.seriesKey||activeSeriesKey||'anime'),
-      severity:'critical',
-      message:'La publication est volontairement bloquée car un épisode précédent manque.',
-      ...scheduler.gapDetected
+      target:String(gap.seriesKey||activeSeriesKey||'anime'),
+      severity:gap.requeuedMissingEpisode?'warning':'critical',
+      message:gap.requeuedMissingEpisode
+        ?'L’épisode manquant en quarantaine a été remis dans la file sans sauter l’ordre.'
+        :'La publication est volontairement bloquée car un épisode précédent manque.',
+      ...gap
     });
   }
 
