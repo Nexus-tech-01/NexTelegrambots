@@ -236,6 +236,45 @@ async function sendHiddenMentions(client,peer,people,title){
     await client.sendMessage(peer,{message:built.message,formattingEntities:built.entities});
   }
 }
+async function sendHiddenTaggedCopy(client,peer,people,source){
+  const list=(people||[]).filter(p=>p?.id);
+  if(!list.length)return client.sendMessage(peer,{message:'Aucun membre trouvé.'});
+  const chunks=[];
+  for(let i=0;i<list.length;i+=60)chunks.push(list.slice(i,i+60));
+  const visible=String(source?.message??source?.text??'');
+  const sourceEntities=Array.isArray(source?.entities)?source.entities:[];
+  if(source?.media){
+    const buffer=await client.downloadMedia(source).catch(()=>null);
+    if(!buffer?.length)throw new Error('Impossible de recopier le média répondu.');
+    for(const chunk of chunks){
+      const built=await buildMentionEntities(client,visible,chunk,{hidden:true});
+      await sendTelegramMedia(client,peer,Buffer.from(buffer),{
+        fileName:recoveredMediaName(source),
+        caption:built.message,
+        mimeType:String(source?.media?.document?.mimeType||''),
+        kind:'auto',
+        formattingEntities:[...sourceEntities,...built.entities],
+        signature:false
+      });
+    }
+    return;
+  }
+  for(const chunk of chunks){
+    const built=await buildMentionEntities(client,visible,chunk,{hidden:true});
+    await client.sendMessage(peer,{
+      message:built.message,
+      formattingEntities:[...sourceEntities,...built.entities]
+    });
+  }
+}
+async function deleteCommandMessage(client,peer,message){
+  const id=Number(message?.id||0);
+  if(!id)return false;
+  try{
+    await client.deleteMessages(peer,[id],{revoke:true});
+    return true;
+  }catch{return false}
+}
 async function sendSingleMention(client,peer,user,text){
   const name=displayName(user);
   let message=String(text||'Je te mentionne ici.').trim();
@@ -656,7 +695,10 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const ps=await participants(client,peer,1000);
     const list=name==='tagadmin'?ps.filter(isAdminParticipant):ps;
     if(name==='hidetag'){
-      await sendHiddenMentions(client,peer,list,argText||'Tout le monde est invité à lire ce message.');
+      const source=await repliedMessage(client,peer,event.message);
+      if(source)await sendHiddenTaggedCopy(client,peer,list,source);
+      else await sendHiddenMentions(client,peer,list,argText||'Tout le monde est invité à lire ce message.');
+      await deleteCommandMessage(client,peer,event.message);
       return true;
     }
     if(name==='mediatag'){
