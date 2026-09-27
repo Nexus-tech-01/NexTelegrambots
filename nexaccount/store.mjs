@@ -115,7 +115,15 @@ export async function saveAccount({me,session,phone,enabled=true}){
   };
   await d.collection('nexaccount_accounts').updateOne(
     {telegramUserId},
-    {$set:doc,$setOnInsert:{createdAt:now}},
+    {
+      $set:doc,
+      $unset:{
+        sessionRepairRequired:'',
+        sessionRepairReason:'',
+        sessionRepairAt:''
+      },
+      $setOnInsert:{createdAt:now}
+    },
     {upsert:true}
   );
   await d.collection('nexaccount_settings').updateOne(
