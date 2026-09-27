@@ -213,6 +213,29 @@ export async function claimCommandDelivery(telegramUserId,commandKey,{ttlMs=24*6
   }
 }
 
+export async function sharedBotIdentity(){
+  const d=await db();
+  const row=await d.collection('nexaccount_system').findOne({_id:'nexai_bot_identity'});
+  return {
+    username:String(row?.username||'').trim().replace(/^@/,''),
+    telegramBotId:String(row?.telegramBotId||''),
+    updatedAt:row?.updatedAt||null
+  };
+}
+
+export async function saveSharedBotIdentity({username,telegramBotId=''}={}){
+  const clean=String(username||'').trim().replace(/^@/,'');
+  if(!clean)return sharedBotIdentity();
+  const d=await db();
+  const now=new Date();
+  await d.collection('nexaccount_system').updateOne(
+    {_id:'nexai_bot_identity'},
+    {$set:{username:clean,telegramBotId:String(telegramBotId||''),updatedAt:now},$setOnInsert:{createdAt:now}},
+    {upsert:true}
+  );
+  return {username:clean,telegramBotId:String(telegramBotId||''),updatedAt:now};
+}
+
 export async function accountRecord(telegramUserId){
   const d=await db();
   return d.collection('nexaccount_accounts').findOne(
