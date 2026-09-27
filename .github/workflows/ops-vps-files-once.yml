@@ -1,0 +1,20 @@
+name: Ops VPS Files Once
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-vps-files-once.yml'
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect files
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=%2F"
+          echo
+          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=%2Fbots"
