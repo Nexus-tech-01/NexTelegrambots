@@ -183,7 +183,7 @@ export function prepareTelegramMedia(data,{fileName='media',mimeType='',kind='au
 
 export async function sendTelegramMedia(client,peer,data,{
   fileName='media',mimeType='',kind='auto',caption='',formattingEntities,
-  voiceNote=false,buttons,replyTo,silent,parseMode,workers,thumb,afterSend,onUploadProgress
+  voiceNote=false,buttons,replyTo,silent,parseMode,workers,thumb,afterSend,onUploadProgress,signature=true
 }={}){
   const media=prepareTelegramMedia(data,{fileName,mimeType,kind});
   const dir=path.join(
@@ -195,7 +195,7 @@ export async function sendTelegramMedia(client,peer,data,{
   await writeFile(filePath,media.buffer);
 
   try{
-    const branded=String(caption||'').length<=980?brandedText(caption||''):{text:String(caption||'').slice(0,1024),entities:[]};
+    const branded=String(caption||'').length<=980?brandedText(caption||'',{signature}):{text:String(caption||'').slice(0,1024),entities:[]};
     const mergedEntities=[
       ...(Array.isArray(formattingEntities)?formattingEntities:[]),
       ...branded.entities
