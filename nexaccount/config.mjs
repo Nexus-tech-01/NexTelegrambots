@@ -37,7 +37,7 @@ export const cfg={
   creatorUsername:pick('NEXAI_CREATOR_USERNAME','NEXUS_CREATOR_USERNAME')||'tresor20001',
   creatorDisplayName:pick('NEXAI_CREATOR_DISPLAY_NAME')||'⏤͟͟͞͞𝄞ᬼ⃟𝐌ꝛ⥔𝕿𝖗𝖊𝖘𝖔𝖗✧ ⃞.',
   creatorImagePath:pick('NEXAI_CREATOR_IMAGE_PATH')||path.join(HERE,'assets','creator.jpg'),
-  connectUrl:pick('NEXAI_CONNECT_URL')||'https://eddie-neural-jimmy-enemies.trycloudflare.com/nexai/connect',
+  connectUrl:pick('NEXAI_CONNECT_URL')||'https://nex-telegrambots.vercel.app/',
   defaultMenuImage:pick('NEXAI_DEFAULT_MENU_IMAGE_URL'),
   workerCount:configuredWorkerCount,
   workerIndex:configuredWorkerIndex,
