@@ -29,11 +29,13 @@ test('media token encrypts and authenticates relay metadata', () => {
     assert.deepEqual(openMediaToken(token), item);
 
     const parts = token.split('.');
+    const ciphertext = Buffer.from(parts[2], 'base64url');
+    ciphertext[0] ^= 0x01;
+
     const tampered = [
       parts[0],
       parts[1],
-      parts[2].slice(0, -1) +
-        (parts[2].endsWith('A') ? 'B' : 'A'),
+      ciphertext.toString('base64url'),
       parts[3]
     ].join('.');
 
