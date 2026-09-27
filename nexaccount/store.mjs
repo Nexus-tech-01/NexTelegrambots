@@ -29,7 +29,7 @@ export async function db(){
   return d;
 }
 
-export export function sessionFingerprint(value){
+export function sessionFingerprint(value){
   const raw=String(value||'');
   if(!raw)throw new Error('Telegram session fingerprint requires a non-empty session');
   return crypto.createHash('sha256').update(raw,'utf8').digest('hex');
