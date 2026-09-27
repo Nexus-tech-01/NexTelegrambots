@@ -29,6 +29,8 @@ const largeUploadTimeoutMs=Math.max(180000,Number(process.env.NEXCANAL__WATCHER_
 const serverCopyEnabled=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXCANAL__WATCHER_SERVER_COPY_ENABLED||'false'));
 const maxFetch=500;
 const interrouteUrl=String(process.env.NEX_INTERROUTE_URL||'http://127.0.0.1:18130').replace(/\/$/,'');
+const nextechMirrorTmpDir=String(process.env.NEXTECH_WHATSAPP_MIRROR_TMP||'/var/lib/nex/tmp/internal-automation/nextech-channel-mirror');
+const nextechMirrorRetentionMs=Math.max(60*60*1000,Number(process.env.NEXTECH_WHATSAPP_MIRROR_RETENTION_MS||24*60*60*1000));
 const nexusTechFacebookPageId=String(process.env.NEXTECH_FACEBOOK_PAGE_ID||'106458282029367').trim();
 
 const sourceSpecs=[
@@ -441,6 +443,127 @@ async function mirrorApk(m,sourceKind,sent,linked,mirrorVersion='v1'){
     content:{text,media,buttons:mirrorButtons(u)},
     routes:[{platform:'whatsapp'}]
   });
+}
+
+
+function telegramButtons(m){
+  const rows=Array.isArray(m?.replyMarkup?.rows)?m.replyMarkup.rows:[];
+  const out=[];
+  for(const row of rows){
+    for(const button of (Array.isArray(row?.buttons)?row.buttons:[])){
+      const url=String(button?.url||'').trim();
+      if(!/^https?:\/\//i.test(url))continue;
+      out.push({text:String(button?.text||'Ouvrir').trim().slice(0,64),url});
+    }
+  }
+  return out.slice(0,12);
+}
+function telegramDocumentName(m){
+  const attrs=Array.isArray(m?.document?.attributes)?m.document.attributes:[];
+  const named=attrs.find(x=>typeof x?.fileName==='string'&&x.fileName.trim());
+  if(named?.fileName)return String(named.fileName).slice(0,255);
+  const mime=String(m?.document?.mimeType||'').toLowerCase();
+  const ext=mime==='application/vnd.android.package-archive'?'.apk':
+    mime==='application/zip'?'.zip':
+    mime.startsWith('video/')?'.mp4':
+    mime.startsWith('audio/')?'.mp3':
+    mime==='image/gif'?'.gif':'';
+  return 'telegram-'+String(m?.id||Date.now())+ext;
+}
+function telegramDocumentType(m){
+  const mime=String(m?.document?.mimeType||'').toLowerCase();
+  if(mime.startsWith('video/'))return mime==='image/gif'?'animation':'video';
+  if(mime.startsWith('audio/'))return 'audio';
+  if(mime==='image/gif')return 'animation';
+  if(mime.startsWith('image/'))return 'photo';
+  return 'document';
+}
+async function mirrorChannelMedia(c,m){
+  await fs.mkdir(nextechMirrorTmpDir,{recursive:true});
+  if(m?.photo){
+    const target=path.join(nextechMirrorTmpDir,'nextech-'+String(m.id)+'.jpg');
+    const out=await c.downloadMedia(m.media,{outputFile:target,workers:1});
+    const file=typeof out==='string'&&out?out:target;
+    const st=await fs.stat(file);
+    if(!st.isFile()||st.size<=0)throw new Error('nextech mirror photo download empty');
+    return [{type:'photo',localPath:file,fileName:path.basename(file),mimetype:'image/jpeg'}];
+  }
+  if(m?.document){
+    const name=telegramDocumentName(m);
+    const target=path.join(nextechMirrorTmpDir,String(m.id)+'-'+name.replace(/[^A-Za-z0-9._-]+/g,'_'));
+    const out=await downloadDocument(c,m,target);
+    const file=typeof out==='string'&&out?out:target;
+    const st=await fs.stat(file);
+    if(!st.isFile()||st.size<=0)throw new Error('nextech mirror document download empty');
+    return [{type:telegramDocumentType(m),localPath:file,fileName:name,mimetype:String(m.document?.mimeType||'application/octet-stream')}];
+  }
+  return [];
+}
+async function cleanupNextechMirrorTmp(){
+  let entries=[];
+  try{entries=await fs.readdir(nextechMirrorTmpDir,{withFileTypes:true});}catch{return;}
+  const cutoff=Date.now()-nextechMirrorRetentionMs;
+  for(const entry of entries){
+    if(!entry.isFile())continue;
+    const file=path.join(nextechMirrorTmpDir,entry.name);
+    try{
+      const st=await fs.stat(file);
+      if(st.mtimeMs<cutoff)await fs.unlink(file);
+    }catch{}
+  }
+}
+async function mirrorNextechChannelMessage(c,m){
+  const id=Number(m?.id||0);
+  if(!id)return true;
+  if(m?.action)return true;
+  const text=String(m?.message||'').trim();
+  const buttons=telegramButtons(m);
+  const media=await mirrorChannelMedia(c,m);
+  if(!text&&!buttons.length&&!media.length)return true;
+  const out=await enqueueCrossPlatformMirror({
+    ownerDomain:'system',
+    idempotencyKey:'nextech-channel:'+String(id)+':v1',
+    source:{platform:'telegram',name:'thenexusorigin',messageId:String(id),accountRole:'system-channel-mirror'},
+    content:{text,media,buttons},
+    routes:[{platform:'whatsapp'}]
+  });
+  return Boolean(out);
+}
+async function pollNextechChannelMirror(c,entity,st,{bootstrap=false}={}){
+  st.nextechWhatsappMirror=st.nextechWhatsappMirror||{cursor:0,lastSuccessAt:0,lastError:null};
+  const ms=st.nextechWhatsappMirror;
+  if(!Number(ms.cursor||0)){
+    const latest=await c.getMessages(entity,{limit:1});
+    const newest=Array.isArray(latest)&&latest.length?Number(latest[0]?.id||0):0;
+    if(newest){
+      ms.cursor=newest;
+      ms.lastSuccessAt=Date.now();
+      ms.lastError=null;
+      await save(st);
+      log('Nextech WhatsApp mirror armed at message',newest);
+    }
+    return;
+  }
+  const fresh=await c.getMessages(entity,{limit:100,minId:Number(ms.cursor||0)});
+  const list=(fresh||[]).filter(x=>Number(x?.id||0)>Number(ms.cursor||0)).sort((a,b)=>Number(a.id)-Number(b.id));
+  for(const m of list){
+    try{
+      const ok=await mirrorNextechChannelMessage(c,m);
+      if(!ok)throw new Error('interroute enqueue unavailable');
+      ms.cursor=Number(m.id);
+      ms.lastSuccessAt=Date.now();
+      ms.lastError=null;
+      await save(st);
+      log('Nextech -> WhatsApp queued','#'+m.id);
+    }catch(error){
+      ms.lastError=String(error?.message||error).slice(0,300);
+      ms.lastErrorAt=Date.now();
+      await save(st);
+      warn('Nextech -> WhatsApp mirror failed','#'+String(m?.id||'?'),ms.lastError);
+      break;
+    }
+  }
+  if(bootstrap&&list.length)log('Nextech WhatsApp mirror bootstrap processed',list.length);
 }
 
 async function postDescriptor(c,m,sourceKind){
@@ -956,6 +1079,7 @@ async function run(session){
   const sources=await resolveSources(c);
   for(const spec of sourceSpecs)if(!sources.has(spec.key))throw new Error('required source unavailable: '+spec.key);
   const destination='@'+dst;
+  const nextechEntity=await c.getEntity(destination);
   const st=await load();
   const es=engagementState(st);
   es.owner='nexcanal-watcher';
@@ -986,6 +1110,7 @@ async function run(session){
 
   kickWorkers(c,publisher,destination,st,sources);
   try{
+    await withTimeout(pollNextechChannelMirror(c,nextechEntity,st,{bootstrap:true}),opTimeoutMs,'initial Nextech WhatsApp mirror');
     await withTimeout(discover(c,st,sources),opTimeoutMs,'initial source discovery');
   }catch(e){
     await publisher.disconnect().catch(()=>{});
@@ -999,6 +1124,7 @@ async function run(session){
     if(!live)throw new Error('reader session disconnected');
     try{
       await withTimeout(discover(c,st,sources),opTimeoutMs,'source discovery');
+      await withTimeout(pollNextechChannelMirror(c,nextechEntity,st),opTimeoutMs,'Nextech WhatsApp mirror');
       kickWorkers(c,publisher,destination,st,sources);
       if(Date.now()>=nextHeartbeatAt){
         nextHeartbeatAt=Date.now()+60_000;
@@ -1015,6 +1141,7 @@ async function run(session){
       if(Date.now()>=nextMediaCleanupAt){
         nextMediaCleanupAt=Date.now()+mediaTmpCleanupMs;
         await cleanupMediaTmp().catch(e=>warn('media tmp cleanup failed',e?.message||e));
+        await cleanupNextechMirrorTmp().catch(e=>warn('Nextech mirror tmp cleanup failed',e?.message||e));
       }
       if(Date.now()>=nextEngagementAt){
         nextEngagementAt=Date.now()+engagementPollMs;
