@@ -16,6 +16,7 @@ export async function db(){
       d.collection('nexaccount_accounts').createIndex({enabled:1,runtimeBucket:1,connectedAt:1}),
       d.collection('nexaccount_settings').createIndex({telegramUserId:1},{unique:true}),
       d.collection('nexaccount_runtime_leases').createIndex({expiresAt:1},{expireAfterSeconds:0}),
+      d.collection('nexaccount_session_leases').createIndex({expiresAt:1},{expireAfterSeconds:0}),
       d.collection('nexaccount_pairing_state').createIndex({expiresAt:1},{expireAfterSeconds:0}),
       d.collection('nexaccount_command_claims').createIndex({expiresAt:1},{expireAfterSeconds:0}),
       d.collection('nexaccount_custom_emoji_library').createIndex({sourceUsername:1,documentId:1},{unique:true}),
@@ -35,7 +36,7 @@ export function sessionFingerprint(value){
   return crypto.createHash('sha256').update(raw,'utf8').digest('hex');
 }
 
-function encryptSession(value){
+export function encryptSession(value){
   const iv=crypto.randomBytes(12);
   const cipher=crypto.createCipheriv('aes-256-gcm',sessionKey(),iv);
   const encrypted=Buffer.concat([cipher.update(String(value),'utf8'),cipher.final()]);
@@ -144,7 +145,7 @@ export async function saveAccount({me,session,phone,enabled=true}){
 export async function listAccounts(){
   const d=await db();
   return d.collection('nexaccount_accounts')
-    .find({enabled:true},{projection:{sessionEncrypted:0}})
+    .find({enabled:true},{projection:{sessionEncrypted:0,sessionFingerprint:0}})
     .sort({connectedAt:1})
     .toArray();
 }
@@ -169,6 +170,24 @@ export async function acquireRuntimeLease(telegramUserId,workerId=cfg.workerId,t
   const leases=d.collection('nexaccount_runtime_leases');
   const owner=String(workerId);
   const set={$set:{workerId:owner,expiresAt,updatedAt:now}};
+
+  // A single NexAccount worker is authoritative for all account runtime leases.
+  // Reclaim the runtime lease immediately after a supervised restart; the
+  // separate session-fingerprint lease still prevents one auth key from being
+  // used concurrently by distinct runtimes.
+  if(cfg.workerCount===1){
+    const updated=await leases.updateOne({_id:id},set);
+    if(updated.matchedCount===1)return true;
+    try{
+      await leases.insertOne({_id:id,workerId:owner,expiresAt,updatedAt:now,createdAt:now});
+      return true;
+    }catch(error){
+      if(Number(error?.code)!==11000)throw error;
+      const retried=await leases.updateOne({_id:id},set);
+      return retried.matchedCount===1;
+    }
+  }
+
   const filter={_id:id,$or:[
     {workerId:owner},
     {expiresAt:{$lte:now}},
