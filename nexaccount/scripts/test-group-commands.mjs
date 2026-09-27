@@ -72,9 +72,10 @@ assert.equal(tagall.reduce((n,x)=>n+x.entities.length,0),130,'tagall must mentio
 assert.ok(tagall.every(x=>x.text.length<4096),'tagall chunk exceeds Telegram text limit');
 
 const hidden=await run('hidetag',['Secret']);
-assert.equal(hidden.length,3,'hidetag must chunk 130 members into three messages');
+assert.equal(hidden.length,1,'hidetag must send exactly one message even for 130 members');
 assert.ok(hidden.flatMap(x=>x.entities).every(e=>e instanceof Api.InputMessageEntityMentionName),'hidetag must use outgoing InputMessageEntityMentionName entities');
 assert.equal(hidden.reduce((n,x)=>n+x.entities.length,0),130,'hidetag must mention every member');
+assert.equal(hidden[0].entities.length,130,'the single hidetag message must contain every hidden mention');
 assert.ok(hidden.every(x=>!x.text.includes('User')),'hidetag must not expose member names');
 
 {
@@ -105,8 +106,8 @@ assert.ok(hidden.every(x=>!x.text.includes('User')),'hidetag must not expose mem
     sendInline:async()=>{}
   });
   assert.equal(handled,true,'reply hidetag must be handled');
-  assert.equal(sent.length,3,'reply hidetag must preserve chunking for all members');
-  assert.ok(sent.every(x=>x.text.startsWith(source.message)),'reply hidetag must resend the replied message');
+  assert.equal(sent.length,1,'reply hidetag must resend exactly one message for all members');
+  assert.ok(sent[0].text.startsWith(source.message),'reply hidetag must resend the replied message');
   assert.equal(sent.reduce((n,x)=>n+x.entities.filter(e=>e instanceof Api.InputMessageEntityMentionName).length,0),130,'reply hidetag must keep all mentions hidden');
   assert.deepEqual(deleted.map(x=>x.ids),[[99]],'reply hidetag must delete the command message');
 }
