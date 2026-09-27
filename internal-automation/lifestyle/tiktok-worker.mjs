@@ -30,6 +30,7 @@ async function loadState(){
     const s=JSON.parse(await fs.readFile(stateFile,'utf8'));
     return {
       sourceIndex:Number(s.sourceIndex||0),
+      lastCategory:s.lastCategory||null,
       seenIds:Array.isArray(s.seenIds)?s.seenIds.slice(-5000):[],
       failedIds:s.failedIds&&typeof s.failedIds==='object'?s.failedIds:{},
       nextNotBefore:Number(s.nextNotBefore||0),
@@ -38,7 +39,7 @@ async function loadState(){
       pendingWhatsApp:Array.isArray(s.pendingWhatsApp)?s.pendingWhatsApp.slice(-50):[]
     };
   }catch{
-    return {sourceIndex:0,seenIds:[],failedIds:{},nextNotBefore:0,lastPublishedAt:null,lastVideoId:null,pendingWhatsApp:[]};
+    return {sourceIndex:0,lastCategory:null,seenIds:[],failedIds:{},nextNotBefore:0,lastPublishedAt:null,lastVideoId:null,pendingWhatsApp:[]};
   }
 }
 async function saveState(s){
@@ -86,10 +87,28 @@ async function scanSource(source){
 
 async function chooseCandidate(sources,state){
   const seen=new Set(state.seenIds||[]);
-  const total=sources.length;
+  const categories=[...new Set(sources.map(x=>x.category).filter(Boolean))];
+  if(!categories.length)return null;
+
+  // Dark Universe must stay genuinely mixed. Alternate categories after every
+  // successful publication instead of letting the number/health of sources
+  // bias the feed toward luxury.
+  let targetCategory;
+  if(state.lastCategory&&categories.length>1){
+    targetCategory=categories.find(x=>x!==state.lastCategory)||categories[0];
+  }else{
+    // When state is new/reset, start with anime to immediately correct a
+    // luxury-heavy feed.
+    targetCategory=categories.includes('amv_edit')?'amv_edit':categories[0];
+  }
+
+  const pool=sources.filter(x=>x.category===targetCategory);
+  const total=pool.length;
+  if(!total)return null;
+
   for(let attempt=0;attempt<Math.min(maxSourcesPerRun,total);attempt++){
     const idx=((state.sourceIndex+attempt)%total+total)%total;
-    const source=sources[idx];
+    const source=pool[idx];
     try{
       const items=await scanSource(source);
       const fresh=items.filter(x=>!seen.has(x.id));
@@ -102,6 +121,10 @@ async function chooseCandidate(sources,state){
     }
     state.sourceIndex=(idx+1)%total;
   }
+
+  // Do not fall back to the previous category: skipping one slot is better
+  // than breaking the anime/luxury balance.
+  console.log('[Lifestyle/TikTok] no unseen video for target category',targetCategory);
   return null;
 }
 
@@ -328,6 +351,7 @@ try{
   state.seenIds=state.seenIds.slice(-5000);
   delete state.failedIds[candidate.item.id];
   state.lastVideoId=candidate.item.id;
+  state.lastCategory=candidate.source.category;
   state.lastPublishedAt=new Date().toISOString();
   state.nextNotBefore=Date.now()+nextGap();
   await saveState(state);
