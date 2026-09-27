@@ -63,6 +63,58 @@ export function animatedCustomEmojiEntitySpecs(text,customEmojiIds={}){
   return out;
 }
 
+export async function animatedCustomEmojiEntitySpecsFromLibrary(text,customEmojiIds={},{
+  sourceUsername=cfg.creatorUsername||'tresor20001'
+}={}){
+  const value=String(text??'');
+  const matches=[...value.matchAll(EMOJI_TOKEN_RE)];
+  if(!matches.length)return [];
+
+  const direct=new Map();
+  const unresolved=[];
+  for(const match of matches){
+    const glyph=match[0];
+    const normalized=normalizeEmoji(glyph);
+    const id=glyphCustomEmojiId(glyph,customEmojiIds);
+    if(id)direct.set(normalized,id);
+    else unresolved.push(glyph);
+  }
+
+  const libraryByAlt=new Map();
+  if(unresolved.length){
+    try{
+      const rows=await customEmojiLibraryMatches(unresolved,{
+        sourceUsername:String(sourceUsername||'tresor20001').replace(/^@/,'').toLowerCase(),
+        animatedOnly:true
+      });
+      for(const row of rows||[]){
+        const alt=normalizeEmoji(row?.alt||'');
+        const id=String(row?.documentId||'').trim();
+        if(alt&&/^\d{5,30}$/.test(id)&&!libraryByAlt.has(alt)){
+          libraryByAlt.set(alt,id);
+        }
+      }
+    }catch(error){
+      console.warn('[NexAccount emoji-library] text lookup',String(error?.message||error).slice(0,180));
+    }
+  }
+
+  const out=[];
+  for(const match of matches){
+    const glyph=match[0];
+    const normalized=normalizeEmoji(glyph);
+    const id=direct.get(normalized)||libraryByAlt.get(normalized)||'';
+    if(!/^\d{5,30}$/.test(id))continue;
+    out.push({
+      type:'custom_emoji',
+      offset:utf16len(value.slice(0,match.index)),
+      length:utf16len(glyph),
+      custom_emoji_id:id
+    });
+  }
+  return out;
+}
+
 function customEmojiAttr(document){
   return (document?.attributes||[]).find(a=>/DocumentAttributeCustomEmoji/i.test(String(a?.className||a?.constructor?.name||a?._||'')))||null;
 }
@@ -72,12 +124,21 @@ function customEmojiId(document){
   return id==null?'':String(id);
 }
 
-function customEmojiEntities(text,customEmojiIds={}){
-  return animatedCustomEmojiEntitySpecs(text,customEmojiIds).map(e=>new Api.MessageEntityCustomEmoji({
+function entitySpecsToTelegram(specs=[]){
+  return specs.map(e=>new Api.MessageEntityCustomEmoji({
     offset:e.offset,
     length:e.length,
     documentId:BigInt(e.custom_emoji_id)
   }));
+}
+
+function customEmojiEntities(text,customEmojiIds={}){
+  return entitySpecsToTelegram(animatedCustomEmojiEntitySpecs(text,customEmojiIds));
+}
+
+async function customEmojiEntitiesFromLibrary(text,customEmojiIds={},sourceUsername){
+  const specs=await animatedCustomEmojiEntitySpecsFromLibrary(text,customEmojiIds,{sourceUsername});
+  return entitySpecsToTelegram(specs);
 }
 
 
@@ -382,12 +443,24 @@ export async function sendBrandedText(client,peer,value,options={}){
     ?String(value??'')
     :sanitizeAnimatedEmojiText(value,customEmojiIds);
   const branded=brandedText(safeValue,{signature:options.signature!==false});
+  const animatedEntities=options.emojiLibrary===true
+    ?await customEmojiEntitiesFromLibrary(
+      branded.text,
+      customEmojiIds,
+      options.emojiLibrarySource||cfg.creatorUsername||'tresor20001'
+    )
+    :customEmojiEntities(branded.text,customEmojiIds);
   const formattingEntities=[
     ...suppliedEntities,
-    ...customEmojiEntities(branded.text,customEmojiIds),
+    ...animatedEntities,
     ...branded.entities
   ];
-  const {customEmojiIds:_customEmojiIds,...telegramOptions}=options;
+  const {
+    customEmojiIds:_customEmojiIds,
+    emojiLibrary:_emojiLibrary,
+    emojiLibrarySource:_emojiLibrarySource,
+    ...telegramOptions
+  }=options;
   return client.sendMessage(peer,{
     message:branded.text,
     ...telegramOptions,
@@ -398,10 +471,17 @@ export async function sendBrandedText(client,peer,value,options={}){
 export async function createProgress(client,peer,label='Traitement',options={}){
   const customEmojiIds=options?.customEmojiIds||{};
   const glyph=key=>(PREMIUM_EMOJI_GLYPHS[key]||'')+((PREMIUM_EMOJI_GLYPHS[key]||'')?' ':'');
+  const entitiesFor=async value=>options.emojiLibrary===true
+    ?customEmojiEntitiesFromLibrary(
+      value,
+      customEmojiIds,
+      options.emojiLibrarySource||cfg.creatorUsername||'tresor20001'
+    )
+    :customEmojiEntities(value,customEmojiIds);
   const initial=glyph('WAIT')+clean(label)+'…';
   const sent=await client.sendMessage(peer,{
     message:initial,
-    formattingEntities:customEmojiEntities(initial,customEmojiIds)
+    formattingEntities:await entitiesFor(initial)
   });
   const id=Number(sent?.id||sent?.message?.id||0);
   let inputPeer=null;
@@ -412,7 +492,7 @@ export async function createProgress(client,peer,label='Traitement',options={}){
     try{
       await client.invoke(new Api.messages.EditMessage({
         peer:inputPeer,id,message:value,
-        entities:customEmojiEntities(value,customEmojiIds)
+        entities:await entitiesFor(value)
       }));
     }catch{}
   };
