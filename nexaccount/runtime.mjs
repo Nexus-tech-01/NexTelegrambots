@@ -71,7 +71,7 @@ function isPrimaryAnimePublisher(account){
 }
 
 
-const LITEAPK_SCANNER_USERNAME=String(process.env.NEXCANAL__WATCHER_EXPECTED_USERNAME||'tresor20009').trim().replace(/^@/,'').toLowerCase();
+const LITEAPK_SCANNER_USERNAME=String(process.env.NEXACCOUNT_LITEAPK_SCANNER_USERNAME||'tresor20009').trim().replace(/^@/,'').toLowerCase();
 
 async function stopEmbeddedLiteApkScanner(runtime){
   if(!runtime)return;
@@ -99,7 +99,10 @@ async function startEmbeddedLiteApkScanner(runtime){
     const controller=new AbortController();
     runtime.liteApksScannerAbort=controller;
     runtime.liteApksScannerStartedAt=new Date();
-    const promise=Promise.resolve(mod.startEmbeddedLiteApksRelay(runtime.client,{signal:controller.signal}));
+    const promise=Promise.resolve(mod.startEmbeddedLiteApksRelay(runtime.client,{
+      signal:controller.signal,
+      expectedUsername:LITEAPK_SCANNER_USERNAME
+    }));
     runtime.liteApksScannerPromise=promise;
     promise.then(()=>{
       if(runtime.liteApksScannerPromise===promise){
