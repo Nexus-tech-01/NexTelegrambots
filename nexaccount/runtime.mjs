@@ -138,7 +138,27 @@ async function claimCommand(telegramUserId,message){
 async function sendText(client,peer,text){
   const value=String(text??'');
   if(!value.trim())return null;
-  const accountId=[...runtimes.entries()].find(([,runtime])=>runtime?.client===client)?.[0]||'';
+  const runtimeEntry=[...runtimes.entries()].find(([,runtime])=>runtime?.client===client)||null;
+  const accountId=runtimeEntry?.[0]||'';
+  const runtime=runtimeEntry?.[1]||null;
+  const settings=accountId?await settingsFor(accountId).catch(()=>null):null;
+  const customEmojiIds=settings?.customEmojiIds||{};
+
+  // A connected Premium user session can render Telegram custom emoji itself.
+  // Prefer that direct path so entities from the full @tresor20001 library are
+  // preserved instead of being stripped/degraded by Inline Mode.
+  if(runtime?.account?.premium===true){
+    try{
+      return await sendBrandedText(client,peer,value,{
+        customEmojiIds,
+        emojiLibrary:true,
+        emojiLibrarySource:cfg.creatorUsername||'tresor20001'
+      });
+    }catch(error){
+      console.warn('[NexAccount direct rich reply fallback]',String(error?.errorMessage||error?.message||error).slice(0,250));
+    }
+  }
+
   if(cfg.botUsername&&accountId){
     try{
       const token=await putInlineResponse(value,{accountId});
@@ -147,8 +167,7 @@ async function sendText(client,peer,text){
       console.warn('[NexAccount inline reply fallback]',String(error?.message||error).slice(0,250));
     }
   }
-  const settings=accountId?await settingsFor(accountId).catch(()=>null):null;
-  return sendBrandedText(client,peer,value,{customEmojiIds:settings?.customEmojiIds||{}});
+  return sendBrandedText(client,peer,value,{customEmojiIds});
 }
 
 function ownerFormattingEntities(text){
@@ -164,13 +183,17 @@ function ownerFormattingEntities(text){
 }
 
 async function sendOwnerText(client,peer,text){
-  const accountId=[...runtimes.entries()].find(([,runtime])=>runtime?.client===client)?.[0]||'';
+  const runtimeEntry=[...runtimes.entries()].find(([,runtime])=>runtime?.client===client)||null;
+  const accountId=runtimeEntry?.[0]||'';
+  const runtime=runtimeEntry?.[1]||null;
   const settings=accountId?await settingsFor(accountId).catch(()=>null):null;
   const safe=sanitizeAnimatedEmojiText(String(text),settings?.customEmojiIds||{});
   try{
     return await sendBrandedText(client,peer,safe,{
       signature:false,
       customEmojiIds:settings?.customEmojiIds||{},
+      emojiLibrary:runtime?.account?.premium===true,
+      emojiLibrarySource:cfg.creatorUsername||'tresor20001',
       formattingEntities:ownerFormattingEntities(safe)
     });
   }catch{return sendText(client,peer,safe)}
