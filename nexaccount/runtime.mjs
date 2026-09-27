@@ -103,6 +103,15 @@ function isSelfAuthoredMessage(message,account){
   return false;
 }
 
+function messageWasSentViaBot(message){
+  return Boolean(
+    message?.viaBotId||
+    message?.viaBot?.id||
+    message?.via_bot_id||
+    message?.via_bot?.id
+  );
+}
+
 function commandDeliveryKey(message){
   const peer=String(
     message?.peerId?.userId||
@@ -736,6 +745,12 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
   const {client,account}=runtime;
   const message=event?.message;
   if(!message)return false;
+
+  // Inline results are messages generated through a Telegram bot (for example
+  // NexAI's own "via @..." replies). Never reinterpret those generated replies
+  // as fresh user commands, otherwise the account can command itself in a loop.
+  if(messageWasSentViaBot(message))return false;
+
   const settings=await settingsFor(account.telegramUserId);
   const selfAuthored=isSelfAuthoredMessage(message,account);
   const accessMode=settings.accessMode==='public'?'public':'private';
@@ -797,16 +812,21 @@ async function pollRecentCommands(runtime){
       if(!message)return;
       const stamp=messageTimestampMs(message);
       if(stamp&&stamp<since)return;
+      // The poller is only a short-gap fallback, not a history replayer. This
+      // prevents old bare commands from being executed again after a restart,
+      // reconnect or in-memory dedupe expiry.
+      if(stamp&&now-stamp>60_000)return;
       const selfAuthored=isSelfAuthoredMessage(message,account);
       const accessMode=settings.accessMode==='public'?'public':'private';
       if(!selfAuthored&&accessMode!=='public')return;
       const raw=textOf(message);
-      // Poll prefixed and recognized bare commands as a fallback for sessions
-      // whose outgoing NewMessage event was missed. Slash traffic is internal
-      // to Telegram/bot integrations and must never be re-consumed here.
+      // Polling is deliberately restricted to explicitly-prefixed commands.
+      // Prefixless commands are handled by live/raw Telegram updates. Re-reading
+      // bare commands from chat history is unsafe because a restart can replay
+      // old commands and make NexAI appear to command itself forever.
       const pollEvent={message,isGroup};
       const parsed=parseRuntimeCommand(raw,settings,pollEvent);
-      if(!parsed||parsed.kind==='slash')return;
+      if(!parsed||parsed.kind!=='prefix')return;
       await maybeHandleSelfCommand(runtime,pollEvent,'poll');
     }
 
@@ -834,7 +854,7 @@ async function pollRecentCommands(runtime){
       const topIsOwnCommand=
         (isSelfAuthoredMessage(top,account)||settings.accessMode==='public')&&
         !!topParsed&&
-        topParsed.kind!=='slash';
+        topParsed.kind==='prefix';
 
       if(!topIsOwnCommand&&topStamp&&now-topStamp<45000){
         try{
