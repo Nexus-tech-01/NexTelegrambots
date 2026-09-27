@@ -130,6 +130,25 @@ function portableEntities(entities,maxLength){
   return (entities||[]).filter(e=>safe.has(e.type)&&e.offset+e.length<=maxLength);
 }
 
+function noEmojiPortableModel(model,maxLength=4096){
+  const source=String(model?.text||'').slice(0,maxLength);
+  const text=sanitizeAnimatedEmojiText(source,{});
+  const allowed=new Set(['bot_command','blockquote','expandable_blockquote','text_link']);
+  const entities=(model?.entities||[])
+    .filter(e=>allowed.has(e.type)&&e.offset>=0&&e.length>0&&e.offset+e.length<=source.length)
+    .map(e=>{
+      const before=source.slice(0,e.offset);
+      const inside=source.slice(e.offset,e.offset+e.length);
+      return {
+        ...e,
+        offset:utf16len(sanitizeAnimatedEmojiText(before,{})),
+        length:utf16len(sanitizeAnimatedEmojiText(inside,{}))
+      };
+    })
+    .filter(e=>e.length>0);
+  return {...model,text,entities};
+}
+
 function textInputContent(model,entities,disableArtwork=false){
   return {
     message_text:model.text.slice(0,4096),
@@ -143,8 +162,8 @@ function textInputContent(model,entities,disableArtwork=false){
 function inlineCachedPhotoResult(model,accountId,id,fileId,portable=false){
   const stamped=stampMarkup(model.reply_markup,accountId);
   const reply_markup=portable?portableMarkup(stamped):stamped;
-  const safeModel=portable?{...model,text:sanitizeAnimatedEmojiText(model.text,{})}:model;
-  const textEntities=portable?[]:model.entities.filter(e=>e.offset+e.length<=4096);
+  const safeModel=portable?noEmojiPortableModel(model,4096):model;
+  const textEntities=portable?safeModel.entities:model.entities.filter(e=>e.offset+e.length<=4096);
   return {
     type:'photo',
     id,
@@ -157,8 +176,8 @@ function inlineCachedPhotoResult(model,accountId,id,fileId,portable=false){
 function inlineResult(model,accountId,id='menu',forceArticle=false,portable=false,disableArtwork=false){
   const stamped=stampMarkup(model.reply_markup,accountId);
   const reply_markup=portable?portableMarkup(stamped):stamped;
-  const safeModel=portable?{...model,text:sanitizeAnimatedEmojiText(model.text,{})}:model;
-  const textEntities=portable?[]:model.entities.filter(e=>e.offset+e.length<=4096);
+  const safeModel=portable?noEmojiPortableModel(model,4096):model;
+  const textEntities=portable?safeModel.entities:model.entities.filter(e=>e.offset+e.length<=4096);
   const input_message_content=textInputContent(safeModel,textEntities,disableArtwork);
 
   // A photo result keeps a visual thumbnail in the inline picker, but
@@ -248,11 +267,11 @@ async function sendModelMessage(ctx,model,accountId){
   const preview=model.photoUrl
     ?{url:model.photoUrl,prefer_large_media:true,show_above_text:true}
     :{is_disabled:true};
-  const plainText=sanitizeAnimatedEmojiText(model.text,{});
+  const noEmoji=noEmojiPortableModel(model,4096);
   const attempts=[
     ['text-rich',model.text,model.entities.filter(e=>e.offset+e.length<=4096),preview,rich],
     ['text-portable-buttons',model.text,model.entities.filter(e=>e.offset+e.length<=4096),preview,plain],
-    ['text-no-emoji',plainText,[],{is_disabled:true},plain]
+    ['text-no-emoji',noEmoji.text,noEmoji.entities,{is_disabled:true},plain]
   ];
 
   for(const [kind,messageText,entities,link_preview_options,reply_markup] of attempts){
@@ -286,11 +305,11 @@ async function editInline(ctx,model,accountId,{replaceMedia=false}={}){
 
   // New menus are always editable text messages. Artwork is optional:
   // a dead/unsupported preview must never prevent categories or styles from loading.
-  const plainText=sanitizeAnimatedEmojiText(model.text,{});
+  const noEmoji=noEmojiPortableModel(model,4096);
   const textAttempts=[
     ['rich',model.text,rich,model.entities.filter(e=>e.offset+e.length<=4096),preview],
     ['portable-buttons',model.text,portableMarkup(rich),model.entities.filter(e=>e.offset+e.length<=4096),preview],
-    ['no-emoji',plainText,portableMarkup(rich),[],{is_disabled:true}]
+    ['no-emoji',noEmoji.text,portableMarkup(rich),noEmoji.entities,{is_disabled:true}]
   ];
   for(const [kind,messageText,reply_markup,entities,link_preview_options] of textAttempts){
     try{
@@ -311,8 +330,8 @@ async function editInline(ctx,model,accountId,{replaceMedia=false}={}){
     for(const [kind,reply_markup] of markups){
       try{
         await ctx.editMessageCaption({
-          caption:kind==='rich'?model.text:sanitizeAnimatedEmojiText(model.text,{}),
-          caption_entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=1024):[],
+          caption:kind==='rich'?model.text:noEmojiPortableModel(model,1024).text,
+          caption_entities:kind==='rich'?model.entities.filter(e=>e.offset+e.length<=1024):noEmojiPortableModel(model,1024).entities,
           reply_markup
         });
         return 'legacy-caption-'+kind;
