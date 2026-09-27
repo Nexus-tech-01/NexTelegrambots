@@ -41,6 +41,19 @@ for(const forbidden of [
 assert.equal(runtimeSource.includes('syncOwnedCustomEmojiLibrary'),true,'runtime must synchronize the source custom emoji library');
 assert.equal(runtimeSource.includes("cfg.creatorUsername||'tresor20001'"),true,'runtime must bind the emoji library to the creator/source account');
 
+assert.equal(runtimeSource.includes('emojiLibrary:true'),true,'Premium connected replies must use the full custom emoji library');
+assert.ok(
+  runtimeSource.indexOf("sendBrandedText(client,peer,value,{") < runtimeSource.indexOf("putInlineResponse(value,{accountId})"),
+  'Premium connected replies must prefer direct Telegram entities before Inline Mode'
+);
+
+const responseUiSource=fs.readFileSync(path.resolve(here,'../response-ui.mjs'),'utf8');
+assert.equal(
+  responseUiSource.includes('animatedCustomEmojiEntitySpecsFromLibrary'),
+  true,
+  'response UI must resolve arbitrary message emojis from the persistent custom emoji library'
+);
+
 const inlineSource=fs.readFileSync(path.resolve(here,'../inline-bot.mjs'),'utf8');
 assert.equal(inlineSource.includes("from './runtime.mjs'"),false,'inline-bot must not import the multi-session runtime directly');
 
