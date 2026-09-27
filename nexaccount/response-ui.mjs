@@ -223,21 +223,29 @@ export function brandedText(value,{signature=true}={}){
 }
 
 export async function sendBrandedText(client,peer,value,options={}){
-  const branded=brandedText(value,{signature:options.signature!==false});
+  const suppliedEntities=Array.isArray(options.formattingEntities)?options.formattingEntities:[];
+  const customEmojiIds=options?.customEmojiIds||{};
+  const safeValue=suppliedEntities.length
+    ?String(value??'')
+    :sanitizeAnimatedEmojiText(value,customEmojiIds);
+  const branded=brandedText(safeValue,{signature:options.signature!==false});
   const formattingEntities=[
-    ...(Array.isArray(options.formattingEntities)?options.formattingEntities:[]),
+    ...suppliedEntities,
+    ...customEmojiEntities(branded.text,customEmojiIds),
     ...branded.entities
   ];
+  const {customEmojiIds:_customEmojiIds,...telegramOptions}=options;
   return client.sendMessage(peer,{
     message:branded.text,
-    ...options,
+    ...telegramOptions,
     formattingEntities
   });
 }
 
 export async function createProgress(client,peer,label='Traitement',options={}){
   const customEmojiIds=options?.customEmojiIds||{};
-  const initial='⏳ '+clean(label)+'…';
+  const glyph=key=>/^\d{5,30}$/.test(String(customEmojiIds?.['NEXAI_EMOJI_'+key]||''))?PREMIUM_EMOJI_GLYPHS[key]+' ':'';
+  const initial=glyph('WAIT')+clean(label)+'…';
   const sent=await client.sendMessage(peer,{
     message:initial,
     formattingEntities:customEmojiEntities(initial,customEmojiIds)
@@ -260,14 +268,14 @@ export async function createProgress(client,peer,label='Traitement',options={}){
     id,
     get finished(){return state.finished},
     update:text=>edit(String(text)),
-    step:text=>edit('⏳ '+String(text)),
+    step:text=>edit(glyph('WAIT')+String(text)),
     async done(text){
       state.finished=true;
-      await edit('✅ '+String(text||label+' terminé'));
+      await edit(glyph('CHECK')+String(text||label+' terminé'));
     },
     async fail(text){
       state.finished=true;
-      await edit('❌ '+String(text||label+' impossible'));
+      await edit(glyph('ERROR')+String(text||label+' impossible'));
     }
   };
 }
