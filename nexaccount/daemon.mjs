@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { cfg, assertCoreConfig } from './config.mjs';
 import { beginPairing, beginQrPairing, cancelPairing, cleanupPairings, pairingStatus, qrPairingStatus, setPairingConnectedHandler, submitPairingCode, submitPairingPassword } from './pairing.mjs';
-import { animeRuntimeDedupe, animeRuntimeDiscover, animeRuntimePublishNow, animeRuntimeRebuild, attachConnectedClient, engineStatus, loadSavedRuntimes, reconcileRuntimes, runtimeCommandTest, runtimeGroupSmoke, runtimeMenuProbe, runtimeStatus, stopRuntimes } from './runtime.mjs';
+import { animeRuntimeDedupe, animeRuntimeDiscover, animeRuntimePublishNow, animeRuntimeRebuild, attachConnectedClient, engineStatus, loadSavedRuntimes, reconcileRuntimes, runtimeAutomationProbe, runtimeCommandTest, runtimeGroupSmoke, runtimeMenuProbe, runtimeStatus, stopRuntimes } from './runtime.mjs';
 import { listAccounts, patchSettings, closeStore } from './store.mjs';
 import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
 import { loadBotToken } from './secrets.mjs';
@@ -205,6 +205,10 @@ async function route(req,res){
       const q=await body(req);
       if(!q.telegramUserId)return json(res,400,{ok:false,error:'telegramUserId required'});
       return json(res,200,await runtimeGroupSmoke(q.telegramUserId));
+    }
+    if(req.method==='POST'&&url.pathname==='/diagnostics/automations'){
+      const q=await body(req);
+      return json(res,200,await runtimeAutomationProbe(q.telegramUserId||q.username||''));
     }
     if(req.method==='POST'&&url.pathname==='/settings'){
       const q=await body(req);
