@@ -78,6 +78,8 @@ function publicStatus(state,id=''){
     codeAttempts:Number(state.codeAttempts||0),
     passwordAttempts:Number(state.passwordAttempts||0),
     codeViaApp:state.stage==='code'?state.codeViaApp:undefined,
+    qrUrl:state.stage==='qr'?state.qrUrl||undefined:undefined,
+    qrExpiresAt:state.stage==='qr'?Number(state.qrExpiresAt||0)||undefined:undefined,
     account:state.account?{
       telegramUserId:state.account.telegramUserId,
       username:state.account.username,
@@ -88,7 +90,19 @@ function publicStatus(state,id=''){
   };
 }
 
+function stopQrRuntime(state){
+  if(state?.qrRefreshTimer){
+    clearTimeout(state.qrRefreshTimer);
+    state.qrRefreshTimer=null;
+  }
+  if(state?.qrHandler){
+    try{state.client?.removeEventHandler?.(state.qrHandler)}catch{}
+    state.qrHandler=null;
+  }
+}
+
 async function failPairing(state,e,{disconnect=true}={}){
+  stopQrRuntime(state);
   state.error=safeError(e);
   state.errorCode=authErrorCode(e)||'AUTH_ERROR';
   state.stage='error';
@@ -100,6 +114,7 @@ async function failPairing(state,e,{disconnect=true}={}){
 }
 
 async function finishPairing(state,user){
+  stopQrRuntime(state);
   const client=state.client;
   const me=user||await client.getMe();
   if(state.expectedTelegramUserId&&String(me.id)!==String(state.expectedTelegramUserId)){
@@ -131,6 +146,127 @@ async function finishPairing(state,user){
   await persist(state).catch(()=>{});
   console.log('[NexAccount pair]',state.id,'connected',String(saved.telegramUserId));
   return publicStatus(state,state.id);
+}
+
+async function applyQrResult(state,result){
+  if(result instanceof Api.auth.LoginTokenSuccess&&result.authorization instanceof Api.auth.Authorization){
+    return finishPairing(state,result.authorization.user);
+  }
+
+  if(result instanceof Api.auth.LoginTokenMigrateTo){
+    await state.client._switchDC(result.dcId);
+    const migrated=await state.client.invoke(new Api.auth.ImportLoginToken({token:result.token}));
+    return applyQrResult(state,migrated);
+  }
+
+  if(result instanceof Api.auth.LoginToken){
+    const token=Buffer.from(result.token).toString('base64url');
+    state.qrUrl='tg://login?token='+token;
+    state.qrExpiresAt=Number(result.expires||0)*1000;
+    state.stage='qr';
+    state.error='';
+    state.errorCode='';
+    await persist(state);
+
+    if(state.qrRefreshTimer)clearTimeout(state.qrRefreshTimer);
+    const delay=Math.max(1000,(state.qrExpiresAt||Date.now()+30000)-Date.now()+250);
+    state.qrRefreshTimer=setTimeout(()=>{
+      refreshQrPairing(state).catch(error=>console.error('[NexAccount qr refresh]',state.id,safeError(error)));
+    },delay);
+    state.qrRefreshTimer.unref?.();
+    return publicStatus(state,state.id);
+  }
+
+  throw new Error('UNEXPECTED_QR_LOGIN_RESULT');
+}
+
+async function refreshQrPairing(state){
+  if(state.qrRefreshTimer){
+    clearTimeout(state.qrRefreshTimer);
+    state.qrRefreshTimer=null;
+  }
+  try{
+    const result=await state.client.invoke(new Api.auth.ExportLoginToken({
+      apiId:Number(cfg.apiId),
+      apiHash:cfg.apiHash,
+      exceptIds:[]
+    }));
+    return await applyQrResult(state,result);
+  }catch(error){
+    const code=authErrorCode(error);
+    if(code.includes('SESSION_PASSWORD_NEEDED')){
+      stopQrRuntime(state);
+      state.stage='password_required';
+      state.error='';
+      state.errorCode='SESSION_PASSWORD_NEEDED';
+      await persist(state);
+      return publicStatus(state,state.id);
+    }
+    return failPairing(state,error);
+  }
+}
+
+function ensureQrListener(state){
+  if(state.qrHandler)return;
+  state.qrHandler=async update=>{
+    if(!(update instanceof Api.UpdateLoginToken))return;
+    try{await refreshQrPairing(state)}
+    catch(error){console.error('[NexAccount qr update]',state.id,safeError(error))}
+  };
+  state.client.addEventHandler(state.qrHandler);
+}
+
+export async function beginQrPairing(onConnected=defaultOnConnected,expectedTelegramUserId=''){
+  const id=crypto.randomUUID();
+  const state={
+    id,
+    phone:'',
+    stage:'starting',
+    error:'',
+    errorCode:'',
+    client:null,
+    codeAttempts:0,
+    passwordAttempts:0,
+    qrUrl:'',
+    qrExpiresAt:0,
+    qrHandler:null,
+    qrRefreshTimer:null,
+    createdAt:Date.now(),
+    expectedTelegramUserId:String(expectedTelegramUserId||''),
+    onConnected:onConnected||defaultOnConnected,
+    handedOff:false
+  };
+  pending.set(id,state);
+
+  const client=new TelegramClient(new StringSession(''),cfg.apiId,cfg.apiHash,{
+    connectionRetries:5,
+    autoReconnect:true
+  });
+  state.client=client;
+
+  try{
+    await client.connect();
+    ensureQrListener(state);
+    const status=await refreshQrPairing(state);
+    console.log('[NexAccount qr]',id,'started');
+    return status;
+  }catch(error){
+    console.error('[NexAccount qr start]',id,authErrorCode(error)||safeError(error));
+    return failPairing(state,error);
+  }
+}
+
+export async function qrPairingStatus(id){
+  const state=await stateFor(id,{needClient:true});
+  if(!state)return {id:String(id),stage:'missing'};
+  if(['connected','error','cancelled','password_required'].includes(state.stage)){
+    return publicStatus(state,id);
+  }
+  ensureQrListener(state);
+  if(state.stage!=='qr'||!state.qrUrl){
+    return refreshQrPairing(state);
+  }
+  return publicStatus(state,id);
 }
 
 export async function beginPairing(phone,onConnected=defaultOnConnected,expectedTelegramUserId=''){
@@ -289,6 +425,7 @@ export async function cancelPairing(id){
   const state=await stateFor(id);
   if(!state)return {id:String(id),stage:'missing'};
 
+  stopQrRuntime(state);
   state.stage='cancelled';
   if(!state.handedOff){
     try{await state.client?.disconnect()}catch{}
