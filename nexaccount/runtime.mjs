@@ -20,7 +20,7 @@ import { createRuntimeContext, clearRuntimeTimers } from './core/runtime-context
 import { routeEngineCommand } from './core/engine-router.mjs';
 import { animeBeginRebuild, animeDedupePublishedEpisodeVariants, animeDiscoverNow, animeIngestStatus, animePublishNow, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
-import { ensurePremiumEmojiPalette, sanitizeAnimatedEmojiText, sendBrandedText } from './response-ui.mjs';
+import { ensurePremiumEmojiPalette, sanitizeAnimatedEmojiText, sendBrandedText, syncOwnedCustomEmojiLibrary } from './response-ui.mjs';
 import { putInlineResponse } from './inline-response-store.mjs';
 
 const commands=commandMap();
@@ -1025,8 +1025,21 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
   runtime.setPresenceEnabled=enabled=>configurePresence(runtime,enabled);
   runtimes.set(id,runtime);
 
+  const emojiLibrarySource=String(cfg.creatorUsername||'tresor20001').trim().replace(/^@/,'').toLowerCase();
+  const accountUsername=String(account.username||'').trim().replace(/^@/,'').toLowerCase();
+  let sourceEmojiSync=null;
+  if(accountUsername&&accountUsername===emojiLibrarySource){
+    const syncSourceEmojiLibrary=()=>syncOwnedCustomEmojiLibrary(client,account,{sourceUsername:emojiLibrarySource}).catch(error=>{
+      console.warn('[NexAccount emoji-library]',id,String(error?.errorMessage||error?.message||error).slice(0,220));
+      return null;
+    });
+    sourceEmojiSync=syncSourceEmojiLibrary();
+    runtime.emojiLibraryTimer=setInterval(syncSourceEmojiLibrary,6*60*60*1000);
+    runtime.emojiLibraryTimer.unref?.();
+  }
+
   if(account.premium===true){
-    ensurePremiumEmojiPalette(client,id,{premium:true}).catch(error=>{
+    Promise.resolve(sourceEmojiSync).catch(()=>null).then(()=>ensurePremiumEmojiPalette(client,id,{premium:true})).catch(error=>{
       console.warn('[NexAccount premium-emoji]',id,String(error?.message||error).slice(0,220));
     });
   }

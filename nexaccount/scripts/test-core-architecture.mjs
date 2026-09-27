@@ -20,9 +20,11 @@ assert.equal(dedupe.claim('2',message),true);
 const runtime=createRuntimeContext({client:{},account:{telegramUserId:'1'}});
 runtime.autoJoinTimer=setInterval(()=>{},60000);
 runtime.leaseTimer=setInterval(()=>{},60000);
+runtime.emojiLibraryTimer=setInterval(()=>{},60000);
 clearRuntimeTimers(runtime);
 assert.equal(runtime.autoJoinTimer,null);
 assert.equal(runtime.leaseTimer,null);
+assert.equal(runtime.emojiLibraryTimer,null);
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const runtimeSource=fs.readFileSync(path.resolve(here,'../runtime.mjs'),'utf8');
@@ -35,6 +37,9 @@ for(const forbidden of [
 ]){
   assert.equal(runtimeSource.includes(forbidden),false,'runtime.mjs still owns engine routing: '+forbidden);
 }
+
+assert.equal(runtimeSource.includes('syncOwnedCustomEmojiLibrary'),true,'runtime must synchronize the source custom emoji library');
+assert.equal(runtimeSource.includes("cfg.creatorUsername||'tresor20001'"),true,'runtime must bind the emoji library to the creator/source account');
 
 const inlineSource=fs.readFileSync(path.resolve(here,'../inline-bot.mjs'),'utf8');
 assert.equal(inlineSource.includes("from './runtime.mjs'"),false,'inline-bot must not import the multi-session runtime directly');
