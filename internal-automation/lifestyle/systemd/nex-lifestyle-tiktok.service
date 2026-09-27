@@ -1,0 +1,19 @@
+[Unit]
+Description=NEX Lifestyle TikTok Source Publisher
+After=network-online.target nex-interroute.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=nex-user
+Group=nex
+WorkingDirectory=/opt/nex/apps/internal-automation/lifestyle
+EnvironmentFile=/etc/nex/secrets/legacy-root.env
+Environment=LIFESTYLE_DESTINATION=tresor_universe
+Environment=LIFESTYLE_TIMEZONE=Africa/Porto-Novo
+Environment=LIFESTYLE_TIKTOK_MIN_GAP_MS=5400000
+Environment=LIFESTYLE_TIKTOK_MAX_GAP_MS=9000000
+ExecStart=/usr/bin/node /opt/nex/apps/internal-automation/lifestyle/tiktok-worker.mjs
+Nice=5
+TimeoutStartSec=5min
+UMask=0027
