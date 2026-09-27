@@ -59,9 +59,11 @@ for(const name of ['account','sessions','settings','prefix','mode','language','m
   requireCommand(name,{privateOnly:true,selfOnly:true});
 }
 
-for(const name of ['promote','demote','kick','ban','unban','mute','unmute','warn','tagall','hidetag','mediatag','slowmode']){
+for(const name of ['promote','demote','kick','ban','unban','mute','unmute','warn','tagall','mediatag','slowmode']){
   requireCommand(name,{engine:'group',groupOnly:true,adminOnly:true});
 }
+requireCommand('hidetag',{engine:'group',groupOnly:true});
+if(commands.get('hidetag')?.adminOnly===true)errors.push('hidetag-must-not-require-admin');
 for(const name of ['antilink','antispam','antitag','antigroupmention','antibadword','blacklist','whitelist','risk']){
   requireCommand(name,{engine:'group',groupOnly:true,adminOnly:true});
 }
