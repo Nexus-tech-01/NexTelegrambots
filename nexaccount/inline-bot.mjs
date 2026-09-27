@@ -227,9 +227,10 @@ function inlineReplyModel(value,settings={}){
     });
   }
 
-  const button={text:'ɴᴇxᴛᴇᴄʜ',url:cfg.nextechUrl,style:'success'};
   const customId=String(settings?.customEmojiIds?.NEXAI_EMOJI_NEXTECH||'').trim();
-  if(customId)button.icon_custom_emoji_id=customId;
+  const hasCustom=/^\d{5,30}$/.test(customId);
+  const button={text:(hasCustom?'':'⚡ ')+'ɴᴇxᴛᴇᴄʜ',url:cfg.nextechUrl,style:'success'};
+  if(hasCustom)button.icon_custom_emoji_id=customId;
 
   return {
     text,
@@ -377,7 +378,7 @@ async function sendBareLanguage(ctx,arg=''){
   const value=String(arg||'').trim().toLowerCase();
   if(value==='fr'||value==='en'){
     await patchSettings(ctx.from.id,{language:value});
-    const t=value==='fr'?'ʟᴀɴɢᴜᴇ • ғʀᴀɴçᴀɪѕ':'ʟᴀɴɢᴜᴀɢᴇ • ᴇɴɢʟɪѕʜ';
+    const t=value==='fr'?'🇫🇷 ʟᴀɴɢᴜᴇ • ғʀᴀɴçᴀɪѕ':'🇬🇧 ʟᴀɴɢᴜᴀɢᴇ • ᴇɴɢʟɪѕʜ';
     return ctx.reply(t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
   }
   const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
@@ -454,8 +455,8 @@ async function sendStart(ctx){
     return sendDirectMenu(ctx,account,'menu');
   }
   const text=lang==='en'
-    ? ['♰ ɴᴇxᴀɪ','','ᴄᴏɴɴᴇᴄᴛ ʏᴏᴜʀ ᴛᴇʟᴇɢʀᴀᴍ ᴀᴄᴄᴏᴜɴᴛ','/pair','','/creator','/language'].join('\n')
-    : ['♰ ɴᴇxᴀɪ','','ʀᴇʟɪᴇ ᴛᴏɴ ᴄᴏᴍᴘᴛᴇ ᴛᴇʟᴇɢʀᴀᴍ','/pair','','/creator','/language'].join('\n');
+    ? ['♰ ɴᴇxᴀɪ','','🔗 ᴄᴏɴɴᴇᴄᴛ ʏᴏᴜʀ ᴛᴇʟᴇɢʀᴀᴍ ᴀᴄᴄᴏᴜɴᴛ','/pair','','/creator','/language'].join('\n')
+    : ['♰ ɴᴇxᴀɪ','','🔗 ʀᴇʟɪᴇ ᴛᴏɴ ᴄᴏᴍᴘᴛᴇ ᴛᴇʟᴇɢʀᴀᴍ','/pair','','/creator','/language'].join('\n');
   return ctx.reply(text,{
     entities:quotedEntities(text,['/pair','/creator','/language']),
     reply_markup:connectMarkup(lang),
@@ -555,7 +556,7 @@ export async function startInlineBot(){
     const arg=String(ctx.match||'').trim().toLowerCase();
     if(arg==='fr'||arg==='en'){
       await patchSettings(ctx.from.id,{language:arg});
-      const t=arg==='fr'?'ʟᴀɴɢᴜᴇ • ғʀᴀɴçᴀɪѕ':'ʟᴀɴɢᴜᴀɢᴇ • ᴇɴɢʟɪѕʜ';
+      const t=arg==='fr'?'🇫🇷 ʟᴀɴɢᴜᴇ • ғʀᴀɴçᴀɪѕ':'🇬🇧 ʟᴀɴɢᴜᴀɢᴇ • ᴇɴɢʟɪѕʜ';
       return ctx.reply(t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
     }
     const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);

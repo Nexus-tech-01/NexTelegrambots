@@ -39,6 +39,20 @@ const STYLE_EMOJI_FALLBACK={
   20:'☄',21:'🌙',22:'🦇',23:'🌸',24:'❄',25:'🍫',26:'⚔',27:'⚽',28:'🎯',
   29:'🩸',30:'🦋',31:'⛩'
 };
+const BUTTON_EMOJI_FALLBACK={
+  general:'🏠',account:'👤',ai:'🧠',download:'📥',group:'👥',shield:'🔒',
+  tools:'🛠️',media:'🎞️',sticker:'🎴',games:'🎮',search:'🔎',anime:'🌸',
+  premium:'👑',owner:'🔮',nextech:'⚡',news:'📰',dark:'🕯️',back:'↩️',style:'🎨'
+};
+
+function fallbackEmojiForIcon(icon){
+  const key=String(icon||'').toLowerCase();
+  if(/^style_\d+$/.test(key)){
+    const id=Number(key.slice('style_'.length));
+    return STYLE_EMOJI_FALLBACK[id]||'';
+  }
+  return BUTTON_EMOJI_FALLBACK[key]||'';
+}
 
 export function expandableEntities(text,commandSpans=[],quoteRange=null,customEmojiSpans=[]){
   const entities=[];
@@ -174,7 +188,7 @@ export async function menuModel({account,settings,commands,view='home',category=
         cmd.privateOnly?'  · '+toSmallCaps(localized(settings,'Privé','Private')):'',
         cmd.groupOnly?(cmd.adminOnly?'  · '+toSmallCaps(localized(settings,'Groupe/Admin','Group/Admin')):'  · '+toSmallCaps(localized(settings,'Groupe','Group'))):'',
         cmd.premium&&!account.premium
-          ?'  · '+(emojiId('premium',settings)?'👑 ':'')+toSmallCaps('Premium')
+          ?'  · 👑 '+toSmallCaps('Premium')
           :''
       ].join('')
     }));
@@ -227,7 +241,7 @@ export async function menuModel({account,settings,commands,view='home',category=
 export async function stylesModel({account,settings}){
   const styles=(await listStyles()).filter(s=>s.id>0);
   const displayName=toSmallCaps(String(settings?.botDisplayName||'NEXAI').slice(0,32));
-  let text=(emojiId('owner',settings)?'🔮 ':'')+displayName+' • ᴅɪᴘᴘᴇʀ • ѕᴛʏʟᴇѕ\n\n',spans=[];
+  let text='🔮 '+displayName+' • ᴅɪᴘᴘᴇʀ • ѕᴛʏʟᴇѕ\n\n',spans=[];
   for(const s of styles){
     const command='/Style'+s.id;
     const start=text.length;
@@ -269,15 +283,17 @@ function emojiId(logical,settings=null){
 }
 
 function button(text,data,style='primary',icon,settings=null){
-  const b={text,callback_data:data,style};
   const id=emojiId(icon,settings);
+  const fallback=!id?fallbackEmojiForIcon(icon):'';
+  const b={text:(fallback?fallback+' ':'')+String(text),callback_data:data,style};
   if(id)b.icon_custom_emoji_id=id;
   return b;
 }
 
 function urlButton(text,url,style='success',icon,settings=null){
-  const b={text,url,style};
   const id=emojiId(icon,settings);
+  const fallback=!id?fallbackEmojiForIcon(icon):'';
+  const b={text:(fallback?fallback+' ':'')+String(text),url,style};
   if(id)b.icon_custom_emoji_id=id;
   return b;
 }
