@@ -86,18 +86,49 @@ export async function ensurePremiumEmojiPalette(client,telegramUserId,{premium=f
     .map(v=>String(v||'').toUpperCase())
     .filter(v=>PREMIUM_EMOJI_GLYPHS[v]);
 
-  const missing=wanted.filter(key=>!/^\d{5,30}$/.test(String(settings?.customEmojiIds?.['NEXAI_EMOJI_'+key]||'')));
-  if(!missing.length)return settings;
-
-  const cacheKey=accountId+':'+missing.sort().join(',');
-  const last=premiumEmojiAttempts.get(cacheKey)||0;
-  if(!force&&Date.now()-last<PREMIUM_EMOJI_RETRY_MS)return settings;
-  premiumEmojiAttempts.set(cacheKey,Date.now());
-
   const Search=Api.messages?.SearchCustomEmoji;
   const GetDocs=Api.messages?.GetCustomEmojiDocuments;
   const current={...(settings.customEmojiIds||{})};
   let changed=false;
+
+  // Treat every persisted custom-emoji ID as untrusted until Telegram confirms
+  // that it is an animated TGS/WEBM document with the expected fallback glyph.
+  const configured=wanted
+    .map(key=>({key,id:String(current['NEXAI_EMOJI_'+key]||'').trim()}))
+    .filter(row=>/^\d{5,30}$/.test(row.id));
+  if(configured.length){
+    let verified=new Map();
+    if(typeof GetDocs==='function'){
+      try{
+        const docs=await client.invoke(new GetDocs({documentId:[...new Set(configured.map(row=>row.id))].map(id=>BigInt(id))}));
+        const list=Array.isArray(docs)?docs:(docs?.documents||[]);
+        verified=new Map(list.map(doc=>[customEmojiId(doc),doc]));
+      }catch(error){
+        console.warn('[NexAccount premium-emoji] validate-existing',String(error?.errorMessage||error?.message||error).slice(0,200));
+      }
+    }
+    for(const {key,id} of configured){
+      const doc=verified.get(id);
+      const alt=normalizeEmoji(customEmojiAttr(doc)?.alt||'');
+      if(!doc||!isAnimatedCustomEmojiDocument(doc)||alt!==normalizeEmoji(PREMIUM_EMOJI_GLYPHS[key])){
+        delete current['NEXAI_EMOJI_'+key];
+        changed=true;
+      }
+    }
+  }
+
+  const missing=wanted.filter(key=>!/^\d{5,30}$/.test(String(current['NEXAI_EMOJI_'+key]||'')));
+  if(!missing.length){
+    return changed?patchSettings(accountId,{customEmojiIds:current}):settings;
+  }
+
+  const cacheKey=accountId+':'+missing.slice().sort().join(',');
+  const last=premiumEmojiAttempts.get(cacheKey)||0;
+  if(!force&&Date.now()-last<PREMIUM_EMOJI_RETRY_MS){
+    return changed?patchSettings(accountId,{customEmojiIds:current}):settings;
+  }
+  premiumEmojiAttempts.set(cacheKey,Date.now());
+
   const candidates=new Map();
   const allIds=new Set();
 
