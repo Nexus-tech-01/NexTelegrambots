@@ -2,7 +2,8 @@ FROM node:22-bookworm-slim
 
 ENV NODE_ENV=production \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    NEX_LITEAPKS_STATE_FILE=/var/data/nexcanal-watch-state-v2.json
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates ffmpeg gzip python3 python3-pip xz-utils \
@@ -34,6 +35,10 @@ RUN set -eux; \
 # NexCanal public-channel watchers run beside the bundled bot processes.
 COPY watchers /app/watchers
 
+# PID 1 supervisor keeps background automations alive and escalates crash loops
+# to a full Render container restart.
+COPY ops/render-supervisor.mjs /app/ops/render-supervisor.mjs
+
 # Rehydrate and validate the intelligent anime pipeline at build time.
 RUN set -eux; \
     base64 -d /app/watchers/anime-pipeline.mjs.gz.b64 | gzip -dc > /app/watchers/anime-pipeline.mjs; \
@@ -47,4 +52,4 @@ RUN cd /app/watchers && npm install --omit=dev --no-audit --no-fund
 
 EXPOSE 10000
 
-CMD ["sh", "-c", "if [ -z \"${NEXUS_PUBLIC_BASE_URL:-}\" ] && [ -n \"${RENDER_EXTERNAL_HOSTNAME:-}\" ]; then export NEXUS_PUBLIC_BASE_URL=\"https://${RENDER_EXTERNAL_HOSTNAME}\"; fi; if [ -n \"${NEXCANAL__WATCHER_SESSION:-}\" ]; then node watchers/liteapks-relay.mjs & fi; if [ \"${NEXANIME__ENABLED:-true}\" != \"false\" ]; then node watchers/anime-pipeline.mjs & fi; node scripts/preflight.mjs && exec node scripts/orchestrator.mjs"]
+CMD ["node", "ops/render-supervisor.mjs"]
