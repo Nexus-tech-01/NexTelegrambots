@@ -66,63 +66,115 @@ export async function ensurePremiumEmojiPalette(client,telegramUserId,{premium=f
 
   const Search=Api.messages?.SearchCustomEmoji;
   const GetDocs=Api.messages?.GetCustomEmojiDocuments;
-  if(typeof Search!=='function'||typeof GetDocs!=='function'){
-    console.warn('[NexAccount premium-emoji] Telegram library has no custom-emoji search API');
-    return settings;
-  }
-
-  const candidates=new Map();
-  const allIds=new Set();
-  for(const key of missing){
-    const glyph=PREMIUM_EMOJI_GLYPHS[key];
-    try{
-      const result=await client.invoke(new Search({emoticon:glyph,hash:BigInt(0)}));
-      const ids=(result?.documentId||result?.document_id||result?.documents||result?.ids||[])
-        .map(v=>String(v))
-        .filter(v=>/^\d{5,30}$/.test(v))
-        .slice(0,8);
-      if(ids.length){
-        candidates.set(key,{glyph,ids});
-        ids.forEach(id=>allIds.add(id));
-      }
-    }catch(error){
-      console.warn('[NexAccount premium-emoji] search',key,String(error?.errorMessage||error?.message||error).slice(0,180));
-    }
-  }
-
-  if(!allIds.size)return settings;
-
-  let docs=[];
-  try{
-    docs=await client.invoke(new GetDocs({documentId:[...allIds].map(id=>BigInt(id))}));
-  }catch(error){
-    console.warn('[NexAccount premium-emoji] documents',String(error?.errorMessage||error?.message||error).slice(0,200));
-    return settings;
-  }
-  const list=Array.isArray(docs)?docs:(docs?.documents||[]);
-  const byId=new Map(list.map(doc=>[customEmojiId(doc),doc]));
   const current={...(settings.customEmojiIds||{})};
   let changed=false;
+  const candidates=new Map();
+  const allIds=new Set();
 
-  for(const [key,{glyph,ids}] of candidates){
-    const expected=normalizeEmoji(glyph);
-    let selected='';
-    for(const id of ids){
-      const doc=byId.get(id);
-      const alt=normalizeEmoji(customEmojiAttr(doc)?.alt||'');
-      if(doc&&alt===expected){selected=id;break}
+  if(typeof Search==='function'){
+    for(const key of missing){
+      const glyph=PREMIUM_EMOJI_GLYPHS[key];
+      try{
+        const result=await client.invoke(new Search({emoticon:glyph,hash:BigInt(0)}));
+        const ids=(result?.documentId||result?.document_id||result?.documents||result?.ids||[])
+          .map(v=>String(v))
+          .filter(v=>/^\d{5,30}$/.test(v))
+          .slice(0,8);
+        if(ids.length){
+          candidates.set(key,{glyph,ids});
+          ids.forEach(id=>allIds.add(id));
+        }
+      }catch(error){
+        console.warn('[NexAccount premium-emoji] search',key,String(error?.errorMessage||error?.message||error).slice(0,180));
+      }
     }
-    if(!selected)continue;
-    current['NEXAI_EMOJI_'+key]=selected;
-    changed=true;
   }
 
-  if(!changed)return settings;
+  if(allIds.size&&typeof GetDocs==='function'){
+    try{
+      const docs=await client.invoke(new GetDocs({documentId:[...allIds].map(id=>BigInt(id))}));
+      const list=Array.isArray(docs)?docs:(docs?.documents||[]);
+      const byId=new Map(list.map(doc=>[customEmojiId(doc),doc]));
+      for(const [key,{glyph,ids}] of candidates){
+        const expected=normalizeEmoji(glyph);
+        for(const id of ids){
+          const doc=byId.get(id);
+          const alt=normalizeEmoji(customEmojiAttr(doc)?.alt||'');
+          if(doc&&alt===expected){
+            current['NEXAI_EMOJI_'+key]=id;
+            changed=true;
+            break;
+          }
+        }
+      }
+    }catch(error){
+      console.warn('[NexAccount premium-emoji] documents',String(error?.errorMessage||error?.message||error).slice(0,200));
+    }
+  }
+
+  // Fallback for accounts where SearchCustomEmoji returns no useful matches:
+  // scan Telegram's installed/featured custom-emoji sets and match by exact alt.
+  let unresolved=missing.filter(key=>!/^\d{5,30}$/.test(String(current['NEXAI_EMOJI_'+key]||'')));
+  if(unresolved.length){
+    const sets=[];
+    for(const methodName of ['GetEmojiStickers','GetFeaturedEmojiStickers']){
+      const Request=Api.messages?.[methodName];
+      if(typeof Request!=='function')continue;
+      try{
+        const result=await client.invoke(new Request({hash:BigInt(0)}));
+        for(const set of result?.sets||[])sets.push(set);
+      }catch(error){
+        console.warn('[NexAccount premium-emoji]',methodName,String(error?.errorMessage||error?.message||error).slice(0,180));
+      }
+    }
+
+    const uniqueSets=[];
+    const seen=new Set();
+    for(const set of sets){
+      const id=String(set?.id??'');
+      if(!id||seen.has(id))continue;
+      seen.add(id);
+      uniqueSets.push(set);
+    }
+
+    const GetStickerSet=Api.messages?.GetStickerSet;
+    const InputStickerSetID=Api.InputStickerSetID;
+    if(typeof GetStickerSet==='function'&&typeof InputStickerSetID==='function'){
+      for(const set of uniqueSets.slice(0,24)){
+        if(!unresolved.length)break;
+        const id=set?.id;
+        const accessHash=set?.accessHash??set?.access_hash;
+        if(id==null||accessHash==null)continue;
+        try{
+          const result=await client.invoke(new GetStickerSet({
+            stickerset:new InputStickerSetID({id,accessHash}),
+            hash:0
+          }));
+          for(const doc of result?.documents||[]){
+            const docId=customEmojiId(doc);
+            const alt=normalizeEmoji(customEmojiAttr(doc)?.alt||'');
+            if(!docId||!alt)continue;
+            for(const key of [...unresolved]){
+              if(alt===normalizeEmoji(PREMIUM_EMOJI_GLYPHS[key])){
+                current['NEXAI_EMOJI_'+key]=docId;
+                unresolved=unresolved.filter(x=>x!==key);
+                changed=true;
+              }
+            }
+          }
+        }catch{}
+      }
+    }
+  }
+
+  if(!changed){
+    console.warn('[NexAccount premium-emoji]',accountId,'no custom emoji match for',missing.join(','));
+    return settings;
+  }
   const next=await patchSettings(accountId,{customEmojiIds:current});
   console.log('[NexAccount premium-emoji]',accountId,'auto-configured',Object.keys(next.customEmojiIds||{}).length,'custom emoji');
   return next;
 }
-
 export function brandedText(value,{signature=true}={}){
   const base=String(value??'');
   if(!signature||!cfg.nextechUrl)return {text:base,entities:[]};
