@@ -5,6 +5,17 @@
   "verifyDelayMs": 8000,
   "targets": [
     {
+      "name": "NexControl Agent",
+      "type": "systemd",
+      "service": "nexcontrol-agent.service",
+      "intervalMs": 30000,
+      "repair": {
+        "type": "restartService",
+        "service": "nexcontrol-agent.service",
+        "verifyDelayMs": 5000
+      }
+    },
+    {
       "name": "NexAccount / NexAI service",
       "type": "systemd",
       "service": "nex-nexaccount.service",
