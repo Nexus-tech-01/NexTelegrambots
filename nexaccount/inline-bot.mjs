@@ -209,11 +209,7 @@ function inlineReplyModel(value,settings={}){
   }
 
   const button={text:'ɴᴇxᴛᴇᴄʜ',url:cfg.nextechUrl,style:'success'};
-  const customId=String(
-    settings?.customEmojiIds?.NEXAI_EMOJI_NEXTECH||
-    process.env.NEXAI_EMOJI_NEXTECH||
-    ''
-  ).trim();
+  const customId=String(settings?.customEmojiIds?.NEXAI_EMOJI_NEXTECH||'').trim();
   if(customId)button.icon_custom_emoji_id=customId;
 
   return {
