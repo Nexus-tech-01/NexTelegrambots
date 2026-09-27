@@ -262,11 +262,19 @@ export async function qrPairingStatus(id){
   if(['connected','error','cancelled','password_required'].includes(state.stage)){
     return publicStatus(state,id);
   }
-  ensureQrListener(state);
-  if(state.stage!=='qr'||!state.qrUrl){
-    return refreshQrPairing(state);
+
+  try{
+    if(await state.client.checkAuthorization()){
+      return finishPairing(state,await state.client.getMe());
+    }
+  }catch{}
+
+  if(state.stage==='qr'&&state.qrUrl&&Number(state.qrExpiresAt||0)>Date.now()+1000){
+    return publicStatus(state,id);
   }
-  return publicStatus(state,id);
+
+  ensureQrListener(state);
+  return refreshQrPairing(state);
 }
 
 export async function beginPairing(phone,onConnected=defaultOnConnected,expectedTelegramUserId=''){
