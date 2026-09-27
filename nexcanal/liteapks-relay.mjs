@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { TelegramClient, Api } from 'teleproto';
 import { StringSession } from 'teleproto/sessions/index.js';
 import { CustomFile } from 'teleproto/client/uploads.js';
@@ -524,11 +525,11 @@ function kickWorkers(c,publisher,destination,st,sources){
   }
 }
 
-async function run(session){
-  if(!token||!apiId||!apiHash||!session)throw new Error('missing NexCanal watcher credentials');
+async function runWithClient(c,{ownsReader=false,signal=null}={}){
+  if(!token||!apiId||!apiHash)throw new Error('missing NexCanal watcher credentials');
+  if(!c)throw new Error('missing NexCanal reader client');
   await cleanupMediaTmp();
-  const c=new TelegramClient(new StringSession(session),apiId,apiHash,{connectionRetries:10,autoReconnect:true,floodSleepThreshold:60});
-  await c.connect();
+  if(c.connected!==true)await c.connect();
   if(!(await c.isUserAuthorized()))throw new Error('watcher session is not authorized');
   const me=await c.getMe();
   const scannerUsername=String(me?.username||'').replace(/^@/,'').toLowerCase();
@@ -544,8 +545,10 @@ async function run(session){
     await c.disconnect().catch(()=>{});
     throw new Error('NexCanal publisher session is not a bot');
   }
-  await fs.mkdir(path.dirname(watcherIdentityFile),{recursive:true}).catch(()=>{});
-  await fs.writeFile(watcherIdentityFile,String(me?.id||''),{mode:0o600}).catch(e=>warn('watcher identity file',e?.message||e));
+  if(ownsReader){
+    await fs.mkdir(path.dirname(watcherIdentityFile),{recursive:true}).catch(()=>{});
+    await fs.writeFile(watcherIdentityFile,String(me?.id||''),{mode:0o600}).catch(e=>warn('watcher identity file',e?.message||e));
+  }
   log('scanner connected as',me?.username?'@'+me.username:String(me?.id||'unknown'));
   log('public publisher connected as',publisherMe?.username?'@'+publisherMe.username:String(publisherMe?.id||'NexCanal'));
   const sources=await resolveSources(c);
@@ -593,14 +596,16 @@ async function run(session){
     await withTimeout(discover(c,st,sources),opTimeoutMs,'initial source discovery');
   }catch(e){
     await publisher.disconnect().catch(()=>{});
-    await c.disconnect().catch(()=>{});
+    if(ownsReader)await c.disconnect().catch(()=>{});
     throw e;
   }
   log('watching', [...sources.keys()].join(', '),'-> @'+dst,'poll',poll+'ms');
 
-  while(true){
-    const live=await sessionSecret();
-    if(!live)throw new Error('reader session disconnected');
+  while(!signal?.aborted){
+    if(ownsReader){
+      const live=await sessionSecret();
+      if(!live)throw new Error('reader session disconnected');
+    }
     try{
       await withTimeout(discover(c,st,sources),opTimeoutMs,'source discovery');
       kickWorkers(c,publisher,destination,st,sources);
@@ -613,25 +618,48 @@ async function run(session){
       const message=String(e?.errorMessage||e?.message||e);
       warn('cycle failed',message);
       if(/AUTH_KEY_DUPLICATED|AuthKeyDuplicatedError|Concurrent usage of the current session from multiple connections/i.test(message)){
-        await c.disconnect().catch(()=>{});
+        if(ownsReader)await c.disconnect().catch(()=>{});
         throw e;
       }
-      if(/timeout/i.test(message)){await c.disconnect().catch(()=>{});throw e;}
+      if(/timeout/i.test(message)){if(ownsReader)await c.disconnect().catch(()=>{});throw e;}
     }
     await sleep(poll);
   }
+  await publisher.disconnect().catch(()=>{});
+  if(ownsReader)await c.disconnect().catch(()=>{});
+  return {ok:true,scanner:scannerUsername,destination:'@'+dst};
+
 }
 
-let wait=5000;
-for(;;){
-  try{
-    const session=await sessionSecret();
-    if(!session){log('waiting for Telegram reader connection');await sleep(5000);continue;}
-    wait=5000;
-    await run(session);
-  }catch(e){
-    warn(e?.message||e);
-    await sleep(wait);
-    wait=Math.min(wait*2,60000);
+
+
+export function startEmbeddedLiteApksRelay(client,{signal}={}){
+  return runWithClient(client,{ownsReader:false,signal});
+}
+
+async function run(session){
+  if(!session)throw new Error('missing NexCanal watcher session');
+  const c=new TelegramClient(new StringSession(session),apiId,apiHash,{connectionRetries:10,autoReconnect:true,floodSleepThreshold:60});
+  return runWithClient(c,{ownsReader:true});
+}
+
+function isMainModule(){
+  try{return !!process.argv[1]&&path.resolve(process.argv[1])===path.resolve(fileURLToPath(import.meta.url));}
+  catch{return false;}
+}
+
+if(isMainModule()){
+  let wait=5000;
+  for(;;){
+    try{
+      const session=await sessionSecret();
+      if(!session){log('waiting for Telegram reader connection');await sleep(5000);continue;}
+      wait=5000;
+      await run(session);
+    }catch(e){
+      warn(e?.message||e);
+      await sleep(wait);
+      wait=Math.min(wait*2,60000);
+    }
   }
 }
