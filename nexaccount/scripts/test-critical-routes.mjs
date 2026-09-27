@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { commandMap } from '../commands.mjs';
-import { canHandleAiCommand } from '../ai-engine.mjs';
+import { canHandleAiCommand, normalizeAiPrompt } from '../ai-engine.mjs';
 import { canHandleDownloadCommand } from '../dipper-fallback.mjs';
 import { canHandleStickerCommand } from '../sticker-engine.mjs';
 import { canHandleGameCommand } from '../game-engine.mjs';
@@ -27,6 +27,11 @@ for(const name of ['ai','code','deepseek']){
   const cmd=requireCommand(name,{engine:'ai'});
   if(cmd&&!canHandleAiCommand(cmd.aliasFor||cmd.name))errors.push('ai-route:'+name);
 }
+
+const codeCalculatorPrompt=normalizeAiPrompt('calculatrice','code');
+if(!codeCalculatorPrompt.includes('User request: calculatrice'))errors.push('code-short-request-not-preserved');
+if(!/implement|write the complete runnable code/i.test(codeCalculatorPrompt))errors.push('code-short-request-not-forced-to-generation');
+if(normalizeAiPrompt('calculatrice','ai')!=='calculatrice')errors.push('non-code-ai-prompt-was-rewritten');
 
 for(const name of ['song','video','download','tiktok','instagram','facebook','pinterest','snapchat','capcut','twitter','reddit','soundcloud','vimeo','tumblr','tomp3','lyrics','shazam','apk']){
   const cmd=requireCommand(name,{engine:'download'});
