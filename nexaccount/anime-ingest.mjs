@@ -450,12 +450,90 @@ async function verifiedSeriesAnchors(messages,source={}){
   }
   return out.slice(0,MAX_ACTIVE_SERIES);
 }
+function sourceSeasonAliasKey(source={}){
+  const channelId=String(source?.channelId||source?.id||'').trim();
+  if(channelId)return 'id:'+channelId;
+  const username=String(source?.username||source?.channelUsername||'').trim().replace(/^@/,'').toLowerCase();
+  return username?'user:'+username:'';
+}
+
+function inferredSeasonAlias({candidateSeason,episode,direct,sequel,priorSeason}={}){
+  const season=Number(candidateSeason||1),ep=Number(episode||0),prior=Number(priorSeason||0);
+  if(season<=1||ep<=0||prior<=0||prior>=season||!direct?.ok)return null;
+  if(sequel?.temporary===true)return null;
+  if(sequel?.ok&&Number(sequel.anilistId||0)!==Number(direct.anilistId||0))return null;
+  const episodeCount=Number(direct.episodes||0);
+  if(episodeCount>0&&ep>episodeCount)return null;
+  return prior;
+}
+
+async function existingSeasonAlias(source,anilistId,sourceSeason){
+  const sourceKey=sourceSeasonAliasKey(source);
+  const id=Number(anilistId||0),season=Number(sourceSeason||0);
+  if(!sourceKey||!id||season<=1)return null;
+  await ensureIndexes();
+  const row=await (await db()).collection('nexanime_season_aliases').findOne({
+    sourceKey,anilistId:id,sourceSeason:season,enabled:{$ne:false}
+  });
+  return Number(row?.canonicalSeason||0)>0?Number(row.canonicalSeason):null;
+}
+
+async function rememberSeasonAlias(source,anilistId,sourceSeason,canonicalSeason,{evidenceEpisode=0}={}){
+  const sourceKey=sourceSeasonAliasKey(source);
+  const id=Number(anilistId||0),from=Number(sourceSeason||0),to=Number(canonicalSeason||0);
+  if(!sourceKey||!id||from<=1||to<=0||to>=from)return false;
+  await ensureIndexes();
+  const now=new Date();
+  await (await db()).collection('nexanime_season_aliases').updateOne(
+    {sourceKey,anilistId:id,sourceSeason:from},
+    {$set:{
+      sourceKey,anilistId:id,sourceSeason:from,canonicalSeason:to,
+      evidenceEpisode:Number(evidenceEpisode||0),enabled:true,updatedAt:now
+    },$setOnInsert:{createdAt:now}},
+    {upsert:true}
+  );
+  return true;
+}
+
 async function canonicalizeCandidate(c,source={}){
   if(!c||!['episode','presentation'].includes(c.kind))return c;
   const q=cleanSeriesTitle(c.title);
   const direct=await verifyAnimeTitle(q);
   if(direct.ok){
-    return {...c,title:direct.canonicalTitle,anilistId:direct.anilistId,verifiedAnime:true};
+    let normalized={...c,title:direct.canonicalTitle,anilistId:direct.anilistId,verifiedAnime:true};
+    const sourceSeason=Number(c.season??1);
+    if(c.kind==='episode'&&sourceSeason>1&&Number(c.episode)>0){
+      const knownAlias=await existingSeasonAlias(source,direct.anilistId,sourceSeason);
+      if(knownAlias){
+        return {...normalized,season:knownAlias,sourceSeason,seasonAliasApplied:true};
+      }
+
+      const sequel=await verifyAnimeTitle(q+' Season '+sourceSeason);
+      if(sequel?.ok&&Number(sequel.anilistId||0)!==Number(direct.anilistId||0)){
+        return {...c,title:sequel.canonicalTitle,anilistId:sequel.anilistId,verifiedAnime:true};
+      }
+
+      if(sequel?.temporary!==true){
+        const d=await db();
+        const prior=await d.collection('nexanime_publications').findOne(
+          {
+            seriesKey:norm(direct.canonicalTitle),kind:'episode',
+            season:{$lt:sourceSeason},episode:Number(c.episode),
+            purgedAt:{$exists:false}
+          },
+          {sort:{season:-1},projection:{season:1}}
+        );
+        const target=inferredSeasonAlias({
+          candidateSeason:sourceSeason,episode:Number(c.episode),direct,sequel,
+          priorSeason:Number(prior?.season||0)
+        });
+        if(target){
+          await rememberSeasonAlias(source,direct.anilistId,sourceSeason,target,{evidenceEpisode:Number(c.episode)});
+          return {...normalized,season:target,sourceSeason,seasonAliasApplied:true};
+        }
+      }
+    }
+    return normalized;
   }
   const anchors=Array.isArray(source.seriesAnchors)?source.seriesAnchors:[];
   const anchor=bestAnchor(q,anchors);
@@ -494,7 +572,19 @@ async function validateResolvedEpisodeIdentity(item,resolved){
     throw error;
   }
   const verified=await verifyAnimeTitle(candidate.title);
-  if(!episodeIdentityCompatible(item,candidate,verified)){
+  let normalizedCandidate=candidate;
+  if(verified?.ok&&Number(candidate.season||1)>1){
+    const alias=await existingSeasonAlias(
+      {
+        channelId:String(resolved?.source?.channelId||resolved?.entity?.id||''),
+        username:resolved?.source?.channelUsername||resolved?.entity?.username||''
+      },
+      verified.anilistId,
+      Number(candidate.season)
+    );
+    if(alias)normalizedCandidate={...candidate,season:alias};
+  }
+  if(!episodeIdentityCompatible(item,normalizedCandidate,verified)){
     const error=new Error(
       'source_identity_mismatch: expected '+String(item.title||'?')+
       ' S'+String(item.season??1)+'E'+String(item.episode??'?')+
@@ -669,6 +759,7 @@ async function ensureIndexes(){
     d.collection('nexanime_publications').createIndex({dedupeKey:1},{unique:true}),
     d.collection('nexanime_quarantine').createIndex({createdAt:-1}),
     d.collection('nexanime_series_cache').createIndex({key:1},{unique:true}),
+    d.collection('nexanime_season_aliases').createIndex({sourceKey:1,anilistId:1,sourceSeason:1},{unique:true}),
     d.collection(NEXCANAL_HANDOFF_COLLECTION).createIndex({dedupeKey:1},{unique:true}),
     d.collection(NEXCANAL_HANDOFF_COLLECTION).createIndex({status:1,nextAttemptAt:1,createdAt:1})
   ]);
@@ -856,7 +947,7 @@ async function backfillSource(runtime,entity,knownAnchors=null){
     console.log('[NexAnime] no verified anime series',accountId,String(entity?.username||entity?.id||''));
     return 0;
   }
-  const source={username:entity?.username||'',title:entity?.title||'',seriesAnchors:anchors};
+  const source={channelId:String(entity?.id||''),username:entity?.username||'',title:entity?.title||'',seriesAnchors:anchors};
   const history=await runtime.client.getMessages(entity,{limit:BACKFILL_LIMIT});
   const found=[];
   for(const m of history){
@@ -2274,7 +2365,7 @@ export const __test={
   cleanSeriesTitle,sourceTitleCandidate,deriveRawAnchors,commonPrefixTitle,verifyAnimeTitle,
   standardizedCaption,quotedCaption,titleFromMessage,titleEvidenceFromMessage,titlesClearlyConflict,
   episodeEvidenceFromMessage,meaningfulTitleSimilarity,bestAnchor,episodeVariantScore,episodeIdentityCompatible,
-  isTransientPublishError
+  isTransientPublishError,inferredSeasonAlias
 };
 
 
