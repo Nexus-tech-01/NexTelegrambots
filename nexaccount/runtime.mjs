@@ -517,8 +517,11 @@ async function handleCommand(runtime,event,parsed){
   }
   if(!(await enforceCommandContext(runtime,event,cmd,parsed.name)))return true;
 
-  const name=cmd.handler||cmd.aliasFor||cmd.name;
-  await recordEvent(account,'command',{source:'nexaccount',command:cmd.name,chatType:eventIsGroup(event)?'group':'private'}).catch(()=>{});
+  const canonicalCommand=cmd.aliasFor||cmd.name;
+  const name=cmd.handler||canonicalCommand;
+  // Aliases are alternate spellings of the same command. Analytics must always
+  // attribute usage to the canonical command so aliases never become separate stats.
+  await recordEvent(account,'command',{source:'nexaccount',command:canonicalCommand,chatType:eventIsGroup(event)?'group':'private'}).catch(()=>{});
 
   if(name==='creator')return sendCreator(runtime,peer);
   // ownerOnly is an access-control flag, not an execution engine.
