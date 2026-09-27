@@ -1,0 +1,18 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "echo NexAI Connect V2: no dependency install required",
+  "buildCommand": "node vercel-build.mjs",
+  "outputDirectory": "public",
+  "cleanUrls": true,
+  "headers": [{
+    "source": "/(.*)",
+    "headers": [
+      {"key":"X-Content-Type-Options","value":"nosniff"},
+      {"key":"X-Frame-Options","value":"DENY"},
+      {"key":"Referrer-Policy","value":"no-referrer"},
+      {"key":"Permissions-Policy","value":"camera=(), microphone=(), geolocation=(), payment=(), usb=()"},
+      {"key":"Content-Security-Policy","value":"default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' https://ojbyvjqurlamplmujmyu.supabase.co; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"}
+    ]
+  }]
+}
