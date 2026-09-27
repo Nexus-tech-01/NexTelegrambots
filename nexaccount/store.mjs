@@ -165,22 +165,42 @@ export async function listAccountsForWorker({limit=cfg.maxRuntimesPerWorker}={})
 
 export async function acquireRuntimeLease(telegramUserId,workerId=cfg.workerId,ttlMs=cfg.runtimeLeaseMs){
   const d=await db(),now=new Date(),expiresAt=new Date(Date.now()+ttlMs),id=String(telegramUserId);
+  const leases=d.collection('nexaccount_runtime_leases');
+  const set={$set:{workerId:String(workerId),expiresAt,updatedAt:now}};
+
+  // Single-worker NexAccount is authoritative for every saved account. Avoid
+  // findOneAndUpdate(..., {upsert:true}) here: when an old deployment is still
+  // renewing the same lease, the upsert race can surface as E11000 and make the
+  // new worker silently skip restoration. Update first, insert only when truly
+  // absent, and retry the update if another process inserted between the two.
+  if(cfg.workerCount===1){
+    const updated=await leases.updateOne({_id:id},set);
+    if(updated.matchedCount===1)return true;
+    try{
+      await leases.insertOne({_id:id,workerId:String(workerId),expiresAt,updatedAt:now,createdAt:now});
+      return true;
+    }catch(error){
+      if(Number(error?.code)!==11000)throw error;
+      const retried=await leases.updateOne({_id:id},set);
+      return retried.matchedCount===1;
+    }
+  }
+
+  // Multi-worker mode preserves lease ownership: only the current owner or an
+  // expired/unowned lease may be claimed.
+  const filter={_id:id,$or:[
+    {workerId:String(workerId)},
+    {expiresAt:{$lte:now}},
+    {expiresAt:{$exists:false}}
+  ]};
+  const updated=await leases.updateOne(filter,set);
+  if(updated.matchedCount===1)return true;
   try{
-    // With a single configured worker there is no competing NexAccount worker.
-    // Reclaim the lease immediately on restart instead of waiting for a stale
-    // lease from the previous PID to expire.
-    const filter=cfg.workerCount===1
-      ? {_id:id}
-      : {_id:id,$or:[{workerId:String(workerId)},{expiresAt:{$lte:now}},{expiresAt:{$exists:false}}]};
-    const row=await d.collection('nexaccount_runtime_leases').findOneAndUpdate(
-      filter,
-      {$set:{workerId:String(workerId),expiresAt,updatedAt:now},$setOnInsert:{createdAt:now}},
-      {upsert:true,returnDocument:'after'}
-    );
-    return String(row?.workerId||'')===String(workerId);
-  }catch(e){
-    if(Number(e?.code)===11000)return false;
-    throw e;
+    await leases.insertOne({_id:id,workerId:String(workerId),expiresAt,updatedAt:now,createdAt:now});
+    return true;
+  }catch(error){
+    if(Number(error?.code)===11000)return false;
+    throw error;
   }
 }
 
