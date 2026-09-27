@@ -3,8 +3,9 @@ export function textOf(message){
 }
 
 function splitCommand(value,start,kind){
-  const [head,...args]=String(value||'').slice(start).split(/\s+/);
-  const name=String(head||'').replace(kind==='slash'?/@[^\s]+$/:/$^/,'').toLowerCase();
+  const [rawHead,...args]=String(value||'').slice(start).split(/\s+/);
+  const head=kind==='slash'?String(rawHead||'').replace(/@[^\s]+$/,''):String(rawHead||'');
+  const name=head.toLowerCase();
   return name?{name,args,kind}:null;
 }
 
