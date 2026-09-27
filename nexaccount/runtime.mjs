@@ -48,6 +48,31 @@ function messageAuthorId(message){
   return String(message?.senderId||message?.fromId?.userId||message?.fromId?.channelId||'');
 }
 
+function commandChatId(event){
+  return String(
+    event?.chatId||
+    event?.message?.chatId||
+    event?.message?.peerId?.channelId||
+    event?.message?.peerId?.chatId||
+    'global'
+  );
+}
+
+function isKnownRuntimeCommand(name,settings,event){
+  const key=String(name||'').toLowerCase();
+  if(!key)return false;
+  if(key==='menu'||key==='style'||/^style\d+$/i.test(key)||commands.has(key))return true;
+  const custom=settings?.groupPolicies?.[commandChatId(event)]?.customCommands;
+  return Boolean(custom&&Object.prototype.hasOwnProperty.call(custom,key));
+}
+
+function parseRuntimeCommand(text,settings,event){
+  return parseCommand(text,settings?.prefix||'.',{
+    allowBare:true,
+    isKnownCommand:name=>isKnownRuntimeCommand(name,settings,event)
+  });
+}
+
 function connectedAccountIds(account){
   return new Set([
     account?.telegramUserId,
@@ -716,7 +741,7 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
   const accessMode=settings.accessMode==='public'?'public':'private';
   if(!selfAuthored&&accessMode!=='public')return false;
   if(!selfAuthored&&await messageAuthorIsBot(client,message,event?.sender))return false;
-  const parsed=parseCommand(textOf(message),settings.prefix||'.');
+  const parsed=parseRuntimeCommand(textOf(message),settings,event);
   if(!parsed)return false;
   if(!(await claimCommand(account.telegramUserId,message)))return true;
   console.log(
@@ -777,11 +802,13 @@ async function pollRecentCommands(runtime){
       const accessMode=settings.accessMode==='public'?'public':'private';
       if(!selfAuthored&&accessMode!=='public')return;
       const raw=textOf(message);
-      // Polling only handles the configured account prefix. Internal
-      // traffic uses slash commands and must never be re-consumed here.
-      if(!prefix||!raw.startsWith(prefix))return;
-      if(!parseCommand(raw,prefix))return;
-      await maybeHandleSelfCommand(runtime,{message,isGroup},'poll');
+      // Poll prefixed and recognized bare commands as a fallback for sessions
+      // whose outgoing NewMessage event was missed. Slash traffic is internal
+      // to Telegram/bot integrations and must never be re-consumed here.
+      const pollEvent={message,isGroup};
+      const parsed=parseRuntimeCommand(raw,settings,pollEvent);
+      if(!parsed||parsed.kind==='slash')return;
+      await maybeHandleSelfCommand(runtime,pollEvent,'poll');
     }
 
     // Saved Messages is a common control surface and is cheap to poll directly.
@@ -803,11 +830,12 @@ async function pollRecentCommands(runtime){
       await inspect(top,dialog?.isGroup===true);
 
       const topRaw=textOf(top);
+      const topEvent={message:top,isGroup:dialog?.isGroup===true};
+      const topParsed=parseRuntimeCommand(topRaw,settings,topEvent);
       const topIsOwnCommand=
         (isSelfAuthoredMessage(top,account)||settings.accessMode==='public')&&
-        !!prefix&&
-        topRaw.startsWith(prefix)&&
-        !!parseCommand(topRaw,prefix);
+        !!topParsed&&
+        topParsed.kind!=='slash';
 
       if(!topIsOwnCommand&&topStamp&&now-topStamp<45000){
         try{
@@ -954,7 +982,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
       const event=rawCommandEvent(update,account);
       if(!event)return;
       const settings=await settingsFor(id);
-      const parsed=parseCommand(textOf(event.message),settings.prefix||'.');
+      const parsed=parseRuntimeCommand(textOf(event.message),settings,event);
       if(!parsed)return;
       console.log(
         '[NexAccount raw-command]',
@@ -1144,7 +1172,7 @@ export async function runtimeCommandTest(telegramUserId,text='.menu',peer='me'){
   if(!runtime)throw new Error('runtime_not_active');
   const {account}=runtime;
   const settings=await settingsFor(id);
-  const parsed=parseCommand(String(text||''),settings.prefix||'.');
+  const parsed=parseRuntimeCommand(String(text||''),settings,{message:{peerId:peer||'me'}});
   if(!parsed)throw new Error('command_not_parsed');
   await handleCommand(runtime,{
     message:{
