@@ -5,7 +5,7 @@ import { NewMessage } from 'teleproto/events/index.js';
 import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { cfg, isOwnerId } from './config.mjs';
 import { commandMap } from './commands.mjs';
-import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, claimCommandDelivery, disableAccount, enableAccount, listAccountsForWorker, markSessionRepairRequired, patchSettings, releaseRuntimeLease, renewRuntimeLease, settingsFor, sharedBotIdentity } from './store.mjs';
+import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, acquireSessionLease, claimCommandDelivery, disableAccount, enableAccount, listAccountsForWorker, markSessionRepairRequired, patchSettings, releaseRuntimeLease, releaseSessionLease, renewRuntimeLease, renewSessionLease, sessionFingerprint, settingsFor, sharedBotIdentity } from './store.mjs';
 import { listStyles } from './styles.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { recordEvent } from './analytics.mjs';
@@ -56,6 +56,7 @@ async function quarantineAuthKeyDuplicated(runtime,error,source='runtime'){
     try{await runtime.client?.disconnect?.()}catch{}
     runtimes.delete(id);
     await markSessionRepairRequired(id,'AUTH_KEY_DUPLICATED').catch(e=>console.error('[NexAccount session]',id,'repair_flag_failed',String(e?.message||e).slice(0,180)));
+    if(runtime.sessionFingerprint)await releaseSessionLease(runtime.sessionFingerprint,id).catch(()=>{});
     await releaseRuntimeLease(id).catch(()=>{});
     return true;
   })();
@@ -1083,7 +1084,7 @@ function rawCommandEvent(update,account){
   return null;
 }
 
-export async function attachConnectedClient(client,account,{leaseOwned=false}={}){
+export async function attachConnectedClient(client,account,{leaseOwned=false,sessionLeaseOwned=false}={}){
   const id=String(account.telegramUserId);
 
   // Warm the shared NexAI bot identity for every runtime worker so the first
@@ -1118,10 +1119,23 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
     if(leaseOwned)await releaseRuntimeLease(id).catch(()=>{});
     return null;
   }
-  if(!leaseOwned){
-    const leased=await acquireRuntimeLease(id);
-    if(!leased){
+  let runtimeLeaseOwned=leaseOwned===true;
+  if(!runtimeLeaseOwned){
+    runtimeLeaseOwned=await acquireRuntimeLease(id);
+    if(!runtimeLeaseOwned){
       try{await client.disconnect()}catch{}
+      return null;
+    }
+  }
+  const fingerprint=String(account.sessionFingerprint||'').trim().toLowerCase()||sessionFingerprint(client.session.save());
+  account.sessionFingerprint=fingerprint;
+  let sessionLeaseAcquired=sessionLeaseOwned===true;
+  if(!sessionLeaseAcquired){
+    sessionLeaseAcquired=await acquireSessionLease(fingerprint,id);
+    if(!sessionLeaseAcquired){
+      if(runtimeLeaseOwned)await releaseRuntimeLease(id).catch(()=>{});
+      try{await client.disconnect()}catch{}
+      console.error('[NexAccount session-lease] refused duplicate session for '+id+' on '+cfg.workerId);
       return null;
     }
   }
@@ -1130,6 +1144,9 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
     clearRuntimeTimers(old);
     await stopAnimeIngest(old).catch(()=>{});
     try{await old.client.disconnect()}catch{}
+    if(old.sessionFingerprint&&old.sessionFingerprint!==fingerprint){
+      await releaseSessionLease(old.sessionFingerprint,id).catch(()=>{});
+    }
     runtimes.delete(id);
   }
   const runtime=createRuntimeContext({
@@ -1137,6 +1154,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
     account,
     animePublisher:isPrimaryAnimePublisher(account)
   });
+  runtime.sessionFingerprint=fingerprint;
   runtime.setPresenceEnabled=enabled=>configurePresence(runtime,enabled);
   runtimes.set(id,runtime);
 
@@ -1240,10 +1258,13 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
 
   runtime.leaseTimer=setInterval(async()=>{
     try{
-      const ok=await renewRuntimeLease(id);
-      if(!ok){
-        console.error('[NexAccount lease] lost '+id+' on '+cfg.workerId);
-        await detachRuntime(id,{releaseLease:false});
+      const [runtimeOk,sessionOk]=await Promise.all([
+        renewRuntimeLease(id),
+        renewSessionLease(runtime.sessionFingerprint,id)
+      ]);
+      if(!runtimeOk||!sessionOk){
+        console.error('[NexAccount lease] lost '+id+' on '+cfg.workerId+' runtime='+runtimeOk+' session='+sessionOk);
+        await detachRuntime(id);
       }
     }catch(e){
       console.error('[NexAccount lease] renew failed '+id,String(e?.message||e));
@@ -1263,6 +1284,9 @@ export async function detachRuntime(telegramUserId,{releaseLease=true}={}){
     await stopAnimeIngest(runtime).catch(()=>{});
     try{await runtime.client.disconnect()}catch{}
     runtimes.delete(id);
+    if(releaseLease&&runtime.sessionFingerprint){
+      await releaseSessionLease(runtime.sessionFingerprint,id).catch(()=>{});
+    }
   }
   if(releaseLease)await releaseRuntimeLease(id).catch(()=>{});
   return true;
@@ -1275,9 +1299,19 @@ async function connectSavedAccount(publicAccount){
   if(cfg.workerCount>1&&!accountAssignedToWorker(id))return null;
   const leased=await acquireRuntimeLease(id);
   if(!leased)return null;
+  let fingerprint='';
+  let sessionLeased=false;
   try{
     const account=await accountWithSession(id);
     if(!account)throw new Error('No saved NexAccount session');
+    fingerprint=String(account.sessionFingerprint||'').trim().toLowerCase()||sessionFingerprint(account.session);
+    account.sessionFingerprint=fingerprint;
+    sessionLeased=await acquireSessionLease(fingerprint,id);
+    if(!sessionLeased){
+      const error=new Error('Telegram session is already owned by another active runtime');
+      error.code='SESSION_LEASE_BUSY';
+      throw error;
+    }
     const client=new TelegramClient(new StringSession(account.session),cfg.apiId,cfg.apiHash,{connectionRetries:5,autoReconnect:true});
     await client.connect();
     if(!(await client.isUserAuthorized())){
@@ -1290,9 +1324,10 @@ async function connectSavedAccount(publicAccount){
     account.username=me.username||account.username;
     account.firstName=me.firstName||account.firstName;
     account.lastName=me.lastName||account.lastName;
-    const runtime=await attachConnectedClient(client,account,{leaseOwned:true});
+    const runtime=await attachConnectedClient(client,account,{leaseOwned:true,sessionLeaseOwned:true});
     return runtime?id:null;
   }catch(error){
+    if(sessionLeased&&fingerprint)await releaseSessionLease(fingerprint,id).catch(()=>{});
     await releaseRuntimeLease(id).catch(()=>{});
     if(isAuthKeyDuplicatedError(error))await markSessionRepairRequired(id,'AUTH_KEY_DUPLICATED').catch(()=>{});
     else if(error?.code==='SESSION_UNAUTHORIZED')await markSessionRepairRequired(id,'SESSION_UNAUTHORIZED').catch(()=>{});
