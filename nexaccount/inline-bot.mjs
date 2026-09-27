@@ -12,6 +12,42 @@ import { listStyles, toSmallCaps } from './styles.mjs';
 
 const commands=commandMap();
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
+const INLINE_CUSTOM_EMOJI_GLYPHS={
+  WAIT:'⏳',CHECK:'✅',ERROR:'❌',
+  GENERAL:'🏠',ACCOUNT:'👤',AI:'🧠',DOWNLOAD:'📥',GROUP:'👥',SHIELD:'🛡️',
+  TOOLS:'🛠️',MEDIA:'🎞️',STICKER:'🎴',GAMES:'🎮',SEARCH:'🔎',ANIME:'🌸',
+  PREMIUM:'👑',OWNER:'🔮',NEXTECH:'⚡',NEWS:'📰',DARK:'🕯️',BACK:'↩️',
+  NEXT:'➡️',STYLE:'🎨'
+};
+
+function inlineCustomEmojiEntities(text,settings={}){
+  const value=String(text??'');
+  const out=[];
+  const occupied=[];
+  const overlaps=(a,b)=>occupied.some(r=>a<r.end&&b>r.start);
+  for(const [logical,glyph] of Object.entries(INLINE_CUSTOM_EMOJI_GLYPHS)){
+    const id=String(settings?.customEmojiIds?.['NEXAI_EMOJI_'+logical]||'').trim();
+    if(!/^\d{5,30}$/.test(id))continue;
+    let from=0;
+    while(true){
+      const start=value.indexOf(glyph,from);
+      if(start<0)break;
+      const end=start+glyph.length;
+      if(!overlaps(start,end)){
+        out.push({
+          type:'custom_emoji',
+          offset:utf16len(value.slice(0,start)),
+          length:utf16len(glyph),
+          custom_emoji_id:id
+        });
+        occupied.push({start,end});
+      }
+      from=end;
+    }
+  }
+  return out;
+}
+
 const webPairUsers=new Map();
 const photoFileIdCache=new Map();
 const photoCachePending=new Map();
@@ -181,6 +217,7 @@ function inlineReplyModel(value,settings={}){
       length:utf16len(m[0])
     });
   }
+  entities.push(...inlineCustomEmojiEntities(text,settings));
 
   const linkStart=text.lastIndexOf(label);
   if(cfg.nextechUrl&&linkStart>=0){
