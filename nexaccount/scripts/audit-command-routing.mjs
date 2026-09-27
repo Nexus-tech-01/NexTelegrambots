@@ -30,9 +30,10 @@ for(const name of requiredGroup){
     if(cmd.groupOnly!==true)errors.push('group-only-missing:'+name);
   }
 }
-for(const name of ['tagall','hidetag','mediatag','promote','demote','kick','ban','unban','mute','unmute','warn','warnings','slowmode','config','permissions']){
+for(const name of ['tagall','mediatag','promote','demote','kick','ban','unban','mute','unmute','warn','warnings','slowmode','config','permissions']){
   if(commands.get(name)?.adminOnly!==true)errors.push('admin-flag-missing:'+name);
 }
+if(commands.get('hidetag')?.adminOnly===true)errors.push('hidetag-must-not-require-admin');
 if(groups.ADMIN?.length)errors.push('legacy-admin-category:'+groups.ADMIN.length);
 
 const mode=commands.get('mode');
