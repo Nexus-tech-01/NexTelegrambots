@@ -176,13 +176,6 @@ jobs:
               health_text=health.get('stdout','').strip()
               print('NEXACCOUNT_HEALTH',health_text[-5000:])
               health_json=json.loads(health_text or '{}')
-              secondary=health_json.get('secondaryAnime') or {}
-              if secondary.get('username')!='@tresor20009':
-                  raise RuntimeError('secondary anime handoff must be @tresor20009: '+str(secondary))
-              secondary_anime=secondary.get('anime') or {}
-              if secondary_anime.get('listener') is not False or secondary_anime.get('publisher') is not True:
-                  raise RuntimeError('secondary anime runtime must be handoff-only (listener=false, publisher=true): '+str(secondary_anime))
-
               accounts=job('runtime.exec',{
                   'root':'nexus',
                   'command':'node',
@@ -193,13 +186,22 @@ jobs:
               account_json=json.loads(accounts_text or '{}')
               active=account_json.get('runtimes') or []
               by_name={str(x.get('username') or '').lower().lstrip('@'):x for x in active if x.get('connected') is True}
-              for required in ('tresor20001','tresor20009'):
-                  row=by_name.get(required)
-                  if not row:
-                      raise RuntimeError('required anime scanner is not active: @'+required)
-                  anime=row.get('anime') or {}
-                  if anime.get('listener') is not True or anime.get('publisher') is True:
-                      raise RuntimeError('@'+required+' must be scanner-only: '+str(anime))
+              primary=by_name.get('tresor20001')
+              if not primary:
+                  raise RuntimeError('required primary anime runtime is not active: @tresor20001')
+              primary_anime=primary.get('anime') or {}
+              if primary_anime.get('listener') is not True or primary_anime.get('publisher') is not True:
+                  raise RuntimeError('@tresor20001 must be anime listener+publisher: '+str(primary_anime))
+
+              scanner=by_name.get('tresor20009')
+              if not scanner:
+                  raise RuntimeError('required APK/anime scanner is not active: @tresor20009')
+              scanner_anime=scanner.get('anime') or {}
+              if scanner_anime.get('listener') is not True:
+                  raise RuntimeError('@tresor20009 must be an anime listener: '+str(scanner_anime))
+              lite=scanner.get('liteApks') or {}
+              if lite.get('scanner') is not True or lite.get('running') is not True:
+                  raise RuntimeError('@tresor20009 embedded LiteAPK scanner is not running: '+str(lite))
 
               probe_row=by_name.get('tresor20001') or next((x for x in active if x.get('connected') is True),None)
               if not probe_row or not probe_row.get('telegramUserId'):
@@ -235,7 +237,7 @@ jobs:
               else:
                   print('NEXAI_AI_OK',ai)
 
-              print('ANIME_SCANNERS_OK @tresor20001 + @tresor20009; NexCanal handoff active')
+              print('AUTOMATIONS_OK @tresor20001 anime publisher + @tresor20009 anime/APK scanner')
               print('DEPLOYMENT_OK NexAccount')
           except Exception:
               for rel,bid,created in reversed(backups):
