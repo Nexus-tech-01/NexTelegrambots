@@ -58,6 +58,12 @@ assert.equal(
   'rich reply path must not be gated to Premium accounts'
 );
 
+assert.equal(
+  runtimeSource.includes('ensureEmojiLibraryPalette'),
+  true,
+  'every attached runtime must hydrate its custom emoji palette from the shared library'
+);
+
 const responseUiSource=fs.readFileSync(path.resolve(here,'../response-ui.mjs'),'utf8');
 assert.equal(
   responseUiSource.includes('animatedCustomEmojiEntitySpecsFromLibrary'),
@@ -76,6 +82,15 @@ assert.equal(
   true,
   'inline fallback must keep animated custom emoji entities for non-Premium accounts'
 );
+assert.equal(
+  inlineSource.includes('ensureEmojiLibraryPalette'),
+  true,
+  'menu generation must hydrate custom emoji IDs for every account'
+);
 assert.equal(inlineSource.includes("from './runtime.mjs'"),false,'inline-bot must not import the multi-session runtime directly');
+
+const daemonSource=fs.readFileSync(path.resolve(here,'../daemon.mjs'),'utf8');
+assert.equal(daemonSource.includes('NEXACCOUNT_PAIRING_ONLY'),true,'daemon must support pairing-only bridge mode');
+assert.equal(daemonSource.includes("if(PAIRING_ONLY){"),true,'pairing-only mode must avoid attaching paired accounts as runtimes');
 
 console.log('core architecture ok');

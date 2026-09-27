@@ -9,7 +9,7 @@ import { getInlineResponse } from './inline-response-store.mjs';
 import { observeUser, recordEvent } from './analytics.mjs';
 import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
 import { listStyles, toSmallCaps } from './styles.mjs';
-import { animatedCustomEmojiEntitySpecs, animatedCustomEmojiEntitySpecsFromLibrary, sanitizeAnimatedEmojiText } from './response-ui.mjs';
+import { animatedCustomEmojiEntitySpecs, animatedCustomEmojiEntitySpecsFromLibrary, ensureEmojiLibraryPalette, sanitizeAnimatedEmojiText } from './response-ui.mjs';
 
 const commands=commandMap();
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
@@ -252,7 +252,9 @@ async function inlineReplyModelFromLibrary(value,settings={}){
 }
 
 async function modelFor(account,query){
-  const settings=await settingsFor(account.telegramUserId);
+  const settings=await ensureEmojiLibraryPalette(account.telegramUserId,{
+    sourceUsername:cfg.creatorUsername||'tresor20001'
+  }).catch(()=>settingsFor(account.telegramUserId));
   const rawQuery=String(query||'').trim();
   const q=rawQuery.toLowerCase();
   if(q.startsWith('reply:')){

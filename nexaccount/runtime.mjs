@@ -20,7 +20,7 @@ import { createRuntimeContext, clearRuntimeTimers } from './core/runtime-context
 import { routeEngineCommand } from './core/engine-router.mjs';
 import { animeBeginRebuild, animeDedupePublishedEpisodeVariants, animeDiscoverNow, animeIngestStatus, animePublishNow, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
-import { ensurePremiumEmojiPalette, sanitizeAnimatedEmojiText, sendBrandedText, syncOwnedCustomEmojiLibrary } from './response-ui.mjs';
+import { ensureEmojiLibraryPalette, ensurePremiumEmojiPalette, sanitizeAnimatedEmojiText, sendBrandedText, syncOwnedCustomEmojiLibrary } from './response-ui.mjs';
 import { putInlineResponse } from './inline-response-store.mjs';
 import { resolveBotUsername } from './secrets.mjs';
 
@@ -1099,8 +1099,16 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
     runtime.emojiLibraryTimer.unref?.();
   }
 
+  const paletteReady=Promise.resolve(sourceEmojiSync)
+    .catch(()=>null)
+    .then(()=>ensureEmojiLibraryPalette(id,{sourceUsername:emojiLibrarySource}))
+    .catch(error=>{
+      console.warn('[NexAccount emoji-palette]',id,String(error?.message||error).slice(0,220));
+      return null;
+    });
+
   if(account.premium===true){
-    Promise.resolve(sourceEmojiSync).catch(()=>null).then(()=>ensurePremiumEmojiPalette(client,id,{premium:true})).catch(error=>{
+    paletteReady.then(()=>ensurePremiumEmojiPalette(client,id,{premium:true})).catch(error=>{
       console.warn('[NexAccount premium-emoji]',id,String(error?.message||error).slice(0,220));
     });
   }
