@@ -18,7 +18,7 @@ import { parseCommand, textOf } from './core/command-parser.mjs';
 import { createCommandDeduper } from './core/command-deduper.mjs';
 import { createRuntimeContext, clearRuntimeTimers } from './core/runtime-context.mjs';
 import { routeEngineCommand } from './core/engine-router.mjs';
-import { animeBeginRebuild, animeDedupePublishedEpisodeVariants, animeDiscoverNow, animeIngestStatus, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
+import { animeBeginRebuild, animeDedupePublishedEpisodeVariants, animeDiscoverNow, animeIngestStatus, animePublishNow, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
 import { ensurePremiumEmojiPalette, sendBrandedText } from './response-ui.mjs';
 import { putInlineResponse } from './inline-response-store.mjs';
@@ -1173,6 +1173,18 @@ export async function animeRuntimeDiscover(target=''){
     ...discovery,
     anime:animeIngestStatus(runtime)
   };
+}
+
+export async function animeRuntimePublishNow(target=''){
+  const q=String(target||'').replace(/^@/,'').toLowerCase();
+  const candidates=[...runtimes.values()].filter(r=>
+    !q||
+    String(r.account.telegramUserId)===q||
+    String(r.account.username||'').toLowerCase()===q
+  );
+  const runtime=candidates.find(r=>r?.animeIngest?.publisher===true);
+  if(!runtime)throw new Error('anime_publisher_runtime_not_active');
+  return animePublishNow(runtime);
 }
 
 export async function animeRuntimeRebuild(target='',deadline=null){
