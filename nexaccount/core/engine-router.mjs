@@ -4,6 +4,7 @@ import { canHandleAiCommand, handleAiCommand } from '../ai-engine.mjs';
 import { canHandleStickerCommand, handleStickerCommand } from '../sticker-engine.mjs';
 import { canHandleGameCommand, handleGameCommand } from '../game-engine.mjs';
 import { createProgress, ensurePremiumEmojiPalette } from '../response-ui.mjs';
+import { settingsFor } from '../store.mjs';
 
 const ENGINE_LABELS={
   anime:'Anime',
@@ -29,10 +30,13 @@ async function guarded({label,name,sendText,client,peer,run,progressEnabled=true
     try{
       const account=runtimeAccount;
       let customEmojiIds={};
+      if(account?.telegramUserId){
+        const settings=await settingsFor(account.telegramUserId).catch(()=>null);
+        customEmojiIds=settings?.customEmojiIds||{};
+      }
       if(account?.premium===true){
-        // Premium emoji synchronization must never block command execution.
-        // Keep the normal emoji fallback for this response and refresh the
-        // palette asynchronously for later messages.
+        // Refresh in the background; the persistent emoji library is already
+        // sufficient to animate this progress message immediately.
         ensurePremiumEmojiPalette(client,account.telegramUserId,{
           premium:true,
           keys:['WAIT','CHECK','ERROR']
@@ -40,7 +44,10 @@ async function guarded({label,name,sendText,client,peer,run,progressEnabled=true
           console.warn('[NexAccount premium-emoji async]',String(error?.message||error).slice(0,220));
         });
       }
-      progress=await createProgress(client,peer,label+' · '+name,{customEmojiIds});
+      progress=await createProgress(client,peer,label+' · '+name,{
+        customEmojiIds,
+        emojiLibrary:account?.premium===true
+      });
     }catch(error){
       console.warn('[NexAccount progress]',String(error?.message||error).slice(0,220));
       try{progress=await createProgress(client,peer,label+' · '+name)}catch{}
