@@ -16,8 +16,8 @@ function promptFor({category,creator,description,duration}){
     category==='amv_edit'
       ? 'Si un anime ou un personnage est clairement identifiable, tu peux le nommer. Si tu n es pas sûr, ne l invente pas.'
       : 'Décris seulement les éléments luxury visibles ou fortement suggérés; n invente pas une marque non visible.',
-    'Écris ensuite un poème en français de 4 à 8 lignes, naturel, évocateur, sans hashtags dans le poème.',
-    'Évite les clichés répétitifs, les promesses financières et les affirmations factuelles non visibles.',
+    'Écris ensuite un poème en français de 4 à 7 lignes, naturel, évocateur, chaque ligne restant assez courte pour une publication Telegram. N ajoute aucun titre, aucune signature, aucun hashtag et aucune décoration au poème : le système applique lui-même la mise en page de Trésor.',
+    'Évite les clichés répétitifs, les promesses financières et les affirmations factuelles non visibles.',\n    category==='amv_edit'\n      ? 'Le champ title doit être une courte pensée émotionnelle de 2 à 6 mots, sans emoji ni décoration.'\n      : 'Le champ title doit être un titre Luxury très court de 2 à 6 mots, cinématographique; l anglais est permis si naturel. Sans emoji ni décoration.',
     'Retourne UNIQUEMENT un objet JSON valide avec exactement ces clés:',
     '{"summary":"...","mood":["..."],"subjects":["..."],"energy":"calm|medium|high","visual_style":"...","title":"...","poem":"...","hashtags":["..."]}'
   ].filter(Boolean).join('\n');
