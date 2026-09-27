@@ -9,7 +9,7 @@ import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, claim
 import { listStyles } from './styles.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { recordEvent } from './analytics.mjs';
-import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
+import { ownerPanelText, usersText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
 import { handleCompatCommand } from './compat.mjs';
 import { menuModel, stylesModel } from './menu.mjs';
 import { aiProviderStatus, generateAiReply } from './ai-engine.mjs';
@@ -406,7 +406,8 @@ async function handleOwner(runtime,peer,name,args){
   const settings=await settingsFor(account.telegramUserId);
   const lang=String(settings.language||'fr').toLowerCase().startsWith('en')?'en':'fr';
   let text='';
-  if(name==='owner'||name==='users')text=await ownerPanelText(lang);
+  if(name==='owner')text=await ownerPanelText(lang);
+  else if(name==='users')text=await usersText(lang);
   else if(name==='botstats')text=await botStatsText(lang);
   else if(name==='activity')text=await activityText(lang);
   else if(name==='growth')text=await growthText(lang);
