@@ -166,8 +166,14 @@ export async function listAccountsForWorker({limit=cfg.maxRuntimesPerWorker}={})
 export async function acquireRuntimeLease(telegramUserId,workerId=cfg.workerId,ttlMs=cfg.runtimeLeaseMs){
   const d=await db(),now=new Date(),expiresAt=new Date(Date.now()+ttlMs),id=String(telegramUserId);
   try{
+    // With a single configured worker there is no competing NexAccount worker.
+    // Reclaim the lease immediately on restart instead of waiting for a stale
+    // lease from the previous PID to expire.
+    const filter=cfg.workerCount===1
+      ? {_id:id}
+      : {_id:id,$or:[{workerId:String(workerId)},{expiresAt:{$lte:now}},{expiresAt:{$exists:false}}]};
     const row=await d.collection('nexaccount_runtime_leases').findOneAndUpdate(
-      {_id:id,$or:[{workerId:String(workerId)},{expiresAt:{$lte:now}},{expiresAt:{$exists:false}}]},
+      filter,
       {$set:{workerId:String(workerId),expiresAt,updatedAt:now},$setOnInsert:{createdAt:now}},
       {upsert:true,returnDocument:'after'}
     );
