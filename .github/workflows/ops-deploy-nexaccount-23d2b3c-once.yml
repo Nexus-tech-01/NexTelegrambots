@@ -1,0 +1,37 @@
+name: Ops Deploy NexAccount 23d2b3c Once
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-deploy-nexaccount-23d2b3c-once.yml'
+permissions:
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Deploy exact NexAccount commit to VPS
+        shell: bash
+        run: |
+          set -euo pipefail
+          body="$(curl --fail-with-body --silent --show-error --max-time 240             'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once')"
+          echo "$body"
+          python3 - "$body" <<'PY'
+          import json,sys
+          data=json.loads(sys.argv[1])
+          if data.get("ok") is not True:
+              raise SystemExit("deployment did not report ok=true")
+          if data.get("commit")!="23d2b3c3746132a3fde61a110c3db805058e9d1e":
+              raise SystemExit("wrong deployed commit")
+          if data.get("alreadyDone") is not True:
+              if int(data.get("fileCount",0)) < 70:
+                  raise SystemExit("unexpected deployed file count")
+              if data.get("afterState")!="running":
+                  raise SystemExit("VPS is not running after deployment")
+          PY
+      - name: Verify server responds after deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error             'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live'
