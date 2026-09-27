@@ -645,10 +645,28 @@ async function maybeAutoReact(runtime,event){
     return v===chatId||v===username;
   });
   if(!matched)return;
+  if(account.premium!==true||typeof Api.ReactionCustomEmoji!=='function')return;
   const reactions=Array.isArray(cfgReact.reactions)&&cfgReact.reactions.length?cfgReact.reactions:['🔥','❤️','👍'];
-  const emoticon=reactions[Math.floor(Math.random()*reactions.length)];
+  const keyForReaction=value=>{
+    const v=String(value||'').replace(/\uFE0F/g,'').trim();
+    if(v==='🔥')return 'FIRE';
+    if(v==='❤')return 'HEART';
+    if(v==='👍')return 'LIKE';
+    return '';
+  };
+  const animated=reactions.map(emoticon=>{
+    const key=keyForReaction(emoticon);
+    const id=String(settings?.customEmojiIds?.['NEXAI_EMOJI_'+key]||'').trim();
+    return key&&/^\d{5,30}$/.test(id)?id:'';
+  }).filter(Boolean);
+  if(!animated.length)return;
+  const documentId=animated[Math.floor(Math.random()*animated.length)];
   const peer=await client.getInputEntity(event.message.peerId);
-  await client.invoke(new Api.messages.SendReaction({peer,msgId:event.message.id,reaction:[new Api.ReactionEmoji({emoticon})]})).catch(()=>{});
+  await client.invoke(new Api.messages.SendReaction({
+    peer,
+    msgId:event.message.id,
+    reaction:[new Api.ReactionCustomEmoji({documentId:BigInt(documentId)})]
+  })).catch(()=>{});
 }
 
 async function maybeAutoModerate(runtime,event){
