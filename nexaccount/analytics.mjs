@@ -137,11 +137,13 @@ export async function botStats(){
     : [];
   const publicMode=settings.filter(s=>s.accessMode==='public').length;
   const premium=accounts.filter(a=>a.premium===true).length;
+  const repairRequired=accounts.filter(a=>a.sessionRepairRequired===true).length;
   return {
     total:accounts.length,
     live:live.size,
     offline:Math.max(0,accounts.length-live.size),
     premium,
+    repairRequired,
     publicMode,
     privateMode:Math.max(0,accounts.length-publicMode),
     workers:new Set([...live.values()].map(x=>String(x.workerId||'')).filter(Boolean)).size
@@ -229,7 +231,10 @@ export async function usersList(limit=40){
       language:languageOf(account),
       connectedAt:account.connectedAt||account.createdAt||null,
       lastActivityAt:accountActivityAt(account),
-      live:live.has(String(account.telegramUserId||''))
+      live:live.has(String(account.telegramUserId||'')),
+      sessionRepairRequired:account.sessionRepairRequired===true,
+      sessionRepairReason:String(account.sessionRepairReason||''),
+      sessionRepairAt:account.sessionRepairAt||null
     }))
     .sort((a,b)=>Number(b.live)-Number(a.live)||(new Date(b.connectedAt||0)-new Date(a.connectedAt||0)))
     .slice(0,Math.max(1,Math.min(100,Number(limit)||40)));
@@ -269,6 +274,9 @@ export async function userAnalytics(query){
     firstSeen:accountFirstSeen(account),
     lastSeen:lastEvent?.createdAt||accountActivityAt(account),
     totalCommandCount:eventCount,
+    sessionRepairRequired:account.sessionRepairRequired===true,
+    sessionRepairReason:String(account.sessionRepairReason||''),
+    sessionRepairAt:account.sessionRepairAt||null,
     sources:['nexaccount']
   };
 }
