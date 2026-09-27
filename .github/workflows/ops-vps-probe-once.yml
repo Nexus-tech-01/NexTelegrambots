@@ -1,0 +1,21 @@
+name: Ops VPS Probe Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-vps-probe-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read VPS runtime state
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"
