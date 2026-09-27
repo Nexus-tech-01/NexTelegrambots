@@ -46,7 +46,7 @@ async function guarded({label,name,sendText,client,peer,run,progressEnabled=true
       }
       progress=await createProgress(client,peer,label+' · '+name,{
         customEmojiIds,
-        emojiLibrary:account?.premium===true
+        emojiLibrary:Boolean(account)
       });
     }catch(error){
       console.warn('[NexAccount progress]',String(error?.message||error).slice(0,220));

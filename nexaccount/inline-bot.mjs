@@ -9,7 +9,7 @@ import { getInlineResponse } from './inline-response-store.mjs';
 import { observeUser, recordEvent } from './analytics.mjs';
 import { ownerPanelText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
 import { listStyles, toSmallCaps } from './styles.mjs';
-import { animatedCustomEmojiEntitySpecs, sanitizeAnimatedEmojiText } from './response-ui.mjs';
+import { animatedCustomEmojiEntitySpecs, animatedCustomEmojiEntitySpecsFromLibrary, sanitizeAnimatedEmojiText } from './response-ui.mjs';
 
 const commands=commandMap();
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
@@ -240,6 +240,17 @@ function inlineReplyModel(value,settings={}){
   };
 }
 
+async function inlineReplyModelFromLibrary(value,settings={}){
+  const model=inlineReplyModel(value,settings);
+  const withoutCustom=(model.entities||[]).filter(e=>e.type!=='custom_emoji');
+  const libraryEntities=await animatedCustomEmojiEntitySpecsFromLibrary(
+    model.text,
+    settings?.customEmojiIds||{},
+    {sourceUsername:cfg.creatorUsername||'tresor20001'}
+  );
+  return {...model,entities:[...withoutCustom,...libraryEntities]};
+}
+
 async function modelFor(account,query){
   const settings=await settingsFor(account.telegramUserId);
   const rawQuery=String(query||'').trim();
@@ -251,7 +262,7 @@ async function modelFor(account,query){
       console.warn('[NexAI inline reply] missing_or_expired',String(account.telegramUserId),token.slice(0,8));
       return null;
     }
-    return inlineReplyModel(row.text,settings);
+    return inlineReplyModelFromLibrary(row.text,settings);
   }
   if(q==='styles'||q==='style')return stylesModel({account,settings});
   if(q.startsWith('cat:')){
