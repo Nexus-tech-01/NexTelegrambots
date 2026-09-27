@@ -265,7 +265,7 @@ export async function stylesModel({account,settings}){
 function emojiId(logical,settings=null){
   const key='NEXAI_EMOJI_'+String(logical||'').toUpperCase().replace(/[^A-Z0-9]+/g,'_');
   const session=String(settings?.customEmojiIds?.[key]||'').trim();
-  return session||String(process.env[key]||'').trim()||undefined;
+  return /^\d{5,30}$/.test(session)?session:undefined;
 }
 
 function button(text,data,style='primary',icon,settings=null){
