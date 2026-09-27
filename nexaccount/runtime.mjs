@@ -270,6 +270,9 @@ async function sendInline(client,peer,query){
   const inputPeer=await client.getInputEntity(peer);
   const bot=await client.getInputEntity('@'+cfg.botUsername);
   const errors=[];
+  // Telegram uses random_id as the idempotency key for message sends.
+  // Keep ONE id across retries so a transport timeout cannot create duplicates.
+  const randomId=randomLong();
 
   // Inline queries can briefly race the bot update loop after a restart.
   // Retry a few times before degrading the user experience.
@@ -281,7 +284,7 @@ async function sendInline(client,peer,query){
       const result=results.results?.[0];
       if(!result)throw new Error('NexAI Inline Mode ne renvoie aucun résultat');
       return await client.invoke(new Api.messages.SendInlineBotResult({
-        peer:inputPeer,randomId:randomLong(),queryId:results.queryId,id:result.id
+        peer:inputPeer,randomId,queryId:results.queryId,id:result.id
       }));
     }catch(error){
       const reason=String(error?.errorMessage||error?.message||error||'unknown_error');
