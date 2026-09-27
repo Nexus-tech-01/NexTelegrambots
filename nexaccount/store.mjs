@@ -117,11 +117,6 @@ export async function saveAccount({me,session,phone,enabled=true}){
     {telegramUserId},
     {
       $set:doc,
-      $unset:{
-        sessionRepairRequired:'',
-        sessionRepairReason:'',
-        sessionRepairAt:''
-      },
       $setOnInsert:{createdAt:now}
     },
     {upsert:true}
