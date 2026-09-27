@@ -76,6 +76,8 @@ assert.deepEqual(
 
 const inlineSource=fs.readFileSync(path.join(ROOT,'inline-bot.mjs'),'utf8');
 const runtimeSource=fs.readFileSync(path.join(ROOT,'runtime.mjs'),'utf8');
+const secretsSource=fs.readFileSync(path.join(ROOT,'secrets.mjs'),'utf8');
+const pairingSource=fs.readFileSync(path.join(ROOT,'pairing.mjs'),'utf8');
 const menuSource=fs.readFileSync(path.join(ROOT,'menu.mjs'),'utf8');
 const styleSource=fs.readFileSync(path.join(ROOT,'styles.mjs'),'utf8');
 const themeSource=fs.readFileSync(path.join(ROOT,'theme-ui.mjs'),'utf8');
@@ -101,6 +103,12 @@ assert.ok(!runtimeSource.includes('Le menu inline est temporairement indisponibl
 assert.match(runtimeSource,/import \{ menuModel, stylesModel \} from '\.\/menu\.mjs';/,'runtime must import styles fallback model');
 assert.match(runtimeSource,/\[NexAccount styles\].*inline:failed/s,'style selector must log inline failures');
 assert.match(runtimeSource,/stylesModel\(\{account,settings\}\)/,'style selector must fall back to a direct styles model');
+assert.match(runtimeSource,/resolveBotUsername\(\)/,'runtime must resolve the inline bot identity on every worker');
+assert.match(runtimeSource,/resolveBotUsername\(\{refresh:true\}\)/,'inline transport must refresh a stale bot username before degrading');
+assert.match(secretsSource,/api\.telegram\.org\/bot.*\/getMe/,'bot username resolver must verify identity through Telegram getMe');
+assert.match(pairingSource,/Command: menu/,'new accounts must be instructed to use bare menu');
+assert.match(pairingSource,/Commande : menu/,'French pairing instructions must use bare menu');
+assert.ok(pairingSource.indexOf('await handler?.(client,saved);')<pairingSource.indexOf("await client.sendMessage('me',{message:savedMessage})"),'runtime must attach before the pairing success message is sent');
 assert.match(menuSource,/const command=slashCommand\(line\.name\)/,'menu commands must display Telegram slash commands');
 assert.match(menuSource,/type:'bot_command'/,'menu slash commands must be emitted as clickable Telegram bot_command entities');
 assert.match(menuSource,/quoteRange=\{start:0,length:header\.length\}/,'header must be the quoted Telegram block');
