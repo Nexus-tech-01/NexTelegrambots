@@ -233,6 +233,54 @@ export async function syncOwnedCustomEmojiLibrary(client,account,{sourceUsername
   return {skipped:false,sourceUsername:source,count:saved.count,animated,sets:sets.length};
 }
 
+export async function ensureEmojiLibraryPalette(telegramUserId,{
+  sourceUsername=cfg.creatorUsername||'tresor20001',
+  keys=null
+}={}){
+  const accountId=String(telegramUserId||'').trim();
+  if(!accountId)return null;
+
+  const settings=await settingsFor(accountId);
+  const wanted=(Array.isArray(keys)&&keys.length?keys:Object.keys(PREMIUM_EMOJI_GLYPHS))
+    .map(v=>String(v||'').toUpperCase())
+    .filter(v=>PREMIUM_EMOJI_GLYPHS[v]);
+  const current={...(settings.customEmojiIds||{})};
+  const missing=wanted.filter(key=>!/^\d{5,30}$/.test(String(current['NEXAI_EMOJI_'+key]||'')));
+  if(!missing.length)return settings;
+
+  try{
+    const rows=await customEmojiLibraryMatches(
+      missing.map(key=>PREMIUM_EMOJI_GLYPHS[key]),
+      {
+        sourceUsername:String(sourceUsername||'tresor20001').replace(/^@/,'').toLowerCase(),
+        animatedOnly:true
+      }
+    );
+    const byAlt=new Map();
+    for(const row of rows||[]){
+      const alt=normalizeEmoji(row?.alt||'');
+      const id=String(row?.documentId||'').trim();
+      if(alt&&/^\d{5,30}$/.test(id)&&!byAlt.has(alt))byAlt.set(alt,id);
+    }
+    let changed=false;
+    for(const key of missing){
+      const id=byAlt.get(normalizeEmoji(PREMIUM_EMOJI_GLYPHS[key]));
+      if(/^\d{5,30}$/.test(String(id||''))){
+        current['NEXAI_EMOJI_'+key]=String(id);
+        changed=true;
+      }
+    }
+    if(changed){
+      const next=await patchSettings(accountId,{customEmojiIds:current});
+      console.log('[NexAccount emoji-palette]',accountId,'hydrated',Object.keys(next.customEmojiIds||{}).length,'custom emoji IDs');
+      return next;
+    }
+  }catch(error){
+    console.warn('[NexAccount emoji-palette]',accountId,String(error?.message||error).slice(0,220));
+  }
+  return settings;
+}
+
 export async function ensurePremiumEmojiPalette(client,telegramUserId,{premium=false,keys=null,force=false}={}){
   const accountId=String(telegramUserId||'');
   if(!client||!accountId||premium!==true)return accountId?settingsFor(accountId):null;
