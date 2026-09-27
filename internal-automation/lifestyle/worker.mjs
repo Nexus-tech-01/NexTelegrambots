@@ -302,8 +302,12 @@ function chooseItem(bank,state){
 }
 
 if(!token&&!dryRun)throw new Error('NEXCANAL__BOT_TOKEN missing');
-const bank=JSON.parse(await fs.readFile(contentFile,'utf8'));
-if(!Array.isArray(bank)||!bank.length)throw new Error('empty lifestyle content bank');
+const rawBank=JSON.parse(await fs.readFile(contentFile,'utf8'));
+if(!Array.isArray(rawBank)||!rawBank.length)throw new Error('empty lifestyle content bank');
+// Dark Universe legacy publisher is intentionally limited to Otaku Choice.
+// Luxury/anime poetic posts come only from the TikTok -> analysis -> GPT flow.
+const bank=rawBank.filter(item=>item?.category==='otaku_choice');
+if(!bank.length)throw new Error('no otaku_choice content configured');
 const state=await loadState();
 
 await retryWhatsApp(state);
