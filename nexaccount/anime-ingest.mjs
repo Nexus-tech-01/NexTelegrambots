@@ -7,7 +7,7 @@ import { db } from './store.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
 
 const ENABLED=String(process.env.NEXANIME_ENABLED||'true').toLowerCase()!=='false';
-const REQUIRED_LISTENERS=['tresor20001','tresor20009'];
+const REQUIRED_LISTENERS=['tresor20001','tresor20009','tresor20000'];
 const LISTENERS=new Set([
   ...REQUIRED_LISTENERS,
   ...String(process.env.NEXANIME_LISTENER_USERNAMES||'')
@@ -18,8 +18,8 @@ const NEXCANAL_STAGE_BOT=String(process.env.NEXANIME_NEXCANAL_BOT||'the_big_dipp
 const NEXCANAL_HANDOFF_COLLECTION='nexanime_nexcanal_handoffs';
 const NEXCANAL_HANDOFF_TIMEOUT_MS=Math.max(15_000,Number(process.env.NEXANIME_NEXCANAL_HANDOFF_TIMEOUT_MS||120_000));
 const DISCOVERY_MS=Math.max(15*60*1000,Number(process.env.NEXANIME_DISCOVERY_MS||6*60*60*1000));
-const PUBLISH_MS=Math.max(15*60*1000,Number(process.env.NEXANIME_PUBLISH_MS||15*60*1000));
-const INTER_SERIES_MS=Math.max(60_000,Number(process.env.NEXANIME_INTER_SERIES_MS||2*60*60*1000));
+const PUBLISH_MS=Math.max(2*60*1000,Number(process.env.NEXANIME_PUBLISH_MS||5*60*1000));
+const INTER_SERIES_MS=Math.max(60_000,Number(process.env.NEXANIME_INTER_SERIES_MS||60*60*1000));
 const PUBLISHER_LEASE_GRACE_MS=Math.max(INTER_SERIES_MS+60_000,Number(process.env.NEXANIME_PUBLISHER_LEASE_GRACE_MS||INTER_SERIES_MS+5*60*1000));
 const POLL_MS=Math.max(30000,Number(process.env.NEXANIME_POLL_MS||60000));
 const STALE_PUBLISH_MS=Math.max(2*60*1000,Number(process.env.NEXANIME_STALE_PUBLISH_MS||10*60*1000));
