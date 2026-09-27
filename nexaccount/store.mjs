@@ -29,7 +29,13 @@ export async function db(){
   return d;
 }
 
-export function encryptSession(value){
+export export function sessionFingerprint(value){
+  const raw=String(value||'');
+  if(!raw)throw new Error('Telegram session fingerprint requires a non-empty session');
+  return crypto.createHash('sha256').update(raw,'utf8').digest('hex');
+}
+
+function encryptSession(value){
   const iv=crypto.randomBytes(12);
   const cipher=crypto.createCipheriv('aes-256-gcm',sessionKey(),iv);
   const encrypted=Buffer.concat([cipher.update(String(value),'utf8'),cipher.final()]);
@@ -80,7 +86,7 @@ function workerBucketRange(workerIndex=cfg.workerIndex,workerCount=cfg.workerCou
   return {start,end:Math.max(start,end)};
 }
 
-export async function saveAccount({me,session,phone}){
+export async function saveAccount({me,session,phone,enabled=true}){
   const d=await db(),now=new Date();
   const telegramUserId=String(me.id);
   const telegramLanguage=String(me.langCode||me.lang_code||'');
@@ -98,7 +104,8 @@ export async function saveAccount({me,session,phone}){
     runtimeBucket:runtimeBucketFor(telegramUserId),
     phoneMasked:maskPhone(phone),
     sessionEncrypted:encryptSession(session),
-    enabled:true,
+    sessionFingerprint:sessionFingerprint(session),
+    enabled:enabled===true,
     sessionRepairRequired:false,
     sessionRepairReason:'',
     sessionRepairAt:null,
@@ -151,7 +158,7 @@ export async function listAccountsForWorker({limit=cfg.maxRuntimesPerWorker}={})
     runtimeBucket:{$gte:start,$lte:end}
   };
   return d.collection('nexaccount_accounts')
-    .find(query,{projection:{sessionEncrypted:0}})
+    .find(query,{projection:{sessionEncrypted:0,sessionFingerprint:0}})
     .sort({connectedAt:1})
     .limit(Math.max(1,Number(limit)||cfg.maxRuntimesPerWorker))
     .toArray();
@@ -160,37 +167,41 @@ export async function listAccountsForWorker({limit=cfg.maxRuntimesPerWorker}={})
 export async function acquireRuntimeLease(telegramUserId,workerId=cfg.workerId,ttlMs=cfg.runtimeLeaseMs){
   const d=await db(),now=new Date(),expiresAt=new Date(Date.now()+ttlMs),id=String(telegramUserId);
   const leases=d.collection('nexaccount_runtime_leases');
-  const set={$set:{workerId:String(workerId),expiresAt,updatedAt:now}};
-
-  // Single-worker NexAccount is authoritative for every saved account. Avoid
-  // findOneAndUpdate(..., {upsert:true}) here: when an old deployment is still
-  // renewing the same lease, the upsert race can surface as E11000 and make the
-  // new worker silently skip restoration. Update first, insert only when truly
-  // absent, and retry the update if another process inserted between the two.
-  if(cfg.workerCount===1){
-    const updated=await leases.updateOne({_id:id},set);
-    if(updated.matchedCount===1)return true;
-    try{
-      await leases.insertOne({_id:id,workerId:String(workerId),expiresAt,updatedAt:now,createdAt:now});
-      return true;
-    }catch(error){
-      if(Number(error?.code)!==11000)throw error;
-      const retried=await leases.updateOne({_id:id},set);
-      return retried.matchedCount===1;
-    }
-  }
-
-  // Multi-worker mode preserves lease ownership: only the current owner or an
-  // expired/unowned lease may be claimed.
+  const owner=String(workerId);
+  const set={$set:{workerId:owner,expiresAt,updatedAt:now}};
   const filter={_id:id,$or:[
-    {workerId:String(workerId)},
+    {workerId:owner},
     {expiresAt:{$lte:now}},
     {expiresAt:{$exists:false}}
   ]};
   const updated=await leases.updateOne(filter,set);
   if(updated.matchedCount===1)return true;
   try{
-    await leases.insertOne({_id:id,workerId:String(workerId),expiresAt,updatedAt:now,createdAt:now});
+    await leases.insertOne({_id:id,workerId:owner,expiresAt,updatedAt:now,createdAt:now});
+    return true;
+  }catch(error){
+    if(Number(error?.code)===11000)return false;
+    throw error;
+  }
+}
+
+export async function acquireSessionLease(fingerprint,telegramUserId,workerId=cfg.workerId,ttlMs=cfg.runtimeLeaseMs){
+  const key=String(fingerprint||'').trim().toLowerCase();
+  const id=String(telegramUserId||'');
+  const owner=String(workerId);
+  if(!/^[a-f0-9]{64}$/.test(key)||!id)return false;
+  const d=await db(),now=new Date(),expiresAt=new Date(Date.now()+ttlMs);
+  const leases=d.collection('nexaccount_session_leases');
+  const filter={_id:key,$or:[
+    {workerId:owner,telegramUserId:id},
+    {expiresAt:{$lte:now}},
+    {expiresAt:{$exists:false}}
+  ]};
+  const set={$set:{workerId:owner,telegramUserId:id,expiresAt,updatedAt:now}};
+  const updated=await leases.updateOne(filter,set);
+  if(updated.matchedCount===1)return true;
+  try{
+    await leases.insertOne({_id:key,workerId:owner,telegramUserId:id,expiresAt,updatedAt:now,createdAt:now});
     return true;
   }catch(error){
     if(Number(error?.code)===11000)return false;
@@ -210,6 +221,29 @@ export async function renewRuntimeLease(telegramUserId,workerId=cfg.workerId,ttl
 export async function releaseRuntimeLease(telegramUserId,workerId=cfg.workerId){
   const d=await db();
   const result=await d.collection('nexaccount_runtime_leases').deleteOne({_id:String(telegramUserId),workerId:String(workerId)});
+  return result.deletedCount===1;
+}
+
+export async function renewSessionLease(fingerprint,telegramUserId,workerId=cfg.workerId,ttlMs=cfg.runtimeLeaseMs){
+  const key=String(fingerprint||'').trim().toLowerCase();
+  const id=String(telegramUserId||'');
+  if(!/^[a-f0-9]{64}$/.test(key)||!id)return false;
+  const d=await db(),now=new Date(),expiresAt=new Date(Date.now()+ttlMs);
+  const result=await d.collection('nexaccount_session_leases').updateOne(
+    {_id:key,workerId:String(workerId),telegramUserId:id},
+    {$set:{expiresAt,updatedAt:now}}
+  );
+  return result.matchedCount===1;
+}
+
+export async function releaseSessionLease(fingerprint,telegramUserId,workerId=cfg.workerId){
+  const key=String(fingerprint||'').trim().toLowerCase();
+  const id=String(telegramUserId||'');
+  if(!/^[a-f0-9]{64}$/.test(key)||!id)return false;
+  const d=await db();
+  const result=await d.collection('nexaccount_session_leases').deleteOne(
+    {_id:key,workerId:String(workerId),telegramUserId:id}
+  );
   return result.deletedCount===1;
 }
 
@@ -260,7 +294,7 @@ export async function accountRecord(telegramUserId){
   const d=await db();
   return d.collection('nexaccount_accounts').findOne(
     {telegramUserId:String(telegramUserId)},
-    {projection:{sessionEncrypted:0}}
+    {projection:{sessionEncrypted:0,sessionFingerprint:0}}
   );
 }
 
