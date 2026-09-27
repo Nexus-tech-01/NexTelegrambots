@@ -94,7 +94,7 @@ export const CORE_COMMANDS=[
   C('clean','GROUP',{...GA,description:'Nettoyer des messages'}),
   C('grouplink','GROUP',{...GA,description:'Créer le lien du groupe'}),
   C('tagall','GROUP',{...GA,description:'Mentionner tous les membres'}),
-  C('hidetag','GROUP',{...GA,description:'Mention silencieuse des membres'}),
+  C('hidetag','GROUP',{...G,description:'Mention silencieuse des membres'}),
   C('mediatag','GROUP',{...GA,description:'Mentionner les membres avec un média'}),
   C('welcome','GROUP',{...GA,description:'Activer/désactiver le message de bienvenue'}),
   C('goodbye','GROUP',{...GA,description:'Activer/désactiver le message de départ'}),

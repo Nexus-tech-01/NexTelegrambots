@@ -17,9 +17,10 @@ for(const name of ['tag','tagall','hidetag','mediatag','tagadmin','promote','dem
   assert.equal(cmd.groupOnly,true,name+' must be group-only');
   assert.equal(cmd.engine,'group',name+' must use the group engine');
 }
-for(const name of ['tagall','hidetag','mediatag','promote','demote','kick','ban','mute','warnings','slowmode']){
+for(const name of ['tagall','mediatag','promote','demote','kick','ban','mute','warnings','slowmode']){
   assert.equal(commands.get(name)?.adminOnly,true,name+' must require admin rights');
 }
+assert.notEqual(commands.get('hidetag')?.adminOnly,true,'hidetag must be usable by non-admin group members');
 assert.match(compatSource,/getInputChannel/,'channel APIs must import InputChannel conversion');
 assert.match(compatSource,/const channel=getInputChannel\(await client\.getInputEntity\(peer\)\)/,'moderation APIs must receive InputChannel');
 assert.match(compatSource,/ToggleSlowMode\(\{channel:input,seconds\}\)/,'slowmode route must use converted InputChannel');
