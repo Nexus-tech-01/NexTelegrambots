@@ -6,8 +6,8 @@ import { parseCommand, textOf } from '../core/command-parser.mjs';
 import { createCommandDeduper } from '../core/command-deduper.mjs';
 import { createRuntimeContext, clearRuntimeTimers } from '../core/runtime-context.mjs';
 
-assert.deepEqual(parseCommand('.menu','.'),{name:'menu',args:[]});
-assert.deepEqual(parseCommand('/Ping@NexAi_bot now','.'),{name:'ping',args:['now']});
+assert.deepEqual(parseCommand('.menu','.'),{name:'menu',args:[],kind:'prefix'});
+assert.deepEqual(parseCommand('/Ping@NexAi_bot now','.'),{name:'ping',args:['now'],kind:'slash'});
 assert.equal(parseCommand('hello','.'),null);
 assert.equal(textOf({message:'  hello  '}),'hello');
 
