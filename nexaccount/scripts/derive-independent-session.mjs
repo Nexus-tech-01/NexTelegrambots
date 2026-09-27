@@ -58,12 +58,24 @@ const [{TelegramClient,Api},{StringSession},{cfg,assertCoreConfig},store]=await 
 ]);
 assertCoreConfig();
 
-const sourceId=String(process.argv[2]||'').trim();
-const expectedUsername=String(process.argv[3]||'').trim().replace(/^@/,'').toLowerCase();
-const outputPath=path.resolve(process.argv[4]||'');
-if(!/^\d{5,30}$/.test(sourceId))throw new Error('source_telegram_user_id_required');
+let sourceId=String(process.argv[2]||'').trim();
+const expectedUsername=String(
+  process.argv[3]||
+  process.env.NEXCANAL__WATCHER_EXPECTED_USERNAME||
+  'tresor20000'
+).trim().replace(/^@/,'').toLowerCase();
+const outputPath=path.resolve(
+  process.argv[4]||
+  process.env.NEXCANAL__WATCHER_SESSION_FILE||
+  '/home/container/.nexcontrol/nexcanal-reader-session.txt'
+);
 if(!expectedUsername)throw new Error('expected_username_required');
-if(!process.argv[4])throw new Error('output_path_required');
+if(!sourceId){
+  const accounts=await store.listAccounts();
+  const match=accounts.find(x=>String(x.username||'').trim().replace(/^@/,'').toLowerCase()===expectedUsername);
+  sourceId=String(match?.telegramUserId||'');
+}
+if(!/^\d{5,30}$/.test(sourceId))throw new Error('source_account_not_found');
 
 let source=null,target=null;
 try{
