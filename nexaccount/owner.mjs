@@ -1,7 +1,7 @@
-import { analyticsSummary, countryStats, languageStats, userAnalytics, botStats, activityStats, growthStats, commandStats } from './analytics.mjs';
+import { analyticsSummary, countryStats, languageStats, usersList, userAnalytics, botStats, activityStats, growthStats, commandStats } from './analytics.mjs';
 
 const n=x=>Number(x||0).toLocaleString('fr-FR');
-const date=x=>x?new Date(x).toLocaleDateString('fr-FR'):'—';
+const date=x=>x?new Date(x).toLocaleString('fr-FR'):'—';
 const en=l=>String(l||'fr').toLowerCase().startsWith('en');
 
 export async function ownerPanelText(language='fr'){
@@ -10,16 +10,39 @@ export async function ownerPanelText(language='fr'){
   return [
     '╭╼━• 👑 ᴏᴡɴᴇʀ •━━━━',
     '┃ 🔮 '+(E?'ѕʏѕᴛᴇᴍ':'ѕʏѕᴛèᴍᴇ')+' : 🟢',
-    '┃ 👥 ᴜѕᴇʀѕ : '+n(s.users),
-    '┃ 🟢 '+(E?'ᴀᴄᴛɪᴠᴇ 24ʜ':'ᴀᴄᴛɪғѕ 24ʜ')+' : '+n(s.active24),
+    '┃ 👥 '+(E?'ᴍᴜʟᴛɪѕᴇѕѕɪᴏɴ ᴜѕᴇʀѕ':'ᴜᴛɪʟɪѕᴀᴛᴇᴜʀѕ ᴍᴜʟᴛɪѕᴇѕѕɪᴏɴ')+' : '+n(s.users),
+    '┃ 🟢 '+(E?'ʟɪᴠᴇ ʀᴜɴᴛɪᴍᴇѕ':'ѕᴇѕѕɪᴏɴѕ ᴇɴ ʟɪɢɴᴇ')+' : '+n(s.live),
+    '┃ ⚡ '+(E?'ᴀᴄᴛɪᴠᴇ 24ʜ':'ᴀᴄᴛɪғѕ 24ʜ')+' : '+n(s.active24),
     '┃ 🆕 '+(E?'ɴᴇᴡ 24ʜ':'ɴᴏᴜᴠᴇᴀᴜx 24ʜ')+' : '+n(s.new24),
     '┃ ⭐ ᴛᴇʟᴇɢʀᴀᴍ ᴘʀᴇᴍɪᴜᴍ : '+n(s.tgPremium),
-    '┃ 🔗 '+(E?'ᴘᴀɪʀᴇᴅ ᴀᴄᴄᴏᴜɴᴛѕ':'ᴄᴏᴍᴘᴛᴇѕ ᴘᴀɪʀéѕ')+' : '+n(s.paired),
     '┃ 🌍 '+(E?'ᴅᴇᴛᴇᴄᴛᴇᴅ ᴄᴏᴜɴᴛʀɪᴇѕ':'ᴘᴀʏѕ ᴅéᴛᴇᴄᴛéѕ')+' : '+n(s.countries),
-    '╰━━━━━━━━━━━━━━','','♰ ᴀɴᴀʟʏᴛɪᴄѕ','',
+    '╰━━━━━━━━━━━━━━','','♰ '+(E?'ʀᴇᴀʟ ᴍᴜʟᴛɪѕᴇѕѕɪᴏɴ ᴅᴀᴛᴀ':'ᴅᴏɴɴéᴇѕ ʀéᴇʟʟᴇѕ ᴍᴜʟᴛɪѕᴇѕѕɪᴏɴ'),'',
     '/users','/botstats','/activity','/growth','/commandstats','/countries','/languages','/user',
     '','♛ ɴᴇxᴀɪ × ɴᴇxᴛᴇᴄʜ ♛'
   ].join('\n');
+}
+
+export async function usersText(language='fr'){
+  const E=en(language);
+  const rows=await usersList(40);
+  const summary=await analyticsSummary();
+  const lines=[
+    '╭╼━• 👥 '+(E?'ᴍᴜʟᴛɪѕᴇѕѕɪᴏɴ ᴜѕᴇʀѕ':'ᴜᴛɪʟɪѕᴀᴛᴇᴜʀѕ ᴍᴜʟᴛɪѕᴇѕѕɪᴏɴ')+' •━━━━',
+    '┃ '+(E?'ᴛᴏᴛᴀʟ':'ᴛᴏᴛᴀʟ')+' : '+n(summary.users),
+    '┃ '+(E?'ʟɪᴠᴇ':'ᴇɴ ʟɪɢɴᴇ')+' : '+n(summary.live),
+    '╰━━━━━━━━━━━━━━',''
+  ];
+  for(const row of rows){
+    const name=row.username?'@'+row.username:([row.firstName,row.lastName].filter(Boolean).join(' ')||'—');
+    lines.push(
+      '┃ '+(row.live?'🟢':'⚪')+' '+name+
+      ' · '+row.telegramUserId+
+      (row.premium?' · ⭐':'')
+    );
+  }
+  if(!rows.length)lines.push(E?'┃ ɴᴏ ᴄᴏɴɴᴇᴄᴛᴇᴅ ᴀᴄᴄᴏᴜɴᴛ.':'┃ ᴀᴜᴄᴜɴ ᴄᴏᴍᴘᴛᴇ ᴄᴏɴɴᴇᴄᴛé.');
+  if(summary.users>rows.length)lines.push('',E?'┃ ѕʜᴏᴡɪɴɢ ғɪʀѕᴛ 40.':'┃ ᴀғғɪᴄʜᴀɢᴇ ᴅᴇѕ 40 ᴘʀᴇᴍɪᴇʀѕ.');
+  return lines.join('\n');
 }
 
 export async function countriesText(language='fr'){
@@ -51,18 +74,15 @@ export async function languagesText(language='fr'){
 export async function botStatsText(language='fr'){
   const s=await botStats(),E=en(language);
   return [
-    '╭╼━• 🤖 ʙᴏᴛѕ •━━━━',
-    '┃ 👥 '+(E?'ᴜɴɪǫᴜᴇ ᴜѕᴇʀѕ':'ᴜѕᴇʀѕ ᴜɴɪǫᴜᴇѕ')+' : '+n(s.total),
-    '╰━━━━━━━━━━━━━━','',
-    '┃ 📥 ɴᴇxᴅᴏᴡɴʟᴏᴀᴅᴇʀ : '+n(s.bySource.nexdownloader),
-    '┃ 🛡 ɴᴇxɢʀᴏᴜᴘ : '+n(s.bySource.nexgroup),
-    '┃ 🎮 ɴᴇxɢᴀᴍᴇ : '+n(s.bySource.nexgame),
-    '┃ 🎴 ɴᴇxѕᴛɪᴄᴋ : '+n(s.bySource.nexstick),
-    '┃ 🕯 ɴᴇxᴡʜɪѕᴘᴇʀ : '+n(s.bySource.nexwhisper),
-    '',
-    '┃ 🔗 2+ ʙᴏᴛѕ : '+n(s.multi.twoPlus),
-    '┃ 🔗 3+ ʙᴏᴛѕ : '+n(s.multi.threePlus),
-    '┃ 🔗 '+(E?'ᴀʟʟ 5':'ʟᴇѕ 5')+' : '+n(s.multi.allFive)
+    '╭╼━• 🤖 '+(E?'ᴍᴜʟᴛɪѕᴇѕѕɪᴏɴ ѕᴛᴀᴛѕ':'ѕᴛᴀᴛѕ ᴍᴜʟᴛɪѕᴇѕѕɪᴏɴ')+' •━━━━',
+    '┃ 👥 '+(E?'ѕᴀᴠᴇᴅ ѕᴇѕѕɪᴏɴѕ':'ѕᴇѕѕɪᴏɴѕ ᴇɴʀᴇɢɪѕᴛʀéᴇѕ')+' : '+n(s.total),
+    '┃ 🟢 '+(E?'ʟɪᴠᴇ ʀᴜɴᴛɪᴍᴇѕ':'ѕᴇѕѕɪᴏɴѕ ᴇɴ ʟɪɢɴᴇ')+' : '+n(s.live),
+    '┃ ⚪ '+(E?'ɴᴏᴛ ʟɪᴠᴇ':'ʜᴏʀѕ ʟɪɢɴᴇ')+' : '+n(s.offline),
+    '┃ ⭐ ᴘʀᴇᴍɪᴜᴍ : '+n(s.premium),
+    '┃ 🌐 '+(E?'ᴘᴜʙʟɪᴄ ᴍᴏᴅᴇ':'ᴍᴏᴅᴇ ᴘᴜʙʟɪᴄ')+' : '+n(s.publicMode),
+    '┃ 🔒 '+(E?'ᴘʀɪᴠᴀᴛᴇ ᴍᴏᴅᴇ':'ᴍᴏᴅᴇ ᴘʀɪᴠé')+' : '+n(s.privateMode),
+    '┃ 🧩 '+(E?'ᴀᴄᴛɪᴠᴇ ᴡᴏʀᴋᴇʀѕ':'ᴡᴏʀᴋᴇʀѕ ᴀᴄᴛɪғѕ')+' : '+n(s.workers),
+    '╰━━━━━━━━━━━━━━'
   ].join('\n');
 }
 
@@ -70,7 +90,8 @@ export async function activityText(language='fr'){
   const s=await activityStats(),E=en(language);
   return [
     '╭╼━• ⚡ '+(E?'ᴀᴄᴛɪᴠɪᴛʏ':'ᴀᴄᴛɪᴠɪᴛé')+' •━━━━',
-    '┃ 🟢 24ʜ : '+n(s.day),
+    '┃ 🟢 '+(E?'ʟɪᴠᴇ ɴᴏᴡ':'ᴇɴ ʟɪɢɴᴇ')+' : '+n(s.live),
+    '┃ 🕒 24ʜ : '+n(s.day),
     '┃ 🗓 7ᴅ : '+n(s.week),
     '┃ 📅 30ᴅ : '+n(s.month),
     '┃ 👥 ᴛᴏᴛᴀʟ : '+n(s.total),
@@ -80,14 +101,14 @@ export async function activityText(language='fr'){
 
 export async function growthText(language='fr'){
   const rows=await growthStats(14),E=en(language);
-  const lines=['╭╼━• 📈 '+(E?'ɢʀᴏᴡᴛʜ':'ᴄʀᴏɪѕѕᴀɴᴄᴇ')+' •━━━━','┃ '+(E?'ʟᴀѕᴛ 14 ᴅᴀʏѕ':'14 ᴅᴇʀɴɪᴇʀѕ ᴊᴏᴜʀѕ'),'╰━━━━━━━━━━━━━━',''];
+  const lines=['╭╼━• 📈 '+(E?'ɢʀᴏᴡᴛʜ':'ᴄʀᴏɪѕѕᴀɴᴄᴇ')+' •━━━━','┃ '+(E?'ɴᴇᴡ ᴍᴜʟᴛɪѕᴇѕѕɪᴏɴ ᴀᴄᴄᴏᴜɴᴛѕ · 14 ᴅᴀʏѕ':'ɴᴏᴜᴠᴇᴀᴜx ᴄᴏᴍᴘᴛᴇѕ ᴍᴜʟᴛɪѕᴇѕѕɪᴏɴ · 14 ᴊᴏᴜʀѕ'),'╰━━━━━━━━━━━━━━',''];
   for(const r of rows)lines.push('┃ '+r.date.slice(5)+' : +'+n(r.count));
   return lines.join('\n');
 }
 
 export async function commandStatsText(language='fr'){
   const rows=await commandStats(),E=en(language);
-  const lines=['╭╼━• 📜 '+(E?'ᴄᴏᴍᴍᴀɴᴅѕ':'ᴄᴏᴍᴍᴀɴᴅᴇѕ')+' •━━━━','┃ ᴛᴏᴘ 20 • 5 ʙᴏᴛѕ','╰━━━━━━━━━━━━━━',''];
+  const lines=['╭╼━• 📜 '+(E?'ᴄᴏᴍᴍᴀɴᴅѕ':'ᴄᴏᴍᴍᴀɴᴅᴇѕ')+' •━━━━','┃ '+(E?'ᴛᴏᴘ 20 · ᴍᴜʟᴛɪѕᴇѕѕɪᴏɴ ᴏɴʟʏ':'ᴛᴏᴘ 20 · ᴍᴜʟᴛɪѕᴇѕѕɪᴏɴ ѕᴇᴜʟᴇᴍᴇɴᴛ'),'╰━━━━━━━━━━━━━━',''];
   let i=1;
   for(const r of rows)lines.push('┃ '+String(i++).padStart(2,'0')+' • /'+String(r.command).replace(/^\//,'')+' : '+n(r.count));
   if(!rows.length)lines.push(E?'┃ ɴᴏ ᴅᴀᴛᴀ.':'┃ ᴀᴜᴄᴜɴᴇ ᴅᴏɴɴéᴇ.');
@@ -98,20 +119,21 @@ export async function userText(query,language='fr'){
   const E=en(language);
   if(!String(query||'').trim())return E?'ᴜѕᴀɢᴇ : /user <ɪᴅ|@ᴜѕᴇʀɴᴀᴍᴇ>':'ᴜѕᴀɢᴇ : /user <ɪᴅ|@ᴜѕᴇʀɴᴀᴍᴇ>';
   const u=await userAnalytics(query);
-  if(!u)return E?'ᴜѕᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ.':'ᴜѕᴇʀ ɪɴᴛʀᴏᴜᴠᴀʙʟᴇ.';
+  if(!u)return E?'ᴍᴜʟᴛɪѕᴇѕѕɪᴏɴ ᴜѕᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ.':'ᴜᴛɪʟɪѕᴀᴛᴇᴜʀ ᴍᴜʟᴛɪѕᴇѕѕɪᴏɴ ɪɴᴛʀᴏᴜᴠᴀʙʟᴇ.';
   return [
     '╭╼━• 👤 ᴜѕᴇʀ •━━━━',
     '┃ 🆔 ɪᴅ : '+u.telegramUserId,
     '┃ 👤 '+(E?'ɴᴀᴍᴇ':'ɴᴏᴍ')+' : '+([u.firstName,u.lastName].filter(Boolean).join(' ')||'—'),
     '┃ 🔗 ᴜѕᴇʀɴᴀᴍᴇ : '+(u.username?'@'+u.username:'—'),
+    '┃ '+(u.live?'🟢':'⚪')+' '+(E?'ѕᴇѕѕɪᴏɴ':'ѕᴇѕѕɪᴏɴ')+' : '+(u.live?(E?'ʟɪᴠᴇ':'ᴇɴ ʟɪɢɴᴇ'):(E?'ѕᴀᴠᴇᴅ · ɴᴏᴛ ʟɪᴠᴇ':'ᴇɴʀᴇɢɪѕᴛʀéᴇ · ʜᴏʀѕ ʟɪɢɴᴇ')),
     '┃ 🌍 '+(E?'ᴄᴏᴜɴᴛʀʏ':'ᴘᴀʏѕ')+' : '+(u.countryIso||(E?'ᴜɴᴋɴᴏᴡɴ':'ɪɴᴄᴏɴɴᴜ')),
     '┃ 🗣 '+(E?'ʟᴀɴɢᴜᴀɢᴇ':'ʟᴀɴɢᴜᴇ')+' : '+(u.language||(E?'ᴜɴᴋɴᴏᴡɴ':'ɪɴᴄᴏɴɴᴜ')),
     '┃ ⭐ ᴛɢ ᴘʀᴇᴍɪᴜᴍ : '+(u.telegramPremium?'ʏᴇѕ':'ɴᴏ'),
-    '┃ 🔗 ᴘᴀɪʀᴇᴅ : '+(u.paired?'ʏᴇѕ':'ɴᴏ'),
-    '┃ 📅 ғɪʀѕᴛ ѕᴇᴇɴ : '+date(u.firstSeen),
-    '┃ 🕒 ʟᴀѕᴛ ѕᴇᴇɴ : '+date(u.lastSeen),
+    '┃ 🔐 '+(E?'ᴀᴄᴄᴇѕѕ ᴍᴏᴅᴇ':'ᴍᴏᴅᴇ ᴅ’ᴀᴄᴄèѕ')+' : '+u.accessMode,
+    '┃ ⌨️ ᴘʀᴇғɪx : '+u.prefix,
+    '┃ 📅 '+(E?'ғɪʀѕᴛ ᴘᴀɪʀᴇᴅ':'ᴘʀᴇᴍɪèʀᴇ ᴄᴏɴɴᴇxɪᴏɴ')+' : '+date(u.firstSeen),
+    '┃ 🕒 '+(E?'ʟᴀѕᴛ ᴀᴄᴛɪᴠɪᴛʏ':'ᴅᴇʀɴɪèʀᴇ ᴀᴄᴛɪᴠɪᴛé')+' : '+date(u.lastSeen),
     '┃ ⚡ '+(E?'ᴄᴏᴍᴍᴀɴᴅѕ':'ᴄᴏᴍᴍᴀɴᴅᴇѕ')+' : '+n(u.totalCommandCount),
-    '┃ 🧩 ʙᴏᴛѕ : '+(u.sources?.filter(s=>s.startsWith('nex')&&s!=='nexaccount'&&s!=='nexai').join(' • ')||'—'),
     '╰━━━━━━━━━━━━━━'
   ].join('\n');
 }
