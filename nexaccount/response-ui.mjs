@@ -22,6 +22,43 @@ export const PREMIUM_EMOJI_GLYPHS=Object.freeze({
 const premiumEmojiAttempts=new Map();
 const PREMIUM_EMOJI_RETRY_MS=6*60*60*1000;
 const normalizeEmoji=value=>String(value??'').replace(/\uFE0F/g,'').replace(/\u200D/g,'').trim();
+const EMOJI_TOKEN_RE=/(?:\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3|\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?)*)/gu;
+
+function isAnimatedCustomEmojiDocument(document){
+  const mime=String(document?.mimeType||document?.mime_type||'').toLowerCase();
+  return mime==='application/x-tgsticker'||mime==='video/webm';
+}
+
+function glyphCustomEmojiId(glyph,customEmojiIds={}){
+  const expected=normalizeEmoji(glyph);
+  for(const [logical,candidate] of Object.entries(PREMIUM_EMOJI_GLYPHS)){
+    if(normalizeEmoji(candidate)!==expected)continue;
+    const id=String(customEmojiIds?.['NEXAI_EMOJI_'+logical]||'').trim();
+    if(/^\d{5,30}$/.test(id))return id;
+  }
+  return '';
+}
+
+export function sanitizeAnimatedEmojiText(value,customEmojiIds={}){
+  return String(value??'').replace(EMOJI_TOKEN_RE,glyph=>glyphCustomEmojiId(glyph,customEmojiIds)?glyph:'');
+}
+
+export function animatedCustomEmojiEntitySpecs(text,customEmojiIds={}){
+  const value=String(text??'');
+  const out=[];
+  for(const match of value.matchAll(EMOJI_TOKEN_RE)){
+    const glyph=match[0];
+    const id=glyphCustomEmojiId(glyph,customEmojiIds);
+    if(!id)continue;
+    out.push({
+      type:'custom_emoji',
+      offset:utf16len(value.slice(0,match.index)),
+      length:utf16len(glyph),
+      custom_emoji_id:id
+    });
+  }
+  return out;
+}
 
 function customEmojiAttr(document){
   return (document?.attributes||[]).find(a=>/DocumentAttributeCustomEmoji/i.test(String(a?.className||a?.constructor?.name||a?._||'')))||null;
