@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import http from 'node:http';
 import { cfg, assertCoreConfig } from './config.mjs';
-import { beginPairing, cancelPairing, cleanupPairings, pairingStatus, setPairingConnectedHandler, submitPairingCode, submitPairingPassword } from './pairing.mjs';
+import { beginPairing, beginQrPairing, cancelPairing, cleanupPairings, pairingStatus, qrPairingStatus, setPairingConnectedHandler, submitPairingCode, submitPairingPassword } from './pairing.mjs';
 import { animeRuntimeDedupe, animeRuntimeDiscover, animeRuntimePublishNow, animeRuntimeRebuild, attachConnectedClient, engineStatus, loadSavedRuntimes, reconcileRuntimes, runtimeCommandTest, runtimeGroupSmoke, runtimeMenuProbe, runtimeStatus, stopRuntimes } from './runtime.mjs';
 import { listAccounts, patchSettings, closeStore } from './store.mjs';
 import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
@@ -153,6 +153,13 @@ async function route(req,res){
     }
     if(req.method==='GET'&&url.pathname==='/pair/status'){
       return json(res,200,{ok:true,...await pairingStatus(url.searchParams.get('id')||'')});
+    }
+    if(req.method==='GET'&&url.pathname==='/pair/qr-status'){
+      return json(res,200,{ok:true,...await qrPairingStatus(url.searchParams.get('id')||'')});
+    }
+    if(req.method==='POST'&&url.pathname==='/pair/qr-start'){
+      const state=await beginQrPairing();
+      return json(res,200,{ok:true,...state});
     }
     if(req.method==='POST'&&url.pathname==='/pair/start'){
       const q=await body(req);
