@@ -33,6 +33,20 @@ async function loadHostEnvironment(){
       if(error?.code!=='ENOENT')throw error;
     }
   }
+
+  // Mirror the production bootstrap credential aliasing without exposing any
+  // credential value. This keeps the recovery utility compatible with hosts
+  // where MTProto app credentials are shared under another Nexus bot prefix.
+  if(!process.env.NEXACCOUNT_TELEGRAM_API_ID||!process.env.NEXACCOUNT_TELEGRAM_API_HASH){
+    const idKey=Object.keys(process.env).find(k=>k.endsWith('__TELEGRAM_API_ID')&&process.env[k]);
+    if(idKey){
+      const hashKey=idKey.replace(/API_ID$/,'API_HASH');
+      if(process.env[hashKey]){
+        process.env.NEXACCOUNT_TELEGRAM_API_ID ||= process.env[idKey];
+        process.env.NEXACCOUNT_TELEGRAM_API_HASH ||= process.env[hashKey];
+      }
+    }
+  }
 }
 
 await loadHostEnvironment();
