@@ -69,26 +69,12 @@ function customEmojiId(document){
   return id==null?'':String(id);
 }
 
-function customEmojiEntities(text,customEmojiIds={},logicalKeys=['WAIT','CHECK','ERROR']){
-  const value=String(text??'');
-  const entities=[];
-  for(const logical of logicalKeys){
-    const glyph=PREMIUM_EMOJI_GLYPHS[logical];
-    const id=String(customEmojiIds?.['NEXAI_EMOJI_'+logical]||'').trim();
-    if(!glyph||!/^\d{5,30}$/.test(id))continue;
-    let from=0;
-    while(true){
-      const start=value.indexOf(glyph,from);
-      if(start<0)break;
-      entities.push(new Api.MessageEntityCustomEmoji({
-        offset:utf16len(value.slice(0,start)),
-        length:utf16len(glyph),
-        documentId:BigInt(id)
-      }));
-      from=start+glyph.length;
-    }
-  }
-  return entities;
+function customEmojiEntities(text,customEmojiIds={}){
+  return animatedCustomEmojiEntitySpecs(text,customEmojiIds).map(e=>new Api.MessageEntityCustomEmoji({
+    offset:e.offset,
+    length:e.length,
+    documentId:BigInt(e.custom_emoji_id)
+  }));
 }
 
 export async function ensurePremiumEmojiPalette(client,telegramUserId,{premium=false,keys=null,force=false}={}){
@@ -144,7 +130,7 @@ export async function ensurePremiumEmojiPalette(client,telegramUserId,{premium=f
         for(const id of ids){
           const doc=byId.get(id);
           const alt=normalizeEmoji(customEmojiAttr(doc)?.alt||'');
-          if(doc&&alt===expected){
+          if(doc&&isAnimatedCustomEmojiDocument(doc)&&alt===expected){
             current['NEXAI_EMOJI_'+key]=id;
             changed=true;
             break;
@@ -197,7 +183,7 @@ export async function ensurePremiumEmojiPalette(client,telegramUserId,{premium=f
           for(const doc of result?.documents||[]){
             const docId=customEmojiId(doc);
             const alt=normalizeEmoji(customEmojiAttr(doc)?.alt||'');
-            if(!docId||!alt)continue;
+            if(!docId||!alt||!isAnimatedCustomEmojiDocument(doc))continue;
             for(const key of [...unresolved]){
               if(alt===normalizeEmoji(PREMIUM_EMOJI_GLYPHS[key])){
                 current['NEXAI_EMOJI_'+key]=docId;
