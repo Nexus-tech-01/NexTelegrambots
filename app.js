@@ -60,6 +60,9 @@ function status(id,text,type='info'){
   const el=$(id);
   el.textContent=text||'';
   el.className='inline-status'+(text?' show '+type:'');
+  if(text&&type==='error'){
+    requestAnimationFrame(()=>{el.classList.remove('status-shake');void el.offsetWidth;el.classList.add('status-shake')});
+  }
 }
 function setBusy(button,on,label){
   busy=on;
@@ -77,7 +80,8 @@ function showStage(id){
 function showQr(id){
   ['qrIdle','qrLive','qrPasswordRequired'].forEach(x=>$(x).classList.toggle('active',x===id));
 }
-function setMethod(method){
+let methodAnimation=null;
+function applyMethod(method){
   activeMethod=method;
   const qr=method==='qr';
   $('phoneTab').classList.toggle('active',!qr);
@@ -88,6 +92,27 @@ function setMethod(method){
   $('phonePanel').classList.toggle('active',!qr);
   $('qrPanel').classList.toggle('active',qr);
   $('successPanel').classList.remove('active');
+}
+function setMethod(method){
+  const area=document.querySelector('.method-area');
+  const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(method===activeMethod||reduced||!area.animate){applyMethod(method);return}
+  const dir=method==='qr'?-1:1;
+  methodAnimation?.cancel();
+  const out=area.animate(
+    [{opacity:1,transform:'translateX(0)'},{opacity:0,transform:'translateX('+(dir*12)+'px)'}],
+    {duration:135,easing:'cubic-bezier(.4,0,.2,1)',fill:'forwards'}
+  );
+  methodAnimation=out;
+  out.onfinish=()=>{
+    applyMethod(method);
+    const incoming=area.animate(
+      [{opacity:0,transform:'translateX('+(-dir*14)+'px)'},{opacity:1,transform:'translateX(0)'}],
+      {duration:245,easing:'cubic-bezier(.16,1,.3,1)',fill:'forwards'}
+    );
+    methodAnimation=incoming;
+    incoming.onfinish=()=>{area.style.opacity='';area.style.transform=''};
+  };
 }
 function pemToBuffer(pem){
   const b64=String(pem).replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\s/g,'');
@@ -139,7 +164,12 @@ function success(account={}){
   stopQrPoll();
   $('phonePanel').classList.remove('active');
   $('qrPanel').classList.remove('active');
+  $('successPanel').classList.remove('active');
+  void $('successPanel').offsetWidth;
   $('successPanel').classList.add('active');
+  const card=$('connectCard');
+  card.classList.remove('success-glow');void card.offsetWidth;card.classList.add('success-glow');
+  setTimeout(()=>card.classList.remove('success-glow'),1500);
   const name=account.username?'@'+account.username:(account.firstName||'Telegram');
   const meta=[account.phoneMasked,account.premium?'Telegram Premium':'Telegram'].filter(Boolean).join(' · ');
   $('accountCard').innerHTML='<b></b><span></span>';
@@ -150,6 +180,8 @@ function handlePhoneState(state){
   phonePairId=String(state.id||phonePairId||'');
   if(state.stage==='code'){
     showStage('codeStage');
+    const codeStage=$('codeStage');
+    codeStage.classList.remove('code-received');void codeStage.offsetWidth;codeStage.classList.add('code-received');
     $('codeHelp').textContent=state.codeViaApp?i18n[lang].codeViaApp:i18n[lang].codeSent;
     setTimeout(()=>$('codeInput').focus(),160);
     if(state.error||state.errorCode)status('codeStatus',friendly(state),'error');
@@ -287,5 +319,8 @@ $('langBtn').addEventListener('click',()=>{lang=lang==='fr'?'en':'fr';tr()});
 $('phoneInput').addEventListener('keydown',e=>{if(e.key==='Enter')startPhone()});
 $('codeInput').addEventListener('keydown',e=>{if(e.key==='Enter')submitCode()});
 $('passwordInput').addEventListener('keydown',e=>{if(e.key==='Enter')submitPassword()});
+$('codeInput').addEventListener('input',()=>{
+  const el=$('codeInput');el.classList.remove('code-pulse');void el.offsetWidth;el.classList.add('code-pulse');
+});
 window.addEventListener('pagehide',stopQrPoll);
 tr();startup();
