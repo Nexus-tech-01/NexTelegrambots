@@ -472,8 +472,13 @@ async function sendOwner(ctx,kind,args=[]){
   else if(kind==='languages')text=await languagesText(lang);
   else if(kind==='user')text=await userText(args[0]||'',lang);
   if(!text)return;
+  const settings=await settingsFor(ctx.from.id).catch(()=>null);
+  const safe=sanitizeAnimatedEmojiText(text,settings?.customEmojiIds||{});
   await recordEvent(ctx.from,'owner_command',{source:'nexai',command:kind,chatType:ctx.chat?.type||'private'}).catch(()=>{});
-  return ctx.reply(text,{entities:ownerEntities(text)});
+  return ctx.reply(safe,{entities:[
+    ...ownerEntities(safe),
+    ...animatedCustomEmojiEntitySpecs(safe,settings?.customEmojiIds||{})
+  ]});
 }
 
 function telegramCommandMenu(){
