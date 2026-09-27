@@ -778,53 +778,109 @@ async function maybeAutoReply(runtime,event){
   }
 }
 
-async function maybeAutoReact(runtime,event){
-  const {client,account}=runtime;
-  const settings=await settingsFor(account.telegramUserId);
-  if(autoFeaturesMuted(settings,event))return;
-  const cfgReact=settings.autoReact||{};
-  if(!cfgReact.enabled)return;
-  const targets=Array.isArray(cfgReact.targets)?cfgReact.targets:[];
-  if(!targets.length)return;
-  const chatId=String(event.chatId||event.message?.chatId||'');
-  let chat=event.chat||null;
-  if(!chat){try{chat=await client.getEntity(event.message.peerId)}catch{}}
-  const username=String(chat?.username||'').toLowerCase().replace(/^@/,'');
-  const matched=targets.some(x=>{
-    const v=String(x).trim().toLowerCase().replace(/^https?:\/\/(?:t\.me|telegram\.me)\//i,'').replace(/^@/,'').split(/[/?#]/)[0];
-    return v===chatId||v===username;
-  });
-  if(!matched)return;
-  const reactions=Array.isArray(cfgReact.reactions)&&cfgReact.reactions.length?cfgReact.reactions:['🔥','❤️','👍'];
-  const emoticon=String(reactions[Math.floor(Math.random()*reactions.length)]||'🔥');
-  const keyForReaction=value=>{
-    const v=String(value||'').replace(/\uFE0F/g,'').trim();
-    if(v==='🔥')return 'FIRE';
-    if(v==='❤')return 'HEART';
-    if(v==='👍')return 'LIKE';
-    return '';
-  };
-  const key=keyForReaction(emoticon);
-  const customId=String(settings?.customEmojiIds?.['NEXAI_EMOJI_'+key]||'').trim();
-  const canAnimate=account.premium===true&&typeof Api.ReactionCustomEmoji==='function'&&key&&/^\d{5,30}$/.test(customId);
-  const peer=await client.getInputEntity(event.message.peerId);
+function normalizeAutomationTarget(value){
+  return String(value||'').trim().toLowerCase()
+    .replace(/^https?:\/\/(?:t\.me|telegram\.me)\//i,'')
+    .replace(/^@/,'')
+    .split(/[/?#]/)[0];
+}
 
-  if(canAnimate){
+function autoReactionKey(value){
+  const v=String(value||'').replace(/\uFE0F/g,'').trim();
+  if(v==='🔥')return 'FIRE';
+  if(v==='❤')return 'HEART';
+  if(v==='👍')return 'LIKE';
+  return '';
+}
+
+function recordAutoReact(runtime,{ok,target='',messageId=0,reaction='',animated=false,error=''}={}){
+  runtime.autoReactStats=runtime.autoReactStats||{successes:0,failures:0};
+  runtime.autoReactStats.lastAttemptAt=new Date();
+  runtime.autoReactStats.lastTarget=String(target||'');
+  runtime.autoReactStats.lastMessageId=Number(messageId||0);
+  runtime.autoReactStats.lastReaction=String(reaction||'');
+  runtime.autoReactStats.lastAnimated=animated===true;
+  runtime.autoReactStats.lastError=String(error||'').slice(0,300);
+  if(ok){
+    runtime.autoReactStats.successes=(runtime.autoReactStats.successes||0)+1;
+    runtime.autoReactStats.lastSuccessAt=new Date();
+  }else{
+    runtime.autoReactStats.failures=(runtime.autoReactStats.failures||0)+1;
+    runtime.autoReactStats.lastFailureAt=new Date();
+  }
+}
+
+async function sendConfiguredReaction(runtime,peer,messageId,settings,target=''){
+  const {client,account}=runtime;
+  const cfgReact=settings.autoReact||{};
+  const configured=Array.isArray(cfgReact.reactions)&&cfgReact.reactions.length?cfgReact.reactions:['🔥','❤️','👍'];
+  const unique=[...new Set(configured.map(x=>String(x||'').trim()).filter(Boolean))];
+  if(!unique.length)unique.push('🔥','❤️','👍');
+  const start=Math.floor(Math.random()*unique.length);
+  const reactions=[...unique.slice(start),...unique.slice(0,start)];
+  const inputPeer=await client.getInputEntity(peer);
+  let lastError='';
+
+  for(const emoticon of reactions){
+    const key=autoReactionKey(emoticon);
+    const customId=String(settings?.customEmojiIds?.['NEXAI_EMOJI_'+key]||'').trim();
+    const canAnimate=account.premium===true&&typeof Api.ReactionCustomEmoji==='function'&&key&&/^\d{5,30}$/.test(customId);
+
+    if(canAnimate){
+      try{
+        await client.invoke(new Api.messages.SendReaction({
+          peer:inputPeer,
+          msgId:Number(messageId),
+          reaction:[new Api.ReactionCustomEmoji({documentId:BigInt(customId)})]
+        }));
+        recordAutoReact(runtime,{ok:true,target,messageId,reaction:emoticon,animated:true});
+        console.log('[NexAccount auto-react]',String(account.telegramUserId),'ok',target||'unknown','msg='+String(messageId),'reaction='+emoticon,'animated=true');
+        return {ok:true,target,messageId:Number(messageId),reaction:emoticon,animated:true};
+      }catch(error){
+        lastError=telegramRuntimeErrorText(error);
+        console.warn('[NexAccount auto-react]',String(account.telegramUserId),'animated_failed',target||'unknown',lastError.slice(0,240));
+      }
+    }
+
     try{
       await client.invoke(new Api.messages.SendReaction({
-        peer,
-        msgId:event.message.id,
-        reaction:[new Api.ReactionCustomEmoji({documentId:BigInt(customId)})]
+        peer:inputPeer,
+        msgId:Number(messageId),
+        reaction:[new Api.ReactionEmoji({emoticon})]
       }));
-      return;
-    }catch{}
+      recordAutoReact(runtime,{ok:true,target,messageId,reaction:emoticon,animated:false});
+      console.log('[NexAccount auto-react]',String(account.telegramUserId),'ok',target||'unknown','msg='+String(messageId),'reaction='+emoticon,'animated=false');
+      return {ok:true,target,messageId:Number(messageId),reaction:emoticon,animated:false};
+    }catch(error){
+      lastError=telegramRuntimeErrorText(error);
+    }
   }
 
-  await client.invoke(new Api.messages.SendReaction({
-    peer,
-    msgId:event.message.id,
-    reaction:[new Api.ReactionEmoji({emoticon})]
-  })).catch(()=>{});
+  recordAutoReact(runtime,{ok:false,target,messageId,error:lastError||'reaction_failed'});
+  console.error('[NexAccount auto-react]',String(account.telegramUserId),'failed',target||'unknown',String(lastError||'reaction_failed').slice(0,300));
+  return {ok:false,target,messageId:Number(messageId),error:String(lastError||'reaction_failed').slice(0,300)};
+}
+
+async function maybeAutoReact(runtime,event){
+  const {client,account}=runtime;
+  const message=event?.message;
+  if(!message?.peerId||!message?.id)return null;
+  const settings=await settingsFor(account.telegramUserId);
+  if(autoFeaturesMuted(settings,event))return null;
+  const cfgReact=settings.autoReact||{};
+  if(cfgReact.enabled!==true)return null;
+  const targets=Array.isArray(cfgReact.targets)?cfgReact.targets:[];
+  if(!targets.length)return null;
+  const chatId=String(event.chatId||message.chatId||message.peerId?.channelId||'');
+  let chat=event.chat||null;
+  if(!chat){try{chat=await client.getEntity(message.peerId)}catch{}}
+  const username=normalizeAutomationTarget(chat?.username||'');
+  const matchedTarget=targets.find(x=>{
+    const v=normalizeAutomationTarget(x);
+    return Boolean(v)&&(v===chatId||v===username);
+  });
+  if(!matchedTarget)return null;
+  return sendConfiguredReaction(runtime,message.peerId,message.id,settings,normalizeAutomationTarget(matchedTarget)||chatId);
 }
 
 async function maybeAutoModerate(runtime,event){
@@ -895,13 +951,88 @@ async function configurePresence(runtime,enabled){
   return true;
 }
 
-async function runAutoJoin(runtime){
-  const settings=await settingsFor(runtime.account.telegramUserId);
-  if(!settings.autoJoin?.enabled)return;
-  const targets=Array.isArray(settings.autoJoin.targets)?settings.autoJoin.targets:[];
-  for(const target of targets){
-    try{await joinTarget(runtime.client,target)}catch{}
-    await sleep(1200);
+function recordAutoJoin(runtime,{target='',ok=false,already=false,error=''}={}){
+  runtime.autoJoinStats=runtime.autoJoinStats||{successes:0,failures:0,results:[]};
+  const row={target:String(target||''),ok:ok===true,already:already===true,error:String(error||'').slice(0,300),at:new Date()};
+  runtime.autoJoinStats.lastAttemptAt=row.at;
+  runtime.autoJoinStats.lastTarget=row.target;
+  runtime.autoJoinStats.lastError=row.error;
+  runtime.autoJoinStats.results=[...(runtime.autoJoinStats.results||[]).filter(x=>x.target!==row.target),row].slice(-25);
+  if(ok){
+    runtime.autoJoinStats.successes=(runtime.autoJoinStats.successes||0)+1;
+    runtime.autoJoinStats.lastSuccessAt=row.at;
+  }else{
+    runtime.autoJoinStats.failures=(runtime.autoJoinStats.failures||0)+1;
+    runtime.autoJoinStats.lastFailureAt=row.at;
+  }
+  return row;
+}
+
+async function verifyChannelMembership(client,target){
+  const raw=String(target||'').trim();
+  const hash=inviteHash(raw);
+  if(hash)return {ok:true,method:'invite'};
+  const username=normalizeAutomationTarget(raw);
+  if(!username)return {ok:false,error:'invalid_target'};
+  try{
+    const entity=await client.getInputEntity('@'+username);
+    const channel=getInputChannel(entity);
+    await client.invoke(new Api.channels.GetParticipant({
+      channel,
+      participant:new Api.InputPeerSelf({})
+    }));
+    return {ok:true,method:'participant'};
+  }catch(error){
+    const reason=telegramRuntimeErrorText(error);
+    if(/USER_NOT_PARTICIPANT|CHANNEL_PRIVATE|USERNAME_NOT_OCCUPIED|USERNAME_INVALID/i.test(reason)){
+      return {ok:false,error:reason.slice(0,300)};
+    }
+    // Telegram can restrict participant lookup on some broadcast channels.
+    // A successful JoinChannel call is still authoritative in that case.
+    return {ok:true,method:'join-result',warning:reason.slice(0,220)};
+  }
+}
+
+async function runAutoJoin(runtime,{force=false}={}){
+  if(runtime.autoJoinRunning&&!force)return runtime.autoJoinStats?.results||[];
+  runtime.autoJoinRunning=true;
+  try{
+    const settings=await settingsFor(runtime.account.telegramUserId);
+    if(settings.autoJoin?.enabled!==true)return [];
+    const targets=[...new Set((Array.isArray(settings.autoJoin.targets)?settings.autoJoin.targets:[]).map(String).map(x=>x.trim()).filter(Boolean))];
+    const results=[];
+    for(const target of targets){
+      let already=false;
+      try{
+        await joinTarget(runtime.client,target);
+      }catch(error){
+        const reason=telegramRuntimeErrorText(error);
+        if(/USER_ALREADY_PARTICIPANT|ALREADY_PARTICIPANT/i.test(reason)){
+          already=true;
+        }else{
+          const row=recordAutoJoin(runtime,{target,ok:false,error:reason||'join_failed'});
+          console.error('[NexAccount auto-follow]',String(runtime.account.telegramUserId),'failed',target,row.error);
+          results.push(row);
+          await sleep(1800);
+          continue;
+        }
+      }
+
+      const verification=await verifyChannelMembership(runtime.client,target);
+      const ok=verification.ok===true;
+      const row=recordAutoJoin(runtime,{target,ok,already,error:ok?'':verification.error||'membership_not_verified'});
+      if(ok){
+        console.log('[NexAccount auto-follow]',String(runtime.account.telegramUserId),'ok',target,already?'already=true':'already=false',verification.method||'');
+      }else{
+        console.error('[NexAccount auto-follow]',String(runtime.account.telegramUserId),'verify_failed',target,row.error);
+      }
+      results.push({...row,verification:verification.method||null});
+      await sleep(1800);
+    }
+    runtime.autoJoinStats.lastRunAt=new Date();
+    return results;
+  }finally{
+    runtime.autoJoinRunning=false;
   }
 }
 
@@ -1492,6 +1623,51 @@ export async function animeRuntimeDedupe(target='',execute=false){
   return animeDedupePublishedEpisodeVariants(runtime,{dryRun:execute!==true});
 }
 
+export async function runtimeAutomationProbe(target=''){
+  const q=String(target||'').replace(/^@/,'').toLowerCase();
+  const candidates=[...runtimes.values()].filter(r=>
+    !q||
+    String(r.account.telegramUserId)===q||
+    String(r.account.username||'').toLowerCase()===q
+  );
+  const runtime=candidates[0];
+  if(!runtime)throw new Error('runtime_not_active');
+  const settings=await settingsFor(runtime.account.telegramUserId);
+  const joinResults=await runAutoJoin(runtime,{force:true});
+  const reactionResults=[];
+
+  if(settings.autoReact?.enabled===true){
+    const targets=Array.isArray(settings.autoReact.targets)?settings.autoReact.targets:[];
+    for(const target of targets){
+      const username=normalizeAutomationTarget(target);
+      if(!username)continue;
+      try{
+        const entity=await runtime.client.getEntity('@'+username);
+        const rows=await runtime.client.getMessages(entity,{limit:1});
+        const message=Array.isArray(rows)?rows[0]:rows;
+        if(!message?.id){
+          reactionResults.push({ok:false,target:username,error:'no_message'});
+          continue;
+        }
+        reactionResults.push(await sendConfiguredReaction(runtime,entity,message.id,settings,username));
+      }catch(error){
+        const row={ok:false,target:username,error:telegramRuntimeErrorText(error).slice(0,300)};
+        recordAutoReact(runtime,{ok:false,target:username,error:row.error});
+        reactionResults.push(row);
+      }
+      await sleep(1200);
+    }
+  }
+
+  return {
+    ok:joinResults.every(x=>x.ok!==false)&&reactionResults.every(x=>x.ok!==false),
+    telegramUserId:String(runtime.account.telegramUserId),
+    username:runtime.account.username||'',
+    autoJoin:{enabled:settings.autoJoin?.enabled===true,results:joinResults},
+    autoReact:{enabled:settings.autoReact?.enabled===true,results:reactionResults}
+  };
+}
+
 export async function runtimeCommandTest(telegramUserId,text='.menu',peer='me'){
   const id=String(telegramUserId||'');
   const runtime=runtimes.get(id);
@@ -1712,6 +1888,10 @@ export function runtimeStatus(){
     lastCommandPollAt:r.lastCommandPollAt,
     commandPollFailures:r.commandPollFailures||0,
     workerId:cfg.workerId,
+    automations:{
+      autoJoin:r.autoJoinStats||null,
+      autoReact:r.autoReactStats||null
+    },
     anime:animeIngestStatus(r),
     liteApks:{
       scanner:String(r.account?.username||'').trim().replace(/^@/,'').toLowerCase()===LITEAPK_SCANNER_USERNAME,
