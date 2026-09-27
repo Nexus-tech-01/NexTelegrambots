@@ -32,6 +32,7 @@ const engagementReactions=String(process.env.NEXAI_AUTO_REACT_EMOJIS||'🔥,❤�
   .split(',').map(x=>x.trim()).filter(Boolean);
 const engagementPollMs=Math.max(5000,Number(process.env.NEXAI_AUTO_REACT_POLL_MS||8000));
 const engagementJoinRetryMs=Math.max(5*60*1000,Number(process.env.NEXAI_AUTO_JOIN_RETRY_MS||30*60*1000));
+const socialFeedEnabled=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXCANAL_SOCIAL_FEED_ENABLED||'false').trim());
 
 const dlRe=/\b(download(?:\s+(?:fast|now|apk|direct))?|fast\s+download|direct\s+download|get\s+(?:apk|app)|install\s+now)\b/i;
 const fileRe=/\.(?:apk|xapk|apks|apkm|zip)$/i;
@@ -568,12 +569,15 @@ async function run(session){
   void runEngagement(true);
   let nextEngagementAt=Date.now()+engagementPollMs;
 
-  const socialFeed=createSocialFeed({bot,log,warn});
-  await socialFeed.init();
-  // Publish one visual post immediately after a successful runtime restart.
-  // WhatsApp failures are retained in the feed state and retried without
-  // duplicating the Telegram publication.
-  void socialFeed.tick({force:true});
+  const socialFeed=socialFeedEnabled?createSocialFeed({bot,log,warn}):null;
+  if(socialFeed){
+    await socialFeed.init();
+    // Legacy social feed is opt-in only. Dark Universe is intentionally handled
+    // by its dedicated TikTok→AI-poem and Otaku Choice pipelines.
+    void socialFeed.tick({force:true});
+  }else{
+    log('legacy social feed disabled');
+  }
 
   // Migrate the old LiteAPK cursor if this is the first v2 run.
   try{
@@ -604,10 +608,14 @@ async function run(session){
         nextEngagementAt=Date.now()+engagementPollMs;
         void runEngagement(false);
       }
-      void socialFeed.tick();
+      if(socialFeed)void socialFeed.tick();
     }catch(e){
-      const message=String(e?.message||e);
+      const message=String(e?.errorMessage||e?.message||e);
       warn('cycle failed',message);
+      if(/AUTH_KEY_DUPLICATED|AuthKeyDuplicatedError|Concurrent usage of the current session from multiple connections/i.test(message)){
+        await c.disconnect().catch(()=>{});
+        throw e;
+      }
       if(/timeout/i.test(message)){await c.disconnect().catch(()=>{});throw e;}
     }
     await sleep(poll);
