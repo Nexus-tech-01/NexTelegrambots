@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "source": "tiktok",
+  "attribution": true,
+  "dedupeBy": "video_id",
+  "categories": {
+    "luxury_life": [
+      {
+        "username": "luxurytime5",
+        "enabled": true
+      },
+      {
+        "username": "luxe.chronicles",
+        "enabled": true
+      },
+      {
+        "username": "primeaurahq",
+        "enabled": true
+      },
+      {
+        "username": "luxedrip.__",
+        "enabled": true
+      },
+      {
+        "username": "millionaire_mentality_7",
+        "enabled": true
+      },
+      {
+        "username": "moderne.punchy",
+        "enabled": true
+      }
+    ],
+    "amv_edit": [
+      {
+        "username": "arixez.tt",
+        "enabled": true
+      },
+      {
+        "username": "tomola_rigor",
+        "enabled": true
+      },
+      {
+        "username": "zekkaae",
+        "enabled": true
+      },
+      {
+        "username": "savezamvae",
+        "enabled": true
+      },
+      {
+        "username": "mu9en_ae",
+        "enabled": true
+      },
+      {
+        "username": "lancaefx",
+        "enabled": true
+      },
+      {
+        "username": "aizen_aep0",
+        "enabled": true
+      },
+      {
+        "username": "joganfx",
+        "enabled": true
+      },
+      {
+        "username": "nanimalo_aep",
+        "enabled": true
+      }
+    ]
+  }
+}
