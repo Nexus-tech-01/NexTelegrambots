@@ -525,7 +525,7 @@ function kickWorkers(c,publisher,destination,st,sources){
   }
 }
 
-async function runWithClient(c,{ownsReader=false,signal=null}={}){
+async function runWithClient(c,{ownsReader=false,signal=null,expectedUsername=expectedScanner}={}){
   if(!token||!apiId||!apiHash)throw new Error('missing NexCanal watcher credentials');
   if(!c)throw new Error('missing NexCanal reader client');
   await cleanupMediaTmp();
@@ -533,9 +533,10 @@ async function runWithClient(c,{ownsReader=false,signal=null}={}){
   if(!(await c.isUserAuthorized()))throw new Error('watcher session is not authorized');
   const me=await c.getMe();
   const scannerUsername=String(me?.username||'').replace(/^@/,'').toLowerCase();
-  if(expectedScanner&&scannerUsername!==expectedScanner){
-    await c.disconnect().catch(()=>{});
-    throw new Error('unexpected APK scanner account @'+(scannerUsername||'unknown')+'; expected @'+expectedScanner);
+  const requiredScanner=String(expectedUsername||'').trim().replace(/^@/,'').toLowerCase();
+  if(requiredScanner&&scannerUsername!==requiredScanner){
+    if(ownsReader)await c.disconnect().catch(()=>{});
+    throw new Error('unexpected APK scanner account @'+(scannerUsername||'unknown')+'; expected @'+requiredScanner);
   }
   const publisher=new TelegramClient(new StringSession(''),apiId,apiHash,{connectionRetries:10,autoReconnect:true,floodSleepThreshold:60});
   await publisher.start({botAuthToken:token});
@@ -633,14 +634,14 @@ async function runWithClient(c,{ownsReader=false,signal=null}={}){
 
 
 
-export function startEmbeddedLiteApksRelay(client,{signal}={}){
-  return runWithClient(client,{ownsReader:false,signal});
+export function startEmbeddedLiteApksRelay(client,{signal,expectedUsername='tresor20009'}={}){
+  return runWithClient(client,{ownsReader:false,signal,expectedUsername});
 }
 
 async function run(session){
   if(!session)throw new Error('missing NexCanal watcher session');
   const c=new TelegramClient(new StringSession(session),apiId,apiHash,{connectionRetries:10,autoReconnect:true,floodSleepThreshold:60});
-  return runWithClient(c,{ownsReader:true});
+  return runWithClient(c,{ownsReader:true,expectedUsername:expectedScanner});
 }
 
 function isMainModule(){
