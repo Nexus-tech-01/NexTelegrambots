@@ -78,40 +78,106 @@ if(!sourceId){
 if(!/^\d{5,30}$/.test(sourceId))throw new Error('source_account_not_found');
 
 let source=null,target=null;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function withTimeout(promise,ms,label){
+  let timer;
+  const timeout=new Promise((_,reject)=>{
+    timer=setTimeout(()=>reject(new Error(String(label||'operation')+'_timeout')),Math.max(1000,Number(ms)||10000));
+  });
+  return Promise.race([promise,timeout]).finally(()=>clearTimeout(timer));
+}
+async function exportLoginToken(){
+  return withTimeout(target.invoke(new Api.auth.ExportLoginToken({
+    apiId:Number(cfg.apiId),
+    apiHash:cfg.apiHash,
+    exceptIds:[]
+  })),15000,'export_login_token');
+}
+async function normalizeLoginToken(result){
+  if(result instanceof Api.auth.LoginTokenMigrateTo){
+    console.log(JSON.stringify({stage:'migrate_dc',dcId:Number(result.dcId)}));
+    await withTimeout(target._switchDC(result.dcId),20000,'switch_dc');
+    return withTimeout(
+      target.invoke(new Api.auth.ImportLoginToken({token:result.token})),
+      15000,
+      'import_login_token'
+    );
+  }
+  return result;
+}
+
 try{
   const account=await store.accountWithSession(sourceId);
   if(!account)throw new Error('source_session_not_available');
+
   source=new TelegramClient(new StringSession(account.session),cfg.apiId,cfg.apiHash,{
-    connectionRetries:5,autoReconnect:false
+    connectionRetries:5,
+    autoReconnect:false
   });
-  await source.connect();
-  if(!(await source.isUserAuthorized()))throw new Error('source_session_unauthorized');
-  const sourceMe=await source.getMe();
+  await withTimeout(source.connect(),15000,'source_connect');
+  if(!(await withTimeout(source.isUserAuthorized(),10000,'source_authorized')))throw new Error('source_session_unauthorized');
+  const sourceMe=await withTimeout(source.getMe(),10000,'source_get_me');
+  const sourceUsername=String(sourceMe?.username||'').replace(/^@/,'').toLowerCase();
+  if(sourceUsername!==expectedUsername)throw new Error('source_session_identity_mismatch');
+  console.log(JSON.stringify({stage:'source_connected',username:'@'+sourceUsername}));
 
   target=new TelegramClient(new StringSession(''),cfg.apiId,cfg.apiHash,{
-    connectionRetries:5,autoReconnect:false
+    connectionRetries:5,
+    autoReconnect:false
   });
-  await target.connect();
+  await withTimeout(target.connect(),15000,'target_connect');
+  console.log(JSON.stringify({stage:'target_connected'}));
 
-  let approvals=0;
-  await target.signInUserWithQrCode(
-    {apiId:cfg.apiId,apiHash:cfg.apiHash},
-    {
-      qrCode:async({token})=>{
-        if(approvals>2)throw new Error('too_many_login_token_rotations');
-        approvals++;
-        await source.invoke(new Api.auth.AcceptLoginToken({token}));
-      },
-      password:async()=>{throw new Error('unexpected_password_request')},
-      onError:async()=>false
+  let authorization=null;
+  let result=await normalizeLoginToken(await exportLoginToken());
+  const deadline=Date.now()+60000;
+  let acceptedFingerprint='';
+  let iterations=0;
+
+  while(Date.now()<deadline&&iterations<40&&!authorization){
+    iterations++;
+
+    if(result instanceof Api.auth.LoginTokenSuccess){
+      if(result.authorization instanceof Api.auth.Authorization){
+        authorization=result.authorization;
+        break;
+      }
+      throw new Error('login_token_success_without_authorization');
     }
-  );
 
-  const me=await target.getMe();
-  const username=String(me?.username||'').replace(/^@/,'').toLowerCase();
-  if(username!==expectedUsername){
-    throw new Error('independent_session_identity_mismatch');
+    if(result instanceof Api.auth.LoginToken){
+      const fingerprint=Buffer.from(result.token).toString('base64url');
+      if(fingerprint!==acceptedFingerprint){
+        await withTimeout(
+          source.invoke(new Api.auth.AcceptLoginToken({token:result.token})),
+          15000,
+          'accept_login_token'
+        );
+        acceptedFingerprint=fingerprint;
+        console.log(JSON.stringify({stage:'token_accepted',iteration:iterations}));
+      }
+      await sleep(700);
+    }else if(result instanceof Api.auth.LoginTokenMigrateTo){
+      // normalizeLoginToken handles this before returning, but keep this branch
+      // as a defensive guard for future Teleproto schema changes.
+      result=await normalizeLoginToken(result);
+      continue;
+    }else{
+      throw new Error('unexpected_login_token_result:'+String(result?.className||result?.constructor?.name||'unknown'));
+    }
+
+    result=await normalizeLoginToken(await exportLoginToken());
   }
+
+  if(!authorization&&result instanceof Api.auth.LoginTokenSuccess&&result.authorization instanceof Api.auth.Authorization){
+    authorization=result.authorization;
+  }
+  if(!authorization)throw new Error('independent_session_login_timeout');
+
+  const me=authorization.user||await withTimeout(target.getMe(),10000,'target_get_me');
+  const username=String(me?.username||'').replace(/^@/,'').toLowerCase();
+  if(username!==expectedUsername)throw new Error('independent_session_identity_mismatch');
+
   const saved=String(target.session.save()||'').trim();
   if(!saved)throw new Error('independent_session_empty');
 
@@ -127,7 +193,8 @@ try{
     sourceTelegramUserId:String(sourceMe?.id||sourceId),
     telegramUserId:String(me?.id||''),
     username:username?('@'+username):'',
-    independentSession:true
+    independentSession:true,
+    outputReady:true
   }));
 }finally{
   try{await target?.disconnect?.()}catch{}
