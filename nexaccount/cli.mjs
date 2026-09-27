@@ -51,6 +51,9 @@ try{
       if(!args[0])throw new Error('telegram user id required');
       out=await call('POST','/diagnostics/group',{telegramUserId:args[0]},120000);
       break;
+    case 'automation-probe':
+      out=await call('POST','/diagnostics/automations',{telegramUserId:args[0]||'',username:args[0]||''},120000);
+      break;
     case 'anime-status':out=await call('GET','/anime/status');break;
     case 'anime-discover':out=await call('POST','/anime/discover',{username:args[0]||''});break;
     case 'anime-publish-now':out=await call('POST','/anime/publish-now',{username:args[0]||''},180000);break;
@@ -90,7 +93,7 @@ try{
       out=await call('GET','/pair/status?id='+encodeURIComponent(args[0]));
       break;
     default:
-      throw new Error('usage: cli.mjs health|accounts|engines|menu-probe TELEGRAM_USER_ID [peer]|command-test TELEGRAM_USER_ID TEXT [peer]|group-smoke TELEGRAM_USER_ID|anime-status|anime-discover [@username]|anime-publish-now [@username]|anime-retry|anime-dedupe [@username] [--execute]|anime-rebuild [@username] [deadline]|public-key|secure ENVELOPE|qr-start|qr-status ID|qr-cancel ID|pair-status ID');
+      throw new Error('usage: cli.mjs health|accounts|engines|menu-probe TELEGRAM_USER_ID [peer]|command-test TELEGRAM_USER_ID TEXT [peer]|group-smoke TELEGRAM_USER_ID|automation-probe [TELEGRAM_USER_ID|USERNAME]|anime-status|anime-discover [@username]|anime-publish-now [@username]|anime-retry|anime-dedupe [@username] [--execute]|anime-rebuild [@username] [deadline]|public-key|secure ENVELOPE|qr-start|qr-status ID|qr-cancel ID|pair-status ID');
   }
   process.stdout.write(JSON.stringify(out));
 }catch(e){
