@@ -74,6 +74,13 @@ function parseRuntimeCommand(text,settings,event){
   });
 }
 
+function isUniversalPairCommand(parsed){
+  const token=String(parsed?.name||'').toLowerCase();
+  if(!token)return false;
+  const cmd=commands.get(token);
+  return String(cmd?.aliasFor||cmd?.name||token).toLowerCase()==='pair';
+}
+
 function connectedAccountIds(account){
   return new Set([
     account?.telegramUserId,
@@ -860,18 +867,21 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
   const settings=await settingsFor(account.telegramUserId);
   const selfAuthored=isSelfAuthoredMessage(message,account);
   const accessMode=settings.accessMode==='public'?'public':'private';
-  if(!selfAuthored&&accessMode!=='public')return false;
+  const parsed=parseRuntimeCommand(textOf(message),settings,event);
+  if(!parsed)return false;
+  const universalPair=isUniversalPairCommand(parsed);
+
+  // /pair, pair and its aliases must always be callable by a human user,
+  // even when the connected NexAccount session is in private mode.
+  if(!selfAuthored&&accessMode!=='public'&&!universalPair)return false;
 
   // Raw updates lack reliable sender metadata. Public human commands are
   // handled by NewMessage; raw is only a fallback for the connected account.
   if(!selfAuthored&&source==='raw')return false;
 
-  // Never let channel-authored posts or bots drive a public user session.
+  // Never let channel-authored posts or bots drive a user session.
   if(!selfAuthored&&message?.fromId?.channelId)return false;
   if(!selfAuthored&&await messageAuthorIsBot(client,message,event?.sender))return false;
-
-  const parsed=parseRuntimeCommand(textOf(message),settings,event);
-  if(!parsed)return false;
   if(!(await claimCommand(account.telegramUserId,message)))return true;
   console.log(
     '[NexAccount command]',
@@ -932,7 +942,6 @@ async function pollRecentCommands(runtime){
       // claimCommand() is the durable duplicate guard.
       const selfAuthored=isSelfAuthoredMessage(message,account);
       const accessMode=settings.accessMode==='public'?'public':'private';
-      if(!selfAuthored&&accessMode!=='public')return;
       const raw=textOf(message);
       // The poller is a short-gap fallback for every supported command form:
       // bare ("menu"), slash ("/menu") and the configured prefix (".menu").
@@ -941,6 +950,7 @@ async function pollRecentCommands(runtime){
       const pollEvent={message,isGroup};
       const parsed=parseRuntimeCommand(raw,settings,pollEvent);
       if(!parsed)return;
+      if(!selfAuthored&&accessMode!=='public'&&!isUniversalPairCommand(parsed))return;
       await maybeHandleSelfCommand(runtime,pollEvent,'poll');
     }
 
