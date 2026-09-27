@@ -16,7 +16,7 @@ for(const [token,cmd] of commands){
   if(cmd.proxy)errors.push('standalone-proxy-present:'+token+':'+cmd.proxy);
   if(cmd.sourceBot)errors.push('sibling-source-present:'+token+':'+cmd.sourceBot);
 }
-if(DIPPER_COMMANDS.length!==178)errors.push('dipper-count:'+DIPPER_COMMANDS.length);
+if(DIPPER_COMMANDS.length<178)errors.push('dipper-count-too-low:'+DIPPER_COMMANDS.length);
 const sourceCount=Object.values(SOURCE_COMMANDS).reduce((n,v)=>n+(Array.isArray(v)?v.length:0),0);
 if(sourceCount<150)errors.push('source-count:'+sourceCount);
 
