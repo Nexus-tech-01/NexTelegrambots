@@ -102,7 +102,8 @@ async function claimCommand(telegramUserId,message){
 }
 
 async function sendText(client,peer,text){
-  const value=String(text);
+  const value=String(text??'');
+  if(!value.trim())return null;
   const accountId=[...runtimes.entries()].find(([,runtime])=>runtime?.client===client)?.[0]||'';
   if(cfg.botUsername&&accountId){
     try{
