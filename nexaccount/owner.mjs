@@ -34,10 +34,15 @@ export async function usersText(language='fr'){
   ];
   for(const row of rows){
     const name=row.username?'@'+row.username:([row.firstName,row.lastName].filter(Boolean).join(' ')||'—');
+    const status=row.live?'🟢':row.sessionRepairRequired?'🛠':'⚪';
+    const repair=row.sessionRepairRequired
+      ?(E?' · session reconnect required':' · session à reconnecter')
+      :'';
     lines.push(
-      '┃ '+(row.live?'🟢':'⚪')+' '+name+
+      '┃ '+status+' '+name+
       ' · '+row.telegramUserId+
-      (row.premium?' · ⭐':'')
+      (row.premium?' · ⭐':'')+
+      repair
     );
   }
   if(!rows.length)lines.push(E?'┃ ɴᴏ ᴄᴏɴɴᴇᴄᴛᴇᴅ ᴀᴄᴄᴏᴜɴᴛ.':'┃ ᴀᴜᴄᴜɴ ᴄᴏᴍᴘᴛᴇ ᴄᴏɴɴᴇᴄᴛé.');
@@ -78,6 +83,7 @@ export async function botStatsText(language='fr'){
     '┃ 👥 '+(E?'ѕᴀᴠᴇᴅ ѕᴇѕѕɪᴏɴѕ':'ѕᴇѕѕɪᴏɴѕ ᴇɴʀᴇɢɪѕᴛʀéᴇѕ')+' : '+n(s.total),
     '┃ 🟢 '+(E?'ʟɪᴠᴇ ʀᴜɴᴛɪᴍᴇѕ':'ѕᴇѕѕɪᴏɴѕ ᴇɴ ʟɪɢɴᴇ')+' : '+n(s.live),
     '┃ ⚪ '+(E?'ɴᴏᴛ ʟɪᴠᴇ':'ʜᴏʀѕ ʟɪɢɴᴇ')+' : '+n(s.offline),
+    '┃ 🛠 '+(E?'ѕᴇѕѕɪᴏɴѕ ᴛᴏ ʀᴇᴄᴏɴɴᴇᴄᴛ':'ѕᴇѕѕɪᴏɴѕ à ʀᴇᴄᴏɴɴᴇᴄᴛᴇʀ')+' : '+n(s.repairRequired),
     '┃ ⭐ ᴘʀᴇᴍɪᴜᴍ : '+n(s.premium),
     '┃ 🌐 '+(E?'ᴘᴜʙʟɪᴄ ᴍᴏᴅᴇ':'ᴍᴏᴅᴇ ᴘᴜʙʟɪᴄ')+' : '+n(s.publicMode),
     '┃ 🔒 '+(E?'ᴘʀɪᴠᴀᴛᴇ ᴍᴏᴅᴇ':'ᴍᴏᴅᴇ ᴘʀɪᴠé')+' : '+n(s.privateMode),
@@ -125,7 +131,13 @@ export async function userText(query,language='fr'){
     '┃ 🆔 ɪᴅ : '+u.telegramUserId,
     '┃ 👤 '+(E?'ɴᴀᴍᴇ':'ɴᴏᴍ')+' : '+([u.firstName,u.lastName].filter(Boolean).join(' ')||'—'),
     '┃ 🔗 ᴜѕᴇʀɴᴀᴍᴇ : '+(u.username?'@'+u.username:'—'),
-    '┃ '+(u.live?'🟢':'⚪')+' '+(E?'ѕᴇѕѕɪᴏɴ':'ѕᴇѕѕɪᴏɴ')+' : '+(u.live?(E?'ʟɪᴠᴇ':'ᴇɴ ʟɪɢɴᴇ'):(E?'ѕᴀᴠᴇᴅ · ɴᴏᴛ ʟɪᴠᴇ':'ᴇɴʀᴇɢɪѕᴛʀéᴇ · ʜᴏʀѕ ʟɪɢɴᴇ')),
+    '┃ '+(u.live?'🟢':u.sessionRepairRequired?'🛠':'⚪')+' '+(E?'ѕᴇѕѕɪᴏɴ':'ѕᴇѕѕɪᴏɴ')+' : '+(
+      u.live
+        ?(E?'ʟɪᴠᴇ':'ᴇɴ ʟɪɢɴᴇ')
+        :u.sessionRepairRequired
+          ?(E?'ʀᴇᴄᴏɴɴᴇᴄᴛ ʀᴇǫᴜɪʀᴇᴅ':'ʀᴇᴄᴏɴɴᴇxɪᴏɴ ʀᴇǫᴜɪѕᴇ')
+          :(E?'ѕᴀᴠᴇᴅ · ɴᴏᴛ ʟɪᴠᴇ':'ᴇɴʀᴇɢɪѕᴛʀéᴇ · ʜᴏʀѕ ʟɪɢɴᴇ')
+    ),
     '┃ 🌍 '+(E?'ᴄᴏᴜɴᴛʀʏ':'ᴘᴀʏѕ')+' : '+(u.countryIso||(E?'ᴜɴᴋɴᴏᴡɴ':'ɪɴᴄᴏɴɴᴜ')),
     '┃ 🗣 '+(E?'ʟᴀɴɢᴜᴀɢᴇ':'ʟᴀɴɢᴜᴇ')+' : '+(u.language||(E?'ᴜɴᴋɴᴏᴡɴ':'ɪɴᴄᴏɴɴᴜ')),
     '┃ ⭐ ᴛɢ ᴘʀᴇᴍɪᴜᴍ : '+(u.telegramPremium?'ʏᴇѕ':'ɴᴏ'),
