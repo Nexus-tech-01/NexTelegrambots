@@ -7,7 +7,7 @@ const clean=v=>String(v??'').trim();
 
 const PREMIUM_EMOJI_GLYPHS={
   WAIT:'⏳',CHECK:'✅',ERROR:'❌',
-  GENERAL:'🏠',ACCOUNT:'👤',AI:'🧠',DOWNLOAD:'📥',GROUP:'👥',SHIELD:'🛡️',
+  GENERAL:'🏠',ACCOUNT:'👤',AI:'🧠',DOWNLOAD:'📥',GROUP:'👥',SHIELD:'🔒',
   TOOLS:'🛠️',MEDIA:'🎞️',STICKER:'🎴',GAMES:'🎮',SEARCH:'🔎',ANIME:'🌸',
   PREMIUM:'👑',OWNER:'🔮',NEXTECH:'⚡',NEWS:'📰',DARK:'🕯️',BACK:'↩️',
   NEXT:'➡️',STYLE:'🎨'
