@@ -22,6 +22,7 @@ import { animeBeginRebuild, animeDedupePublishedEpisodeVariants, animeDiscoverNo
 import { sendTelegramMedia } from './media-send.mjs';
 import { ensurePremiumEmojiPalette, sanitizeAnimatedEmojiText, sendBrandedText, syncOwnedCustomEmojiLibrary } from './response-ui.mjs';
 import { putInlineResponse } from './inline-response-store.mjs';
+import { resolveBotUsername } from './secrets.mjs';
 
 const commands=commandMap();
 const runtimes=new Map();
@@ -266,15 +267,17 @@ async function sendCreator(runtime,peer){
 }
 
 async function sendInline(client,peer,query){
-  if(!cfg.botUsername)throw new Error('NEXAI_BOT_USERNAME/NEXAI_BOT_TOKEN non configuré');
   const inputPeer=await client.getInputEntity(peer);
-  const bot=await client.getInputEntity('@'+cfg.botUsername);
+  let botUsername=await resolveBotUsername();
+  if(!botUsername)throw new Error('NEXAI_BOT_USERNAME/NEXAI_BOT_TOKEN non configuré');
   const errors=[];
 
-  // Inline queries can briefly race the bot update loop after a restart.
-  // Retry a few times before degrading the user experience.
-  for(let attempt=0;attempt<3;attempt++){
+  // Every worker resolves the bot identity independently. This avoids a
+  // coordinator-only in-memory username and makes newly paired/sharded
+  // accounts use the same interactive menu path immediately.
+  for(let attempt=0;attempt<4;attempt++){
     try{
+      const bot=await client.getInputEntity('@'+botUsername);
       const results=await client.invoke(new Api.messages.GetInlineBotResults({
         bot,peer:inputPeer,query:String(query||'menu'),offset:''
       }));
@@ -286,8 +289,16 @@ async function sendInline(client,peer,query){
     }catch(error){
       const reason=String(error?.errorMessage||error?.message||error||'unknown_error');
       errors.push(reason.slice(0,350));
-      if(/INLINE_DISABLED|BOT_INLINE_DISABLED|USERNAME_NOT_OCCUPIED/i.test(reason))break;
-      if(attempt<2)await sleep(250*(attempt+1));
+
+      // A stale/missing username is recoverable from the bot token. Refresh it
+      // before falling back to a plain-text menu.
+      if(attempt===0){
+        const refreshed=await resolveBotUsername({refresh:true}).catch(()=> '');
+        if(refreshed)botUsername=refreshed;
+      }
+
+      if(/INLINE_DISABLED|BOT_INLINE_DISABLED/i.test(reason))break;
+      if(attempt<3)await sleep(250*(attempt+1));
     }
   }
   throw new Error('inline_menu_failed '+errors.join(' | '));
@@ -1001,6 +1012,13 @@ function rawCommandEvent(update,account){
 
 export async function attachConnectedClient(client,account,{leaseOwned=false}={}){
   const id=String(account.telegramUserId);
+
+  // Warm the shared NexAI bot identity for every runtime worker so the first
+  // "menu" command of a newly connected account does not fall through to the
+  // text-only emergency renderer.
+  await resolveBotUsername().catch(error=>{
+    console.warn('[NexAccount bot identity]',id,String(error?.message||error).slice(0,180));
+  });
   try{
     const me=await client.getMe();
     if(me?.id!==undefined&&me?.id!==null){
