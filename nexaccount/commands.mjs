@@ -510,8 +510,16 @@ export function commandsByCategory(commands){
 
 export function commandStats(commands){
   const values=[...commands.values()];
+  const canonical=new Set();
+  for(const cmd of values){
+    const name=normalize(cmd?.aliasFor||cmd?.name);
+    if(name)canonical.add(name);
+  }
   return {
+    // "tokens" is the number of accepted command spellings, including aliases.
+    // "canonical" is the real command count and must be used for user-facing totals.
     tokens:commands.size,
+    canonical:canonical.size,
     visible:values.filter(c=>!c.hidden).length,
     aliases:values.filter(c=>c.hidden&&c.aliasFor).length,
     removed:REMOVED_COMMANDS.size,
