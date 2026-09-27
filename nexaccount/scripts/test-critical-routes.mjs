@@ -49,7 +49,8 @@ for(const cmd of anime){
   if(!canHandleAnimeCommand(cmd.aliasFor||cmd.name))errors.push('anime-route:'+cmd.name);
 }
 
-for(const name of ['account','pair','sessions','settings','prefix','mode','language','menuemoji']){
+requireCommand('pair',{privateOnly:true,selfOnly:false});
+for(const name of ['account','sessions','settings','prefix','mode','language','menuemoji']){
   requireCommand(name,{privateOnly:true,selfOnly:true});
 }
 
