@@ -2,97 +2,290 @@ import QRCode from 'https://esm.sh/qrcode@1.5.4?bundle';
 
 const API='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexai-connect';
 const $=id=>document.getElementById(id);
-let lang='fr',pairId='',pollTimer=null,busy=false,lastQr='';
+let lang='fr';
+let activeMethod='phone';
+let phonePairId='';
+let qrPairId='';
+let qrTimer=null;
+let publicKey=null;
+let busy=false;
+let lastQr='';
 
-const t={
-fr:{
-gateway:'Passerelle sécurisée',eyebrow:'NEXAI · CONNEXION DE COMPTE',
-title:'Relie ton compte.<span>Garde le contrôle.</span>',
-lead:"Autorise NexAI depuis ton application Telegram. Aucun code de connexion ni mot de passe 2FA n'est saisi sur ce site.",
-f1:'Ouvrir Telegram',f2:'Scanner / autoriser',f3:'Session créée',
-s1:'Pas de code collecté',s1d:'Le site ne te demande jamais le code reçu par Telegram.',
-s2:'Autorisation Telegram',s2d:"La validation se fait depuis une application Telegram déjà connectée.",
-s3:'Session côté serveur',s3d:'Après validation, NexAccount stocke uniquement la session nécessaire au fonctionnement.',
-cardEyebrow:'SESSION TELEGRAM',cardTitle:'Connecter un compte',
-cardSub:'Scanne le QR avec Telegram ou ouvre le lien sur le téléphone déjà connecté.',
-readyTitle:'Prêt à créer une session',readySub:'Le QR est temporaire et se renouvelle automatiquement.',
-start:'Créer le QR sécurisé',how:'Dans Telegram : Paramètres → Appareils → Lier un appareil, puis scanne le QR.',
-scanTitle:'Autorise cette session dans Telegram',scanText:"Le QR expire rapidement. S'il change, scanne simplement le nouveau.",
-openTelegram:'Ouvrir dans Telegram',cancel:'Annuler',
-extraTitle:'Vérification supplémentaire requise',
-extraText:"Telegram exige une étape supplémentaire pour ce compte. Pour ta sécurité, NexAI Connect ne te demandera pas ton mot de passe 2FA sur le web.",
-retry:'Recommencer',doneTitle:'Compte connecté',
-doneText:'NexAccount a enregistré la session. NexAI peut maintenant fonctionner avec ce compte.',
-another:'Connecter un autre compte',footer:"NexAI Connect ne te demandera jamais ton code Telegram ni ton mot de passe 2FA.",
-creating:'Création du QR sécurisé…',waiting:'En attente de validation dans Telegram…',
-expired:'Le QR a expiré, un nouveau vient d’être généré.',failed:"La connexion n'a pas abouti. Réessaie.",connected:'Connexion réussie.'
-},
-en:{
-gateway:'Secure gateway',eyebrow:'NEXAI · ACCOUNT CONNECTION',
-title:'Link your account.<span>Stay in control.</span>',
-lead:'Authorize NexAI from your Telegram app. No Telegram login code or 2FA password is entered on this website.',
-f1:'Open Telegram',f2:'Scan / approve',f3:'Session created',
-s1:'No code collected',s1d:'The website never asks for the login code Telegram sends you.',
-s2:'Telegram approval',s2d:'Authorization happens inside an already signed-in Telegram app.',
-s3:'Server-side session',s3d:'After approval, NexAccount stores only the session required to operate.',
-cardEyebrow:'TELEGRAM SESSION',cardTitle:'Connect an account',
-cardSub:'Scan the QR with Telegram or open the link on the phone already signed in.',
-readyTitle:'Ready to create a session',readySub:'The QR is temporary and refreshes automatically.',
-start:'Create secure QR',how:'In Telegram: Settings → Devices → Link Desktop Device, then scan the QR.',
-scanTitle:'Approve this session in Telegram',scanText:'The QR expires quickly. If it changes, simply scan the new one.',
-openTelegram:'Open in Telegram',cancel:'Cancel',
-extraTitle:'Additional verification required',
-extraText:'Telegram requires an extra step for this account. For your security, NexAI Connect will not ask for your 2FA password on the web.',
-retry:'Start again',doneTitle:'Account connected',
-doneText:'NexAccount stored the session. NexAI can now operate with this account.',
-another:'Connect another account',footer:'NexAI Connect will never ask for your Telegram code or 2FA password.',
-creating:'Creating a secure QR…',waiting:'Waiting for approval in Telegram…',
-expired:'The QR expired, a new one was generated.',failed:'The connection did not complete. Try again.',connected:'Connected successfully.'
-}};
+const i18n={
+  fr:{
+    secure:'Connexion sécurisée',eyebrow:'COMPTE TELEGRAM',title:'Connecter Telegram',
+    subtitle:'Choisis comment tu veux autoriser ce compte.',byPhone:'Par numéro',byQr:'QR code',
+    phoneTitle:'Ton numéro Telegram',phoneText:'Telegram va envoyer un code de connexion au compte associé à ce numéro.',
+    phoneLabel:'Numéro de téléphone',sendCode:'Recevoir le code',back:'Retour',
+    codeTitle:'Entre le code',codeText:'Un code vient d’être envoyé par Telegram.',codeLabel:'Code de connexion',verify:'Vérifier',
+    passwordTitle:'Vérification 2FA',passwordText:'Telegram demande le mot de passe de vérification en deux étapes de ce compte.',
+    passwordLabel:'Mot de passe 2FA',finish:'Terminer',
+    qrTitle:'Connecter avec un QR',qrText:'Ouvre Telegram → Paramètres → Appareils → Lier un appareil.',
+    createQr:'Créer le QR',scanTitle:'Scanne avec Telegram',scanText:'Le QR se renouvelle automatiquement s’il expire.',
+    openTelegram:'Ouvrir dans Telegram',cancel:'Annuler',qr2faTitle:'2FA requis',
+    qr2faText:'Telegram exige une vérification supplémentaire. Utilise l’option « Par numéro » pour terminer la connexion avec le mot de passe 2FA.',
+    usePhone:'Utiliser le numéro',successTitle:'Compte connecté',successText:'La session Telegram est maintenant active dans NexAI.',
+    another:'Connecter un autre compte',gatewayOnline:'Passerelle active',encrypted:'Code et 2FA chiffrés',multi:'Multi-session',
+    sending:'Demande du code à Telegram…',codeSent:'Code envoyé. Vérifie Telegram.',codeViaApp:'Code envoyé dans ton application Telegram.',
+    verifying:'Vérification…',connecting:'Connexion…',creatingQr:'Création du QR…',waitingQr:'En attente de validation dans Telegram…'
+  },
+  en:{
+    secure:'Secure connection',eyebrow:'TELEGRAM ACCOUNT',title:'Connect Telegram',
+    subtitle:'Choose how you want to authorize this account.',byPhone:'Phone number',byQr:'QR code',
+    phoneTitle:'Your Telegram number',phoneText:'Telegram will send a login code to the account linked to this number.',
+    phoneLabel:'Phone number',sendCode:'Send login code',back:'Back',
+    codeTitle:'Enter the code',codeText:'Telegram just sent a login code.',codeLabel:'Login code',verify:'Verify',
+    passwordTitle:'2FA verification',passwordText:'Telegram requires this account’s two-step verification password.',
+    passwordLabel:'2FA password',finish:'Finish',
+    qrTitle:'Connect with QR',qrText:'Open Telegram → Settings → Devices → Link Desktop Device.',
+    createQr:'Create QR',scanTitle:'Scan with Telegram',scanText:'The QR refreshes automatically when it expires.',
+    openTelegram:'Open in Telegram',cancel:'Cancel',qr2faTitle:'2FA required',
+    qr2faText:'Telegram requires an additional verification step. Use the phone-number option to finish with your 2FA password.',
+    usePhone:'Use phone number',successTitle:'Account connected',successText:'The Telegram session is now active in NexAI.',
+    another:'Connect another account',gatewayOnline:'Gateway online',encrypted:'Code and 2FA encrypted',multi:'Multi-session',
+    sending:'Requesting a code from Telegram…',codeSent:'Code sent. Check Telegram.',codeViaApp:'Code sent inside your Telegram app.',
+    verifying:'Verifying…',connecting:'Connecting…',creatingQr:'Creating QR…',waitingQr:'Waiting for approval in Telegram…'
+  }
+};
 
-function tr(){document.documentElement.lang=lang;$('langBtn').textContent=lang.toUpperCase();document.querySelectorAll('[data-i18n]').forEach(e=>{const k=e.dataset.i18n;if(t[lang][k])e.textContent=t[lang][k]});document.querySelectorAll('[data-i18n-html]').forEach(e=>{const k=e.dataset.i18nHtml;if(t[lang][k])e.innerHTML=t[lang][k]})}
-function msg(text,type='info'){const e=$('status');e.textContent=text;e.className='status show '+type}
-function clearMsg(){$('status').className='status'}
-function show(name,step){['start','qr','extra','success'].forEach(x=>$(x+'Screen').classList.toggle('active',x===name));document.querySelectorAll('.progress i').forEach((e,i)=>e.classList.toggle('on',i<step));clearMsg()}
-function safe(v){return String(v||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function setBusy(v){busy=v;$('startBtn').disabled=v;$('retryBtn').disabled=v;$('anotherBtn').disabled=v}
-async function request(path,options={}){const r=await fetch(API+path,{...options,cache:'no-store'});const data=await r.json().catch(()=>({}));if(!r.ok||data.ok===false)throw new Error(data.error||('HTTP '+r.status));return data}
-async function drawQr(url){if(!url||url===lastQr)return;lastQr=url;await QRCode.toCanvas($('qrCanvas'),url,{width:256,margin:2,errorCorrectionLevel:'M'});$('telegramLink').href=url}
-function stopPoll(){if(pollTimer){clearTimeout(pollTimer);pollTimer=null}}
-function reset(){stopPoll();pairId='';lastQr='';$('telegramLink').href='#';show('start',1)}
-async function handle(state){
-  pairId=state.id||pairId;
-  if(state.stage==='connected'){
-    stopPoll();show('success',3);
-    const a=state.account||{};const name=a.username?'@'+a.username:(a.firstName||'Telegram');
-    const meta=[a.phoneMasked,a.premium?'Telegram Premium':'Telegram'].filter(Boolean).join(' · ');
-    $('accountBox').innerHTML='<b>'+safe(name)+'</b><span>'+safe(meta)+'</span>';
-    msg(t[lang].connected,'ok');return;
+function tr(){
+  document.documentElement.lang=lang;
+  $('langBtn').textContent=lang.toUpperCase();
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const key=el.dataset.i18n;
+    if(i18n[lang][key])el.textContent=i18n[lang][key];
+  });
+}
+function status(id,text,type='info'){
+  const el=$(id);
+  el.textContent=text||'';
+  el.className='inline-status'+(text?' show '+type:'');
+}
+function setBusy(button,on,label){
+  busy=on;
+  button.disabled=on;
+  if(on){
+    button.dataset.original=button.innerHTML;
+    button.innerHTML='<span><i class="busy-dot"></i>'+label+'</span>';
+  }else if(button.dataset.original){
+    button.innerHTML=button.dataset.original;
   }
-  if(state.stage==='password_required'){
-    stopPoll();show('extra',2);return;
+}
+function showStage(id){
+  ['phoneStart','codeStage','passwordStage'].forEach(x=>$(x).classList.toggle('active',x===id));
+}
+function showQr(id){
+  ['qrIdle','qrLive','qrPasswordRequired'].forEach(x=>$(x).classList.toggle('active',x===id));
+}
+function setMethod(method){
+  activeMethod=method;
+  const qr=method==='qr';
+  $('phoneTab').classList.toggle('active',!qr);
+  $('qrTab').classList.toggle('active',qr);
+  $('phoneTab').setAttribute('aria-selected',String(!qr));
+  $('qrTab').setAttribute('aria-selected',String(qr));
+  document.querySelector('.method-tabs').classList.toggle('qr',qr);
+  $('phonePanel').classList.toggle('active',!qr);
+  $('qrPanel').classList.toggle('active',qr);
+  $('successPanel').classList.remove('active');
+}
+function pemToBuffer(pem){
+  const b64=String(pem).replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\s/g,'');
+  const raw=atob(b64);
+  return Uint8Array.from(raw,c=>c.charCodeAt(0)).buffer;
+}
+async function getPublicKey(){
+  if(publicKey)return publicKey;
+  const r=await fetch(API+'?api=pair-key',{cache:'no-store'});
+  const data=await r.json().catch(()=>({}));
+  if(!r.ok||!data.publicKey)throw new Error(data.error||'pairing_key_unavailable');
+  publicKey=await crypto.subtle.importKey('spki',pemToBuffer(data.publicKey),{name:'RSA-OAEP',hash:'SHA-256'},false,['encrypt']);
+  return publicKey;
+}
+async function secure(payload){
+  const key=await getPublicKey();
+  const clear=new TextEncoder().encode(JSON.stringify(payload));
+  const encrypted=await crypto.subtle.encrypt({name:'RSA-OAEP'},key,clear);
+  const bytes=new Uint8Array(encrypted);
+  let raw='';
+  for(const b of bytes)raw+=String.fromCharCode(b);
+  const envelope=btoa(raw);
+  const r=await fetch(API+'?api=pair-secure',{
+    method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({envelope}),cache:'no-store'
+  });
+  const data=await r.json().catch(()=>({}));
+  if(!r.ok)throw Object.assign(new Error(data.error||'pairing_failed'),{data});
+  return data;
+}
+async function api(path,options={}){
+  const r=await fetch(API+path,{...options,cache:'no-store'});
+  const data=await r.json().catch(()=>({}));
+  if(!r.ok||data.ok===false)throw Object.assign(new Error(data.error||('HTTP '+r.status)),{data});
+  return data;
+}
+function friendly(data,fallback){
+  const code=String(data?.errorCode||data?.error||fallback||'').toUpperCase();
+  if(code.includes('PHONE_NUMBER_INVALID')||code.includes('INVALID TELEGRAM PHONE'))return lang==='fr'?'Ce numéro Telegram n’est pas valide.':'This Telegram number is invalid.';
+  if(code.includes('PHONE_CODE_INVALID')||code.includes('PHONE_CODE_EMPTY'))return lang==='fr'?'Le code est incorrect.':'The code is incorrect.';
+  if(code.includes('PHONE_CODE_EXPIRED'))return lang==='fr'?'Le code a expiré. Recommence la connexion.':'The code expired. Start again.';
+  if(code.includes('PASSWORD_HASH_INVALID')||code.includes('PASSWORD_EMPTY'))return lang==='fr'?'Le mot de passe 2FA est incorrect.':'The 2FA password is incorrect.';
+  if(code.includes('SIGN_UP_REQUIRED'))return lang==='fr'?'Ce numéro n’est pas encore associé à un compte Telegram.':'This number is not linked to a Telegram account yet.';
+  if(code.includes('FLOOD'))return lang==='fr'?'Telegram demande d’attendre avant une nouvelle tentative.':'Telegram asked you to wait before trying again.';
+  if(code.includes('AGENT_OFFLINE')||code.includes('SERVICE_FAILED')||code.includes('GATEWAY'))return lang==='fr'?'La passerelle de connexion est momentanément indisponible.':'The connection gateway is temporarily unavailable.';
+  return fallback||(lang==='fr'?'La connexion n’a pas abouti. Réessaie.':'Connection failed. Try again.');
+}
+function success(account={}){
+  stopQrPoll();
+  $('phonePanel').classList.remove('active');
+  $('qrPanel').classList.remove('active');
+  $('successPanel').classList.add('active');
+  const name=account.username?'@'+account.username:(account.firstName||'Telegram');
+  const meta=[account.phoneMasked,account.premium?'Telegram Premium':'Telegram'].filter(Boolean).join(' · ');
+  $('accountCard').innerHTML='<b></b><span></span>';
+  $('accountCard').querySelector('b').textContent=name;
+  $('accountCard').querySelector('span').textContent=meta;
+}
+function handlePhoneState(state){
+  phonePairId=String(state.id||phonePairId||'');
+  if(state.stage==='code'){
+    showStage('codeStage');
+    $('codeHelp').textContent=state.codeViaApp?i18n[lang].codeViaApp:i18n[lang].codeSent;
+    setTimeout(()=>$('codeInput').focus(),160);
+    if(state.error||state.errorCode)status('codeStatus',friendly(state),'error');
+    else status('codeStatus','','info');
+    return;
   }
-  if(state.stage==='error'||state.stage==='cancelled'||state.stage==='missing'){
-    stopPoll();show('start',1);msg(state.error||t[lang].failed,'error');return;
+  if(state.stage==='password'){
+    showStage('passwordStage');
+    setTimeout(()=>$('passwordInput').focus(),160);
+    if(state.error||state.errorCode)status('passwordStatus',friendly(state),'error');
+    return;
   }
+  if(state.stage==='connected'){success(state.account||{});return}
+  if(state.stage==='error'||state.stage==='missing'||state.stage==='cancelled'){
+    throw Object.assign(new Error(state.error||state.errorCode||'pairing_failed'),{data:state});
+  }
+}
+async function startPhone(){
+  if(busy)return;
+  status('phoneStatus','');
+  let phone=$('phoneInput').value.trim().replace(/[()\s-]/g,'');
+  if(!/^\+?[0-9]{7,16}$/.test(phone)){
+    status('phoneStatus',lang==='fr'?'Entre un numéro au format international.':'Enter a phone number in international format.','error');return;
+  }
+  const btn=$('sendCodeBtn');
+  setBusy(btn,true,i18n[lang].sending);
+  status('phoneStatus',i18n[lang].sending,'info');
+  try{
+    const state=await secure({action:'pair-start',phone});
+    handlePhoneState(state);
+    status('phoneStatus','');
+  }catch(e){status('phoneStatus',friendly(e.data,e.message),'error')}
+  finally{setBusy(btn,false,'')}
+}
+async function submitCode(){
+  if(busy)return;
+  const code=$('codeInput').value.trim();
+  if(!code){status('codeStatus',lang==='fr'?'Entre le code reçu dans Telegram.':'Enter the code received in Telegram.','error');return}
+  const btn=$('verifyCodeBtn');
+  setBusy(btn,true,i18n[lang].verifying);
+  status('codeStatus',i18n[lang].verifying,'info');
+  try{handlePhoneState(await secure({action:'pair-code',id:phonePairId,code}))}
+  catch(e){status('codeStatus',friendly(e.data,e.message),'error')}
+  finally{setBusy(btn,false,'')}
+}
+async function submitPassword(){
+  if(busy)return;
+  const password=$('passwordInput').value;
+  if(!password){status('passwordStatus',lang==='fr'?'Entre ton mot de passe 2FA.':'Enter your 2FA password.','error');return}
+  const btn=$('verifyPasswordBtn');
+  setBusy(btn,true,i18n[lang].connecting);
+  status('passwordStatus',i18n[lang].connecting,'info');
+  try{handlePhoneState(await secure({action:'pair-password',id:phonePairId,password}))}
+  catch(e){status('passwordStatus',friendly(e.data,e.message),'error')}
+  finally{setBusy(btn,false,'')}
+}
+async function drawQr(url){
+  if(!url||url===lastQr)return;
+  lastQr=url;
+  await QRCode.toCanvas($('qrCanvas'),url,{width:264,margin:2,errorCorrectionLevel:'M'});
+  $('telegramLink').href=url;
+}
+function stopQrPoll(){if(qrTimer){clearTimeout(qrTimer);qrTimer=null}}
+function scheduleQr(){stopQrPoll();if(qrPairId)qrTimer=setTimeout(pollQr,1400)}
+async function handleQr(state){
+  qrPairId=String(state.id||qrPairId||'');
+  if(state.stage==='connected'){success(state.account||{});return}
+  if(state.stage==='password_required'){stopQrPoll();showQr('qrPasswordRequired');return}
   if(state.stage==='qr'){
-    show('qr',2);await drawQr(state.qrUrl);msg(t[lang].waiting,'info');schedulePoll();return;
+    showQr('qrLive');
+    await drawQr(state.qrUrl);
+    status('qrLiveStatus',i18n[lang].waitingQr,'info');
+    scheduleQr();
+    return;
   }
-  schedulePoll();
+  if(state.stage==='error'||state.stage==='missing'||state.stage==='cancelled'){
+    stopQrPoll();showQr('qrIdle');status('qrStatus',friendly(state),'error');return;
+  }
+  scheduleQr();
 }
-function schedulePoll(){stopPoll();if(!pairId)return;pollTimer=setTimeout(poll,1400)}
-async function poll(){try{await handle(await request('?api=qr-status&id='+encodeURIComponent(pairId)))}catch(e){msg(t[lang].failed,'error');schedulePoll()}}
-async function start(){
-  if(busy)return;setBusy(true);msg(t[lang].creating,'info');
-  try{await handle(await request('?api=qr-start',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}))}
-  catch(e){show('start',1);msg(t[lang].failed,'error')}
-  finally{setBusy(false)}
+async function startQr(){
+  if(busy)return;
+  const btn=$('createQrBtn');
+  setBusy(btn,true,i18n[lang].creatingQr);
+  status('qrStatus',i18n[lang].creatingQr,'info');
+  try{
+    const state=await api('?api=qr-start',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+    status('qrStatus','');
+    await handleQr(state);
+  }catch(e){status('qrStatus',friendly(e.data,e.message),'error')}
+  finally{setBusy(btn,false,'')}
 }
-async function cancel(){stopPoll();if(pairId)try{await request('?api=qr-cancel&id='+encodeURIComponent(pairId),{method:'POST'})}catch{}reset()}
-$('startBtn').addEventListener('click',start);
-$('retryBtn').addEventListener('click',reset);
-$('anotherBtn').addEventListener('click',reset);
-$('cancelBtn').addEventListener('click',cancel);
+async function pollQr(){
+  if(!qrPairId)return;
+  try{await handleQr(await api('?api=qr-status&id='+encodeURIComponent(qrPairId)))}
+  catch(e){status('qrLiveStatus',friendly(e.data,e.message),'error');scheduleQr()}
+}
+async function cancelQr(){
+  stopQrPoll();
+  if(qrPairId){try{await api('?api=qr-cancel&id='+encodeURIComponent(qrPairId),{method:'POST'})}catch{}}
+  qrPairId='';lastQr='';showQr('qrIdle');status('qrStatus','');
+}
+function resetAll(){
+  stopQrPoll();
+  phonePairId='';qrPairId='';lastQr='';
+  ['phoneInput','codeInput','passwordInput'].forEach(id=>$(id).value='');
+  ['phoneStatus','codeStatus','passwordStatus','qrStatus','qrLiveStatus'].forEach(id=>status(id,''));
+  showStage('phoneStart');showQr('qrIdle');setMethod('phone');
+}
+function startup(){
+  const reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  setTimeout(()=>document.body.classList.add('ready'),reduce?40:950);
+  if(!reduce){
+    let tx=50,ty=50,cx=50,cy=50,raf=0;
+    const tick=()=>{cx+=(tx-cx)*.08;cy+=(ty-cy)*.08;document.documentElement.style.setProperty('--mx',cx+'%');document.documentElement.style.setProperty('--my',cy+'%');raf=requestAnimationFrame(tick)};
+    window.addEventListener('pointermove',e=>{tx=e.clientX/window.innerWidth*100;ty=e.clientY/window.innerHeight*100},{passive:true});
+    raf=requestAnimationFrame(tick);
+    window.addEventListener('pagehide',()=>cancelAnimationFrame(raf),{once:true});
+  }
+}
+
+$('phoneTab').addEventListener('click',()=>setMethod('phone'));
+$('qrTab').addEventListener('click',()=>setMethod('qr'));
+$('sendCodeBtn').addEventListener('click',startPhone);
+$('verifyCodeBtn').addEventListener('click',submitCode);
+$('verifyPasswordBtn').addEventListener('click',submitPassword);
+$('createQrBtn').addEventListener('click',startQr);
+$('cancelQrBtn').addEventListener('click',cancelQr);
+$('switchToPhoneBtn').addEventListener('click',()=>{setMethod('phone');showStage('phoneStart')});
+$('anotherAccountBtn').addEventListener('click',resetAll);
+$('backPhoneBtn').addEventListener('click',()=>showStage('phoneStart'));
+$('backCodeBtn').addEventListener('click',()=>showStage('codeStage'));
+$('togglePassword').addEventListener('click',()=>{$('passwordInput').type=$('passwordInput').type==='password'?'text':'password'});
 $('langBtn').addEventListener('click',()=>{lang=lang==='fr'?'en':'fr';tr()});
-window.addEventListener('pagehide',stopPoll);
-tr();
+$('phoneInput').addEventListener('keydown',e=>{if(e.key==='Enter')startPhone()});
+$('codeInput').addEventListener('keydown',e=>{if(e.key==='Enter')submitCode()});
+$('passwordInput').addEventListener('keydown',e=>{if(e.key==='Enter')submitPassword()});
+window.addEventListener('pagehide',stopQrPoll);
+tr();startup();
