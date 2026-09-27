@@ -162,7 +162,7 @@ jobs:
               boot=job('runtime.exec',{
                   'root':'nexus',
                   'command':'node',
-                  'args':['bots/nexaccount/bootstrap.mjs','--restart'],
+                  'args':['bots/nexaccount/bootstrap.mjs','--restart','--production'],
                   'timeoutMs':60000
               },timeout=90)
               if boot.get('ok') is False:
@@ -176,6 +176,8 @@ jobs:
               health_text=health.get('stdout','').strip()
               print('NEXACCOUNT_HEALTH',health_text[-5000:])
               health_json=json.loads(health_text or '{}')
+              if health_json.get('pairingOnly') is True:
+                  raise RuntimeError('production NexAccount started in pairing-only mode')
               accounts=job('runtime.exec',{
                   'root':'nexus',
                   'command':'node',
