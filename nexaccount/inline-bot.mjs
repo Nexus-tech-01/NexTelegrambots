@@ -83,8 +83,8 @@ function connectMarkup(lang){
   return {
     inline_keyboard:[[
       {
-        text:lang==='en'?'Open secure connection':'Ouvrir la connexion sécurisée',
-        url:cfg.connectUrl
+        text:lang==='en'?'Open Mini App':'Ouvrir la Mini App',
+        web_app:{url:cfg.connectUrl}
       }
     ]]
   };
@@ -93,8 +93,8 @@ function connectMarkup(lang){
 async function sendPairLink(ctx,lang){
   rememberWebPair(ctx.from.id);
   const t=lang==='en'
-    ? 'Telegram invalidates login codes when they are sent inside another Telegram chat.\n\nOpen the secure NexAI page below, enter your phone number there, then enter the Telegram code on that page — never in this bot chat.'
-    : 'Telegram invalide les codes de connexion lorsqu’ils sont envoyés dans un autre chat Telegram.\n\nOuvre la page sécurisée NexAI ci-dessous, saisis ton numéro là-bas, puis entre le code Telegram sur cette page — jamais dans le chat du bot.';
+    ? 'Connect your Telegram account without leaving Telegram.\n\n1. Tap “Open Mini App”.\n2. Enter your Telegram phone number.\n3. Enter the login code only inside the Mini App.\n4. If Telegram asks for 2FA, enter the password only inside the Mini App.\n\nNever send a login code or 2FA password in this bot chat.'
+    : 'Connecte ton compte Telegram sans quitter Telegram.\n\n1. Appuie sur « Ouvrir la Mini App ».\n2. Entre ton numéro Telegram.\n3. Entre le code de connexion uniquement dans la Mini App.\n4. Si Telegram demande la 2FA, entre le mot de passe uniquement dans la Mini App.\n\nN’envoie jamais un code de connexion ou un mot de passe 2FA dans ce chat.';
   return ctx.reply(t,{
     entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}],
     reply_markup:connectMarkup(lang),
