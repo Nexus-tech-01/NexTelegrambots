@@ -4,6 +4,10 @@ import {
   languageOf,
   stripCommand
 } from './_shared.mjs';
+import {
+  telegramNexAiAnswer,
+  telegramNexAiSystemContext
+} from './nexai-telegram-knowledge.mjs';
 
 const clean = value => String(value ?? '').trim();
 
@@ -51,7 +55,8 @@ export const adapterManifest = Object.freeze({
     'facebook_conversation',
     'bounded_conversation_history',
     'provider_timeout',
-    'provider_rate_limit_propagation'
+    'provider_rate_limit_propagation',
+    'telegram_nexai_canonical_knowledge'
   ],
   missing: [
     ...(!apiUrl ? ['NEXAI_API_URL'] : []),
@@ -556,6 +561,11 @@ function canonicalReply(text, language, context = {}) {
   const social = socialReply(value, language);
   if (social) return social;
 
+  const telegramNexAi = plainMessengerAnswer(
+    telegramNexAiAnswer(value, language)
+  );
+  if (telegramNexAi) return telegramNexAi;
+
   if (asksAboutNonPublic(value)) {
     return nonPublicReply(language);
   }
@@ -590,6 +600,8 @@ function canonicalReply(text, language, context = {}) {
 
 function systemPrompt(language) {
   const custom = clean(process.env.NEXAI_SYSTEM_PROMPT);
+
+  const telegramNexAiKnowledge = telegramNexAiSystemContext(language);
 
   const catalogFr =
     'CATALOGUE PUBLIC CANONIQUE : ' +
@@ -654,6 +666,7 @@ function systemPrompt(language) {
   const identityFr =
     'Tu es NexAI, l’assistant officiel de Nextech. ' +
     ownerSentence('fr') + ' ' +
+    telegramNexAiKnowledge + ' ' +
     'Lorsque tu présentes Trésor HONTONNOU, n’écris jamais son pseudonyme entre parenthèses après son nom : utilise la formulation « plus connu sous le pseudonyme de ». ' +
     catalogFr + salesFr + ' ' +
     'N’invente jamais de cofondateur, de membre d’équipe, de nom de personne, de date, de rôle, de prix, de disponibilité, de site officiel ou de service client. ' +
@@ -664,6 +677,7 @@ function systemPrompt(language) {
   const identityEn =
     'You are NexAI, the official assistant of Nextech. ' +
     ownerSentence('en') + ' ' +
+    telegramNexAiKnowledge + ' ' +
     'When introducing Trésor HONTONNOU, never put the pseudonym in parentheses after the name; use the wording “better known by the pseudonym”. ' +
     catalogEn + salesEn + ' ' +
     'Never invent a cofounder, team member, person, date, role, price, availability, official website, or customer-support service. ' +
