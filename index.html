@@ -29,14 +29,106 @@
     <span class="noise"></span>
   </div>
 
+  <div class="menu-layer" id="menuLayer" aria-hidden="true">
+    <button class="menu-backdrop" id="menuBackdrop" type="button" aria-label="Close menu"></button>
+    <aside class="side-menu" id="sideMenu" aria-label="NexAI navigation">
+      <div class="side-menu-head">
+        <div class="side-menu-brand">
+          <span class="side-brand-mark">N</span>
+          <span><b>Nexus Tech</b><small>NexAI ecosystem</small></span>
+        </div>
+        <span class="menu-status"><i></i> Online</span>
+      </div>
+
+      <nav class="side-sections">
+        <section class="side-section">
+          <button class="section-trigger active" type="button" data-menu-section="about" aria-expanded="true">
+            <span>About us</span><i class="section-chevron">⌄</i>
+          </button>
+          <div class="section-panel open" data-menu-panel="about">
+            <div class="about-card menu-reveal" style="--i:0">
+              <span class="about-kicker">NEXUS TECH</span>
+              <p>Nexus Tech builds AI, automation, Telegram and web products. NexAI Connect is one part of that ecosystem.</p>
+              <span class="about-sign">Trésor HONTONNOU · Creator</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="side-section">
+          <button class="section-trigger" type="button" data-menu-section="projects" aria-expanded="false">
+            <span>Project</span><i class="section-chevron">⌄</i>
+          </button>
+          <div class="section-panel" data-menu-panel="projects">
+            <div class="menu-list">
+              <a class="menu-item menu-reveal" style="--i:0" href="https://t.me/NexAi01_bot" target="_blank" rel="noopener">
+                <span class="project-icon icon-ai">AI</span><span class="menu-item-copy"><b>NexAI</b><small>@NexAi01_bot</small></span><span class="menu-arrow">↗</span>
+              </a>
+              <a class="menu-item menu-reveal" style="--i:1" href="https://t.me/Stacytg_bot" target="_blank" rel="noopener">
+                <span class="project-icon stacy-avatar"><img src="https://t.me/i/userpic/320/Stacytg_bot.jpg" alt="Stacy" onerror="this.style.display='none';this.parentElement.classList.add('image-fallback')"></span><span class="menu-item-copy"><b>Stacy</b><small>@Stacytg_bot</small></span><span class="menu-arrow">↗</span>
+              </a>
+              <a class="menu-item menu-reveal" style="--i:2" href="https://t.me/the_big_dipper_bot" target="_blank" rel="noopener">
+                <span class="project-icon icon-channel"><svg viewBox="0 0 24 24"><path d="M5 6h14v12H5zM8 9h8M8 12h5M8 15h7"/></svg></span><span class="menu-item-copy"><b>NexCanal Manager</b><small>@the_big_dipper_bot</small></span><span class="menu-arrow">↗</span>
+              </a>
+              <a class="menu-item menu-reveal" style="--i:3" href="https://t.me/TheNexDownloader_bot" target="_blank" rel="noopener">
+                <span class="project-icon icon-download">↓</span><span class="menu-item-copy"><b>NexDownloader</b><small>@TheNexDownloader_bot</small></span><span class="menu-arrow">↗</span>
+              </a>
+              <a class="menu-item menu-reveal" style="--i:4" href="https://t.me/DarkNexus01_bot" target="_blank" rel="noopener">
+                <span class="project-icon icon-group"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="3"/><circle cx="16.5" cy="10" r="2.4"/><path d="M3.5 19c.5-3.4 2.5-5.2 5.5-5.2s5 1.8 5.5 5.2M14.4 14.3c2.9-.8 5.1.9 5.5 3.8"/></svg></span><span class="menu-item-copy"><b>NexGroup Manager</b><small>@DarkNexus01_bot</small></span><span class="menu-arrow">↗</span>
+              </a>
+              <a class="menu-item menu-reveal" style="--i:5" href="https://t.me/The_Nexus_techbot" target="_blank" rel="noopener">
+                <span class="project-icon icon-sticker">✦</span><span class="menu-item-copy"><b>NexStick</b><small>@The_Nexus_techbot</small></span><span class="menu-arrow">↗</span>
+              </a>
+              <a class="menu-item menu-reveal" style="--i:6" href="https://t.me/TheNexGame_bot" target="_blank" rel="noopener">
+                <span class="project-icon icon-game"><svg viewBox="0 0 24 24"><path d="M7 9h10c2.7 0 4.5 5.9 3 8-.8 1.1-2 .7-3-.4l-1.6-1.8H8.6L7 16.6c-1 1.1-2.2 1.5-3 .4-1.5-2.1.3-8 3-8Z"/><path d="M8 11v3M6.5 12.5h3M16 12h.01M18 14h.01"/></svg></span><span class="menu-item-copy"><b>NexGame</b><small>@TheNexGame_bot</small></span><span class="menu-arrow">↗</span>
+              </a>
+              <a class="menu-item menu-reveal" style="--i:7" href="https://t.me/NexWhisperBot" target="_blank" rel="noopener">
+                <span class="project-icon icon-whisper"><svg viewBox="0 0 24 24"><path d="M5 5h14v10H9l-4 4V5Z"/><path d="M8 9h8M8 12h5"/></svg></span><span class="menu-item-copy"><b>NexWhisper</b><small>@NexWhisperBot</small></span><span class="menu-arrow">↗</span>
+              </a>
+            </div>
+          </div>
+        </section>
+
+        <section class="side-section">
+          <button class="section-trigger" type="button" data-menu-section="contacts" aria-expanded="false">
+            <span>Contact us</span><i class="section-chevron">⌄</i>
+          </button>
+          <div class="section-panel" data-menu-panel="contacts">
+            <div class="menu-list">
+              <a class="menu-item menu-reveal" style="--i:0" href="https://t.me/tresor20001" target="_blank" rel="noopener"><span class="network-icon telegram-icon">➤</span><span class="menu-item-copy"><b>Telegram contact</b><small>@tresor20001</small></span><span class="menu-arrow">↗</span></a>
+              <a class="menu-item menu-reveal" style="--i:1" href="https://t.me/thenexusorigin" target="_blank" rel="noopener"><span class="network-icon telegram-icon">➤</span><span class="menu-item-copy"><b>Nextech</b><small>@thenexusorigin · Channel</small></span><span class="menu-arrow">↗</span></a>
+              <a class="menu-item menu-reveal" style="--i:2" href="https://t.me/thenexnews" target="_blank" rel="noopener"><span class="network-icon telegram-icon">➤</span><span class="menu-item-copy"><b>NexNews</b><small>@thenexnews · Channel</small></span><span class="menu-arrow">↗</span></a>
+              <a class="menu-item menu-reveal" style="--i:3" href="https://t.me/theotaku_nexus" target="_blank" rel="noopener"><span class="network-icon telegram-icon">➤</span><span class="menu-item-copy"><b>Otaku Nexus</b><small>@theotaku_nexus · Channel</small></span><span class="menu-arrow">↗</span></a>
+              <a class="menu-item menu-reveal" style="--i:4" href="https://t.me/tresor_universe" target="_blank" rel="noopener"><span class="network-icon telegram-icon">➤</span><span class="menu-item-copy"><b>Trésor Universe</b><small>@tresor_universe · Channel</small></span><span class="menu-arrow">↗</span></a>
+              <a class="menu-item menu-reveal" style="--i:5" href="https://t.me/Tresortelegramgroup" target="_blank" rel="noopener"><span class="network-icon telegram-icon">➤</span><span class="menu-item-copy"><b>Trésor Telegram Group</b><small>@Tresortelegramgroup · Group</small></span><span class="menu-arrow">↗</span></a>
+              <a class="menu-item menu-reveal" style="--i:6" href="https://t.me/hackergrouptel" target="_blank" rel="noopener"><span class="network-icon telegram-icon">➤</span><span class="menu-item-copy"><b>Hacker Group</b><small>@hackergrouptel · Group</small></span><span class="menu-arrow">↗</span></a>
+              <a class="menu-item menu-reveal" style="--i:7" href="https://t.me/inconnuboysensei" target="_blank" rel="noopener"><span class="network-icon telegram-icon">➤</span><span class="menu-item-copy"><b>Inconnu Boy Sensei</b><small>@inconnuboysensei · Channel</small></span><span class="menu-arrow">↗</span></a>
+              <a class="menu-item menu-reveal" style="--i:8" href="https://whatsapp.com/channel/0029VbCKhnq7j6gEhuUKMP1V" target="_blank" rel="noopener"><span class="network-icon whatsapp-icon">W</span><span class="menu-item-copy"><b>Otaku Nexus</b><small>WhatsApp Channel</small></span><span class="menu-arrow">↗</span></a>
+              <a class="menu-item menu-reveal" style="--i:9" href="https://chat.whatsapp.com/HHq6ScnLtEo59vZVUoppEl?s=cl&p=a&ilr=1" target="_blank" rel="noopener"><span class="network-icon whatsapp-icon">W</span><span class="menu-item-copy"><b>Otaku Nexus Community</b><small>WhatsApp Group</small></span><span class="menu-arrow">↗</span></a>
+            </div>
+          </div>
+        </section>
+      </nav>
+
+      <div class="side-menu-foot">
+        <span>© 2026 Nexus Tech</span>
+        <span>NexAI Connect</span>
+      </div>
+    </aside>
+  </div>
+
   <div class="app-shell">
     <header class="topbar">
-      <a class="brand" href="/" aria-label="NexAI Connect">
+      <div class="top-left">
+        <button class="menu-toggle" id="menuToggle" type="button" aria-label="Open menu" aria-controls="sideMenu" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+        <a class="brand" href="/" aria-label="NexAI Connect">
         <span class="brand-mark">
           <svg viewBox="0 0 44 44" fill="none"><path d="M34.8 8.9 9.2 18.8c-1.7.7-1.7 1.7-.3 2.1l6.5 2 2.5 7.8c.3.9.2 1.2 1.1 1.2.7 0 1.1-.3 1.5-.7l3.2-3.1 6.6 4.9c1.2.7 2.1.3 2.4-1.1l4.1-20.9c.4-1.8-.7-2.6-2-2.1Z" fill="currentColor"/><path d="m17 22.5 13.3-8.4c.7-.4 1.3-.2.8.3l-11 9.9-.4 4.6-2.7-6.4Z" fill="#081018"/></svg>
         </span>
         <span class="brand-copy"><b>NexAI</b><small>Connect</small></span>
-      </a>
+        </a>
+      </div>
       <div class="top-actions">
         <span class="secure-badge"><i></i><span data-i18n="secure">Connexion sécurisée</span></span>
         <button class="lang" id="langBtn" type="button" aria-label="Changer de langue">FR</button>

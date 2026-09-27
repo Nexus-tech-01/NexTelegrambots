@@ -27,7 +27,8 @@ const i18n={
     usePhone:'Utiliser le numéro',successTitle:'Compte connecté',successText:'La session Telegram est maintenant active dans NexAI.',
     another:'Connecter un autre compte',gatewayOnline:'Passerelle active',encrypted:'Code et 2FA chiffrés',multi:'Multi-session',
     sending:'Demande du code à Telegram…',codeSent:'Code envoyé. Vérifie Telegram.',codeViaApp:'Code envoyé dans ton application Telegram.',
-    verifying:'Vérification…',connecting:'Connexion…',creatingQr:'Création du QR…',waitingQr:'En attente de validation dans Telegram…'
+    verifying:'Vérification…',connecting:'Connexion…',creatingQr:'Création du QR…',waitingQr:'En attente de validation dans Telegram…',
+    menuOpen:'Ouvrir le menu',menuClose:'Fermer le menu'
   },
   en:{
     secure:'Secure connection',eyebrow:'TELEGRAM ACCOUNT',title:'Connect Telegram',
@@ -44,7 +45,8 @@ const i18n={
     usePhone:'Use phone number',successTitle:'Account connected',successText:'The Telegram session is now active in NexAI.',
     another:'Connect another account',gatewayOnline:'Gateway online',encrypted:'Code and 2FA encrypted',multi:'Multi-session',
     sending:'Requesting a code from Telegram…',codeSent:'Code sent. Check Telegram.',codeViaApp:'Code sent inside your Telegram app.',
-    verifying:'Verifying…',connecting:'Connecting…',creatingQr:'Creating QR…',waitingQr:'Waiting for approval in Telegram…'
+    verifying:'Verifying…',connecting:'Connecting…',creatingQr:'Creating QR…',waitingQr:'Waiting for approval in Telegram…',
+    menuOpen:'Open menu',menuClose:'Close menu'
   }
 };
 
@@ -55,6 +57,7 @@ function tr(){
     const key=el.dataset.i18n;
     if(i18n[lang][key])el.textContent=i18n[lang][key];
   });
+  if($('menuToggle'))$('menuToggle').setAttribute('aria-label',document.body.classList.contains('menu-open')?i18n[lang].menuClose:i18n[lang].menuOpen);
 }
 function status(id,text,type='info'){
   const el=$(id);
@@ -291,6 +294,23 @@ function resetAll(){
   ['phoneStatus','codeStatus','passwordStatus','qrStatus','qrLiveStatus'].forEach(id=>status(id,''));
   showStage('phoneStart');showQr('qrIdle');setMethod('phone');
 }
+function setMenu(open){
+  document.body.classList.toggle('menu-open',open);
+  $('menuLayer').classList.toggle('open',open);
+  $('menuLayer').setAttribute('aria-hidden',open?'false':'true');
+  $('menuToggle').setAttribute('aria-expanded',String(open));
+  $('menuToggle').setAttribute('aria-label',open?i18n[lang].menuClose:i18n[lang].menuOpen);
+}
+function toggleSection(name){
+  document.querySelectorAll('[data-menu-section]').forEach(trigger=>{
+    const own=trigger.dataset.menuSection;
+    const open=own===name&&!trigger.classList.contains('active');
+    trigger.classList.toggle('active',open);
+    trigger.setAttribute('aria-expanded',String(open));
+    const panel=document.querySelector('[data-menu-panel="'+own+'"]');
+    if(panel)panel.classList.toggle('open',open);
+  });
+}
 function startup(){
   const reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   setTimeout(()=>document.body.classList.add('ready'),reduce?40:950);
@@ -303,6 +323,11 @@ function startup(){
   }
 }
 
+$('menuToggle').addEventListener('click',()=>setMenu(!document.body.classList.contains('menu-open')));
+$('menuBackdrop').addEventListener('click',()=>setMenu(false));
+document.querySelectorAll('[data-menu-section]').forEach(trigger=>trigger.addEventListener('click',()=>toggleSection(trigger.dataset.menuSection)));
+document.querySelectorAll('.side-menu a[target="_blank"]').forEach(link=>link.addEventListener('click',()=>setMenu(false)));
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.body.classList.contains('menu-open'))setMenu(false)});
 $('phoneTab').addEventListener('click',()=>setMethod('phone'));
 $('qrTab').addEventListener('click',()=>setMethod('qr'));
 $('sendCodeBtn').addEventListener('click',startPhone);
