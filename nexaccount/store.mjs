@@ -24,7 +24,9 @@ export async function db(){
       d.collection('nexaccount_settings').createIndex({telegramUserId:1},{unique:true}),
       d.collection('nexaccount_runtime_leases').createIndex({expiresAt:1},{expireAfterSeconds:0}),
       d.collection('nexaccount_pairing_state').createIndex({expiresAt:1},{expireAfterSeconds:0}),
-      d.collection('nexaccount_command_claims').createIndex({expiresAt:1},{expireAfterSeconds:0})
+      d.collection('nexaccount_command_claims').createIndex({expiresAt:1},{expireAfterSeconds:0}),
+      d.collection('nexaccount_custom_emoji_library').createIndex({sourceUsername:1,documentId:1},{unique:true}),
+      d.collection('nexaccount_custom_emoji_library').createIndex({sourceUsername:1,altNormalized:1,animated:-1,updatedAt:-1})
     ]).catch(e=>{indexesReady=false;throw e;});
     await d.collection('nexaccount_accounts').updateMany(
       {runtimeBucket:{$exists:false}},
@@ -237,6 +239,81 @@ export async function accountWithSession(telegramUserId){
   const a=await d.collection('nexaccount_accounts').findOne({telegramUserId:String(telegramUserId),enabled:true});
   if(!a)return null;
   return {...a,session:decryptSession(a.sessionEncrypted)};
+}
+
+
+function normalizeCustomEmojiAlt(value){
+  return String(value??'').replace(/\uFE0F/g,'').replace(/\u200D/g,'').trim();
+}
+
+export async function replaceCustomEmojiLibrary({sourceUsername,sourceTelegramUserId='',items=[]}={}){
+  const source=String(sourceUsername||'').trim().replace(/^@/,'').toLowerCase();
+  if(!source)throw new Error('custom_emoji_source_required');
+  const now=new Date();
+  const byId=new Map();
+  for(const item of Array.isArray(items)?items:[]){
+    const documentId=String(item?.documentId||'').trim();
+    const alt=String(item?.alt||'').trim();
+    if(!/^\d{5,30}$/.test(documentId)||!alt)continue;
+    byId.set(documentId,{
+      sourceUsername:source,
+      sourceTelegramUserId:String(sourceTelegramUserId||''),
+      documentId,
+      alt,
+      altNormalized:normalizeCustomEmojiAlt(alt),
+      mimeType:String(item?.mimeType||'').toLowerCase(),
+      animated:item?.animated===true,
+      stickerSetId:String(item?.stickerSetId||''),
+      stickerSetAccessHash:String(item?.stickerSetAccessHash||''),
+      stickerSetTitle:String(item?.stickerSetTitle||'').slice(0,200),
+      stickerSetShortName:String(item?.stickerSetShortName||'').slice(0,200)
+    });
+  }
+  const rows=[...byId.values()];
+  const d=await db();
+  const collection=d.collection('nexaccount_custom_emoji_library');
+  if(rows.length){
+    await collection.bulkWrite(rows.map(row=>({
+      updateOne:{
+        filter:{sourceUsername:source,documentId:row.documentId},
+        update:{$set:{...row,updatedAt:now},$setOnInsert:{createdAt:now}},
+        upsert:true
+      }
+    })),{ordered:false});
+  }
+  const keep=rows.map(row=>row.documentId);
+  await collection.deleteMany({
+    sourceUsername:source,
+    ...(keep.length?{documentId:{$nin:keep}}:{})
+  });
+  return {sourceUsername:source,count:rows.length,updatedAt:now};
+}
+
+export async function customEmojiLibraryMatches(glyphs,{sourceUsername='tresor20001',animatedOnly=true}={}){
+  const source=String(sourceUsername||'').trim().replace(/^@/,'').toLowerCase();
+  const wanted=[...new Set((Array.isArray(glyphs)?glyphs:[]).map(normalizeCustomEmojiAlt).filter(Boolean))];
+  if(!source||!wanted.length)return [];
+  const d=await db();
+  return d.collection('nexaccount_custom_emoji_library')
+    .find({
+      sourceUsername:source,
+      altNormalized:{$in:wanted},
+      ...(animatedOnly?{animated:true}:{})
+    })
+    .sort({animated:-1,updatedAt:-1})
+    .toArray();
+}
+
+export async function customEmojiLibraryStats(sourceUsername='tresor20001'){
+  const source=String(sourceUsername||'').trim().replace(/^@/,'').toLowerCase();
+  if(!source)return {sourceUsername:'',count:0,animated:0};
+  const d=await db();
+  const collection=d.collection('nexaccount_custom_emoji_library');
+  const [count,animated]=await Promise.all([
+    collection.countDocuments({sourceUsername:source}),
+    collection.countDocuments({sourceUsername:source,animated:true})
+  ]);
+  return {sourceUsername:source,count,animated};
 }
 
 export async function settingsFor(telegramUserId){

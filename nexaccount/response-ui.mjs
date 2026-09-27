@@ -1,6 +1,6 @@
 import { Api } from 'teleproto';
 import { cfg } from './config.mjs';
-import { patchSettings, settingsFor } from './store.mjs';
+import { customEmojiLibraryMatches, patchSettings, replaceCustomEmojiLibrary, settingsFor } from './store.mjs';
 
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
 const clean=v=>String(v??'').trim();
@@ -80,6 +80,98 @@ function customEmojiEntities(text,customEmojiIds={}){
   }));
 }
 
+
+export async function syncOwnedCustomEmojiLibrary(client,account,{sourceUsername=cfg.creatorUsername}={}){
+  const source=String(sourceUsername||'tresor20001').trim().replace(/^@/,'').toLowerCase();
+  const username=String(account?.username||'').trim().replace(/^@/,'').toLowerCase();
+  const accountId=String(account?.telegramUserId||account?.connectedTelegramUserId||'');
+  if(!client||!accountId||!source||username!==source){
+    return {skipped:true,sourceUsername:source,count:0,animated:0};
+  }
+
+  const GetEmojiStickers=Api.messages?.GetEmojiStickers;
+  const GetStickerSet=Api.messages?.GetStickerSet;
+  const InputStickerSetID=Api.InputStickerSetID;
+  if(typeof GetEmojiStickers!=='function'||typeof GetStickerSet!=='function'||typeof InputStickerSetID!=='function'){
+    throw new Error('telegram_custom_emoji_library_api_unavailable');
+  }
+
+  const result=await client.invoke(new GetEmojiStickers({hash:BigInt(0)}));
+  const sets=[];
+  const seen=new Set();
+  for(const set of result?.sets||[]){
+    const id=set?.id;
+    const accessHash=set?.accessHash??set?.access_hash;
+    const key=String(id??'')+':'+String(accessHash??'');
+    if(id==null||accessHash==null||seen.has(key))continue;
+    seen.add(key);
+    sets.push(set);
+  }
+
+  const items=[];
+  for(const set of sets){
+    const id=set?.id;
+    const accessHash=set?.accessHash??set?.access_hash;
+    try{
+      const pack=await client.invoke(new GetStickerSet({
+        stickerset:new InputStickerSetID({id,accessHash}),
+        hash:0
+      }));
+      const resolvedSet=pack?.set||set;
+      for(const doc of pack?.documents||[]){
+        const attr=customEmojiAttr(doc);
+        const documentId=customEmojiId(doc);
+        const alt=String(attr?.alt||'').trim();
+        if(!documentId||!alt)continue;
+        items.push({
+          documentId,
+          alt,
+          mimeType:String(doc?.mimeType||doc?.mime_type||'').toLowerCase(),
+          animated:isAnimatedCustomEmojiDocument(doc),
+          stickerSetId:String(resolvedSet?.id??id??''),
+          stickerSetAccessHash:String(resolvedSet?.accessHash??resolvedSet?.access_hash??accessHash??''),
+          stickerSetTitle:String(resolvedSet?.title||''),
+          stickerSetShortName:String(resolvedSet?.shortName||resolvedSet?.short_name||'')
+        });
+      }
+    }catch(error){
+      console.warn('[NexAccount emoji-library] set',String(id??''),String(error?.errorMessage||error?.message||error).slice(0,180));
+    }
+  }
+
+  const saved=await replaceCustomEmojiLibrary({
+    sourceUsername:source,
+    sourceTelegramUserId:accountId,
+    items
+  });
+
+  // Seed this source session's logical palette from its own saved collection,
+  // without overwriting a deliberate per-session /Menuemoji choice.
+  const settings=await settingsFor(accountId);
+  const current={...(settings.customEmojiIds||{})};
+  const animatedByAlt=new Map();
+  for(const item of items){
+    if(item.animated===true&&!animatedByAlt.has(normalizeEmoji(item.alt))){
+      animatedByAlt.set(normalizeEmoji(item.alt),item.documentId);
+    }
+  }
+  let changed=false;
+  for(const [logical,glyph] of Object.entries(PREMIUM_EMOJI_GLYPHS)){
+    const key='NEXAI_EMOJI_'+logical;
+    if(/^\d{5,30}$/.test(String(current[key]||'')))continue;
+    const documentId=animatedByAlt.get(normalizeEmoji(glyph));
+    if(documentId){
+      current[key]=documentId;
+      changed=true;
+    }
+  }
+  if(changed)await patchSettings(accountId,{customEmojiIds:current});
+
+  const animated=items.filter(item=>item.animated===true).length;
+  console.log('[NexAccount emoji-library]',source,'synced',saved.count,'custom emoji · animated='+animated);
+  return {skipped:false,sourceUsername:source,count:saved.count,animated,sets:sets.length};
+}
+
 export async function ensurePremiumEmojiPalette(client,telegramUserId,{premium=false,keys=null,force=false}={}){
   const accountId=String(telegramUserId||'');
   if(!client||!accountId||premium!==true)return accountId?settingsFor(accountId):null;
@@ -120,7 +212,34 @@ export async function ensurePremiumEmojiPalette(client,telegramUserId,{premium=f
     }
   }
 
-  const missing=wanted.filter(key=>!/^\d{5,30}$/.test(String(current['NEXAI_EMOJI_'+key]||'')));
+  let missing=wanted.filter(key=>!/^\d{5,30}$/.test(String(current['NEXAI_EMOJI_'+key]||'')));
+
+  // Prefer the persistent library synchronized from @${cfg.creatorUsername||'tresor20001'}
+  // before searching Telegram globally. Manual session choices still win.
+  if(missing.length){
+    try{
+      const library=await customEmojiLibraryMatches(
+        missing.map(key=>PREMIUM_EMOJI_GLYPHS[key]),
+        {sourceUsername:cfg.creatorUsername||'tresor20001',animatedOnly:true}
+      );
+      const byAlt=new Map();
+      for(const row of library){
+        const alt=normalizeEmoji(row?.alt||'');
+        if(alt&&!byAlt.has(alt))byAlt.set(alt,String(row?.documentId||''));
+      }
+      for(const key of missing){
+        const id=byAlt.get(normalizeEmoji(PREMIUM_EMOJI_GLYPHS[key]));
+        if(/^\d{5,30}$/.test(String(id||''))){
+          current['NEXAI_EMOJI_'+key]=String(id);
+          changed=true;
+        }
+      }
+      missing=wanted.filter(key=>!/^\d{5,30}$/.test(String(current['NEXAI_EMOJI_'+key]||'')));
+    }catch(error){
+      console.warn('[NexAccount emoji-library] lookup',String(error?.message||error).slice(0,180));
+    }
+  }
+
   if(!missing.length){
     return changed?patchSettings(accountId,{customEmojiIds:current}):settings;
   }

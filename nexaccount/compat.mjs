@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { Api } from 'teleproto';
 import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { cfg, isOwnerId } from './config.mjs';
-import { listAccounts, patchSettings, settingsFor } from './store.mjs';
+import { customEmojiLibraryStats, listAccounts, patchSettings, settingsFor } from './store.mjs';
 import { toSmallCaps } from './styles.mjs';
 import { AUDIO_LAB_COMMANDS, handleAudioLabCommand } from './audio-lab.mjs';
 import { canHandleDownloadCommand, handleDownloadCommand } from './dipper-fallback.mjs';
@@ -11,7 +11,7 @@ import { canHandleAiCommand, handleAiCommand } from './ai-engine.mjs';
 import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
 import { commandMap } from './commands.mjs';
-import { createProgress } from './response-ui.mjs';
+import { createProgress, syncOwnedCustomEmojiLibrary } from './response-ui.mjs';
 
 const DL_MAP={
   cobalt:'facebook',facebook:'facebook',
@@ -1079,6 +1079,29 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const action=clean(args[0]).toLowerCase();
     const current={...(settings.customEmojiIds||{})};
 
+    if(action==='sync'){
+      const source=String(cfg.creatorUsername||'tresor20001').replace(/^@/,'').toLowerCase();
+      const username=String(account.username||'').replace(/^@/,'').toLowerCase();
+      if(username!==source){
+        await sendText(client,peer,'La bibliothèque globale se synchronise depuis @'+source+'. Lance cette commande depuis ce compte source.');
+        return true;
+      }
+      try{
+        const result=await syncOwnedCustomEmojiLibrary(client,account,{sourceUsername:source});
+        await sendText(client,peer,'Bibliothèque emojis synchronisée depuis @'+source+' · '+result.count+' emojis · '+result.animated+' animés · '+result.sets+' packs.');
+      }catch(error){
+        await sendText(client,peer,'Synchronisation de la bibliothèque impossible : '+String(error?.message||error).slice(0,220));
+      }
+      return true;
+    }
+
+    if(action==='library'){
+      const source=String(cfg.creatorUsername||'tresor20001').replace(/^@/,'').toLowerCase();
+      const stats=await customEmojiLibraryStats(source);
+      await sendText(client,peer,'Bibliothèque emojis @'+source+' · '+stats.count+' emojis enregistrés · '+stats.animated+' animés.');
+      return true;
+    }
+
     if(!action||action==='list'){
       const configured=Object.keys(current).sort();
       await sendText(client,peer,[
@@ -1090,6 +1113,8 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
         '/Menuemoji anime',
         '/Menuemoji download',
         '/Menuemoji style_7',
+        '/Menuemoji library',
+        '/Menuemoji sync · depuis @'+String(cfg.creatorUsername||'tresor20001').replace(/^@/,''),
         '',
         'Pour retirer : /Menuemoji reset <clé> · ou /Menuemoji reset all'
       ].join('\n'));
