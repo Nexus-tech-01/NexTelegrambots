@@ -192,9 +192,6 @@ async function sendTelegramVideo(video,candidate,captions){
   form.append('caption',captions.html);
   form.append('parse_mode','HTML');
   form.append('supports_streaming','true');
-  form.append('reply_markup',JSON.stringify({inline_keyboard:[[
-    {text:'source · @'+candidate.source.username,url:candidate.item.url}
-  ]]}));
   const r=await fetch('https://api.telegram.org/bot'+token+'/sendVideo',{
     method:'POST',body:form,signal:AbortSignal.timeout(120000)
   });
