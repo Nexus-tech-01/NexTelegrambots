@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import pino from 'pino';
 import { Boom } from '@hapi/boom';
+import { attachWhatsAppCommandEngine } from './command-engine.mjs';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
@@ -51,6 +52,8 @@ let reconnectTimer = null;
 let processing = false;
 let lastPairRequestAt = 0;
 let pairingResetInProgress = false;
+let commandEngine = null;
+const MENU_IMAGE_B64_PATH = path.join(DATA_DIR,'nexai-menu.jpg.b64');
 
 async function resetAuthForPairing(){
   if(pairingResetInProgress) throw new Error('Une préparation de connexion WhatsApp est déjà en cours.');
@@ -338,6 +341,18 @@ async function connectWhatsApp({freshPairing=false}={}){
   socket=sock;
 
   sock.ev.on('creds.update',saveCreds);
+  try{commandEngine?.detach?.();}catch{}
+  commandEngine=attachWhatsAppCommandEngine(sock,{
+    state,
+    dataDir:DATA_DIR,
+    menuImageB64Path:MENU_IMAGE_B64_PATH,
+    getNewsletterInfo:()=>({
+      jid:state.channelJid||PRESENTATION_NEWSLETTER_JID,
+      name:state.channelTitle||'Nextech',
+    }),
+  });
+  logger.info({commands:commandEngine?.commandCount||0},'EliteProTech command engine attached');
+
   sock.ev.on('connection.update',async u=>{
     if(generation!==socketGeneration)return;
 
