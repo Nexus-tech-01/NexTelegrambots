@@ -1,17 +1,10 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs/promises';
 import { MongoClient } from 'mongodb';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { cfg, sessionKey } from './config.mjs';
 
 let clientPromise;
 let indexesReady=false;
-const watcherIdentityFile=process.env.NEXCANAL__WATCHER_ID_FILE||'/home/container/.nexcontrol/nexcanal-watcher-id.txt';
-
-async function reservedWatcherId(){
-  try{return String(await fs.readFile(watcherIdentityFile,'utf8')).trim()}catch{return ''}
-}
-
 export async function db(){
   clientPromise ??= new MongoClient(cfg.mongoUri).connect();
   const d=(await clientPromise).db(cfg.dbName);
@@ -90,8 +83,6 @@ function workerBucketRange(workerIndex=cfg.workerIndex,workerCount=cfg.workerCou
 export async function saveAccount({me,session,phone}){
   const d=await db(),now=new Date();
   const telegramUserId=String(me.id);
-  const reserved=await reservedWatcherId();
-  if(reserved&&telegramUserId===reserved)throw new Error('This Telegram account is reserved for NexCanal watcher');
   const telegramLanguage=String(me.langCode||me.lang_code||'');
   const countryIso=countryFromPhone(phone);
   const preferredLanguage=uiLanguage(telegramLanguage);
@@ -108,6 +99,9 @@ export async function saveAccount({me,session,phone}){
     phoneMasked:maskPhone(phone),
     sessionEncrypted:encryptSession(session),
     enabled:true,
+    sessionRepairRequired:false,
+    sessionRepairReason:'',
+    sessionRepairAt:null,
     connectedAt:now,
     updatedAt:now
   };
@@ -142,19 +136,19 @@ export async function saveAccount({me,session,phone}){
 
 export async function listAccounts(){
   const d=await db();
-  const reserved=await reservedWatcherId();
-  const query=reserved?{enabled:true,telegramUserId:{$ne:reserved}}:{enabled:true};
-  return d.collection('nexaccount_accounts').find(query,{projection:{sessionEncrypted:0}}).sort({connectedAt:1}).toArray();
+  return d.collection('nexaccount_accounts')
+    .find({enabled:true},{projection:{sessionEncrypted:0}})
+    .sort({connectedAt:1})
+    .toArray();
 }
 
 export async function listAccountsForWorker({limit=cfg.maxRuntimesPerWorker}={}){
   const d=await db();
-  const reserved=await reservedWatcherId();
   const {start,end}=workerBucketRange();
   const query={
     enabled:true,
-    runtimeBucket:{$gte:start,$lte:end},
-    ...(reserved?{telegramUserId:{$ne:reserved}}:{})
+    sessionRepairRequired:{$ne:true},
+    runtimeBucket:{$gte:start,$lte:end}
   };
   return d.collection('nexaccount_accounts')
     .find(query,{projection:{sessionEncrypted:0}})
@@ -271,8 +265,6 @@ export async function accountRecord(telegramUserId){
 }
 
 export async function enableAccount(telegramUserId){
-  const reserved=await reservedWatcherId();
-  if(reserved&&String(telegramUserId)===reserved)throw new Error('NexCanal watcher account cannot be enabled in NexAccount');
   const d=await db();
   await d.collection('nexaccount_accounts').updateOne(
     {telegramUserId:String(telegramUserId)},
@@ -282,12 +274,43 @@ export async function enableAccount(telegramUserId){
 }
 
 export async function accountWithSession(telegramUserId){
-  const reserved=await reservedWatcherId();
-  if(reserved&&String(telegramUserId)===reserved)return null;
   const d=await db();
-  const a=await d.collection('nexaccount_accounts').findOne({telegramUserId:String(telegramUserId),enabled:true});
+  const a=await d.collection('nexaccount_accounts').findOne({
+    telegramUserId:String(telegramUserId),
+    enabled:true,
+    sessionRepairRequired:{$ne:true}
+  });
   if(!a)return null;
   return {...a,session:decryptSession(a.sessionEncrypted)};
+}
+
+export async function markSessionRepairRequired(telegramUserId,reason='session_repair_required'){
+  const d=await db(),now=new Date();
+  await d.collection('nexaccount_accounts').updateOne(
+    {telegramUserId:String(telegramUserId)},
+    {$set:{
+      enabled:true,
+      sessionRepairRequired:true,
+      sessionRepairReason:String(reason||'session_repair_required').slice(0,120),
+      sessionRepairAt:now,
+      updatedAt:now
+    }}
+  );
+  return accountRecord(telegramUserId);
+}
+
+export async function clearSessionRepairRequired(telegramUserId){
+  const d=await db(),now=new Date();
+  await d.collection('nexaccount_accounts').updateOne(
+    {telegramUserId:String(telegramUserId)},
+    {$set:{
+      sessionRepairRequired:false,
+      sessionRepairReason:'',
+      sessionRepairAt:null,
+      updatedAt:now
+    }}
+  );
+  return accountRecord(telegramUserId);
 }
 
 
