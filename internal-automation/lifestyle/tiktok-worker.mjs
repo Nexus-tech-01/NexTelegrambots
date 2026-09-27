@@ -2,7 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {analyzeTikTokVideo} from './tiktok-video-analyzer.mjs';\nimport {buildStyledCaptions} from './tiktok-caption-style.mjs';
+import {analyzeTikTokVideo} from './tiktok-video-analyzer.mjs';
+import {buildStyledCaptions} from './tiktok-caption-style.mjs';
 
 const run=promisify(execFile);
 const token=String(process.env.NEXCANAL__BOT_TOKEN||'').trim();
