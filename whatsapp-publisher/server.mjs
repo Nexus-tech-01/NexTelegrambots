@@ -509,12 +509,24 @@ async function sendPublication(jid,destination,pub){
   const groupFallback=[pub.text,linksText(buttons)].filter(Boolean).join('\n\n');
 
   if(!pub.media.length){
+    // WhatsApp newsletters/channels do not reliably render Baileys native-flow
+    // interactive messages. A successful relay can still appear to followers
+    // as “channel update unsupported”. Keep channel updates strictly to
+    // standard text/media payloads and flatten Telegram buttons into links.
+    if(!isGroup){
+      await socket.sendMessage(
+        jid,
+        {text:channelText||'Publication Nextech'}
+      );
+      return;
+    }
+
     if(buttons.length){
       const ok=await nativeButtons(
         jid,
         pub.text||'Publication Nextech',
         buttons,
-        {forwarded:isGroup}
+        {forwarded:true}
       );
       if(ok){
         if(buttons.length>3){
@@ -527,28 +539,28 @@ async function sendPublication(jid,destination,pub){
       }
       await socket.sendMessage(
         jid,
-        {text:(isGroup?groupFallback:channelText)||'Publication Nextech',...(forwardContext?{contextInfo:forwardContext}:{})}
+        {text:groupFallback||'Publication Nextech',...(forwardContext?{contextInfo:forwardContext}:{})}
       );
       return;
     }
 
     await socket.sendMessage(
       jid,
-      {text:(isGroup?pub.text:channelText)||'Publication Nextech',...(forwardContext?{contextInfo:forwardContext}:{})}
+      {text:pub.text||'Publication Nextech',...(forwardContext?{contextInfo:forwardContext}:{})}
     );
     return;
   }
 
-  // The publication media is sent first. URL actions are then rendered as
-  // native CTA buttons on both groups and newsletters. In groups we also add
-  // the newsletter-forward attribution; on the newsletter itself that
-  // attribution would be redundant.
+  // Channels/newsletters receive only standard media updates. Telegram URL
+  // buttons are flattened into the first media caption so followers never get
+  // an unsupported interactive channel-update placeholder. Groups keep the
+  // richer native CTA flow with a plain-text fallback.
   for(let i=0;i<pub.media.length;i++){
-    const caption=i===0?pub.text:undefined;
+    const caption=i===0?((isGroup?pub.text:channelText)||undefined):undefined;
     await sendOneMedia(jid,pub.media[i],caption,isGroup?forwardContext:undefined);
   }
 
-  if(buttons.length){
+  if(isGroup&&buttons.length){
     const ok=await nativeButtons(
       jid,
       'Liens de la publication',
