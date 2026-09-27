@@ -176,6 +176,34 @@ function displayCommand(name) {
   return '/' + value[0].toUpperCase() + value.slice(1);
 }
 
+function applyCanonicalCommandPolicy(command, canonicalName = '') {
+  if (!command || typeof command !== 'object') return command;
+
+  const canonical = clean(
+    canonicalName ||
+    command.aliasFor ||
+    command.name
+  ).normalize('NFKC').toLowerCase();
+
+  if (canonical === 'hidetag') {
+    return {
+      ...command,
+      adminOnly: false,
+      groupOnly: true,
+      description: 'Mention silencieuse des membres'
+    };
+  }
+
+  if (canonical === 'code') {
+    return {
+      ...command,
+      description: 'Générer/écrire le code de programmation demandé'
+    };
+  }
+
+  return command;
+}
+
 function liveCanonicalCatalog(language) {
   if (!LIVE_TELEGRAM_REGISTRY) return '';
 
@@ -189,17 +217,21 @@ function liveCanonicalCatalog(language) {
     lines.push('[' + category + ']');
 
     for (const command of commands) {
-      const name = displayCommand(command?.name);
+      const effective = applyCanonicalCommandPolicy(
+        command,
+        command?.aliasFor || command?.name
+      );
+      const name = displayCommand(effective?.name);
       if (!name) continue;
 
-      const description = clean(command?.description);
+      const description = clean(effective?.description);
       const flags = [];
 
-      if (command?.ownerOnly) flags.push(fr ? 'propriétaire' : 'owner');
-      if (command?.adminOnly) flags.push(fr ? 'admin groupe' : 'group admin');
-      if (command?.groupOnly) flags.push(fr ? 'groupe' : 'group');
-      if (command?.privateOnly) flags.push(fr ? 'privé' : 'private');
-      if (command?.selfOnly) flags.push(fr ? 'compte connecté' : 'connected account');
+      if (effective?.ownerOnly) flags.push(fr ? 'propriétaire' : 'owner');
+      if (effective?.adminOnly) flags.push(fr ? 'admin groupe' : 'group admin');
+      if (effective?.groupOnly) flags.push(fr ? 'groupe' : 'group');
+      if (effective?.privateOnly) flags.push(fr ? 'privé' : 'private');
+      if (effective?.selfOnly) flags.push(fr ? 'compte connecté' : 'connected account');
 
       const suffix = flags.length ? ' [' + flags.join(', ') + ']' : '';
       lines.push(
@@ -253,9 +285,10 @@ function liveCommandAnswer(text, language) {
     if (!command) continue;
 
     const canonical = clean(command.aliasFor || command.name);
-    const canonicalCommand =
-      LIVE_TELEGRAM_REGISTRY.commands.get(canonical) ||
-      command;
+    const canonicalCommand = applyCanonicalCommandPolicy(
+      LIVE_TELEGRAM_REGISTRY.commands.get(canonical) || command,
+      canonical
+    );
 
     const fr = language === 'fr';
     const description = clean(canonicalCommand.description);
