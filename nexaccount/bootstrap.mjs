@@ -91,8 +91,32 @@ async function pidAlive(pid){
   try{process.kill(pid,0);return true}catch{return false}
 }
 
+async function processCommandLine(pid){
+  if(!pid)return '';
+  try{
+    const raw=await fsp.readFile('/proc/'+pid+'/cmdline');
+    return raw.toString('utf8').replace(/\0/g,' ').trim();
+  }catch{return ''}
+}
+
+async function isNexAccountDaemonPid(pid){
+  const cmd=await processCommandLine(pid);
+  if(!cmd)return false;
+  const daemon=path.join(here,'daemon.mjs');
+  return cmd.includes(daemon)||(cmd.includes('daemon.mjs')&&cmd.includes('nexaccount'));
+}
+
+async function forgetStalePid(pid){
+  try{await fsp.unlink(pidFile)}catch(error){if(error?.code!=='ENOENT')console.warn('Could not remove stale NexAccount pid file:',String(error?.message||error))}
+  if(pid)console.warn('Ignored stale NexAccount pid file pointing to unrelated pid='+pid);
+}
+
 async function stopOldProcess(pid){
   if(!pid||!(await pidAlive(pid)))return;
+  if(!(await isNexAccountDaemonPid(pid))){
+    await forgetStalePid(pid);
+    return;
+  }
   try{process.kill(pid,'SIGTERM')}catch{}
   for(let i=0;i<60;i++){
     if(!(await pidAlive(pid)))return;
@@ -117,8 +141,11 @@ if(restart){
 }else{
   const pid=await oldPid();
   if(pid&&await pidAlive(pid)){
-    console.log('NexAccount process already running pid='+pid);
-    process.exit(0);
+    if(await isNexAccountDaemonPid(pid)){
+      console.log('NexAccount process already running pid='+pid);
+      process.exit(0);
+    }
+    await forgetStalePid(pid);
   }
 }
 
