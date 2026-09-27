@@ -17,6 +17,47 @@ const BRIDGE_KEY=String(process.env.NEXCONTROL_BRIDGE_TOKEN||'').trim();
 const META_URL=String(process.env.INTERROUTE_META_URL||'http://127.0.0.1:8788/internal/v1/actions');
 const WA_URL=String(process.env.INTERROUTE_WA_URL||'http://127.0.0.1:18787/publish');
 const TG_BASE=TG_TOKEN?'https://api.telegram.org/bot'+TG_TOKEN:'';
+const TG_FILE_BASE=TG_TOKEN?'https://api.telegram.org/file/bot'+TG_TOKEN:'';
+const FACEBOOK_MEDIA_PROXY_TTL_MS=Math.max(60000,Number(process.env.INTERROUTE_FACEBOOK_MEDIA_PROXY_TTL_MS||10*60*1000));
+const facebookMediaProxy=new Map();
+function imageMime(name='',hint=''){
+  const h=String(hint||'').toLowerCase();
+  if(h.startsWith('image/'))return h.split(';')[0];
+  const n=String(name||'').toLowerCase().split(/[?#]/)[0];
+  if(n.endsWith('.png'))return 'image/png';
+  if(n.endsWith('.webp'))return 'image/webp';
+  if(n.endsWith('.gif'))return 'image/gif';
+  if(n.endsWith('.bmp'))return 'image/bmp';
+  return 'image/jpeg';
+}
+function registerFacebookMedia(media){
+  if(!media?.fileId&&!media?.localPath)return '';
+  const token=crypto.randomBytes(24).toString('hex');
+  facebookMediaProxy.set(token,{fileId:String(media.fileId||''),localPath:String(media.localPath||''),fileName:String(media.fileName||''),mimetype:String(media.mimetype||''),expiresAt:now()+FACEBOOK_MEDIA_PROXY_TTL_MS});
+  return 'http://127.0.0.1:'+PORT+'/internal-media/'+token;
+}
+async function loadFacebookMedia(token){
+  const item=facebookMediaProxy.get(String(token||''));
+  if(!item||Number(item.expiresAt||0)<now()){facebookMediaProxy.delete(String(token||''));throw new Error('facebook_media_proxy_expired');}
+  let bytes,mime=imageMime(item.fileName,item.mimetype);
+  if(item.localPath){
+    bytes=await fsp.readFile(item.localPath);
+  }else if(item.fileId){
+    if(!TG_FILE_BASE)throw new Error('telegram_publisher_unconfigured');
+    const info=await tg('getFile',{file_id:item.fileId},30000);
+    const filePath=String(info?.file_path||'');
+    if(!filePath)throw new Error('telegram_getfile_missing_path');
+    mime=imageMime(item.fileName||filePath,item.mimetype);
+    const rr=await fetch(TG_FILE_BASE+'/'+filePath,{headers:{'user-agent':'Nexus-Interroute/1.1'},signal:AbortSignal.timeout(30000)});
+    if(!rr.ok)throw new Error('telegram_file_fetch_http_'+rr.status);
+    const declared=Number(rr.headers.get('content-length')||0);
+    if(declared>25*1024*1024)throw new Error('facebook_media_too_large');
+    bytes=Buffer.from(await rr.arrayBuffer());
+  }else throw new Error('facebook_media_reference_missing');
+  if(!bytes?.length)throw new Error('facebook_media_empty');
+  if(bytes.length>25*1024*1024)throw new Error('facebook_media_too_large');
+  return {bytes,mime};
+}
 
 const now=()=>Date.now();
 const iso=()=>new Date().toISOString();
@@ -144,15 +185,17 @@ function facebookAdapt(e){
   const c=e.content,apkLike=c.media.some(m=>m.type==='document'||m.type==='file'||/\.(?:apk|xapk|apks|zip|rar|7z)$/i.test(m.fileName));
   if(apkLike)return {skip:true,reason:'facebook_incompatible_document'};
   const links=c.buttons.map(b=>b.text+': '+b.url),message=[c.text,...links].filter(Boolean).join('\n\n').slice(0,63206);
-  const link=c.media.map(m=>m.url).find(Boolean)||c.buttons.map(b=>b.url).find(Boolean)||'';
-  return {skip:false,message,link};
+  const image=c.media.find(m=>m.type==='photo'||m.type==='image'||String(m.mimetype||'').toLowerCase().startsWith('image/')||/\.(?:jpe?g|png|webp|gif|bmp)$/i.test(m.fileName||''));
+  const link=image?(c.buttons.map(b=>b.url).find(Boolean)||''):(c.media.map(m=>m.url).find(Boolean)||c.buttons.map(b=>b.url).find(Boolean)||'');
+  return {skip:false,message,link,image:image||null};
 }
 async function publishFacebook(e,r){
   if(e.dryRun)return {dryRun:true,platform:'facebook'};
   const a=facebookAdapt(e);if(a.skip)return {skipped:true,reason:a.reason};
   if(!META_KEY)throw new Error('facebook_publisher_unconfigured');
   const pageId=String(r.pageId||FACEBOOK_PAGE_ID||'').trim();
-  const payload={action:'publish_page_post',message:a.message,link:a.link||undefined,published:true,idempotencyKey:e.idempotencyKey,sourceMessageId:e.source?.messageId??undefined,...(pageId?{pageId}:{})};
+  const mediaUrl=a.image?(a.image.url||registerFacebookMedia(a.image)):'';
+  const payload={action:'publish_page_post',message:a.message,link:a.link||undefined,mediaUrl:mediaUrl||undefined,fileName:a.image?.fileName||undefined,published:true,idempotencyKey:e.idempotencyKey,sourceMessageId:e.source?.messageId??undefined,...(pageId?{pageId}:{})};
   const res=await fetch(META_URL,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+META_KEY},body:JSON.stringify(payload),signal:AbortSignal.timeout(FACEBOOK_TIMEOUT_MS)});
   const out=await res.json().catch(()=>({}));if(!res.ok)throw new Error(out.error||out.message||('facebook_http_'+res.status));return out;
 }
@@ -188,6 +231,19 @@ setInterval(()=>tick().catch(e=>console.error('[Interroute tick]',e)),TICK_MS).u
 const server=http.createServer(async(req,res)=>{
   try{
     const url=new URL(req.url,'http://localhost');
+    if(req.method==='GET'&&url.pathname.startsWith('/internal-media/')){
+      if(!authorized(req))return json(res,401,{error:'unauthorized'});
+      const token=decodeURIComponent(url.pathname.slice('/internal-media/'.length));
+      try{
+        const media=await loadFacebookMedia(token);
+        facebookMediaProxy.delete(token);
+        res.writeHead(200,{'content-type':media.mime,'content-length':media.bytes.length,'cache-control':'no-store','x-content-type-options':'nosniff'});
+        res.end(media.bytes);
+      }catch(error){
+        return json(res,404,{error:String(error?.message||error).slice(0,200)});
+      }
+      return;
+    }
     if(req.method==='GET'&&url.pathname==='/healthz'){const counts=state.events.reduce((a,e)=>(a[e.status]=(a[e.status]||0)+1,a),{});return json(res,200,{ok:true,service:'interroute',version:'1.0.0',queue:counts,events:state.events.length,telegramConfigured:Boolean(TG_TOKEN),facebookConfigured:Boolean(META_KEY)});}
     if(!authorized(req))return json(res,401,{error:'unauthorized'});
     if(req.method==='GET'&&url.pathname==='/stats'){const routes={};for(const e of state.events)for(const r of e.routes){const k=r.platform+':'+r.status;routes[k]=(routes[k]||0)+1;}return json(res,200,{ok:true,events:state.events.length,routes,history:state.history.slice(0,50)});}
