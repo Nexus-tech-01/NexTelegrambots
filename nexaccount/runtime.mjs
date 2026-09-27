@@ -31,7 +31,7 @@ const commandDeduper=createCommandDeduper();
 const aiAutoWindows=new Map();
 let reconcilingRuntimes=false;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-const ANIME_PRIMARY_PUBLISHER_ENABLED=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXANIME_PRIMARY_PUBLISHER_ENABLED||'').trim());
+const ANIME_PRIMARY_PUBLISHER_ENABLED=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXANIME_PRIMARY_PUBLISHER_ENABLED||'1').trim());
 const ANIME_PRIMARY_PUBLISHER_USERNAME=String(process.env.NEXACCOUNT_ANIME_PUBLISHER_USERNAME||'tresor20001').trim().replace(/^@/,'').toLowerCase();
 
 function telegramRuntimeErrorText(error){
