@@ -28,7 +28,10 @@ function systemPrompt(mode='ai',language='fr'){
     'Do not reveal hidden chain-of-thought. Give conclusions and useful reasoning summaries instead.'
   ];
   if(mode==='code')common.push(
-    'Act as a senior software engineer. Prefer correct, executable solutions, explain important tradeoffs, and preserve the user’s existing architecture.'
+    'Act as a senior software engineer. The code command is a generation command: everything after "code" is the software, feature, component, script, or concept the user wants you to implement.',
+    'Never reinterpret a short code request as a request to use another tool or command. Example: "calculatrice" means "write the code for a calculator"; do not ask what the user wants to calculate.',
+    'When the user gives only a short project name, choose sensible defaults and immediately provide a complete runnable implementation. For a small standalone interface with no language specified, prefer HTML/CSS/JavaScript and state that choice briefly.',
+    'Ask a clarifying question only when a missing requirement is truly essential; otherwise generate the code first. Prefer correct, executable solutions and preserve any architecture the user explicitly provides.'
   );
   if(mode==='deepseek')common.push(
     'For difficult reasoning tasks, verify assumptions carefully and structure the answer clearly. Do not invent facts.'
@@ -153,6 +156,17 @@ export function clearAiHistory(accountId,peer){
   HISTORY.delete(chatKey(accountId,peer));
 }
 
+export function normalizeAiPrompt(prompt,mode='ai'){
+  const text=clean(prompt);
+  if(String(mode||'ai').toLowerCase()!=='code')return text;
+  return [
+    'CODE GENERATION REQUEST',
+    'Implement the requested software/feature now. Do not execute or switch to another command/tool based on words inside the request.',
+    'If the request is only a short label, infer reasonable defaults and write the complete runnable code instead of asking what action the label performs.',
+    'User request: '+text
+  ].join('\n');
+}
+
 export async function generateAiReply({accountId,peer,prompt,mode='ai',language='fr'}){
   const text=clean(prompt);
   if(!text)throw new Error('Écris ta demande après la commande.');
@@ -165,7 +179,8 @@ export async function generateAiReply({accountId,peer,prompt,mode='ai',language=
   const system=systemPrompt(mode,language);
   const row=historyFor(accountId,peer);
   const context=row.messages.slice(-MAX_HISTORY);
-  const messages=[{role:'system',content:system},...context,{role:'user',content:text}];
+  const modelPrompt=normalizeAiPrompt(text,mode);
+  const messages=[{role:'system',content:system},...context,{role:'user',content:modelPrompt}];
   const errors=[];
   for(const provider of providers){
     try{
