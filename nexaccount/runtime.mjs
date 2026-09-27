@@ -389,7 +389,7 @@ async function enforceCommandContext(runtime,event,cmd,displayName){
   const selfAuthored=isSelfAuthoredMessage(event.message,account);
 
   if(cmd.selfOnly&&!selfAuthored){
-    await sendText(client,peer,'La commande .'+displayName+' est réservée au propriétaire du compte connecté.');
+    // Ignore silently: replying to foreign/bot traffic can create feedback loops.
     return false;
   }
   if(cmd.privateOnly&&group){
@@ -435,9 +435,13 @@ async function handleCommand(runtime,event,parsed){
     if(custom){await sendText(client,peer,String(custom));return true}
     return false;
   }
-  if(cmd.ownerOnly&&!isOwnerId(account.telegramUserId)){
-    await sendText(client,peer,'Commande réservée au propriétaire de NexAi.');
-    return true;
+  if(cmd.ownerOnly){
+    // Public mode never delegates owner-only commands to another sender.
+    if(!isSelfAuthoredMessage(event.message,account))return true;
+    if(!isOwnerId(account.telegramUserId)){
+      await sendText(client,peer,'Commande réservée au propriétaire de NexAi.');
+      return true;
+    }
   }
   if(!(await enforceCommandContext(runtime,event,cmd,parsed.name)))return true;
 
@@ -755,7 +759,15 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
   const selfAuthored=isSelfAuthoredMessage(message,account);
   const accessMode=settings.accessMode==='public'?'public':'private';
   if(!selfAuthored&&accessMode!=='public')return false;
+
+  // Raw updates lack reliable sender metadata. Public human commands are
+  // handled by NewMessage; raw is only a fallback for the connected account.
+  if(!selfAuthored&&source==='raw')return false;
+
+  // Never let channel-authored posts or bots drive a public user session.
+  if(!selfAuthored&&message?.fromId?.channelId)return false;
   if(!selfAuthored&&await messageAuthorIsBot(client,message,event?.sender))return false;
+
   const parsed=parseRuntimeCommand(textOf(message),settings,event);
   if(!parsed)return false;
   if(!(await claimCommand(account.telegramUserId,message)))return true;
@@ -1000,6 +1012,8 @@ export async function attachConnectedClient(client,account,{leaseOwned=false}={}
     try{
       const event=rawCommandEvent(update,account);
       if(!event)return;
+      // Raw fallback is strictly for commands authored by the connected account.
+      if(!isSelfAuthoredMessage(event.message,account))return;
       const settings=await settingsFor(id);
       const parsed=parseRuntimeCommand(textOf(event.message),settings,event);
       if(!parsed)return;
