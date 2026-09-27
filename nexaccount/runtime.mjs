@@ -953,12 +953,26 @@ async function maybeAutoReact(runtime,event){
   let chat=event.chat||null;
   if(!chat){try{chat=await client.getEntity(message.peerId)}catch{}}
   const username=normalizeAutomationTarget(chat?.username||'');
+  const wildcard=targets.some(x=>{
+    const v=String(x||'').trim().toLowerCase();
+    return v==='*'||v==='all'||v==='all_channels'||v==='toutes_les_chaines';
+  });
+  const isBroadcastChannel=Boolean(
+    chat?.broadcast===true ||
+    (message.peerId?.channelId && chat?.megagroup!==true && event?.isGroup!==true)
+  );
   const matchedTarget=targets.find(x=>{
     const v=normalizeAutomationTarget(x);
     return Boolean(v)&&(v===chatId||v===username);
   });
-  if(!matchedTarget)return null;
-  return sendConfiguredReaction(runtime,message.peerId,message.id,settings,normalizeAutomationTarget(matchedTarget)||chatId);
+  if(!matchedTarget&&!(wildcard&&isBroadcastChannel))return null;
+  return sendConfiguredReaction(
+    runtime,
+    message.peerId,
+    message.id,
+    settings,
+    matchedTarget?(normalizeAutomationTarget(matchedTarget)||chatId):(username||chatId||'channel')
+  );
 }
 
 async function maybeAutoModerate(runtime,event){
