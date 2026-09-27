@@ -491,7 +491,7 @@ async function handleCommand(runtime,event,parsed){
       await sendText(client,peer,'Compte : '+(account.username?'@'+account.username:account.firstName)+'\nTelegram Premium : '+(account.premium?'Oui':'Non')+'\nNexAccount : connecté');
       return true;
     case 'help':
-      await sendText(client,peer,'Utilise .menu pour afficher le menu interactif.');
+      await sendText(client,peer,'Utilise menu (ou .menu / /menu) pour afficher le menu interactif.');
       return true;
     case 'join':
       try{await joinTarget(client,parsed.args[0]);await sendText(client,peer,'Cible rejointe.')}
@@ -832,13 +832,13 @@ async function pollRecentCommands(runtime){
       const accessMode=settings.accessMode==='public'?'public':'private';
       if(!selfAuthored&&accessMode!=='public')return;
       const raw=textOf(message);
-      // Polling is deliberately restricted to explicitly-prefixed commands.
-      // Prefixless commands are handled by live/raw Telegram updates. Re-reading
-      // bare commands from chat history is unsafe because a restart can replay
-      // old commands and make NexAI appear to command itself forever.
+      // The poller is a short-gap fallback for every supported command form:
+      // bare ("menu"), slash ("/menu") and the configured prefix (".menu").
+      // Replay remains bounded by the watermark + freshness checks above, while
+      // claimCommand() provides the durable duplicate guard across workers/restarts.
       const pollEvent={message,isGroup};
       const parsed=parseRuntimeCommand(raw,settings,pollEvent);
-      if(!parsed||parsed.kind!=='prefix')return;
+      if(!parsed)return;
       await maybeHandleSelfCommand(runtime,pollEvent,'poll');
     }
 
@@ -865,8 +865,7 @@ async function pollRecentCommands(runtime){
       const topParsed=parseRuntimeCommand(topRaw,settings,topEvent);
       const topIsOwnCommand=
         (isSelfAuthoredMessage(top,account)||settings.accessMode==='public')&&
-        !!topParsed&&
-        topParsed.kind==='prefix';
+        !!topParsed;
 
       if(!topIsOwnCommand&&topStamp&&now-topStamp<45000){
         try{
