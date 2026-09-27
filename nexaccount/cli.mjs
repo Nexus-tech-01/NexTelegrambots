@@ -62,6 +62,17 @@ try{
       if(!args[0])throw new Error('encrypted payload required');
       out=await secureRpc(args[0]);
       break;
+    case 'qr-start':
+      out=await call('POST','/pair/qr-start',{});
+      break;
+    case 'qr-status':
+      if(!args[0])throw new Error('pair id required');
+      out=await call('GET','/pair/qr-status?id='+encodeURIComponent(args[0]));
+      break;
+    case 'qr-cancel':
+      if(!args[0])throw new Error('pair id required');
+      out=await call('POST','/pair/cancel',{id:args[0]});
+      break;
     case 'pair-start':
       if(!args[0])throw new Error('phone required');
       out=await call('POST','/pair/start',{phone:args[0]});
@@ -79,7 +90,7 @@ try{
       out=await call('GET','/pair/status?id='+encodeURIComponent(args[0]));
       break;
     default:
-      throw new Error('usage: cli.mjs health|accounts|engines|menu-probe TELEGRAM_USER_ID [peer]|command-test TELEGRAM_USER_ID TEXT [peer]|group-smoke TELEGRAM_USER_ID|anime-status|anime-discover [@username]|anime-publish-now [@username]|anime-retry|anime-dedupe [@username] [--execute]|anime-rebuild [@username] [deadline]|public-key|secure ENVELOPE|pair-status ID');
+      throw new Error('usage: cli.mjs health|accounts|engines|menu-probe TELEGRAM_USER_ID [peer]|command-test TELEGRAM_USER_ID TEXT [peer]|group-smoke TELEGRAM_USER_ID|anime-status|anime-discover [@username]|anime-publish-now [@username]|anime-retry|anime-dedupe [@username] [--execute]|anime-rebuild [@username] [deadline]|public-key|secure ENVELOPE|qr-start|qr-status ID|qr-cancel ID|pair-status ID');
   }
   process.stdout.write(JSON.stringify(out));
 }catch(e){
