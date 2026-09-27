@@ -518,8 +518,14 @@ function telegramCommandMenu(){
 async function syncTelegramCommandMenu(bot){
   const rows=telegramCommandMenu();
   await bot.api.setMyCommands(rows);
-  await bot.api.setChatMenuButton({menu_button:{type:'commands'}}).catch(()=>{});
-  console.log('[NexAI] Telegram command menu synced · '+rows.length+' commands');
+  await bot.api.setChatMenuButton({
+    menu_button:{
+      type:'web_app',
+      text:'Open',
+      web_app:{url:'https://nex-telegrambots.vercel.app/'}
+    }
+  });
+  console.log('[NexAI] Telegram command menu synced · '+rows.length+' commands · Mini App menu button active');
 }
 
 export async function startInlineBot(){
