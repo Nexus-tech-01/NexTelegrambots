@@ -12,25 +12,29 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
-      - name: VPS console
+      - name: Start VPS
         run: |
-          echo '=== CONSOLE ==='
-          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"
+          echo '=== START ==='
+          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-restart-once"
           echo
-      - name: Root and app directories
-        run: |
-          echo '=== ROOT ==='
-          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-root-list-live"
-          echo
-          for d in bots services nexcanal data; do
-            echo "=== /$d ==="
-            curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=%2F$d"
-            echo
-          done
-      - name: Runtime snapshot
+      - name: Wait for boot
+        run: sleep 20
+      - name: Runtime after boot
         run: |
           echo '=== RUNTIME ==='
           curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"
           echo
+      - name: Console after boot
+        run: |
+          echo '=== CONSOLE ==='
+          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"
+          echo
+      - name: Directories after boot
+        run: |
+          for d in bots services data; do
+            echo "=== /$d ==="
+            curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=%2F$d"
+            echo
+          done
