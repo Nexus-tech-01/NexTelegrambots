@@ -1,10 +1,42 @@
-import { db } from './store.mjs';
-import { ensureAnalyticsIndex, touchAnalyticsUser } from './analytics-indexer.mjs';
+import { db, listAccounts } from './store.mjs';
+import { touchAnalyticsUser } from './analytics-indexer.mjs';
 
-async function index(){
+const asDate=value=>{
+  if(!value)return null;
+  const d=value instanceof Date?value:new Date(value);
+  return Number.isNaN(d.getTime())?null:d;
+};
+
+const accountFirstSeen=account=>asDate(account?.createdAt||account?.connectedAt);
+const accountActivityAt=account=>asDate(
+  account?.lastActivityAt||
+  account?.lastRuntimeSeenAt||
+  account?.updatedAt||
+  account?.connectedAt||
+  account?.createdAt
+);
+
+async function multisessionAccounts(){
+  return listAccounts();
+}
+
+async function liveRuntimeMap(accounts=[]){
+  const ids=accounts.map(a=>String(a.telegramUserId||'')).filter(Boolean);
+  if(!ids.length)return new Map();
   const d=await db();
-  await ensureAnalyticsIndex({waitForFirst:true});
-  return d.collection('nexai_user_index');
+  const rows=await d.collection('nexaccount_runtime_leases').find({
+    _id:{$in:ids},
+    expiresAt:{$gt:new Date()}
+  }).toArray();
+  return new Map(rows.map(row=>[String(row._id),row]));
+}
+
+function languageOf(account){
+  const raw=String(account?.preferredLanguage||account?.telegramLanguage||'').trim().toLowerCase().replace('_','-');
+  if(!raw)return 'unknown';
+  if(raw.startsWith('fr'))return 'fr';
+  if(raw.startsWith('en'))return 'en';
+  return raw.slice(0,12);
 }
 
 export async function observeUser(from={},meta={}){
@@ -48,115 +80,206 @@ export async function recordEvent(from,type,meta={}){
   const id=String(from?.id??from?.telegramUserId??'').trim();
   if(!id)return;
   await observeUser(from,meta);
-  const d=await db();
+  const d=await db(),now=new Date();
   await d.collection('nexai_events').insertOne({
     telegramUserId:id,
     type:String(type||'interaction'),
     source:String(meta.source||'nexai'),
     command:String(meta.command||''),
     chatType:String(meta.chatType||''),
-    createdAt:new Date()
+    createdAt:now
   });
+  if(String(meta.source||'')==='nexaccount'){
+    await d.collection('nexaccount_accounts').updateOne(
+      {telegramUserId:id,enabled:true},
+      {$set:{lastActivityAt:now,lastRuntimeSeenAt:now}}
+    ).catch(()=>{});
+  }
 }
 
 export async function analyticsSummary(){
-  const c=await index();
-  const d24=new Date(Date.now()-86400000);
-  const [users,active24,new24,tgPremium,paired,countries]=await Promise.all([
-    c.estimatedDocumentCount(),
-    c.countDocuments({lastSeen:{$gte:d24}}),
-    c.countDocuments({firstSeen:{$gte:d24}}),
-    c.countDocuments({telegramPremium:true}),
-    c.countDocuments({paired:true}),
-    c.distinct('countryIso',{countryIso:{$nin:[null,'']}})
-  ]);
-  return {users,active24,new24,tgPremium,paired,countries:countries.length};
+  const accounts=await multisessionAccounts();
+  const live=await liveRuntimeMap(accounts);
+  const d24=Date.now()-86400000;
+  const countries=new Set();
+  let active24=0,new24=0,tgPremium=0;
+  for(const account of accounts){
+    const id=String(account.telegramUserId||'');
+    const activity=accountActivityAt(account)?.getTime()||0;
+    const first=accountFirstSeen(account)?.getTime()||0;
+    if(live.has(id)||activity>=d24)active24++;
+    if(first>=d24)new24++;
+    if(account.premium===true)tgPremium++;
+    const country=String(account.countryIso||'').trim().toUpperCase();
+    if(country)countries.add(country);
+  }
+  return {
+    users:accounts.length,
+    active24,
+    new24,
+    tgPremium,
+    paired:accounts.length,
+    live:live.size,
+    countries:countries.size
+  };
 }
 
 export async function botStats(){
-  const c=await index();
-  const sources=['nexdownloader','nexgroup','nexgame','nexstick','nexwhisper'];
-  const counts=await Promise.all(sources.map(s=>c.countDocuments({sources:s})));
-  const [twoPlus,threePlus,allFive,total]=await Promise.all([
-    c.countDocuments({$expr:{$gte:[{$size:{$setIntersection:['$sources',sources]}},2]}}),
-    c.countDocuments({$expr:{$gte:[{$size:{$setIntersection:['$sources',sources]}},3]}}),
-    c.countDocuments({$expr:{$eq:[{$size:{$setIntersection:['$sources',sources]}},5]}}),
-    c.estimatedDocumentCount()
-  ]);
-  return {total,bySource:Object.fromEntries(sources.map((s,i)=>[s,counts[i]]),),multi:{twoPlus,threePlus,allFive}};
+  const accounts=await multisessionAccounts();
+  const live=await liveRuntimeMap(accounts);
+  const ids=accounts.map(a=>String(a.telegramUserId||'')).filter(Boolean);
+  const d=await db();
+  const settings=ids.length
+    ? await d.collection('nexaccount_settings').find(
+        {telegramUserId:{$in:ids}},
+        {projection:{telegramUserId:1,accessMode:1}}
+      ).toArray()
+    : [];
+  const publicMode=settings.filter(s=>s.accessMode==='public').length;
+  const premium=accounts.filter(a=>a.premium===true).length;
+  return {
+    total:accounts.length,
+    live:live.size,
+    offline:Math.max(0,accounts.length-live.size),
+    premium,
+    publicMode,
+    privateMode:Math.max(0,accounts.length-publicMode),
+    workers:new Set([...live.values()].map(x=>String(x.workerId||'')).filter(Boolean)).size
+  };
 }
 
 export async function activityStats(){
-  const c=await index(),now=Date.now();
-  const [day,week,month,total]=await Promise.all([
-    c.countDocuments({lastSeen:{$gte:new Date(now-86400000)}}),
-    c.countDocuments({lastSeen:{$gte:new Date(now-7*86400000)}}),
-    c.countDocuments({lastSeen:{$gte:new Date(now-30*86400000)}}),
-    c.estimatedDocumentCount()
-  ]);
-  return {day,week,month,total};
+  const accounts=await multisessionAccounts();
+  const live=await liveRuntimeMap(accounts);
+  const now=Date.now();
+  const countSince=ms=>accounts.filter(account=>{
+    const id=String(account.telegramUserId||'');
+    if(live.has(id))return true;
+    const t=accountActivityAt(account)?.getTime()||0;
+    return t>=now-ms;
+  }).length;
+  return {
+    live:live.size,
+    day:countSince(86400000),
+    week:countSince(7*86400000),
+    month:countSince(30*86400000),
+    total:accounts.length
+  };
 }
 
 export async function growthStats(days=14){
-  const c=await index();
+  const accounts=await multisessionAccounts();
   const n=Math.max(1,Math.min(60,Number(days)||14));
   const start=new Date();start.setHours(0,0,0,0);start.setDate(start.getDate()-(n-1));
-  const rows=await c.aggregate([
-    {$match:{firstSeen:{$gte:start}}},
-    {$group:{_id:{$dateToString:{format:'%Y-%m-%d',date:'$firstSeen'}},count:{$sum:1}}},
-    {$sort:{_id:1}}
-  ]).toArray();
-  const map=new Map(rows.map(r=>[r._id,r.count]));
+  const counts=new Map();
+  for(const account of accounts){
+    const first=accountFirstSeen(account);
+    if(!first||first<start)continue;
+    const key=new Date(first.getTime()-first.getTimezoneOffset()*60000).toISOString().slice(0,10);
+    counts.set(key,(counts.get(key)||0)+1);
+  }
   const out=[];
   for(let i=0;i<n;i++){
     const d=new Date(start);d.setDate(start.getDate()+i);
-    const key=d.toISOString().slice(0,10);
-    out.push({date:key,count:map.get(key)||0});
+    const key=new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+    out.push({date:key,count:counts.get(key)||0});
   }
   return out;
 }
 
 export async function countryStats(limit=15){
-  const c=await index();
-  const [known,unknown,rows]=await Promise.all([
-    c.countDocuments({countryIso:{$nin:[null,'']}}),
-    c.countDocuments({$or:[{countryIso:{$exists:false}},{countryIso:null},{countryIso:''}]}),
-    c.aggregate([
-      {$match:{countryIso:{$nin:[null,'']}}},
-      {$group:{_id:'$countryIso',count:{$sum:1}}},
-      {$sort:{count:-1}},
-      {$limit:Math.max(1,Math.min(50,Number(limit)||15))}
-    ]).toArray()
-  ]);
-  return {known,unknown,rows:rows.map(r=>({country:r._id,count:r.count}))};
+  const accounts=await multisessionAccounts();
+  const counts=new Map();
+  let unknown=0;
+  for(const account of accounts){
+    const country=String(account.countryIso||'').trim().toUpperCase();
+    if(!country){unknown++;continue}
+    counts.set(country,(counts.get(country)||0)+1);
+  }
+  const rows=[...counts.entries()]
+    .sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))
+    .slice(0,Math.max(1,Math.min(50,Number(limit)||15)))
+    .map(([country,count])=>({country,count}));
+  return {known:accounts.length-unknown,unknown,rows};
 }
 
 export async function languageStats(){
-  const c=await index();
-  return c.aggregate([
-    {$group:{_id:{$ifNull:['$language','unknown']},count:{$sum:1}}},
-    {$sort:{count:-1}}
-  ]).toArray();
+  const accounts=await multisessionAccounts();
+  const counts=new Map();
+  for(const account of accounts){
+    const language=languageOf(account);
+    counts.set(language,(counts.get(language)||0)+1);
+  }
+  return [...counts.entries()]
+    .sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))
+    .map(([_id,count])=>({_id,count}));
+}
+
+export async function usersList(limit=40){
+  const accounts=await multisessionAccounts();
+  const live=await liveRuntimeMap(accounts);
+  return accounts
+    .map(account=>({
+      telegramUserId:String(account.telegramUserId||''),
+      username:String(account.username||''),
+      firstName:String(account.firstName||''),
+      lastName:String(account.lastName||''),
+      premium:account.premium===true,
+      countryIso:String(account.countryIso||'').toUpperCase(),
+      language:languageOf(account),
+      connectedAt:account.connectedAt||account.createdAt||null,
+      lastActivityAt:accountActivityAt(account),
+      live:live.has(String(account.telegramUserId||''))
+    }))
+    .sort((a,b)=>Number(b.live)-Number(a.live)||(new Date(b.connectedAt||0)-new Date(a.connectedAt||0)))
+    .slice(0,Math.max(1,Math.min(100,Number(limit)||40)));
 }
 
 export async function userAnalytics(query){
-  const c=await index();
+  const accounts=await multisessionAccounts();
   const raw=String(query||'').trim();
-  const safe=raw.slice(1).replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&');
-  const filter=raw.startsWith('@')
-    ? {username:{$regex:'^'+safe+'$',$options:'i'}}
-    : {telegramUserId:raw};
-  const user=await c.findOne(filter);
-  if(!user)return null;
-  const d=await db();
-  const eventCount=await d.collection('nexai_events').countDocuments({telegramUserId:user.telegramUserId});
-  const usageBySource=user.usageBySource||{};
-  const legacyCount=Object.values(usageBySource).reduce((a,b)=>a+Number(b||0),0);
-  return {...user,eventCount,totalCommandCount:legacyCount+eventCount};
+  const needle=raw.startsWith('@')?raw.slice(1).toLowerCase():'';
+  const account=raw.startsWith('@')
+    ? accounts.find(a=>String(a.username||'').toLowerCase()===needle)
+    : accounts.find(a=>String(a.telegramUserId||'')===raw);
+  if(!account)return null;
+
+  const id=String(account.telegramUserId||'');
+  const d=await db(),now=new Date();
+  const [lease,settings,eventCount,lastEvent]=await Promise.all([
+    d.collection('nexaccount_runtime_leases').findOne({_id:id,expiresAt:{$gt:now}}),
+    d.collection('nexaccount_settings').findOne({telegramUserId:id}),
+    d.collection('nexai_events').countDocuments({telegramUserId:id,source:'nexaccount',type:'command'}),
+    d.collection('nexai_events').find({telegramUserId:id,source:'nexaccount'}).sort({createdAt:-1}).limit(1).next()
+  ]);
+
+  return {
+    telegramUserId:id,
+    username:String(account.username||''),
+    firstName:String(account.firstName||''),
+    lastName:String(account.lastName||''),
+    countryIso:String(account.countryIso||'').toUpperCase(),
+    language:languageOf(account),
+    telegramPremium:account.premium===true,
+    paired:true,
+    live:Boolean(lease),
+    workerId:String(lease?.workerId||''),
+    accessMode:settings?.accessMode==='public'?'public':'private',
+    prefix:String(settings?.prefix||'.'),
+    firstSeen:accountFirstSeen(account),
+    lastSeen:lastEvent?.createdAt||accountActivityAt(account),
+    totalCommandCount:eventCount,
+    sources:['nexaccount']
+  };
 }
 
 export async function commandStats(){
   const d=await db();
-  await ensureAnalyticsIndex({waitForFirst:true});
-  return d.collection('nexai_command_stats').find({}).sort({count:-1}).limit(20).toArray();
+  return d.collection('nexai_events').aggregate([
+    {$match:{source:'nexaccount',type:'command',command:{$nin:['',null]}}},
+    {$group:{_id:{$toLower:'$command'},count:{$sum:1}}},
+    {$sort:{count:-1,_id:1}},
+    {$limit:20},
+    {$project:{_id:0,command:'$_id',count:1}}
+  ]).toArray();
 }
