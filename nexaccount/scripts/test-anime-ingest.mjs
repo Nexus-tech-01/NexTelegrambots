@@ -302,3 +302,26 @@ console.log('NexAnime ingest regression tests: OK');
   permanent.code='SOURCE_IDENTITY_MISMATCH';
   assert.equal(__test.isTransientPublishError(permanent),false);
 }
+
+
+// Source-specific platform numbering may call the same canonical cour/season
+// "Season 2". Only collapse it when no distinct AniList sequel was resolved
+// and the same episode is already published in an earlier season.
+{
+  const direct={ok:true,anilistId:196187,episodes:12};
+  assert.equal(__test.inferredSeasonAlias({
+    candidateSeason:2,episode:10,direct,
+    sequel:{ok:true,anilistId:196187,episodes:12},
+    priorSeason:1
+  }),1);
+  assert.equal(__test.inferredSeasonAlias({
+    candidateSeason:2,episode:10,direct,
+    sequel:{ok:true,anilistId:999999,episodes:12},
+    priorSeason:1
+  }),null);
+  assert.equal(__test.inferredSeasonAlias({
+    candidateSeason:2,episode:10,direct,
+    sequel:{ok:false,temporary:false},
+    priorSeason:0
+  }),null);
+}
