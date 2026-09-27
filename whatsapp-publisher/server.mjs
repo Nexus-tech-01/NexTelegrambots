@@ -343,6 +343,15 @@ async function connectWhatsApp({freshPairing=false}={}){
   socket=sock;
 
   sock.ev.on('creds.update',saveCreds);
+  attachWhatsAppCommandEngine(sock,{
+    state,
+    dataDir:DATA_DIR,
+    menuImageB64Path:path.join(DATA_DIR,'assets','nexai-menu.b64'),
+    getNewsletterInfo:()=>({
+      jid:state.channelJid||PRESENTATION_NEWSLETTER_JID,
+      name:state.channelTitle||'Nextech',
+    }),
+  });
   try{commandEngine?.detach?.();}catch{}
   commandEngine=attachWhatsAppCommandEngine(sock,{
     state,
