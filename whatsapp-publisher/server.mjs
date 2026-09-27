@@ -331,8 +331,10 @@ async function connectWhatsApp({freshPairing=false}={}){
     // direct/status traffic. Group/newsletter receipts remain available.
     shouldIgnoreJid:jid=>{
       if(!jid) return false;
+      // Ignore only the initial encrypted backlog. Live private chats must stay
+      // available because NexAI commands are intentionally usable in DM too.
       if(Date.now()-socketStartedAt<45000) return true;
-      return /@s\.whatsapp\.net$/.test(jid) || /@lid$/.test(jid) || /@broadcast$/.test(jid);
+      return /@broadcast$/.test(jid);
     },
     generateHighQualityLinkPreview:true,
     keepAliveIntervalMs:30000,
