@@ -5,7 +5,7 @@ import { NewMessage } from 'teleproto/events/index.js';
 import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { cfg, isOwnerId } from './config.mjs';
 import { commandMap } from './commands.mjs';
-import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, claimCommandDelivery, disableAccount, enableAccount, listAccountsForWorker, patchSettings, releaseRuntimeLease, renewRuntimeLease, settingsFor, sharedBotIdentity } from './store.mjs';
+import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, claimCommandDelivery, disableAccount, enableAccount, listAccountsForWorker, markSessionRepairRequired, patchSettings, releaseRuntimeLease, renewRuntimeLease, settingsFor, sharedBotIdentity } from './store.mjs';
 import { listStyles } from './styles.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { recordEvent } from './analytics.mjs';
@@ -55,7 +55,7 @@ async function quarantineAuthKeyDuplicated(runtime,error,source='runtime'){
     await stopAnimeIngest(runtime).catch(()=>{});
     try{await runtime.client?.disconnect?.()}catch{}
     runtimes.delete(id);
-    await disableAccount(id).catch(e=>console.error('[NexAccount session]',id,'disable_failed',String(e?.message||e).slice(0,180)));
+    await markSessionRepairRequired(id,'AUTH_KEY_DUPLICATED').catch(e=>console.error('[NexAccount session]',id,'repair_flag_failed',String(e?.message||e).slice(0,180)));
     await releaseRuntimeLease(id).catch(()=>{});
     return true;
   })();
@@ -1294,7 +1294,8 @@ async function connectSavedAccount(publicAccount){
     return runtime?id:null;
   }catch(error){
     await releaseRuntimeLease(id).catch(()=>{});
-    if(isAuthKeyDuplicatedError(error)||error?.code==='SESSION_UNAUTHORIZED')await disableAccount(id).catch(()=>{});
+    if(isAuthKeyDuplicatedError(error))await markSessionRepairRequired(id,'AUTH_KEY_DUPLICATED').catch(()=>{});
+    else if(error?.code==='SESSION_UNAUTHORIZED')await markSessionRepairRequired(id,'SESSION_UNAUTHORIZED').catch(()=>{});
     throw error;
   }
 }
