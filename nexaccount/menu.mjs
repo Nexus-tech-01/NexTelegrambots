@@ -166,7 +166,7 @@ export async function menuModel({account,settings,commands,view='home',category=
     user,
     rank,
     prefix:settings.prefix||'.',
-    count:commandStats(commands).tokens
+    count:commandStats(commands).canonical
   }),settings?.customEmojiIds||{});
   let body=header,spans=[];
   const quoteRange={start:0,length:header.length};
