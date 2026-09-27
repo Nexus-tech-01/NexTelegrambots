@@ -406,3 +406,89 @@ body.menu-open{overflow:hidden}
   .side-menu-head{padding-left:56px}
   .side-menu-brand small{display:none}
 }
+
+/* NexAI logo + Android rendering stability 2026-09-27 */
+.splash-logo{
+  padding:2px;
+  overflow:hidden;
+  background:linear-gradient(145deg,rgba(255,188,80,.96),rgba(44,171,235,.62));
+  border:1px solid rgba(255,209,130,.28);
+}
+.splash-logo img{display:block;width:100%;height:100%;object-fit:cover;border-radius:19px}
+
+.brand-mark{
+  padding:2px;
+  overflow:hidden;
+  background:linear-gradient(145deg,rgba(255,188,80,.96),rgba(44,171,235,.62));
+  border:1px solid rgba(255,209,130,.24);
+  box-shadow:0 10px 30px rgba(255,143,35,.14),0 0 0 3px rgba(255,255,255,.025);
+}
+.brand-mark img{display:block;width:100%;height:100%;object-fit:cover;border-radius:10px}
+.brand-mark svg{display:none}
+
+.nex-node{
+  padding:2px;
+  overflow:hidden;
+  background:linear-gradient(145deg,rgba(255,188,80,.96),rgba(44,171,235,.62));
+  border:1px solid rgba(255,209,130,.24);
+}
+.nex-node img{display:block;width:100%;height:100%;object-fit:cover;border-radius:13px}
+
+.stacy-avatar{
+  color:#ffc1dc;
+  background:linear-gradient(145deg,rgba(244,111,177,.18),rgba(125,68,124,.07));
+  padding:0;
+}
+.stacy-avatar svg{
+  width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round;
+}
+.stacy-avatar img{display:none!important}
+
+/* Avoid Android/WebView GPU corruption caused by a full-screen backdrop-filter layer. */
+.menu-backdrop,
+.menu-layer.open .menu-backdrop{
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
+.menu-layer.open .menu-backdrop{
+  background:rgba(2,5,9,.48);
+}
+body.menu-open .app-shell{
+  filter:blur(6px) brightness(.72);
+  transform:scale(1.006);
+  transform-origin:50% 50%;
+}
+.side-menu,
+.side-menu *,
+.menu-item,
+.project-icon,
+.network-icon{
+  backface-visibility:hidden;
+  -webkit-backface-visibility:hidden;
+}
+.side-menu{
+  contain:layout paint;
+  isolation:isolate;
+  transform:translate3d(-102%,0,0);
+  will-change:transform;
+}
+.menu-layer.open .side-menu{transform:translate3d(0,0,0)}
+.menu-item{
+  contain:paint;
+  transform:translateZ(0);
+}
+.menu-reveal{
+  transform:translate3d(0,7px,0);
+}
+.section-panel.open .menu-reveal{
+  transform:translate3d(0,0,0);
+}
+@media(max-width:640px){
+  .brand-mark{width:40px;height:40px;border-radius:13px}
+  .brand-mark img{border-radius:10px}
+  body.menu-open .app-shell{filter:blur(5px) brightness(.7)}
+}
+@media(prefers-reduced-motion:reduce){
+  body.menu-open .app-shell{transform:none}
+}
