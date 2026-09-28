@@ -60,7 +60,7 @@ const animeMenu=await menuModel({
   category:'ANIME',
   includeArtwork:false
 });
-assert.match(animeMenu.text,/\/Waifuhd[^\n]*Premium/i,'Premium commands remain visible in their original category');
+assert.match(animeMenu.text,/\/Waifuhd[^\n]*👑/i,'Premium commands remain visible and marked in their original category');
 
 const paidMenu=await menuModel({
   account:{...baseAccount,nexaiPremium:true},
