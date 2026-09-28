@@ -24,6 +24,9 @@ const DISCOVERY_MS=Math.max(15*60*1000,Number(process.env.NEXANIME_DISCOVERY_MS|
 // Fixed values prevent stale VPS env settings from restoring the old 5m/1h delays.
 const PUBLISH_MS=30_000;
 const INTER_SERIES_MS=15*60_000;
+// A broken or incomplete series must never freeze the entire anime feed.
+// It is parked temporarily, while episode order inside that series stays strict.
+const GAP_RETRY_MS=Math.max(5*60_000,Number(process.env.NEXANIME_GAP_RETRY_MS||15*60_000));
 const PUBLISHER_LEASE_GRACE_MS=Math.max(INTER_SERIES_MS+60_000,Number(process.env.NEXANIME_PUBLISHER_LEASE_GRACE_MS||INTER_SERIES_MS+5*60*1000));
 const POLL_MS=Math.max(30000,Number(process.env.NEXANIME_POLL_MS||60000));
 const STALE_PUBLISH_MS=Math.max(2*60*1000,Number(process.env.NEXANIME_STALE_PUBLISH_MS||10*60*1000));
@@ -895,17 +898,60 @@ async function enqueueCandidate(runtime,entity,message,c,{mode='live'}={}){
     originalFilename:c.originalFilename||'',confidence:c.confidence||0,
     destination:'@'+DESTINATION,mode
   };
-  await d.collection('nexanime_queue').updateOne(
-    {dedupeKey},
+  const queue=d.collection('nexanime_queue');
+  // If discovery finds a genuinely new source for an item that was quarantined
+  // only because its previous source failed identity validation, revive that item.
+  // This lets a parked series heal itself without weakening episode validation.
+  const recovered=await queue.updateOne(
     {
-      $setOnInsert:{...payload,createdAt:now,attempts:0},
-      $set:{updatedAt:now},
-      $max:{priority},
-      $addToSet:{sources:source}
+      dedupeKey,
+      status:'quarantine',
+      quarantineReason:'source_identity_mismatch',
+      sources:{$not:{$elemMatch:{
+        accountId:source.accountId,
+        channelId:source.channelId,
+        messageId:source.messageId
+      }}}
     },
-    {upsert:true}
+    {
+      $set:{
+        ...payload,status:'queued',attempts:0,
+        recoveredAt:now,recoveredReason:'new_source_after_identity_mismatch',updatedAt:now
+      },
+      $max:{priority},
+      $addToSet:{sources:source},
+      $unset:{quarantineReason:'',lastError:'',claimAt:'',claimBy:''}
+    }
   );
-  await d.collection('nexanime_queue').updateOne(
+  if(Number(recovered.modifiedCount||0)>0 && c.kind==='episode'){
+    await d.collection('nexanime_config').updateOne(
+      {
+        _id:'scheduler',
+        blockedSeriesKey:seriesKey,
+        'gapDetected.season':Number(c.season??1),
+        'gapDetected.expectedEpisode':Number(c.episode)
+      },
+      {
+        $set:{forcedNextSeriesKey:seriesKey,updatedAt:now},
+        $unset:{
+          blockedSeriesKey:'',blockedSeriesUntil:'',blockedSeriesReason:'',gapDetected:''
+        }
+      }
+    ).catch(()=>{});
+  }
+  if(Number(recovered.modifiedCount||0)===0){
+    await queue.updateOne(
+      {dedupeKey},
+      {
+        $setOnInsert:{...payload,createdAt:now,attempts:0},
+        $set:{updatedAt:now},
+        $max:{priority},
+        $addToSet:{sources:source}
+      },
+      {upsert:true}
+    );
+  }
+  await queue.updateOne(
     {dedupeKey,status:'superseded'},
     {
       $set:{...payload,status:'queued',updatedAt:now},
@@ -1548,7 +1594,8 @@ async function releaseGlobalPublishLock(runtime){
     {$set:{expiresAt:new Date(Date.now()+PUBLISHER_LEASE_GRACE_MS),updatedAt:new Date()}}
   ).catch(()=>{});
 }
-async function queuedSeriesCandidates(d){
+async function queuedSeriesCandidates(d,{excludeSeriesKeys=[]}={}){
+  const excluded=[...new Set((excludeSeriesKeys||[]).map(String).filter(Boolean))];
   return d.collection('nexanime_queue').aggregate([
     {$match:{status:'queued',seriesKey:{$type:'string'}}},
     {$group:{
@@ -1557,7 +1604,10 @@ async function queuedSeriesCandidates(d){
       hasPresentation:{$max:{$cond:[{$eq:['$kind','presentation']},1,0]}},
       episodeCount:{$sum:{$cond:[{$eq:['$kind','episode']},1,0]}}
     }},
-    {$match:{episodeCount:{$gt:0}}},
+    {$match:{
+      episodeCount:{$gt:0},
+      ...(excluded.length?{_id:{$nin:excluded}}:{})
+    }},
     {$sort:{hasPresentation:-1,firstCreated:1,_id:1}},
     {$limit:5}
   ]).toArray();
@@ -1599,7 +1649,31 @@ async function interSeriesDeadline(d,seriesKey,now=new Date()){
 async function chooseActiveSeries(d){
   const scheduler=d.collection('nexanime_config');
   const now=new Date();
-  const current=await scheduler.findOne({_id:'scheduler'});
+  let current=await scheduler.findOne({_id:'scheduler'});
+  let blockedSeriesKey=String(current?.blockedSeriesKey||'');
+  let blockedSeriesUntil=current?.blockedSeriesUntil?new Date(current.blockedSeriesUntil):null;
+  let blockActive=Boolean(
+    blockedSeriesKey&&blockedSeriesUntil&&
+    Number.isFinite(blockedSeriesUntil.getTime())&&blockedSeriesUntil>now
+  );
+
+  // Expired blocks are retried automatically. While a block is active, never
+  // let that series keep ownership of the global publisher.
+  if(blockedSeriesKey&&!blockActive){
+    await scheduler.updateOne(
+      {_id:'scheduler'},
+      {$unset:{blockedSeriesKey:'',blockedSeriesUntil:'',blockedSeriesReason:''},$set:{updatedAt:now}}
+    );
+    current=await scheduler.findOne({_id:'scheduler'});
+    blockedSeriesKey='';
+    blockedSeriesUntil=null;
+  }else if(blockActive&&current?.activeSeriesKey===blockedSeriesKey){
+    await scheduler.updateOne(
+      {_id:'scheduler'},
+      {$unset:{activeSeriesKey:'',activeSeriesStartedAt:''},$set:{updatedAt:now}}
+    );
+    current={...(current||{}),activeSeriesKey:'',activeSeriesStartedAt:null};
+  }
 
   if(current?.activeSeriesKey){
     const remaining=await d.collection('nexanime_queue').countDocuments({
@@ -1610,14 +1684,14 @@ async function chooseActiveSeries(d){
 
     let next='';
     const forcedNext=String(current?.forcedNextSeriesKey||'');
-    if(forcedNext){
+    if(forcedNext&&(!blockActive||forcedNext!==blockedSeriesKey)){
       const forcedExists=await d.collection('nexanime_queue').countDocuments({
         seriesKey:forcedNext,status:'queued',kind:'episode'
       });
       if(forcedExists>0)next=forcedNext;
     }
     if(!next){
-      const candidates=await queuedSeriesCandidates(d);
+      const candidates=await queuedSeriesCandidates(d,{excludeSeriesKeys:blockActive?[blockedSeriesKey]:[]});
       next=candidates?.[0]?._id||'';
     }
     if(next){
@@ -1654,6 +1728,12 @@ async function chooseActiveSeries(d){
   }
 
   const state=await scheduler.findOne({_id:'scheduler'});
+  const stateBlockedKey=String(state?.blockedSeriesKey||blockedSeriesKey||'');
+  const stateBlockedUntil=state?.blockedSeriesUntil?new Date(state.blockedSeriesUntil):blockedSeriesUntil;
+  const stateBlockActive=Boolean(
+    stateBlockedKey&&stateBlockedUntil&&
+    Number.isFinite(stateBlockedUntil.getTime())&&stateBlockedUntil>now
+  );
   const cooldownUntil=state?.cooldownUntil?new Date(state.cooldownUntil):null;
   if(cooldownUntil&&cooldownUntil>now){
     if(state?.plannedSeriesKey)await preparePlannedSeries(d,state.plannedSeriesKey);
@@ -1662,11 +1742,15 @@ async function chooseActiveSeries(d){
 
   let next=state?.plannedSeriesKey||'';
   if(next){
-    const exists=await d.collection('nexanime_queue').countDocuments({seriesKey:next,status:'queued',kind:'episode'});
-    if(!exists)next='';
+    if(stateBlockActive&&next===stateBlockedKey){
+      next='';
+    }else{
+      const exists=await d.collection('nexanime_queue').countDocuments({seriesKey:next,status:'queued',kind:'episode'});
+      if(!exists)next='';
+    }
   }
   if(!next){
-    const candidates=await queuedSeriesCandidates(d);
+    const candidates=await queuedSeriesCandidates(d,{excludeSeriesKeys:stateBlockActive?[stateBlockedKey]:[]});
     next=candidates?.[0]?._id||'';
   }
 
@@ -1944,23 +2028,64 @@ async function claimNext(runtime){
       seriesKey,kind:'episode',season,episode:previousEpisode,purgedAt:{$exists:false}
     },{projection:{_id:1}});
     if(!previousPublished){
-      await d.collection('nexanime_config').updateOne(
-        {_id:'scheduler'},
-        {$set:{
-          gapDetected:{
-            seriesKey,season,expectedEpisode:previousEpisode,blockedEpisode:Number(episode),
-            detectedAt:new Date()
+      const now=new Date();
+      const previousRunnable=await d.collection('nexanime_queue').countDocuments({
+        seriesKey,kind:'episode',season,episode:previousEpisode,
+        status:{$in:['queued','publishing']}
+      });
+      const gapDetected={
+        seriesKey,season,expectedEpisode:previousEpisode,blockedEpisode:Number(episode),
+        detectedAt:now
+      };
+      if(previousRunnable===0){
+        const lastGlobal=await d.collection('nexanime_publications').findOne(
+          {purgedAt:{$exists:false}},
+          {sort:{publishedAt:-1,_id:-1},projection:{publishedAt:1}}
+        );
+        const lastPublishedMs=lastGlobal?.publishedAt?new Date(lastGlobal.publishedAt).getTime():NaN;
+        const cooldownUntil=Number.isFinite(lastPublishedMs)
+          ?new Date(lastPublishedMs+INTER_SERIES_MS)
+          :now;
+        await d.collection('nexanime_config').updateOne(
+          {_id:'scheduler'},
+          {
+            $set:{
+              gapDetected,
+              blockedSeriesKey:seriesKey,
+              blockedSeriesUntil:new Date(now.getTime()+GAP_RETRY_MS),
+              blockedSeriesReason:'missing_previous_episode_without_runnable_variant',
+              cooldownUntil,
+              updatedAt:now
+            },
+            $unset:{
+              activeSeriesKey:'',activeSeriesStartedAt:'',
+              plannedSeriesKey:'',plannedAt:'',plannedSummary:''
+            }
           },
-          updatedAt:new Date()
-        }},
-        {upsert:true}
-      );
+          {upsert:true}
+        );
+        console.warn('[NexAnime scheduler] parked blocked series',seriesKey,'missing',season,previousEpisode);
+      }else{
+        await d.collection('nexanime_config').updateOne(
+          {_id:'scheduler'},
+          {$set:{gapDetected,updatedAt:now}},
+          {upsert:true}
+        );
+      }
       return null;
     }
   }
   await d.collection('nexanime_config').updateOne(
     {_id:'scheduler'},
-    {$unset:{gapDetected:''},$set:{updatedAt:new Date()}},
+    {
+      $unset:{
+        gapDetected:'',
+        ...(String((await d.collection('nexanime_config').findOne({_id:'scheduler'}))?.blockedSeriesKey||'')===seriesKey
+          ?{blockedSeriesKey:'',blockedSeriesUntil:'',blockedSeriesReason:''}
+          :{})
+      },
+      $set:{updatedAt:new Date()}
+    },
     {upsert:true}
   ).catch(()=>{});
 
