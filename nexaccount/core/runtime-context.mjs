@@ -4,7 +4,8 @@ export const RUNTIME_TIMER_KEYS=[
   'updateSyncTimer',
   'commandPollTimer',
   'leaseTimer',
-  'emojiLibraryTimer'
+  'emojiLibraryTimer',
+  'premiumPowersTimer'
 ];
 
 export function createRuntimeContext({client,account,animePublisher=false}){
@@ -27,7 +28,8 @@ export function createRuntimeContext({client,account,animePublisher=false}){
     updateSyncTimer:null,
     commandPollTimer:null,
     leaseTimer:null,
-    emojiLibraryTimer:null
+    emojiLibraryTimer:null,
+    premiumPowersTimer:null
   };
 }
 
