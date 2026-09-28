@@ -62,25 +62,46 @@ function buttons(message){
     const url=String(value||'').trim();
     if(!/^https?:\/\//i.test(url)||seen.has(url))return;
     seen.add(url);
-    out.push({text:(String(label||'Ouvrir').trim().slice(0,64)||'Ouvrir'),url});
+    out.push({
+      text:(String(label||'Ouvrir').trim().slice(0,64)||'Ouvrir'),
+      url
+    });
+  };
+  const inspectButton=raw=>{
+    const button=raw?.button||raw;
+    add(
+      raw?.text||raw?.title||button?.text||button?.title,
+      raw?.url||raw?.href||button?.url||button?.href
+    );
   };
 
-  for(const row of message?.replyMarkup?.rows||[]){
-    for(const button of row?.buttons||[]){
-      add(button?.text,button?.url);
+  // Teleproto/GramJS can expose the same inline keyboard through different
+  // shapes depending on the version. Keep every URL button instead of relying
+  // on replyMarkup.rows only.
+  for(const markup of [message?.replyMarkup,message?.reply_markup]){
+    for(const row of markup?.rows||[]){
+      for(const button of row?.buttons||[]){
+        inspectButton(button);
+        if(out.length>=12)return out;
+      }
+    }
+  }
+  for(const row of (Array.isArray(message?.buttons)?message.buttons:[])){
+    const cells=Array.isArray(row)?row:(Array.isArray(row?.buttons)?row.buttons:[row]);
+    for(const button of cells){
+      inspectButton(button);
       if(out.length>=12)return out;
     }
   }
 
-  // Some LiteAPK posts expose the download URL as a Telegram text_link
-  // entity rather than a reply-markup button. Preserve those links for the
-  // WhatsApp channel mirror too.
+  // Some NexTech/LiteAPK posts expose a URL as a Telegram text_link entity
+  // rather than a reply-markup button. Preserve those links as CTA candidates.
   const messageText=String(message?.message||'');
   for(const entity of (Array.isArray(message?.entities)?message.entities:[])){
     const offset=Math.max(0,Number(entity?.offset)||0);
     const length=Math.max(0,Number(entity?.length)||0);
     const label=length?messageText.slice(offset,offset+length):'Ouvrir';
-    const explicit=String(entity?.url||'').trim();
+    const explicit=String(entity?.url||entity?.href||'').trim();
     if(explicit){
       add(label,explicit);
     }else if(length){
@@ -91,6 +112,7 @@ function buttons(message){
   }
   return out;
 }
+
 async function mediaItems(client,message){
   if(!message?.media)return [];
   await fs.mkdir(TMP_DIR,{recursive:true});
