@@ -14,9 +14,14 @@ const FFMPEG=String(process.env.FFMPEG_PATH||'ffmpeg');
 const MAX_SOURCE_BYTES=Math.max(1024*1024,Number(process.env.NEXAI_STICKER_MAX_SOURCE_BYTES||25*1024*1024));
 const MAX_CLONE=120;
 const MAX_EXPORT=Math.max(1,Math.min(120,Number(process.env.NEXAI_STICKER_EXPORT_LIMIT||50)));
-const CLONE_RETRY_ATTEMPTS=Math.max(2,Math.min(10,Number(process.env.NEXAI_STICKER_CLONE_RETRY_ATTEMPTS||6)));
+const CLONE_RETRY_ATTEMPTS=Math.max(2,Math.min(20,Number(process.env.NEXAI_STICKER_CLONE_RETRY_ATTEMPTS||8)));
 const CLONE_RETRY_BASE_MS=Math.max(250,Math.min(10000,Number(process.env.NEXAI_STICKER_CLONE_RETRY_BASE_MS||1200)));
+const CLONE_MUTATION_GAP_MS=Math.max(250,Math.min(5000,Number(process.env.NEXAI_STICKER_MUTATION_GAP_MS||900)));
+const CLONE_TRANSIENT_MAX_MS=Math.max(5*60*1000,Math.min(12*60*60*1000,Number(process.env.NEXAI_STICKER_TRANSIENT_MAX_MS||6*60*60*1000)));
 const activeCloneJobs=new Map();
+let stickerMutationTail=Promise.resolve();
+let stickerMutationNextAt=0;
+const cloneDownloadTails=new Map();
 
 const clean=v=>String(v??'').trim();
 const randomLong=()=>BigInt.asIntN(64,BigInt('0x'+crypto.randomBytes(8).toString('hex')));
@@ -207,23 +212,61 @@ function cloneRetryDelay(error,attempt){
     Number(error?.seconds||0),
     Number(String(error?.message||'').match(/(?:FLOOD_WAIT_|retry after\s+)(\d+)/i)?.[1]||0)
   );
-  if(explicit>0)return Math.min(65000,explicit*1000+300);
-  return Math.min(12000,CLONE_RETRY_BASE_MS*Math.max(1,2**Math.max(0,attempt-1)));
+  if(explicit>0)return Math.min(30*60*1000,explicit*1000+700);
+  return Math.min(30000,CLONE_RETRY_BASE_MS*Math.max(1,2**Math.max(0,attempt-1)));
 }
 
-async function withCloneRetry(action,label='clone'){
-  let last=null;
-  for(let attempt=1;attempt<=CLONE_RETRY_ATTEMPTS;attempt++){
+function cloneErrorRetryable(error){
+  const status=Number(error?.status||0);
+  const message=String(error?.message||error||'');
+  if(status===429||status>=500)return true;
+  return /FLOOD_WAIT|Too Many Requests|retry after|timeout|timed out|fetch failed|ECONN|EAI_AGAIN|ENET|socket|network|temporar|STICKERSET_INVALID|STICKERSET_NOT_MODIFIED|internal server error|bad gateway|service unavailable/i.test(message);
+}
+
+async function withCloneRetry(action,label='clone',{persistentTransient=false}={}){
+  let last=null,attempt=0;
+  const started=Date.now();
+  while(true){
+    attempt++;
     try{return await action()}
     catch(error){
       last=error;
-      if(attempt>=CLONE_RETRY_ATTEMPTS)break;
+      const retryable=cloneErrorRetryable(error);
+      const withinPersistentWindow=persistentTransient&&retryable&&(Date.now()-started)<CLONE_TRANSIENT_MAX_MS;
+      if(!withinPersistentWindow&&attempt>=CLONE_RETRY_ATTEMPTS)break;
+      if(!retryable&&attempt>=Math.min(3,CLONE_RETRY_ATTEMPTS))break;
       const delay=cloneRetryDelay(error,attempt);
-      console.warn('[NexAi sticker clone retry]',label,'attempt',attempt,'delay',delay,String(error?.message||error));
+      console.warn('[NexAi sticker clone retry]',label,'attempt',attempt,'delay',delay,'retryable='+retryable,String(error?.message||error));
       await sleep(delay);
     }
   }
   throw last||new Error('Clone operation failed');
+}
+
+function queueCloneMutation(action,label='mutation'){
+  const task=stickerMutationTail.then(async()=>{
+    const wait=Math.max(0,stickerMutationNextAt-Date.now());
+    if(wait)await sleep(wait);
+    try{
+      return await withCloneRetry(action,label,{persistentTransient:true});
+    }finally{
+      stickerMutationNextAt=Date.now()+CLONE_MUTATION_GAP_MS;
+    }
+  });
+  stickerMutationTail=task.catch(()=>{});
+  return task;
+}
+
+function queueCloneDownload(accountId,action,label='download'){
+  const key=String(accountId||'0');
+  const previous=cloneDownloadTails.get(key)||Promise.resolve();
+  const task=previous.then(()=>withCloneRetry(action,label,{persistentTransient:true}));
+  const tail=task.catch(()=>{});
+  cloneDownloadTails.set(key,tail);
+  tail.finally(()=>{
+    if(cloneDownloadTails.get(key)===tail)cloneDownloadTails.delete(key);
+  });
+  return task;
 }
 
 function cloneJobId(accountId){
@@ -238,37 +281,51 @@ async function safeProgress(progress,text){
 
 async function runClonePackJob({id,runtime,docs,title,newName,progress}){
   const {client,account}=runtime;
-  let added=0,skipped=0,created=false;
+  let added=0,failed=0,created=false;
+  console.log('[NexAi sticker clone job]',id,'started','account='+account.telegramUserId,'total='+docs.length,'pack='+newName);
   try{
     for(let i=0;i<docs.length;i++){
       const doc=docs[i];
       try{
-        const raw=await withCloneRetry(()=>downloadDocument(client,doc),'download '+(i+1));
+        const raw=await queueCloneDownload(
+          account.telegramUserId,
+          ()=>downloadDocument(client,doc),
+          id+' download '+(i+1)+'/'+docs.length
+        );
         const prepared=await prepareSticker(raw);
         const emoji=stickerAttr(doc)?.alt||'✨';
         if(!created){
-          await withCloneRetry(()=>createSet(account,title,newName,prepared,emoji),'create set');
+          await queueCloneMutation(
+            ()=>createSet(account,title,newName,prepared,emoji),
+            id+' create set'
+          );
           created=true;
         }else{
-          await withCloneRetry(()=>addToSet(account,newName,prepared,emoji),'add sticker '+(i+1));
+          await queueCloneMutation(
+            ()=>addToSet(account,newName,prepared,emoji),
+            id+' add '+(i+1)+'/'+docs.length
+          );
         }
         added++;
+        console.log('[NexAi sticker clone job]',id,'progress',added+'/'+docs.length,'sourceIndex='+(i+1));
       }catch(error){
-        skipped++;
-        console.warn('[NexAi sticker clone]',id,'sticker',i+1,String(error?.message||error));
+        failed++;
+        console.error('[NexAi sticker clone job]',id,'sticker '+(i+1)+'/'+docs.length+' failed after retries',String(error?.message||error));
+        throw new Error('Sticker '+(i+1)+'/'+docs.length+' impossible à cloner après les reprises: '+String(error?.message||error));
       }
       if(i===0||i===docs.length-1||(i+1)%3===0){
-        await safeProgress(progress,'⏳ Clone pack · '+(i+1)+'/'+docs.length+' · '+added+' ajouté(s)'+(skipped?' · '+skipped+' erreur(s)':'')+'…');
+        await safeProgress(progress,'⏳ Clone pack · '+(i+1)+'/'+docs.length+' · '+added+' ajouté(s)…');
       }
     }
 
-    if(!added)throw new Error('Aucun sticker du pack n’a pu être cloné.');
+    if(added!==docs.length)throw new Error('Clone incomplet: '+added+'/'+docs.length);
     await rememberPack(account.telegramUserId,{
-      name:newName,title,link:packLink(newName),count:added,sourceCount:docs.length,skipped,updatedAt:Date.now()
+      name:newName,title,link:packLink(newName),count:added,sourceCount:docs.length,skipped:0,updatedAt:Date.now()
     });
-    await safeProgress(progress,'✅ Pack cloné · '+added+'/'+docs.length+' sticker(s)'+(skipped?' · '+skipped+' erreur(s)':'')+'\n'+packLink(newName));
+    console.log('[NexAi sticker clone job]',id,'completed',added+'/'+docs.length,'pack='+newName);
+    await safeProgress(progress,'✅ Pack cloné · '+added+'/'+docs.length+' sticker(s)\n'+packLink(newName));
   }catch(error){
-    console.error('[NexAi sticker clone job]',id,String(error?.stack||error));
+    console.error('[NexAi sticker clone job]',id,'stopped',added+'/'+docs.length,'failed='+failed,String(error?.stack||error));
     await safeProgress(progress,'❌ Clone pack interrompu · '+added+'/'+docs.length+' sticker(s)\n'+String(error?.message||error).slice(0,300));
   }finally{
     activeCloneJobs.delete(id);
@@ -277,15 +334,16 @@ async function runClonePackJob({id,runtime,docs,title,newName,progress}){
 
 function launchClonePackJob({runtime,docs,title,newName,progress}){
   const id=cloneJobId(runtime?.account?.telegramUserId);
+  const immutableDocs=[...docs];
   activeCloneJobs.set(id,{
     id,
     accountId:String(runtime?.account?.telegramUserId||''),
     title,
     newName,
-    total:docs.length,
+    total:immutableDocs.length,
     startedAt:Date.now()
   });
-  void runClonePackJob({id,runtime,docs,title,newName,progress});
+  void runClonePackJob({id,runtime,docs:immutableDocs,title,newName,progress});
   return id;
 }
 
