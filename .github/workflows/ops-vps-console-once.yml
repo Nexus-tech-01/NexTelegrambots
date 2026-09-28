@@ -11,8 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Inspect NexAccount launcher wiring
-        run: curl --fail-with-body --silent --show-error --max-time 45 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once"
-# nexai-index-snippets-fast-v23
-
-# nexai-launcher-snippets-v25
+      - name: List NexAI processes on all active agents
+        run: curl --fail-with-body --silent --show-error --max-time 50 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-chatgpt-diag-once"
+# nexai-process-inventory-v25
