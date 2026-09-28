@@ -12,13 +12,13 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - name: Deploy NexAccount menu fix to VPS
         shell: bash
         run: |
           set -euo pipefail
-          resp="$(curl --silent --show-error --max-time 300 -w '\n%{http_code}' 'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once')"
+          resp="$(curl --silent --show-error --max-time 180 -w '\n%{http_code}' 'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once')"
           code="$(printf '%s' "$resp" | tail -n1)"
           body="$(printf '%s' "$resp" | sed '$d')"
           echo "HTTP $code"
@@ -34,10 +34,29 @@ jobs:
               written=data.get("written") or []
               if len(written) < 2:
                   raise SystemExit("expected runtime + bot-factory writes: "+str(written))
-              if data.get("afterState")!="running":
-                  raise SystemExit("VPS is not running after deployment: "+str(data))
-          print("MENU_FIX_DEPLOY_OK",data)
+          print("MENU_FIX_FILES_OK",data)
           PY
+
+      - name: Wait for VPS to become running
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 36); do
+            body="$(curl --fail-with-body --silent --show-error 'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once')"
+            echo "$body"
+            state="$(python3 - "$body" <<'PY'
+          import json,sys
+          print((json.loads(sys.argv[1]).get("server") or {}).get("state") or "")
+          PY
+          )"
+            if [ "$state" = "running" ]; then
+              echo "VPS_RUNNING"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "VPS did not reach running state in time" >&2
+          exit 1
 
       - name: Verify VPS console after deployment
         shell: bash
