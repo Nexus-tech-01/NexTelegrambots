@@ -270,7 +270,7 @@ export const CORE_COMMANDS=[
   C('mirror','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'Synchroniser automatiquement deux espaces Telegram'}),
   C('vault','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'Coffre personnel de messages et médias'}),
   C('watch','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'Surveillance persistante avec alerte'}),
-  C('studio','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'Studio créatif pour contenus et clips'}),
+  C('nexstudio','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'NexAI Studio créatif pour contenus et clips'}),
   C('research','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'Recherche approfondie assistée'}),
   C('build','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'Construire un projet logiciel complet'}),
   C('memory','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'Mémoire personnelle persistante'}),
@@ -335,7 +335,7 @@ export const LEGACY_ALIASES={
   botai:'aimode',typingmode:'autotyping',setbotname:'botname',setmenuimage:'menuimage',
 
   // AI and download shortcuts.
-  ask:'ai',chat:'ai',coder:'code',ds:'deepseek',
+  ask:'ai',chat:'ai',coder:'code',ds:'deepseek',creatorstudio:'nexstudio',studioai:'nexstudio',
   music:'song',yta:'song',ytmusic:'song',audio:'song',
   ytv:'video',ytvideo:'video',mp4:'video',vid:'video',get:'download',
   igvideo:'instagram',instadl:'instagram',facebookdl:'facebook',
