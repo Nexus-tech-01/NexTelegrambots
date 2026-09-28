@@ -79,6 +79,24 @@ async function downloadDocument(client,doc){
   return {buffer:b,mime:String(doc?.mimeType||'application/octet-stream'),doc,sticker:stickerAttr(doc)};
 }
 
+async function downloadCloneDocument(client,doc,{sourcePackName='',sourceIndex=0}={}){
+  let current=doc;
+  try{
+    return await downloadDocument(client,current);
+  }catch(error){
+    const message=String(error?.message||error||'');
+    if(sourcePackName&&/FILE_REFERENCE|FILEREF|document.*invalid|media.*invalid/i.test(message)){
+      const refreshed=await telegramSetByName(client,sourcePackName);
+      const fresh=refreshed?.documents?.[sourceIndex];
+      if(fresh){
+        current=fresh;
+        return downloadDocument(client,current);
+      }
+    }
+    throw error;
+  }
+}
+
 async function prepareSticker(source){
   const mime=String(source.mime||'').toLowerCase();
   if(mime.includes('tgsticker')||mime.includes('x-tgsticker')){
@@ -279,7 +297,7 @@ async function safeProgress(progress,text){
   }catch{}
 }
 
-async function runClonePackJob({id,runtime,docs,title,newName,progress}){
+async function runClonePackJob({id,runtime,docs,title,newName,progress,sourcePackName=''}) {
   const {client,account}=runtime;
   let added=0,failed=0,created=false;
   console.log('[NexAi sticker clone job]',id,'started','account='+account.telegramUserId,'total='+docs.length,'pack='+newName);
@@ -289,7 +307,7 @@ async function runClonePackJob({id,runtime,docs,title,newName,progress}){
       try{
         const raw=await queueCloneDownload(
           account.telegramUserId,
-          ()=>downloadDocument(client,doc),
+          ()=>downloadCloneDocument(client,doc,{sourcePackName,sourceIndex:i}),
           id+' download '+(i+1)+'/'+docs.length
         );
         const prepared=await prepareSticker(raw);
@@ -332,7 +350,7 @@ async function runClonePackJob({id,runtime,docs,title,newName,progress}){
   }
 }
 
-function launchClonePackJob({runtime,docs,title,newName,progress}){
+function launchClonePackJob({runtime,docs,title,newName,progress,sourcePackName=''}) {
   const id=cloneJobId(runtime?.account?.telegramUserId);
   const immutableDocs=[...docs];
   activeCloneJobs.set(id,{
@@ -341,9 +359,10 @@ function launchClonePackJob({runtime,docs,title,newName,progress}){
     title,
     newName,
     total:immutableDocs.length,
+    sourcePackName,
     startedAt:Date.now()
   });
-  void runClonePackJob({id,runtime,docs:immutableDocs,title,newName,progress});
+  void runClonePackJob({id,runtime,docs:immutableDocs,title,newName,progress,sourcePackName});
   return id;
 }
 
@@ -659,9 +678,10 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
     if(!set?.documents?.length)throw new Error('Réponds à un sticker appartenant à un pack.');
     const title=clean(args.join(' '))||automaticPackTitle(account,sessionSettings);
     const newName=packName(account.telegramUserId,title);
-    const docs=set.documents.slice(0,MAX_CLONE);
+    const docs=[...set.documents];
+    const sourcePackName=clean(set?.set?.shortName||stickerAttr(documentOf(source))?.stickerset?.shortName);
     const progress=externalProgress||await startProgress(client,peer,'⏳ Clone pack · 0/'+docs.length+'…');
-    launchClonePackJob({runtime,docs,title,newName,progress});
+    launchClonePackJob({runtime,docs,title,newName,progress,sourcePackName});
     return true;
   }
 
