@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process';
 import { Api } from 'teleproto';
 import { cfg } from './config.mjs';
 import { loadBotToken } from './secrets.mjs';
-import { patchSettings, settingsFor } from './store.mjs';
+import { consumeQuota, patchSettings, settingsFor } from './store.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
 import { renderTgsToAnimatedWebp } from './lottie-renderer.mjs';
 
@@ -676,6 +676,16 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
   if(name==='clonepack'){
     const set=await sourceSet(client,source);
     if(!set?.documents?.length)throw new Error('Réponds à un sticker appartenant à un pack.');
+    if(account.nexaiPremium!==true){
+      const quota=await consumeQuota(account.telegramUserId,'clonepack',{limit:2,windowMs:3*24*60*60*1000});
+      if(!quota.allowed){
+        const error=new Error('NEXAI_PREMIUM_REQUIRED: quota Free Clonepack atteint');
+        error.code='NEXAI_PREMIUM_REQUIRED';
+        error.quotaKey='clonepack';
+        error.resetAt=quota.resetAt||null;
+        throw error;
+      }
+    }
     const title=clean(args.join(' '))||automaticPackTitle(account,sessionSettings);
     const newName=packName(account.telegramUserId,title);
     const docs=[...set.documents];
