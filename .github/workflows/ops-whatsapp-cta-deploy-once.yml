@@ -10,20 +10,24 @@ permissions:
   contents: read
 
 jobs:
-  inspect:
+  agents:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 5
     steps:
-      - name: Inspect live bridge files
+      - name: Locate active NexControl agents
         shell: bash
         run: |
           set -euo pipefail
+          curl --silent --show-error --max-time 45 \
+            "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-chatgpt-diag-once" \
+            -o /tmp/agents.json
           python3 - <<'PY'
-          import json,urllib.parse,urllib.request
-          base='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe'
-          roots=['/nexus-bridge','/services','/pterodactyl','/ecosystem']
-          for root in roots:
-              with urllib.request.urlopen(base+'?root='+urllib.parse.quote(root,safe=''),timeout=120) as r:
-                  d=json.load(r)
-              print(json.dumps({'root':root,'fileList':d.get('fileList',[])},ensure_ascii=False))
+          import json
+          d=json.load(open('/tmp/agents.json'))
+          print(json.dumps({
+            'ok':d.get('ok'),
+            'now':d.get('now'),
+            'agents':d.get('agents',[]),
+            'jobs':d.get('jobs',[])[:12]
+          },ensure_ascii=False))
           PY
