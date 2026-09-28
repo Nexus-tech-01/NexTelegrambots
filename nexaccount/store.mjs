@@ -20,7 +20,10 @@ export async function db(){
       d.collection('nexaccount_pairing_state').createIndex({expiresAt:1},{expireAfterSeconds:0}),
       d.collection('nexaccount_command_claims').createIndex({expiresAt:1},{expireAfterSeconds:0}),
       d.collection('nexaccount_custom_emoji_library').createIndex({sourceUsername:1,documentId:1},{unique:true}),
-      d.collection('nexaccount_custom_emoji_library').createIndex({sourceUsername:1,altNormalized:1,animated:-1,updatedAt:-1})
+      d.collection('nexaccount_custom_emoji_library').createIndex({sourceUsername:1,altNormalized:1,animated:-1,updatedAt:-1}),
+      d.collection('nexaccount_premium_entitlements').createIndex({telegramUserId:1},{unique:true}),
+      d.collection('nexaccount_premium_entitlements').createIndex({expiresAt:1}),
+      d.collection('nexaccount_quotas').createIndex({resetAt:1},{expireAfterSeconds:0})
     ]).catch(e=>{indexesReady=false;throw e;});
     await d.collection('nexaccount_accounts').updateMany(
       {runtimeBucket:{$exists:false}},
@@ -99,6 +102,7 @@ export async function saveAccount({me,session,phone,enabled=true}){
     firstName:me.firstName||'',
     lastName:me.lastName||'',
     premium:me.premium===true,
+    telegramPremium:me.premium===true,
     telegramLanguage,
     preferredLanguage,
     countryIso,
@@ -601,6 +605,142 @@ export async function deletePairingState(id){
   const d=await db();
   await d.collection('nexaccount_pairing_state').deleteOne({_id:String(id)});
   return true;
+}
+
+
+const NEXAI_PREMIUM_PERIOD_MS=30*24*60*60*1000;
+
+export async function nexAiPremiumState(telegramUserId){
+  const id=String(telegramUserId||'');
+  if(!id)return {active:false,expiresAt:null,autoRenew:false,chargeId:''};
+  const d=await db();
+  const row=await d.collection('nexaccount_premium_entitlements').findOne({_id:id});
+  const expiresAt=row?.expiresAt?new Date(row.expiresAt):null;
+  const active=Boolean(expiresAt&&Number.isFinite(expiresAt.getTime())&&expiresAt.getTime()>Date.now());
+  return {
+    active,
+    expiresAt:active?expiresAt:null,
+    autoRenew:row?.autoRenew===true,
+    chargeId:String(row?.chargeId||''),
+    updatedAt:row?.updatedAt||null
+  };
+}
+
+export async function grantNexAiPremium(telegramUserId,{
+  expirationDate=0,
+  chargeId='',
+  providerChargeId='',
+  autoRenew=true,
+  amount=250,
+  currency='XTR'
+}={}){
+  const id=String(telegramUserId||'');
+  if(!id)throw new Error('telegram_user_id_required');
+  const d=await db(),now=new Date();
+  const paymentId=String(chargeId||'').trim();
+  if(paymentId){
+    try{
+      await d.collection('nexaccount_premium_payments').insertOne({
+        _id:paymentId,
+        telegramUserId:id,
+        providerChargeId:String(providerChargeId||''),
+        amount:Number(amount)||250,
+        currency:String(currency||'XTR'),
+        createdAt:now
+      });
+    }catch(error){
+      if(Number(error?.code)===11000)return nexAiPremiumState(id);
+      throw error;
+    }
+  }
+
+  const requested=Number(expirationDate)||0;
+  let expiresAt;
+  if(requested>Math.floor(Date.now()/1000)){
+    expiresAt=new Date(requested*1000);
+  }else{
+    const current=await d.collection('nexaccount_premium_entitlements').findOne({_id:id},{projection:{expiresAt:1}});
+    const base=Math.max(Date.now(),new Date(current?.expiresAt||0).getTime()||0);
+    expiresAt=new Date(base+NEXAI_PREMIUM_PERIOD_MS);
+  }
+
+  await d.collection('nexaccount_premium_entitlements').updateOne(
+    {_id:id},
+    {
+      $set:{
+        telegramUserId:id,
+        expiresAt,
+        autoRenew:autoRenew===true,
+        chargeId:paymentId,
+        providerChargeId:String(providerChargeId||''),
+        amount:Number(amount)||250,
+        currency:String(currency||'XTR'),
+        updatedAt:now
+      },
+      $setOnInsert:{createdAt:now}
+    },
+    {upsert:true}
+  );
+  return nexAiPremiumState(id);
+}
+
+export async function consumeQuota(telegramUserId,key,{limit=1,windowMs=24*60*60*1000}={}){
+  const id=String(telegramUserId||'');
+  const quotaKey=String(key||'').trim().toLowerCase();
+  const max=Math.max(1,Number(limit)||1);
+  const span=Math.max(60_000,Number(windowMs)||24*60*60*1000);
+  if(!id||!quotaKey)throw new Error('invalid_quota_key');
+  const d=await db(),collection=d.collection('nexaccount_quotas');
+  const _id=id+':'+quotaKey;
+
+  for(let attempt=0;attempt<4;attempt++){
+    const now=new Date();
+    const row=await collection.findOne({_id});
+    const resetAt=row?.resetAt?new Date(row.resetAt):null;
+    if(!row||!resetAt||resetAt.getTime()<=now.getTime()){
+      const nextReset=new Date(now.getTime()+span);
+      if(!row){
+        try{
+          await collection.insertOne({_id,telegramUserId:id,key:quotaKey,count:1,windowStartedAt:now,resetAt:nextReset,updatedAt:now});
+          return {allowed:true,count:1,remaining:max-1,resetAt:nextReset};
+        }catch(error){
+          if(Number(error?.code)!==11000)throw error;
+          continue;
+        }
+      }
+      const reset=await collection.updateOne(
+        {_id,resetAt:row.resetAt,count:Number(row.count)||0},
+        {$set:{count:1,windowStartedAt:now,resetAt:nextReset,updatedAt:now}}
+      );
+      if(reset.matchedCount===1)return {allowed:true,count:1,remaining:max-1,resetAt:nextReset};
+      continue;
+    }
+
+    const bumped=await collection.updateOne(
+      {_id,resetAt:{$gt:now},count:{$lt:max}},
+      {$inc:{count:1},$set:{updatedAt:now}}
+    );
+    if(bumped.matchedCount===1){
+      const next=await collection.findOne({_id});
+      const count=Math.max(1,Number(next?.count)||1);
+      return {allowed:true,count,remaining:Math.max(0,max-count),resetAt:new Date(next.resetAt)};
+    }
+    const latest=await collection.findOne({_id});
+    return {
+      allowed:false,
+      count:Math.max(max,Number(latest?.count)||max),
+      remaining:0,
+      resetAt:latest?.resetAt?new Date(latest.resetAt):resetAt
+    };
+  }
+
+  const latest=await collection.findOne({_id});
+  return {
+    allowed:false,
+    count:Number(latest?.count)||max,
+    remaining:0,
+    resetAt:latest?.resetAt?new Date(latest.resetAt):new Date(Date.now()+span)
+  };
 }
 
 export async function closeStore(){
