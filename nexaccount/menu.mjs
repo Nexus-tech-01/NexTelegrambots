@@ -218,11 +218,11 @@ export async function menuModel({account,settings,commands,view='home',category=
       suffix:[
         cmd.privateOnly?'  · '+toSmallCaps(localized(settings,'Privé','Private')):'',
         cmd.groupOnly?(cmd.adminOnly?'  · '+toSmallCaps(localized(settings,'Groupe/Admin','Group/Admin')):'  · '+toSmallCaps(localized(settings,'Groupe','Group'))):'',
-        (cmd.telegramPremium||cmd.premium)&&!telegramPremium
-          ?'  · 👑 '+toSmallCaps('Telegram Premium')
+        (cmd.telegramPremium||cmd.premium)
+          ?'  · 👑 ('+toSmallCaps('Telegram Premium')+')'
           :'',
-        cmd.nexaiPremium&&!nexaiPremium
-          ?'  · 👑 '+toSmallCaps('Premium')
+        cmd.nexaiPremium
+          ?'  · 👑 ('+toSmallCaps('Premium')+')'
           :''
       ].join('')
     }));
