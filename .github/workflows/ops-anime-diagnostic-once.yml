@@ -1,5 +1,5 @@
 name: Ops Anime Diagnostic Once
-# diagnostic pass: NexAnime -> NexCanal recovery 2026-09-28T06:29+01:00
+# recovery pass: free safe cache, start VPS, verify NexAnime/NexCanal 2026-09-28T06:33+01:00
 
 on:
   push:
@@ -15,6 +15,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
+      - name: Disk layout before cleanup
+        run: |
+          for d in / /.npm /node_modules /tmp /.cache /bots /data; do
+            echo "=== BEFORE $d ==="
+            curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=""))' "$d")"
+            echo
+          done
+      - name: Safe cache cleanup
+        run: |
+          echo '=== SAFE CLEANUP ==='
+          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-safe-cache-clean-once"
+          echo
       - name: Start VPS
         run: |
           echo '=== START ==='
@@ -22,20 +34,13 @@ jobs:
           echo
       - name: Wait for boot
         run: sleep 20
-      - name: Runtime after boot
+      - name: Runtime after cleanup
         run: |
           echo '=== RUNTIME ==='
           curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"
           echo
-      - name: Console after boot
+      - name: Console after cleanup
         run: |
           echo '=== CONSOLE ==='
           curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"
           echo
-      - name: Directories after boot
-        run: |
-          for d in bots services data; do
-            echo "=== /$d ==="
-            curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=%2F$d"
-            echo
-          done
