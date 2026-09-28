@@ -3,7 +3,7 @@ import { Bot, InputFile } from 'grammy';
 import { cfg, isOwnerId } from './config.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { commandMap } from './commands.mjs';
-import { accountRecord, settingsFor, patchSettings, saveSharedBotIdentity } from './store.mjs';
+import { accountRecord, settingsFor, patchSettings, saveSharedBotIdentity, nexAiPremiumState, grantNexAiPremium } from './store.mjs';
 import { menuModel, stylesModel } from './menu.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { getInlineResponse } from './inline-response-store.mjs';
@@ -31,6 +31,9 @@ const photoFileIdCache=new Map();
 const photoCachePending=new Map();
 let bot;
 let replyArtworkBuffer=null;
+const NEXAI_PREMIUM_STARS=250;
+const NEXAI_PREMIUM_PERIOD_SECONDS=30*24*60*60;
+const NEXAI_PREMIUM_PAYLOAD_PREFIX='nexai-premium-v1:';
 
 function nexAiReplyArtworkInput(){
   if(!replyArtworkBuffer){
@@ -272,6 +275,13 @@ async function inlineReplyModelFromLibrary(value,settings={}){
 }
 
 async function modelFor(account,query){
+  const entitlement=await nexAiPremiumState(account.telegramUserId).catch(()=>({active:false,expiresAt:null}));
+  account={
+    ...account,
+    telegramPremium:account.telegramPremium===true||account.premium===true,
+    nexaiPremium:isOwnerId(account.telegramUserId)||entitlement.active===true,
+    nexaiPremiumExpiresAt:entitlement.expiresAt||null
+  };
   const settings=await ensureEmojiLibraryPalette(account.telegramUserId,{
     sourceUsername:cfg.creatorUsername||'tresor20001'
   }).catch(()=>settingsFor(account.telegramUserId));
@@ -546,9 +556,41 @@ function telegramCommandMenu(){
     {command:'menu',description:'Ouvrir le menu principal'},
     {command:'help',description:'Afficher l’aide'},
     {command:'pair',description:'Connecter un compte Telegram'},
+    {command:'premium',description:'NexAI Premium / Telegram Premium'},
     {command:'language',description:'Changer la langue'},
     {command:'creator',description:'Afficher le créateur'}
   ];
+}
+
+function syntheticAccount(user){
+  return {
+    telegramUserId:String(user?.id||''),
+    username:String(user?.username||''),
+    firstName:String(user?.first_name||''),
+    lastName:String(user?.last_name||''),
+    premium:user?.is_premium===true,
+    telegramPremium:user?.is_premium===true,
+    enabled:true
+  };
+}
+
+async function premiumPanel(ctx){
+  const account=await accountRecord(ctx.from.id)||syntheticAccount(ctx.from);
+  return sendDirectMenu(ctx,account,'cat:PREMIUM');
+}
+
+async function sendNexAiPremiumInvoice(userId){
+  const id=String(userId||'');
+  if(!id)throw new Error('premium_user_required');
+  return bot.api.sendInvoice(
+    id,
+    'NexAI Premium',
+    'Toutes les fonctions NexAI Premium pendant 30 jours. Renouvellement automatique en Telegram Stars.',
+    NEXAI_PREMIUM_PAYLOAD_PREFIX+id,
+    'XTR',
+    [{label:'NexAI Premium · 30 jours',amount:NEXAI_PREMIUM_STARS}],
+    {subscription_period:NEXAI_PREMIUM_PERIOD_SECONDS}
+  );
 }
 
 async function syncTelegramCommandMenu(bot){
@@ -592,6 +634,7 @@ export async function startInlineBot(){
     if(account?.enabled===true)return sendDirectMenu(ctx,account,'menu');
     return sendStart(ctx);
   });
+  bot.command('premium',ctx=>premiumPanel(ctx));
   for(const name of ['creator','about','founder','ceo'])bot.command(name,ctx=>sendCreator(ctx));
 
   bot.command('language',async ctx=>{
@@ -628,6 +671,40 @@ export async function startInlineBot(){
   bot.command('countries',ctx=>sendOwner(ctx,'countries'));
   bot.command('languages',ctx=>sendOwner(ctx,'languages'));
   bot.command('user',ctx=>sendOwner(ctx,'user',ctx.match?String(ctx.match).trim().split(/\s+/):[]));
+
+  bot.on('pre_checkout_query',async ctx=>{
+    const q=ctx.preCheckoutQuery;
+    const expected=NEXAI_PREMIUM_PAYLOAD_PREFIX+String(q.from?.id||ctx.from?.id||'');
+    const valid=String(q.invoice_payload||'')===expected
+      &&String(q.currency||'')==='XTR'
+      &&Number(q.total_amount)===NEXAI_PREMIUM_STARS;
+    if(valid)return ctx.answerPreCheckoutQuery(true);
+    return ctx.answerPreCheckoutQuery(false,{error_message:'Paiement NexAI Premium invalide. Relance /premium.'});
+  });
+
+  bot.on('message',async(ctx,next)=>{
+    const payment=ctx.message?.successful_payment;
+    if(!payment)return next();
+    const expected=NEXAI_PREMIUM_PAYLOAD_PREFIX+String(ctx.from?.id||'');
+    if(
+      String(payment.invoice_payload||'')!==expected||
+      String(payment.currency||'')!=='XTR'||
+      Number(payment.total_amount)!==NEXAI_PREMIUM_STARS
+    ){
+      console.warn('[NexAI premium] ignored invalid successful_payment',String(ctx.from?.id||''));
+      return;
+    }
+    const state=await grantNexAiPremium(ctx.from.id,{
+      expirationDate:Number(payment.subscription_expiration_date)||0,
+      chargeId:String(payment.telegram_payment_charge_id||''),
+      providerChargeId:String(payment.provider_payment_charge_id||''),
+      autoRenew:payment.is_recurring===true||payment.is_first_recurring===true,
+      amount:Number(payment.total_amount)||NEXAI_PREMIUM_STARS,
+      currency:String(payment.currency||'XTR')
+    });
+    const until=state.expiresAt?new Date(state.expiresAt).toISOString().slice(0,10):'30 jours';
+    await ctx.reply('NexAI Premium activé ✅\nValide jusqu’au : '+until+'\nTelegram Premium reste un statut séparé.');
+  });
 
   bot.on('message:text',async ctx=>{
     if(ctx.chat?.type!=='private')return;
@@ -702,6 +779,16 @@ export async function startInlineBot(){
     console.log('[NexAI callback] received',raw.slice(0,120),'from='+String(ctx.from?.id||''),'inline='+String(!!ctx.callbackQuery.inline_message_id));
     if(cut<0){await ctx.answerCallbackQuery();return}
     const action=raw.slice(0,cut),accountId=raw.slice(cut+1);
+    if(action==='premium:buy'){
+      try{
+        await sendNexAiPremiumInvoice(ctx.from.id);
+        await ctx.answerCallbackQuery({text:'Facture NexAI Premium envoyée en privé.'});
+      }catch(error){
+        console.error('[NexAI premium invoice]',String(error?.description||error?.message||error).slice(0,500));
+        await ctx.answerCallbackQuery({text:'Ouvre le bot en privé et utilise /premium.',show_alert:true}).catch(()=>{});
+      }
+      return;
+    }
     const account=await accountRecord(accountId);
     if(!account||account.enabled!==true){await ctx.answerCallbackQuery({text:'Compte déconnecté.'});return}
     const settings=await settingsFor(accountId);
