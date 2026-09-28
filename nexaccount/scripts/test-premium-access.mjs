@@ -15,7 +15,7 @@ for(const name of ['waifuhd','cosplayvip','amvhd','openingvip']){
   assert.notEqual(cmd.telegramPremium,true,name+' must not require Telegram Premium');
 }
 
-const premiumPowers=['autopilot','botforge','webapp','mirror','vault','watch','studio','research','build','memory'];
+const premiumPowers=['autopilot','botforge','webapp','mirror','vault','watch','nexstudio','research','build','memory'];
 for(const name of premiumPowers){
   const cmd=commands.get(name);
   assert.ok(cmd,name+' must be registered');
