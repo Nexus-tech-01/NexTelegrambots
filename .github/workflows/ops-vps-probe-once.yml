@@ -14,6 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
+      - name: Clean safe caches
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-safe-cache-clean-once"
       - name: Start VPS server
         shell: bash
         run: |
@@ -30,3 +35,5 @@ jobs:
 # take-repair-f614688
 
 # take-repair-mainfile-start
+
+# take-repair-cache-start
