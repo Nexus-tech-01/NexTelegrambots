@@ -27,5 +27,8 @@ assert.match(anime,/const INTER_SERIES_MS=15\*60_000;/);
 if(relay){
   assert.match(relay,/NEXCANAL_SOCIAL_FEED_ENABLED\|\|'false'/);
   assert.match(relay,/legacy social feed disabled/);
+  assert.match(relay,/function floodWaitDelayMs\(error\)/);
+  assert.match(relay,/embedded scanner paused for Telegram FloodWait/);
+  assert.match(relay,/await waitWithSignal\(waitMs,signal\)/);
 }
 console.log(JSON.stringify({ok:true,sessionRepair:true,independentWatcherSession:true,animeCadence:true,legacyDarkFeedDisabled:true}));
