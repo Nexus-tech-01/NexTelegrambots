@@ -167,17 +167,18 @@ function run(command,args,timeout=20000) {
 }
 
 async function renderSvg(svg,dataDir='/tmp') {
-  const dir = path.join(dataDir || '/tmp','tmp','nexui');
-  await fsp.mkdir(dir,{recursive:true});
-  const id=crypto.randomUUID();
-  const sp=path.join(dir,id+'.svg');
-  const pp=path.join(dir,id+'.png');
-  await fsp.writeFile(sp,svg,'utf8');
-  await run('/usr/bin/ffmpeg',['-y','-loglevel','error','-i',sp,'-frames:v','1',pp],25000);
-  const image=await fsp.readFile(pp);
-  fsp.rm(sp,{force:true}).catch(()=>{});
-  fsp.rm(pp,{force:true}).catch(()=>{});
-  return image;
+  const parent = path.join(dataDir || '/tmp','tmp');
+  await fsp.mkdir(parent,{recursive:true});
+  const dir = await fsp.mkdtemp(path.join(parent,'nexui-'));
+  const sp=path.join(dir,'card.svg');
+  const pp=path.join(dir,'card.png');
+  try {
+    await fsp.writeFile(sp,svg,'utf8');
+    await run('/usr/bin/ffmpeg',['-y','-loglevel','error','-i',sp,'-frames:v','1',pp],25000);
+    return await fsp.readFile(pp);
+  } finally {
+    await fsp.rm(dir,{recursive:true,force:true}).catch(()=>{});
+  }
 }
 
 async function sendInteractive(sock,jid,{image,body,buttons,contextInfo={}}) {
