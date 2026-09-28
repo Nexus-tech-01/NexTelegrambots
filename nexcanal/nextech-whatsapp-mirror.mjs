@@ -57,13 +57,37 @@ function mediaType(message){
 }
 function buttons(message){
   const out=[];
+  const seen=new Set();
+  const add=(label,value)=>{
+    const url=String(value||'').trim();
+    if(!/^https?:\/\//i.test(url)||seen.has(url))return;
+    seen.add(url);
+    out.push({text:(String(label||'Ouvrir').trim().slice(0,64)||'Ouvrir'),url});
+  };
+
   for(const row of message?.replyMarkup?.rows||[]){
     for(const button of row?.buttons||[]){
-      const url=String(button?.url||'').trim();
-      if(!/^https?:\/\//i.test(url))continue;
-      out.push({text:String(button?.text||'Ouvrir').trim().slice(0,64),url});
+      add(button?.text,button?.url);
       if(out.length>=12)return out;
     }
+  }
+
+  // Some LiteAPK posts expose the download URL as a Telegram text_link
+  // entity rather than a reply-markup button. Preserve those links for the
+  // WhatsApp channel mirror too.
+  const messageText=String(message?.message||'');
+  for(const entity of (Array.isArray(message?.entities)?message.entities:[])){
+    const offset=Math.max(0,Number(entity?.offset)||0);
+    const length=Math.max(0,Number(entity?.length)||0);
+    const label=length?messageText.slice(offset,offset+length):'Ouvrir';
+    const explicit=String(entity?.url||'').trim();
+    if(explicit){
+      add(label,explicit);
+    }else if(length){
+      const visible=messageText.slice(offset,offset+length).trim();
+      if(/^https?:\/\//i.test(visible))add(label,visible);
+    }
+    if(out.length>=12)break;
   }
   return out;
 }
@@ -94,7 +118,7 @@ async function enqueue(client,message){
   if(!text&&!media.length&&!inlineButtons.length)return {skipped:true};
   const body={
     ownerDomain:'system',
-    idempotencyKey:'nextech-channel:'+String(id)+':v1',
+    idempotencyKey:'nextech-channel:'+String(id)+':v2-download-links',
     source:{platform:'telegram',name:'thenexusorigin',messageId:String(id),accountRole:'system-channel-mirror'},
     content:{text,media,buttons:inlineButtons},
     routes:[{platform:'whatsapp'}]
