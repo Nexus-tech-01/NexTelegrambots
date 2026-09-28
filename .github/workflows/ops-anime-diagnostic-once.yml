@@ -1,5 +1,5 @@
 name: Ops Anime Diagnostic Once
-# diagnostic pass: inspect NexAccount anime log after recovery 2026-09-28T06:44+01:00
+# diagnostic pass: inspect NexControl agents for duplicate anime runtime owners
 
 on:
   push:
@@ -15,13 +15,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
+      - name: NexControl agents
+        run: |
+          echo '=== AGENTS ==='
+          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-chatgpt-diag-once"
+          echo
       - name: NexAccount anime log
         run: |
           echo '=== NEXACCOUNT LOG ==='
           curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-diag"
-          echo
-      - name: Runtime snapshot
-        run: |
-          echo '=== RUNTIME ==='
-          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"
           echo
