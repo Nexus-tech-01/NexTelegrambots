@@ -10,30 +10,29 @@ permissions:
   contents: read
 
 jobs:
-  discover:
+  inspect:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Locate live WhatsApp publisher
+      - name: Inspect bridge directories
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json,urllib.parse,urllib.request
           base='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe'
-          roots=['/services','/nexus-bridge','/nexai-connect-v2','/ecosystem','/scripts','/shared','/bots','/pterodactyl']
-          all_named=[]
+          roots=['/nexus-bridge','/services','/nexai-connect-v2','/ecosystem','/scripts','/shared','/pterodactyl','/bots']
           for root in roots:
               try:
                   with urllib.request.urlopen(base+'?root='+urllib.parse.quote(root,safe=''),timeout=120) as r:
                       d=json.load(r)
-                  named=d.get('named',[])
-                  if named:
-                      all_named.extend(named)
-                      print(json.dumps({'root':root,'named':named},ensure_ascii=False))
-                  else:
-                      print(json.dumps({'root':root,'named_count':0,'visited':d.get('visited'),'files':d.get('files')},ensure_ascii=False))
+                  print(json.dumps({
+                    'root':root,
+                    'visited':d.get('visited'),
+                    'files':d.get('files'),
+                    'top':d.get('top',[])[:80],
+                    'named':d.get('named',[])[:120]
+                  },ensure_ascii=False))
               except Exception as e:
                   print(json.dumps({'root':root,'error':str(e)},ensure_ascii=False))
-          print('DISCOVERED='+json.dumps(all_named,ensure_ascii=False))
           PY
