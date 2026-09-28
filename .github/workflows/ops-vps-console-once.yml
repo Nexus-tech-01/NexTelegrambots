@@ -12,24 +12,37 @@ jobs:
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect Render bundle for NexAccount
+      - name: Reconstruct Render bundle defensively
         shell: bash
         run: |
-          set -euo pipefail
-          : > /tmp/nexus-bots.tar.xz
-          for f in $(printf '%s\n' render-src.b64.part-* | sort); do
-            base64 -d "$f" >> /tmp/nexus-bots.tar.xz
+          set -u
+          decode_parts() {
+            out="$1"; shift
+            : > "$out"
+            for f in "$@"; do
+              base64 -d "$f" >> "$out" 2>/dev/null || true
+            done
+          }
+          parts=(render-src.b64.part-00 render-src.b64.part-01 render-src.b64.part-02 render-src.b64.part-03 render-src.b64.part-04 render-src.b64.part-05 render-src.b64.part-06 render-src.b64.part-07 render-src.b64.part-08)
+          chosen=""
+          for n in 9 8 7; do
+            out="/tmp/nexus-$n.tar.xz"
+            decode_parts "$out" "${parts[@]:0:$n}"
+            if xz -t "$out" 2>/dev/null; then
+              echo "VALID_PART_COUNT=$n"
+              chosen="$out"
+              break
+            fi
+            echo "INVALID_PART_COUNT=$n"
           done
+          if [ -z "$chosen" ]; then
+            echo "NO_VALID_RENDER_ARCHIVE"
+            exit 0
+          fi
           mkdir -p /tmp/nexus-render
-          tar -xJf /tmp/nexus-bots.tar.xz -C /tmp/nexus-render
+          tar -xJf "$chosen" -C /tmp/nexus-render
           echo "=== NEXACCOUNT PATHS ==="
-          find /tmp/nexus-render -maxdepth 4 -type f | grep -Ei '/nexaccount/|nexai' | head -80 || true
+          find /tmp/nexus-render -maxdepth 5 -type f | grep -Ei '/nexaccount/|nexai' | head -100 || true
           echo "=== ORCHESTRATOR REFERENCES ==="
-          if [ -f /tmp/nexus-render/scripts/orchestrator.mjs ]; then
-            grep -Ein -C 5 'nexaccount|nexai|bot token|daemon|bootstrap' /tmp/nexus-render/scripts/orchestrator.mjs || true
-          fi
-          echo "=== PREFLIGHT REFERENCES ==="
-          if [ -f /tmp/nexus-render/scripts/preflight.mjs ]; then
-            grep -Ein -C 3 'nexaccount|nexai' /tmp/nexus-render/scripts/preflight.mjs || true
-          fi
-# render-bundle-nexai-duplicate-check
+          grep -Ein -C 7 'nexaccount|nexai|daemon|bootstrap' /tmp/nexus-render/scripts/orchestrator.mjs || true
+# render-bundle-defensive-check
