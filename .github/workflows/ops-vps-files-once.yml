@@ -15,8 +15,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=%2F"
-          echo
-          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=%2Fbots"
+          for d in "%2F" "%2F.nexcontrol" "%2F.nexcontrol%2Fbackups" "%2F.nexcontrol%2Flogs" "%2Fbots%2Fnexaccount" "%2Fbots%2Fnexaccount%2F.runtime" "%2Fnode_modules" "%2Fdata" "%2Ftmp"; do
+            echo "=== $d ==="
+            curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=$d" || true
+            echo
+          done
 
 # take-repair-disk-inspect
+
+# take-repair-disk-inspect-deep
