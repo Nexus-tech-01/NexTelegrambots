@@ -3,6 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { assertAnimeRuntimeContract } from './anime-contract.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 
@@ -84,6 +85,14 @@ await fsp.mkdir(stateDir,{recursive:true});
 if(await healthy()&&!restart){
   console.log('NexAccount already running');
   process.exit(0);
+}
+
+try{
+  const animeGate=await assertAnimeRuntimeContract(here);
+  console.log('[NexAnime protection] NEXANIME_PROTECTION_GATE_V1 ok files='+animeGate.files.length);
+}catch(error){
+  console.error('[NexAnime protection] refusing start/restart before stopping the healthy runtime:',String(error?.message||error));
+  process.exit(1);
 }
 
 async function pidAlive(pid){

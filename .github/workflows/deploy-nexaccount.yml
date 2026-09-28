@@ -6,7 +6,9 @@ on:
     branches: [main]
     paths:
       - 'nexaccount/**'
-      - 'nexcanal/**'
+      - 'nexcanal/liteapks-relay.mjs'
+      - 'nexcanal/internal-event-core.mjs'
+      - 'nexcanal/social-feed.mjs'
       - 'nexcontrol/api/index.mjs'
       - '.github/workflows/deploy-nexaccount.yml'
   workflow_dispatch:
@@ -202,6 +204,27 @@ jobs:
               scanner_anime=scanner.get('anime') or {}
               if scanner_anime.get('listener') is not True:
                   raise RuntimeError('@tresor20009 must be an anime listener: '+str(scanner_anime))
+
+              anime_status=job('runtime.exec',{
+                  'root':'nexus',
+                  'command':'node',
+                  'args':['bots/nexaccount/cli.mjs','anime-status'],
+                  'timeoutMs':30000
+              },timeout=60)
+              anime_text=anime_status.get('stdout','').strip()
+              anime_json=json.loads(anime_text or '{}')
+              listeners=set(str(x).lower() for x in (anime_json.get('listeners') or []))
+              if anime_json.get('ok') is not True or anime_json.get('enabled') is not True:
+                  raise RuntimeError('NexAnime system status is not healthy: '+str(anime_json))
+              if str(anime_json.get('destination') or '').lower()!='@theotaku_nexus':
+                  raise RuntimeError('NexAnime destination regression: '+str(anime_json.get('destination')))
+              if float(anime_json.get('interSeriesMinutes') or 0)!=15:
+                  raise RuntimeError('NexAnime inter-series cadence regression: '+str(anime_json.get('interSeriesMinutes')))
+              for required_listener in ('@tresor20001','@tresor20009'):
+                  if required_listener not in listeners:
+                      raise RuntimeError('NexAnime listener missing: '+required_listener)
+              print('NEXANIME_RUNTIME_CONTRACT_OK',anime_json.get('destination'),anime_json.get('interSeriesMinutes'))
+
               lite=scanner.get('liteApks') or {}
               if lite.get('scanner') is not True or lite.get('running') is not True:
                   raise RuntimeError('@tresor20009 embedded LiteAPK scanner is not running: '+str(lite))
@@ -250,12 +273,27 @@ jobs:
                   except Exception as e:
                       print('rollback warning',rel,e)
               try:
-                  job('runtime.exec',{
-                      'root':'nexus',
-                      'command':'node',
-                      'args':['bots/nexaccount/bootstrap.mjs','--restart'],
-                      'timeoutMs':60000
-                  },timeout=90)
+                  keep_running=False
+                  try:
+                      old_health=job('runtime.exec',{
+                          'root':'nexus',
+                          'command':'node',
+                          'args':['bots/nexaccount/cli.mjs','health'],
+                          'timeoutMs':15000
+                      },timeout=30)
+                      old_health_json=json.loads((old_health.get('stdout') or '{}').strip() or '{}')
+                      keep_running=old_health_json.get('ok') is True
+                  except Exception:
+                      keep_running=False
+                  if keep_running:
+                      print('ROLLBACK_KEPT_HEALTHY_RUNTIME NexAnime was never stopped')
+                  else:
+                      job('runtime.exec',{
+                          'root':'nexus',
+                          'command':'node',
+                          'args':['bots/nexaccount/bootstrap.mjs','--restart','--production'],
+                          'timeoutMs':60000
+                      },timeout=90)
               except Exception as e:
                   print('rollback restart warning',e)
               raise

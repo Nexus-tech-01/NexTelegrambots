@@ -40,6 +40,8 @@ jobs:
         run: node nexaccount/scripts/test-group-commands.mjs
       - name: NexAnime regression
         run: node nexaccount/scripts/test-anime-ingest.mjs
+      - name: NexAnime runtime protection contract
+        run: node nexaccount/anime-contract.mjs
       - name: Media send regression
         run: node nexaccount/scripts/test-media-send.mjs
       - name: WhatsApp sticker package regression
