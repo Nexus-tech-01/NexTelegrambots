@@ -9,8 +9,18 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
-      - name: Compare Pterodactyl REST and Wings websocket state
-        run: curl --fail-with-body --silent --show-error --max-time 45 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once"
-# ptero-rest-websocket-state-v30
+      - name: Fix Pterodactyl readiness state
+        run: |
+          set -euo pipefail
+          body="$(curl --fail-with-body --silent --show-error --max-time 150 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once")"
+          echo "$body"
+          python3 - "$body" <<'PY'
+          import json,sys
+          d=json.loads(sys.argv[1])
+          assert d.get("ok") is True, d
+          assert d.get("state")=="running", d
+          print("PTERO_READY_OK", d.get("state"), "changed", d.get("changed"))
+          PY
+# ptero-ready-marker-fix-v31
