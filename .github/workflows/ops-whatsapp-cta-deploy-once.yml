@@ -1,0 +1,58 @@
+name: Ops WhatsApp CTA Deploy Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-whatsapp-cta-deploy-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Deploy WhatsApp CTA hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --max-time 180 \
+            "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once" \
+            -o /tmp/deploy.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/deploy.json'))
+          print(json.dumps({
+            'ok':d.get('ok'),
+            'alreadyDone':d.get('alreadyDone',False),
+            'commit':d.get('commit'),
+            'path':d.get('path'),
+            'sha':d.get('sha'),
+            'changed':d.get('changed'),
+            'beforeState':d.get('beforeState'),
+            'afterState':d.get('afterState'),
+            'restartSignal':d.get('restartSignal')
+          },ensure_ascii=False))
+          if not d.get('ok'):
+              raise SystemExit('CTA deploy failed: '+str(d.get('error')))
+          PY
+
+      - name: Verify runtime after restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 8
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live" \
+            -o /tmp/runtime.json
+          python3 - <<'PY'
+          import json,re
+          d=json.load(open('/tmp/runtime.json'))
+          logs=[str(x) for x in d.get('logs',[])]
+          keep=[x[-800:] for x in logs if re.search(r'whatsapp|publisher|bridge|connected|interroute|nexcanal',x,re.I)]
+          print(json.dumps({'ok':d.get('ok'),'state':d.get('state'),'signals':keep[-20:]},ensure_ascii=False))
+          if not d.get('ok') or str(d.get('state','')).lower() not in {'running','starting'}:
+              raise SystemExit('VPS runtime verification failed')
+          PY
