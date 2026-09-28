@@ -457,40 +457,55 @@ async function requestPairingCode(phone){
 }
 
 async function nativeButtons(jid,text,buttons,{forwarded=false}={}){
-  if(!buttons.length) return false;
+  const nativeCtas=(Array.isArray(buttons)?buttons:[])
+    .map(b=>({
+      text:String(b?.text||'Ouvrir').trim().slice(0,40),
+      url:String(b?.url||'').trim(),
+    }))
+    .filter(b=>b.text&&/^https?:\/\//i.test(b.url))
+    .slice(0,3);
+  if(!nativeCtas.length) return false;
+
   try{
     const contextInfo=forwarded?groupForwardContext():undefined;
-    const content=proto.Message.InteractiveMessage.create({
-      body:proto.Message.InteractiveMessage.Body.create({text:text||'Ouvrir'}),
-      footer:proto.Message.InteractiveMessage.Footer.create({text:'Nextech'}),
-      ...(contextInfo?{contextInfo}:{}),
-      nativeFlowMessage:proto.Message.InteractiveMessage.NativeFlowMessage.create({
-        buttons:buttons.slice(0,3).map(b=>({
-          name:'cta_url',
-          buttonParamsJson:JSON.stringify({
-            display_text:String(b.text||'Ouvrir').slice(0,40),
-            url:b.url,
-            merchant_url:b.url
-          })
-        })),
-        messageVersion:1
-      })
-    });
-    // Native Flow URL buttons render reliably when wrapped as a view-once
-    // interactive message. Sending interactiveMessage directly is silently
-    // downgraded/ignored by many current WhatsApp clients.
-    const msg=generateWAMessageFromContent(jid,{
+    const message=proto.Message.fromObject({
       viewOnceMessage:{
         message:{
-          messageContextInfo:{deviceListMetadata:{},deviceListMetadataVersion:2},
-          interactiveMessage:content
+          messageContextInfo:{
+            deviceListMetadata:{},
+            deviceListMetadataVersion:2
+          },
+          interactiveMessage:{
+            body:{text:String(text||'Ouvrir').slice(0,4096)},
+            footer:{text:'Nextech'},
+            ...(contextInfo?{contextInfo}:{}),
+            nativeFlowMessage:{
+              buttons:nativeCtas.map(b=>({
+                name:'cta_url',
+                buttonParamsJson:JSON.stringify({
+                  display_text:b.text,
+                  url:b.url,
+                  merchant_url:b.url
+                })
+              })),
+              messageParamsJson:'{}',
+              messageVersion:1
+            }
+          }
         }
       }
-    },{userJid:socket.user?.id});
-    await socket.relayMessage(jid,msg.message,{messageId:msg.key.id});
+    });
+
+    const generated=generateWAMessageFromContent(
+      jid,
+      message,
+      {userJid:socket.user?.id}
+    );
+    await socket.relayMessage(jid,generated.message,{messageId:generated.key.id});
+    logger.info({jid,buttons:nativeCtas.length,messageId:generated.key.id},'WhatsApp CTA URL buttons relayed');
     return true;
   }catch(error){
-    logger.warn({error:String(error?.message||error)},'WhatsApp native URL buttons failed');
+    logger.warn({jid,error:String(error?.message||error)},'WhatsApp native URL buttons failed');
     return false;
   }
 }
