@@ -263,6 +263,18 @@ export const CORE_COMMANDS=[
   C('animecountdown','ANIME',{engine:'anime',description:'Compte à rebours prochain épisode'}),
   C('anitts','ANIME',{engine:'anime',description:'Texte vers voix anime synthétique'}),
 
+  // NexAI Premium Powers — memorable, high-value capabilities.
+  C('autopilot','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'Agent autonome récurrent'}),
+  C('botforge','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'Générer un bot Telegram utilisable'}),
+  C('webapp','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'Créer une mini web-app complète'}),
+  C('mirror','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'Synchroniser automatiquement deux espaces Telegram'}),
+  C('vault','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'Coffre personnel de messages et médias'}),
+  C('watch','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'Surveillance persistante avec alerte'}),
+  C('studio','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'Studio créatif pour contenus et clips'}),
+  C('research','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'Recherche approfondie assistée'}),
+  C('build','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'Construire un projet logiciel complet'}),
+  C('memory','PREMIUM',{...P,nexaiPremium:true,engine:'premium',description:'Mémoire personnelle persistante'}),
+
   // Telegram Premium features. These stay independent from the paid NexAI plan.
   C('customreact','PREMIUM',{selfOnly:true,telegramPremium:true,description:'Réactions personnalisées'}),
   C('emoji_status','PREMIUM',{selfOnly:true,telegramPremium:true,description:'Statut emoji Telegram Premium'}),
