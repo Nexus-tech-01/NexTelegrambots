@@ -18,7 +18,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-restart-once"
+          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-mainfile-repair"
       - name: Wait for boot
         run: sleep 18
       - name: Verify VPS runtime state
@@ -28,3 +28,5 @@ jobs:
           curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"
 
 # take-repair-f614688
+
+# take-repair-mainfile-start
