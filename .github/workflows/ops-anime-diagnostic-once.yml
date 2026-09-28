@@ -1,5 +1,5 @@
 name: Ops Anime Diagnostic Once
-# diagnostic pass: startup metadata
+# diagnostic pass: NexAnime -> NexCanal recovery 2026-09-28T06:29+01:00
 
 on:
   push:
