@@ -5,7 +5,7 @@ import { NewMessage } from 'teleproto/events/index.js';
 import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { cfg, isOwnerId } from './config.mjs';
 import { commandMap } from './commands.mjs';
-import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, acquireSessionLease, claimCommandDelivery, disableAccount, enableAccount, listAccountsForWorker, markSessionRepairRequired, patchSettings, releaseRuntimeLease, releaseSessionLease, renewRuntimeLease, renewSessionLease, sessionFingerprint, settingsFor, sharedBotIdentity } from './store.mjs';
+import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, acquireSessionLease, claimCommandDelivery, disableAccount, enableAccount, listAccountsForWorker, markSessionRepairRequired, nexAiPremiumState, patchSettings, releaseRuntimeLease, releaseSessionLease, renewRuntimeLease, renewSessionLease, sessionFingerprint, settingsFor, sharedBotIdentity } from './store.mjs';
 import { listStyles } from './styles.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { recordEvent } from './analytics.mjs';
@@ -498,8 +498,28 @@ async function joinTarget(client,target){
   return client.invoke(new Api.channels.JoinChannel({channel:entity}));
 }
 
-async function premiumDenied(client,peer,name){
-  await sendText(client,peer,'Cette commande ('+name+') nécessite Telegram Premium sur le compte connecté.');
+async function hydratePremiumState(account){
+  if(!account)return {active:false,expiresAt:null};
+  account.telegramPremium=account.premium===true;
+  const state=await nexAiPremiumState(account.telegramUserId).catch(()=>({active:false,expiresAt:null}));
+  account.nexaiPremium=isOwnerId(account.telegramUserId)||state.active===true;
+  account.nexaiPremiumExpiresAt=state.expiresAt||null;
+  return state;
+}
+
+async function telegramPremiumDenied(client,peer,name){
+  await sendText(client,peer,'Cette commande ('+name+') nécessite Telegram Premium sur le compte connecté. NexAI Premium ne remplace pas Telegram Premium.');
+}
+
+async function nexAiPremiumDenied(runtime,peer,name,detail=''){
+  const {client}=runtime;
+  const suffix=detail?'\n'+detail:'';
+  await sendText(client,peer,'Cette commande ('+name+') nécessite NexAI Premium.'+suffix+'\nAbonnement : 250 ⭐ / 30 jours.');
+  try{
+    await sendInline(client,peer,'cat:PREMIUM');
+  }catch(error){
+    console.warn('[NexAI premium menu]',String(error?.errorMessage||error?.message||error).slice(0,300));
+  }
 }
 
 async function handleStyle(runtime,peer,args,inlineName=''){
@@ -626,6 +646,7 @@ async function enforceCommandContext(runtime,event,cmd,displayName){
 async function handleCommand(runtime,event,parsed){
   const {client,account}=runtime;
   const peer=event.message.peerId;
+  await hydratePremiumState(account);
   if(/^style\d+$/i.test(parsed.name))return handleStyle(runtime,peer,[],parsed.name);
   if(parsed.name==='style')return handleStyle(runtime,peer,parsed.args);
   if(parsed.name==='menu')return sendMenu(runtime,peer);
@@ -661,16 +682,36 @@ async function handleCommand(runtime,event,parsed){
   // through local compatibility routing after the owner identity check above.
   if(cmd.ownerOnly&&LOCAL_OWNER_COMMANDS.has(name))return handleOwner(runtime,peer,name,parsed.args);
 
-  if(cmd.premium&&!account.premium){
-    await premiumDenied(client,peer,name);
+  const telegramPremium=account.telegramPremium===true||account.premium===true;
+  if((cmd.telegramPremium||cmd.premium)&&!telegramPremium){
+    await telegramPremiumDenied(client,peer,name);
     return true;
+  }
+  if(cmd.nexaiPremium&&!account.nexaiPremium){
+    await nexAiPremiumDenied(runtime,peer,name);
+    return true;
+  }
+  if(name==='premium'){
+    try{return await sendInline(client,peer,'cat:PREMIUM')}
+    catch{
+      const state=account.nexaiPremium?'ACTIF':'INACTIF';
+      await sendText(client,peer,'NexAI Premium : '+state+' · 250 ⭐ / 30 jours\nTelegram Premium : '+(telegramPremium?'ACTIF':'INACTIF'));
+      return true;
+    }
   }
   const engineHandled=await routeEngineCommand({
     cmd,
     runtime,
     event,
     args:parsed.args,
-    sendText
+    sendText,
+    onNexAiPremiumRequired:async(error)=>{
+      const reset=error?.resetAt?new Date(error.resetAt).toISOString().replace('T',' ').slice(0,16)+' UTC':'dans 3 jours';
+      const detail=error?.quotaKey==='clonepack'
+        ?'Quota Free atteint : 2 clonages tous les 3 jours. Réinitialisation : '+reset+'.'
+        :String(error?.message||'').replace(/^NEXAI_PREMIUM_REQUIRED:?\s*/,'');
+      await nexAiPremiumDenied(runtime,peer,name,detail);
+    }
   });
   if(engineHandled)return true;
 
@@ -694,7 +735,7 @@ async function handleCommand(runtime,event,parsed){
       await sendText(client,peer,'NexAi · Dipper est actif sur ce compte.');
       return true;
     case 'account':
-      await sendText(client,peer,'Compte : '+(account.username?'@'+account.username:account.firstName)+'\nTelegram Premium : '+(account.premium?'Oui':'Non')+'\nNexAccount : connecté');
+      await sendText(client,peer,'Compte : '+(account.username?'@'+account.username:account.firstName)+'\nTelegram Premium : '+(telegramPremium?'Oui':'Non')+'\nNexAI Premium : '+(account.nexaiPremium?'Oui':'Non')+'\nNexAccount : connecté');
       return true;
     case 'help':
       await sendText(client,peer,'Utilise menu (ou .menu / /menu) pour afficher le menu interactif.');

@@ -24,7 +24,7 @@ function canonicalName(cmd){
   return String(cmd?.aliasFor||cmd?.name||cmd?.handler||'').toLowerCase();
 }
 
-async function guarded({label,name,sendText,client,peer,run,progressEnabled=true,runtimeAccount=null}){
+async function guarded({label,name,sendText,client,peer,run,progressEnabled=true,runtimeAccount=null,onNexAiPremiumRequired=null}){
   let progress=null;
   if(progressEnabled){
     try{
@@ -58,13 +58,18 @@ async function guarded({label,name,sendText,client,peer,run,progressEnabled=true
     if(progress&&!progress.finished)await progress.done(label+' · '+name+' terminé');
   }catch(error){
     const reason=String(error?.message||error).replace(/\s+/g,' ').slice(0,500);
+    if(error?.code==='NEXAI_PREMIUM_REQUIRED'&&typeof onNexAiPremiumRequired==='function'){
+      if(progress&&!progress.finished)await progress.fail(label+' · quota Free atteint');
+      await onNexAiPremiumRequired(error);
+      return true;
+    }
     if(progress&&!progress.finished)await progress.fail(label+' · '+reason);
     else await sendText(peer,label+' · '+name+' : '+reason);
   }
   return true;
 }
 
-export async function routeEngineCommand({cmd,runtime,event,args=[],sendText}){
+export async function routeEngineCommand({cmd,runtime,event,args=[],sendText,onNexAiPremiumRequired=null}){
   const engine=String(cmd?.engine||'').toLowerCase();
   if(!ENGINE_LABELS[engine])return false;
 
@@ -111,7 +116,7 @@ export async function routeEngineCommand({cmd,runtime,event,args=[],sendText}){
       return true;
     }
     return guarded({
-      label:ENGINE_LABELS[engine],name,client:runtime.client,peer,sendText:(p,t)=>sendText(runtime.client,p,t),progressEnabled:needsProgress(engine,name),runtimeAccount:runtime.account,
+      label:ENGINE_LABELS[engine],name,client:runtime.client,peer,sendText:(p,t)=>sendText(runtime.client,p,t),progressEnabled:needsProgress(engine,name),runtimeAccount:runtime.account,onNexAiPremiumRequired,
       run:progress=>handleStickerCommand({runtime,event,name,args,progress,reply:text=>sendText(runtime.client,peer,text)})
     });
   }

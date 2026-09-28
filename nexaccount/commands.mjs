@@ -26,7 +26,7 @@ export const CORE_COMMANDS=[
   C('dashboard','ACCOUNT',{...P,description:'Tableau de bord'}),
   C('settings','ACCOUNT',{...P,description:'Réglages NexAi'}),
   C('stats','ACCOUNT',{...P,description:'Statistiques du compte'}),
-  C('premium','ACCOUNT',{...P,description:'Statut Premium'}),
+  C('premium','ACCOUNT',{...P,description:'Statuts Telegram Premium / NexAI Premium'}),
   C('prefix','ACCOUNT',{...P,description:'Changer le préfixe'}),
   C('mode','ACCOUNT',{...P,description:'Mode d’accès privé/public'}),
   C('language','ACCOUNT',{...P,description:'Changer la langue'}),
@@ -216,15 +216,15 @@ export const CORE_COMMANDS=[
   C('avataranime','ANIME',{engine:'anime',description:'Avatar de personnage'}),
   C('banneranime','ANIME',{engine:'anime',description:'Bannière anime'}),
   C('waifu','ANIME',{engine:'anime',description:'Image waifu SFW'}),
-  C('waifuhd','ANIME',{engine:'anime',description:'Waifu HD'}),
+  C('waifuhd','ANIME',{engine:'anime',nexaiPremium:true,description:'Waifu HD'}),
   C('husbando','ANIME',{engine:'anime',description:'Personnage masculin aléatoire'}),
   C('neko','ANIME',{engine:'anime',description:'Image neko SFW'}),
   C('cosplay','ANIME',{engine:'anime',description:'Image cosplay/anime SFW'}),
-  C('cosplayvip','ANIME',{engine:'anime',description:'Cosplay HD'}),
+  C('cosplayvip','ANIME',{engine:'anime',nexaiPremium:true,description:'Cosplay HD'}),
   C('amv','ANIME',{engine:'anime',description:'AMV anime aléatoire'}),
-  C('amvhd','ANIME',{engine:'anime',description:'AMV HD'}),
+  C('amvhd','ANIME',{engine:'anime',nexaiPremium:true,description:'AMV HD'}),
   C('opening','ANIME',{engine:'anime',description:'Opening anime aléatoire'}),
-  C('openingvip','ANIME',{engine:'anime',description:'Opening spécial'}),
+  C('openingvip','ANIME',{engine:'anime',nexaiPremium:true,description:'Opening spécial'}),
   C('ship','ANIME',{engine:'anime',description:'Compatibilité fictive entre personnages'}),
   C('guessanime','ANIME',{engine:'anime',description:'Jeu devine l’anime'}),
   C('guesscharacter','ANIME',{engine:'anime',description:'Jeu devine le personnage'}),
@@ -263,10 +263,10 @@ export const CORE_COMMANDS=[
   C('animecountdown','ANIME',{engine:'anime',description:'Compte à rebours prochain épisode'}),
   C('anitts','ANIME',{engine:'anime',description:'Texte vers voix anime synthétique'}),
 
-  // PREMIUM Telegram features.
-  C('customreact','PREMIUM',{selfOnly:true,premium:true,description:'Réactions personnalisées'}),
-  C('emoji_status','PREMIUM',{selfOnly:true,premium:true,description:'Statut emoji Premium'}),
-  C('effect','PREMIUM',{selfOnly:true,premium:true,description:'Effet de message préféré'}),
+  // Telegram Premium features. These stay independent from the paid NexAI plan.
+  C('customreact','PREMIUM',{selfOnly:true,telegramPremium:true,description:'Réactions personnalisées'}),
+  C('emoji_status','PREMIUM',{selfOnly:true,telegramPremium:true,description:'Statut emoji Telegram Premium'}),
+  C('effect','PREMIUM',{selfOnly:true,telegramPremium:true,description:'Effet de message Telegram Premium'}),
 
   // Platform owner controls stay private and are never shown to normal users.
   C('owner','OWNER',{...P,ownerOnly:true}),
@@ -428,7 +428,7 @@ export const CATEGORY_LABELS={
   GENERAL:'MAIN',ACCOUNT:'ACCOUNT',AI:'AI',DOWNLOAD:'DOWNLOAD',GROUP:'GROUP',
   PROTECTION:'PROTECTION',TOOLS:'TOOLS',MEDIA:'MEDIA',
   STICKERS:'STICKERS',FUN:'FUN',SEARCH:'SEARCH',ANIME:'ANIME',
-  PREMIUM:'TELEGRAM PREMIUM',OWNER:'OWNER'
+  PREMIUM:'PREMIUM',OWNER:'OWNER'
 };
 export const CATEGORY_ICONS={
   GENERAL:'general',ACCOUNT:'account',AI:'ai',DOWNLOAD:'download',GROUP:'group',
