@@ -182,7 +182,11 @@ async function renderSvg(svg,dataDir='/tmp') {
 }
 
 async function sendInteractive(sock,jid,{image,body,buttons,contextInfo={}}) {
-  const media = await prepareWAMessageMedia({image},{upload:sock.waUploadToServer});
+  const timeout=(promise,ms,label)=>Promise.race([
+    Promise.resolve(promise),
+    new Promise((_,reject)=>setTimeout(()=>reject(new Error(label+' timeout')),ms))
+  ]);
+  const media = await timeout(prepareWAMessageMedia({image},{upload:sock.waUploadToServer}),12000,'media upload');
   const nativeButtons = buttons.map(b=>({
     name:'quick_reply',
     buttonParamsJson:JSON.stringify({display_text:b.label,id:b.id})
@@ -207,7 +211,7 @@ async function sendInteractive(sock,jid,{image,body,buttons,contextInfo={}}) {
       }
     }
   },{userJid:sock.user?.id});
-  await sock.relayMessage(jid,out.message,{messageId:out.key.id});
+  await timeout(sock.relayMessage(jid,out.message,{messageId:out.key.id}),12000,'interactive relay');
   return out;
 }
 
@@ -282,6 +286,7 @@ export async function sendNexUi(sock,{
   try {
     return await sendInteractive(sock,jid,{image,body,buttons,contextInfo});
   } catch (error) {
+    console.warn('[NexAI Rich UI fallback]',String(error?.message||error).slice(0,500));
     const caption=selected
       ? `NexAI • ${selected}\n\n${(categories[selected]||[]).map(x=>'.'+x).join(' · ')}`
       : `NexAI Control Deck\n${commandCount} commandes • ${String(status).toUpperCase()}`;
