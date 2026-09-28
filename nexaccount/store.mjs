@@ -24,7 +24,11 @@ export async function db(){
       d.collection('nexaccount_custom_emoji_library').createIndex({sourceUsername:1,altNormalized:1,animated:-1,updatedAt:-1}),
       d.collection('nexaccount_premium_entitlements').createIndex({telegramUserId:1},{unique:true}),
       d.collection('nexaccount_premium_entitlements').createIndex({expiresAt:1}),
-      d.collection('nexaccount_quotas').createIndex({resetAt:1},{expireAfterSeconds:0})
+      d.collection('nexaccount_quotas').createIndex({resetAt:1},{expireAfterSeconds:0}),
+      d.collection('nexaccount_premium_powers').createIndex({telegramUserId:1,kind:1,status:1,nextRunAt:1}),
+      d.collection('nexaccount_premium_powers').createIndex({telegramUserId:1,powerId:1},{unique:true}),
+      d.collection('nexaccount_premium_memory').createIndex({telegramUserId:1,updatedAt:-1}),
+      d.collection('nexaccount_premium_vault').createIndex({telegramUserId:1,createdAt:-1})
     ]).catch(e=>{indexesReady=false;throw e;});
     await d.collection('nexaccount_accounts').updateMany(
       {runtimeBucket:{$exists:false}},
