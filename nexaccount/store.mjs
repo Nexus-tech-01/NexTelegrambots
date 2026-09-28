@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import { MongoClient } from 'mongodb';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { cfg, sessionKey } from './config.mjs';
@@ -178,20 +179,36 @@ export async function acquireRuntimeLease(telegramUserId,workerId=cfg.workerId,t
   const owner=String(workerId);
   const set={$set:{workerId:owner,expiresAt,updatedAt:now}};
 
-  // A single NexAccount worker is authoritative for all account runtime leases.
-  // Reclaim the runtime lease immediately after a supervised restart; the
-  // separate session-fingerprint lease still prevents one auth key from being
-  // used concurrently by distinct runtimes.
+  // Even in single-worker mode, never steal a lease from another live
+  // NexAccount process. Supervisors can briefly overlap restarts; blindly
+  // overwriting the runtime lease makes the healthy process detach all sessions.
   if(cfg.workerCount===1){
-    const updated=await leases.updateOne({_id:id},set);
+    const updated=await leases.updateOne(
+      {_id:id,$or:[
+        {workerId:owner},
+        {expiresAt:{$lte:now}},
+        {expiresAt:{$exists:false}}
+      ]},
+      set
+    );
     if(updated.matchedCount===1)return true;
+
+    const existing=await leases.findOne({_id:id},{projection:{workerId:1,expiresAt:1}});
+    if(existing&&deadPreviousWorkerOnSameHost(existing.workerId,owner)){
+      const reclaimed=await leases.updateOne(
+        {_id:id,workerId:String(existing.workerId||'')},
+        set
+      );
+      return reclaimed.matchedCount===1;
+    }
+    if(existing)return false;
+
     try{
       await leases.insertOne({_id:id,workerId:owner,expiresAt,updatedAt:now,createdAt:now});
       return true;
     }catch(error){
-      if(Number(error?.code)!==11000)throw error;
-      const retried=await leases.updateOne({_id:id},set);
-      return retried.matchedCount===1;
+      if(Number(error?.code)===11000)return false;
+      throw error;
     }
   }
 
@@ -223,10 +240,23 @@ function deadPreviousWorkerOnSameHost(previousOwner,currentOwner){
   if(!previous.host||previous.host!==current.host||!previous.pid||previous.pid===current.pid)return false;
   try{
     process.kill(previous.pid,0);
-    return false;
   }catch{
     return true;
   }
+
+  // Linux may recycle a dead NexAccount PID for an unrelated process before
+  // Mongo's TTL monitor removes the old lease. A bare kill(pid, 0) would then
+  // incorrectly treat that unrelated process as the previous runtime.
+  if(process.platform==='linux'){
+    try{
+      const cmd=fs.readFileSync('/proc/'+previous.pid+'/cmdline','utf8').replace(/\0/g,' ');
+      const looksLikeNexAccount=cmd.includes('daemon.mjs')&&(cmd.includes('nexaccount')||cmd.includes('/nexai/'));
+      return !looksLikeNexAccount;
+    }catch{
+      return true;
+    }
+  }
+  return false;
 }
 
 export async function acquireSessionLease(fingerprint,telegramUserId,workerId=cfg.workerId,ttlMs=cfg.runtimeLeaseMs){
