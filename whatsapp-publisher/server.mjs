@@ -500,6 +500,10 @@ async function nativeButtons(jid,text,buttons,{forwarded=false}={}){
             deviceListMetadataVersion:2
           },
           interactiveMessage:{
+            header:{
+              title:'Nextech',
+              hasMediaAttachment:false
+            },
             body:{text:String(text||'Ouvrir').slice(0,4096)},
             footer:{text:'Nextech'},
             ...(contextInfo?{contextInfo}:{}),
