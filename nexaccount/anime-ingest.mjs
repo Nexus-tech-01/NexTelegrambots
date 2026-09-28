@@ -1029,6 +1029,34 @@ async function anyDiscoveryInProgress(){
   return !!fresh;
 }
 
+function isTransientAnimeDisconnect(error){
+  const message=String(error?.errorMessage||error?.message||error||'');
+  return /disconnected|cannot send requests while disconnected|not connected|connection closed|socket.*closed|dc \d+/i.test(message);
+}
+async function ensureAnimeClientReady(runtime){
+  let lastError=null;
+  for(let attempt=0;attempt<5;attempt++){
+    try{
+      if(!runtime.client?.connected)await runtime.client.connect();
+      await runtime.client.getDialogs({limit:1});
+      return true;
+    }catch(error){
+      lastError=error;
+      if(attempt<4)await sleep(Math.min(5000,1000*(attempt+1)));
+    }
+  }
+  throw lastError||new Error('anime_client_not_connected');
+}
+function scheduleDiscoveryRetry(runtime,delayMs=5000){
+  runtime.animeIngest ??={};
+  if(runtime.animeIngest.discoveryRetryTimer)return;
+  runtime.animeIngest.discoveryRetryTimer=setTimeout(()=>{
+    runtime.animeIngest.discoveryRetryTimer=null;
+    discoverSources(runtime).catch(error=>console.error('[NexAnime discovery retry]',String(error?.message||error)));
+  },delayMs);
+  runtime.animeIngest.discoveryRetryTimer.unref?.();
+}
+
 async function discoverSources(runtime){
   if(!isListenerRuntime(runtime))return [];
   runtime.animeIngest ??={};
@@ -1036,6 +1064,7 @@ async function discoverSources(runtime){
   runtime.animeIngest.discovering=true;
   await setDiscoveryState(runtime,true);
   try{
+    await ensureAnimeClientReady(runtime);
     const dialogs=await runtime.client.getDialogs({limit:DIALOG_LIMIT});
     const candidates=[];
     for(const dialog of dialogs){
@@ -1047,6 +1076,7 @@ async function discoverSources(runtime){
         if(acceptedSource(row))candidates.push({row,entity,rank:sourceRank(row)});
         await sleep(80);
       }catch(e){
+        if(isTransientAnimeDisconnect(e))throw e;
         console.warn('[NexAnime discover]',String(runtime.account.telegramUserId),String(entity?.username||entity?.id||''),String(e?.message||e).slice(0,220));
       }
     }
@@ -1064,6 +1094,7 @@ async function discoverSources(runtime){
         verified.push({...candidate,anchors,rank:candidate.rank+Math.min(20,anchors.length*2)});
         if(verified.length>=MAX_SELECTED_SOURCES)break;
       }catch(e){
+        if(isTransientAnimeDisconnect(e))throw e;
         console.warn('[NexAnime source-verify]',String(runtime.account.telegramUserId),String(candidate.entity?.username||candidate.entity?.id||''),String(e?.message||e).slice(0,220));
       }
     }
@@ -1095,12 +1126,16 @@ async function discoverSources(runtime){
       try{
         await backfillSource(runtime,entity,anchors);
       }catch(e){
+        if(isTransientAnimeDisconnect(e))throw e;
         console.warn('[NexAnime backfill]',accountId,String(entity?.username||entity?.id||''),String(e?.message||e).slice(0,220));
       }
     }
     runtime.animeIngest.sources=selected.length;
     runtime.animeIngest.lastDiscoveryAt=new Date();
     return selected.map(x=>({...x.row,selected:true,sourceRank:x.rank,verifiedAnimeSeries:x.anchors.length}));
+  }catch(error){
+    if(isTransientAnimeDisconnect(error))scheduleDiscoveryRetry(runtime,5000);
+    throw error;
   }finally{
     runtime.animeIngest.discovering=false;
     await setDiscoveryState(runtime,false);
@@ -2372,10 +2407,12 @@ export async function animePublishNow(runtime){
 export async function stopAnimeIngest(runtime){
   if(!runtime?.animeIngest)return;
   if(runtime.animeIngest.discoveryTimer)clearInterval(runtime.animeIngest.discoveryTimer);
+  if(runtime.animeIngest.discoveryRetryTimer)clearTimeout(runtime.animeIngest.discoveryRetryTimer);
   if(runtime.animeIngest.publishTimer)clearInterval(runtime.animeIngest.publishTimer);
   if(runtime.animeIngest.pollTimer)clearInterval(runtime.animeIngest.pollTimer);
   if(runtime.animeIngest.cleanupTimer)clearInterval(runtime.animeIngest.cleanupTimer);
   runtime.animeIngest.discoveryTimer=null;
+  runtime.animeIngest.discoveryRetryTimer=null;
   runtime.animeIngest.publishTimer=null;
   runtime.animeIngest.pollTimer=null;
   runtime.animeIngest.cleanupTimer=null;
