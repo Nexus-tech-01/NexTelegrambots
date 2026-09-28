@@ -18,8 +18,8 @@ assert.doesNotMatch(store,/reservedWatcherId/);
 assert.match(runtime,/markSessionRepairRequired\(id,'AUTH_KEY_DUPLICATED'\)/);
 assert.match(runtime,/markSessionRepairRequired\(id,'SESSION_UNAUTHORIZED'\)/);
 assert.match(anime,/REQUIRED_LISTENERS=\['tresor20001','tresor20009','tresor20000'\]/);
-assert.match(anime,/NEXANIME_PUBLISH_MS\|\|5\*60\*1000/);
-assert.match(anime,/NEXANIME_INTER_SERIES_MS\|\|60\*60\*1000/);
+assert.match(anime,/const PUBLISH_MS=30_000;/);
+assert.match(anime,/const INTER_SERIES_MS=15\*60_000;/);
 if(relay){
   assert.match(relay,/NEXCANAL_SOCIAL_FEED_ENABLED\|\|'false'/);
   assert.match(relay,/legacy social feed disabled/);
