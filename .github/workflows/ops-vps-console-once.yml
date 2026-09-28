@@ -9,8 +9,22 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
-      - name: List NexAI processes on all active agents
-        run: curl --fail-with-body --silent --show-error --max-time 50 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-chatgpt-diag-once"
-# nexai-process-inventory-v25
+      - name: Deploy 409 fix and clean-restart VPS
+        run: |
+          set -euo pipefail
+          body="$(curl --fail-with-body --silent --show-error --max-time 150 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once")"
+          echo "$body"
+          python3 - "$body" <<'PY'
+          import json,sys
+          d=json.loads(sys.argv[1])
+          assert d.get("ok") is True, d
+          assert d.get("commit")=="91ca76313d0ea10d49d3709a22162f74c1c5694f", d
+          if not d.get("alreadyDone"):
+              assert len(d.get("written") or [])==2, d
+              assert all(x.get("ok") for x in d.get("checks") or []), d
+              assert d.get("stoppedState")=="offline", d
+          print("NEXAI_409_FIX_DEPLOYED",d.get("afterState"))
+          PY
+# nexai-poll409-clean-restart-v26
