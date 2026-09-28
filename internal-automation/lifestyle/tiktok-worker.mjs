@@ -13,6 +13,8 @@ const stateFile=process.env.LIFESTYLE_TIKTOK_STATE_FILE||'/var/lib/nex/state/lif
 const tmpRoot=process.env.LIFESTYLE_TIKTOK_TMP_DIR||'/var/lib/nex/tmp/internal-automation/lifestyle-tiktok';
 const ytdlp=process.env.LIFESTYLE_YTDLP||'/opt/nex/bin/yt-dlp';
 const waBridge=String(process.env.LIFESTYLE_WHATSAPP_BRIDGE||'http://127.0.0.1:18787/publish').trim();
+const waMediaRoot=process.env.LIFESTYLE_WHATSAPP_MEDIA_DIR||'/var/lib/nex/tmp/internal-automation/lifestyle-whatsapp';
+const waMediaTtlMs=Math.max(6*60*60_000,Number(process.env.LIFESTYLE_WHATSAPP_MEDIA_TTL_MS||24*60*60_000));
 const dryRun=/^(?:1|true|yes|on)$/i.test(String(process.env.LIFESTYLE_TIKTOK_DRY_RUN||''));
 const scanLimit=Math.max(5,Math.min(200,Number(process.env.LIFESTYLE_TIKTOK_SCAN_LIMIT||80)));
 const maxSourcesPerRun=Math.max(1,Math.min(6,Number(process.env.LIFESTYLE_TIKTOK_SOURCES_PER_RUN||3)));
@@ -223,19 +225,55 @@ async function sendTelegramVideo(video,candidate,captions){
   return j.result;
 }
 
+async function cleanupWhatsAppMedia(){
+  await fs.mkdir(waMediaRoot,{recursive:true});
+  const cutoff=Date.now()-waMediaTtlMs;
+  for(const name of await fs.readdir(waMediaRoot)){
+    const file=path.join(waMediaRoot,name);
+    try{
+      const st=await fs.stat(file);
+      if(st.isFile()&&st.mtimeMs<cutoff)await fs.rm(file,{force:true});
+    }catch{}
+  }
+}
+
+async function stageWhatsAppMedia(video,id){
+  await fs.mkdir(waMediaRoot,{recursive:true});
+  const safe=String(id||Date.now()).replace(/[^a-zA-Z0-9._-]+/g,'-').slice(0,120);
+  const target=path.join(waMediaRoot,safe+'.mp4');
+  await fs.copyFile(video,target);
+  return target;
+}
+
 async function mirrorWhatsApp(entry){
-  const file=await telegramJson('getFile',{file_id:entry.telegramFileId});
-  const mediaUrl='https://api.telegram.org/file/bot'+token+'/'+file.file_path;
+  let mediaItem=null;
+  if(entry.localPath){
+    try{
+      const st=await fs.stat(entry.localPath);
+      if(st.isFile()&&st.size>0){
+        mediaItem={
+          type:'video',localPath:entry.localPath,
+          fileName:'lifestyle-'+entry.telegramMessageId+'.mp4',
+          mimetype:'video/mp4',position:0
+        };
+      }
+    }catch{}
+  }
+  if(!mediaItem){
+    const file=await telegramJson('getFile',{file_id:entry.telegramFileId});
+    const mediaUrl='https://api.telegram.org/file/bot'+token+'/'+file.file_path;
+    mediaItem={
+      type:'video',url:mediaUrl,
+      fileName:'lifestyle-'+entry.telegramMessageId+'.mp4',
+      mimetype:'video/mp4',position:0
+    };
+  }
   const payload={
     id:entry.id,
     source:destination,
     sourceMessageId:entry.telegramMessageId,
     text:entry.text,
-    mediaItems:[{
-      type:'video',url:mediaUrl,
-      fileName:'lifestyle-'+entry.telegramMessageId+'.mp4',
-      mimetype:'video/mp4',position:0
-    }],
+    mediaItems:[mediaItem],
     buttons:[],
     createdAt:entry.createdAt
   };
@@ -280,6 +318,7 @@ function failCandidate(state,id,error){
 if(!token&&!dryRun)throw new Error('NEXCANAL__BOT_TOKEN missing');
 const sources=await loadSources();
 const state=await loadState();
+await cleanupWhatsAppMedia().catch(error=>console.warn('[Lifestyle/TikTok] WhatsApp media cleanup error:',clean(error?.message||error)));
 await retryWhatsApp(state).catch(error=>console.warn('[Lifestyle/TikTok] WhatsApp retry error:',clean(error?.message||error)));
 await saveState(state);
 
@@ -325,11 +364,14 @@ try{
     process.exit(0);
   }
 
+  const waLocalPath=await stageWhatsAppMedia(normalized,candidate.item.id);
   const sent=await sendTelegramVideo(normalized,candidate,captions);
   const entry={
     id:'lifestyle:tiktok:'+candidate.item.id,
     telegramMessageId:sent.message_id,
     telegramFileId:sent.video?.file_id,
+    localPath:waLocalPath,
+    sourceUrl:candidate.item.url,
     text:captions.plain,
     createdAt:new Date().toISOString(),
     attempts:0
