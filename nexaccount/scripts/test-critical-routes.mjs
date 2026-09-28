@@ -104,7 +104,7 @@ for(const name of ['waifuhd','cosplayvip','amvhd','openingvip']){
   const cmd=commands.get(name);
   if(cmd?.premium===true)errors.push('anime-command-wrongly-gated-by-telegram-premium:'+name);
 }
-if(!commandSource.includes("PREMIUM:'TELEGRAM PREMIUM'"))errors.push('telegram-premium-category-label-missing');
+if(!commandSource.includes("PREMIUM:'PREMIUM'"))errors.push('combined-premium-category-label-missing');
 if(!secondaryAnimeSource.includes("NEXANIME_SECONDARY_ENABLED"))errors.push('secondary-anime-enabled-guard-missing');
 if(!secondaryAnimeSource.includes("reason:'disabled'"))errors.push('secondary-anime-disabled-state-missing');
 if(secondaryAnimeSource.includes("||'/home/container/.nexcontrol/nexcanal-reader-session.txt'"))errors.push('legacy-secondary-session-fallback-still-present');
