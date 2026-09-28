@@ -9,23 +9,8 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
     steps:
-      - name: Inspect NexAI Premium Powers startup
-        shell: bash
-        run: |
-          set -u
-          echo "=== DEPLOY STATE ==="
-          curl --silent --show-error --max-time 30 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once" || true
-          echo
-          echo "=== CONSOLE ==="
-          curl --silent --show-error --max-time 30 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live" || true
-          echo
-          echo "=== PTERO DIAG ==="
-          curl --silent --show-error --max-time 30 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-diag" || true
-          echo
-# premium-powers-targeted-diag-20260928
-
-# nexai-duplicate-startup-diag-v22
-
-# nexai-index-snippets-diag-v23
+      - name: Inspect NexAccount launcher wiring
+        run: curl --fail-with-body --silent --show-error --max-time 45 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once"
+# nexai-index-snippets-fast-v23
