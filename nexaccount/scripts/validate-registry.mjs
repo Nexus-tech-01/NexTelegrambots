@@ -7,6 +7,7 @@ import { canHandleAiCommand } from '../ai-engine.mjs';
 import { canHandleStickerCommand } from '../sticker-engine.mjs';
 import { canHandleGameCommand } from '../game-engine.mjs';
 import { canHandleAnimeCommand } from '../anime-engine.mjs';
+import { canHandlePremiumCommand } from '../premium-engine.mjs';
 
 const HERE=path.dirname(fileURLToPath(import.meta.url));
 const ROOT=path.dirname(HERE);
@@ -48,6 +49,7 @@ for(const [token,cmd] of commands){
   if(cmd.engine==='download'&&!canHandleDownloadCommand(canonical))engineErrors.push(token+': unknown Download engine route');
   if(cmd.engine==='sticker'&&!canHandleStickerCommand(canonical))engineErrors.push(token+': unknown Sticker engine route');
   if(cmd.engine==='game'&&!canHandleGameCommand(canonical))engineErrors.push(token+': unknown Game engine route');
+  if(cmd.engine==='premium'&&!canHandlePremiumCommand(canonical))engineErrors.push(token+': unknown Premium engine route');
 
   if(cmd.hidden&&cmd.aliasFor){
     if(!commands.has(String(cmd.aliasFor).toLowerCase()))policyErrors.push(token+': alias target missing');
@@ -55,7 +57,7 @@ for(const [token,cmd] of commands){
   }
 
   const route=String(cmd.handler||cmd.sourceCommand||cmd.name||token).toLowerCase();
-  if(['anime','ai','download','sticker','game'].includes(String(cmd.engine||'')))continue;
+  if(['anime','ai','download','sticker','game','premium'].includes(String(cmd.engine||'')))continue;
   if(textMentionsRoute(route))continue;
   unresolved.push(token+' -> '+route);
 }
@@ -121,6 +123,6 @@ console.log(JSON.stringify({
   dipperSourceCanonical:stats.dipperSourceCanonical,
   sourceTokens:stats.sourceTokens,
   standalone:true,
-  localEngines:['ai','download','group','sticker','game','anime','audio'],
+  localEngines:['ai','download','group','sticker','game','anime','audio','premium'],
   unresolved:0
 },null,2));
