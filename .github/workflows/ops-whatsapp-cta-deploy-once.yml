@@ -10,18 +10,23 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
+  inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 5
     steps:
-      - name: Deploy Otaku runtime recovery
+      - name: Inspect WhatsApp runtime paths
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error \
-            "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once"
-          echo
-          sleep 8
-          curl --fail-with-body --silent --show-error \
-            "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"
-          echo
+          python3 - <<'PY'
+          import json,urllib.parse,urllib.request
+          base='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read'
+          for d in ['/whatsapp-publisher','/data','/nexcanal']:
+              try:
+                  url=base+'?dir='+urllib.parse.quote(d,safe='')
+                  with urllib.request.urlopen(url,timeout=45) as r:
+                      obj=json.load(r)
+                  print(json.dumps(obj,ensure_ascii=False))
+              except Exception as e:
+                  print(json.dumps({'dir':d,'error':str(e)},ensure_ascii=False))
+          PY
