@@ -1609,8 +1609,31 @@ async function queuedSeriesCandidates(d,{excludeSeriesKeys=[]}={}){
       ...(excluded.length?{_id:{$nin:excluded}}:{})
     }},
     {$sort:{hasPresentation:-1,firstCreated:1,_id:1}},
-    {$limit:5}
+    {$limit:25}
   ]).toArray();
+}
+async function seriesHasRunnableFrontier(d,seriesKey){
+  const first=await d.collection('nexanime_queue').findOne(
+    {seriesKey,status:'queued',kind:'episode',episode:{$ne:null}},
+    {sort:{season:1,episode:1,createdAt:1},projection:{season:1,episode:1}}
+  );
+  if(!first)return false;
+  const season=Number(first.season??1);
+  const episode=Number(first.episode);
+  if(!Number.isFinite(episode))return false;
+  if(episode<=1)return true;
+  const previous=await d.collection('nexanime_publications').findOne(
+    {seriesKey,kind:'episode',season,episode:episode-1,purgedAt:{$exists:false}},
+    {projection:{_id:1}}
+  );
+  return !!previous;
+}
+async function nextRunnableSeriesKey(d,{excludeSeriesKeys=[]}={}){
+  const candidates=await queuedSeriesCandidates(d,{excludeSeriesKeys});
+  for(const candidate of candidates){
+    if(await seriesHasRunnableFrontier(d,candidate._id))return candidate._id;
+  }
+  return '';
 }
 async function preparePlannedSeries(d,seriesKey){
   if(!seriesKey)return;
@@ -1691,8 +1714,7 @@ async function chooseActiveSeries(d){
       if(forcedExists>0)next=forcedNext;
     }
     if(!next){
-      const candidates=await queuedSeriesCandidates(d,{excludeSeriesKeys:blockActive?[blockedSeriesKey]:[]});
-      next=candidates?.[0]?._id||'';
+      next=await nextRunnableSeriesKey(d,{excludeSeriesKeys:blockActive?[blockedSeriesKey]:[]});
     }
     if(next){
       // Cross-series spacing is never bypassed, including legacy forced-next requests.
@@ -1750,8 +1772,7 @@ async function chooseActiveSeries(d){
     }
   }
   if(!next){
-    const candidates=await queuedSeriesCandidates(d,{excludeSeriesKeys:stateBlockActive?[stateBlockedKey]:[]});
-    next=candidates?.[0]?._id||'';
+    next=await nextRunnableSeriesKey(d,{excludeSeriesKeys:stateBlockActive?[stateBlockedKey]:[]});
   }
 
   if(!next){
@@ -1958,6 +1979,100 @@ async function preferredEpisodeVariant(d,seriesKey,season,episode){
   return variants[0];
 }
 
+async function preflightSeriesBeforeSynopsis(runtime,d,seriesKey){
+  const publishedPresentation=await d.collection('nexanime_publications').findOne(
+    {
+      seriesKey,kind:'presentation',
+      $or:[{episode:null},{episode:{$exists:false}}],
+      telegramMessageId:{$gt:0},
+      purgedAt:{$exists:false}
+    },
+    {projection:{_id:1}}
+  );
+  if(publishedPresentation)return {ok:true,alreadyPresented:true};
+
+  const first=await d.collection('nexanime_queue').findOne(
+    {seriesKey,status:'queued',kind:'episode',episode:{$ne:null}},
+    {sort:{season:1,episode:1,createdAt:1}}
+  );
+  if(!first)return {ok:false,reason:'no_episode_available'};
+
+  const season=Number(first.season??1);
+  const episode=Number(first.episode);
+  if(!Number.isFinite(episode)||episode!==1){
+    return {ok:false,reason:'first_episode_missing',season,expectedEpisode:1,blockedEpisode:Number.isFinite(episode)?episode:null};
+  }
+
+  const variants=await d.collection('nexanime_queue').find(
+    {seriesKey,status:'queued',kind:'episode',season,episode:1}
+  ).limit(50).toArray();
+  variants.sort((a,b)=>episodeVariantScore(b)-episodeVariantScore(a)||new Date(a.createdAt||0)-new Date(b.createdAt||0));
+
+  let lastError='';
+  let sawTransient=false;
+  for(const item of variants){
+    try{
+      const resolved=await resolveSource(runtime,item);
+      if(resolved)return {ok:true,season,episode:1,dedupeKey:item.dedupeKey};
+      sawTransient=true;
+    }catch(error){
+      const message=String(error?.message||error).slice(0,500);
+      lastError=message;
+      if(String(error?.code||'')==='SOURCE_IDENTITY_MISMATCH'){
+        await d.collection('nexanime_queue').updateOne(
+          {_id:item._id,status:'queued'},
+          {
+            $set:{
+              status:'quarantine',
+              quarantineReason:'source_identity_mismatch',
+              lastError:message,
+              preflightRejectedAt:new Date(),
+              updatedAt:new Date()
+            },
+            $inc:{attempts:1},
+            $unset:{claimAt:'',claimBy:''}
+          }
+        );
+        continue;
+      }
+      sawTransient=true;
+    }
+  }
+  return {
+    ok:false,
+    reason:sawTransient?'first_episode_unreachable':'first_episode_invalid',
+    season,expectedEpisode:1,blockedEpisode:1,lastError
+  };
+}
+async function parkSeriesBeforeSynopsis(d,seriesKey,probe={}){
+  const now=new Date();
+  const scheduler=d.collection('nexanime_config');
+  await scheduler.updateOne(
+    {_id:'scheduler'},
+    {
+      $set:{
+        blockedSeriesKey:seriesKey,
+        blockedSeriesUntil:new Date(now.getTime()+GAP_RETRY_MS),
+        blockedSeriesReason:'preflight_'+String(probe.reason||'unrunnable'),
+        gapDetected:{
+          seriesKey,
+          season:Number(probe.season??1),
+          expectedEpisode:Number(probe.expectedEpisode??1),
+          blockedEpisode:probe.blockedEpisode==null?null:Number(probe.blockedEpisode),
+          detectedAt:now
+        },
+        updatedAt:now
+      },
+      $unset:{
+        activeSeriesKey:'',activeSeriesStartedAt:'',
+        plannedSeriesKey:'',plannedAt:'',plannedSummary:''
+      }
+    },
+    {upsert:true}
+  );
+  console.warn('[NexAnime scheduler] skipped synopsis for unrunnable series',seriesKey,String(probe.reason||'unknown'));
+}
+
 async function claimNext(runtime){
   await ensureIndexes();
   await reconcileStalePublishing();
@@ -1966,6 +2081,15 @@ async function claimNext(runtime){
   const allowAny=isPublisherRuntime(runtime);
   const seriesKey=await chooseActiveSeries(d);
   if(!seriesKey)return null;
+
+  // Never publish a public synopsis before proving that the first episode can
+  // actually be resolved from Telegram. This prevents "synopsis then silence".
+  const preflight=await preflightSeriesBeforeSynopsis(runtime,d,seriesKey);
+  if(!preflight.ok){
+    await parkSeriesBeforeSynopsis(d,seriesKey,preflight);
+    return null;
+  }
+
   await ensureGeneralPresentation(d,seriesKey);
 
   // Legacy/source "Episode N" poster cards are not episode media. Remove them
