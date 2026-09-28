@@ -18,12 +18,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error --max-time 180 \
+          http_code="$(curl --silent --show-error --max-time 180 \
             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once" \
-            -o /tmp/deploy.json
-          python3 - <<'PY'
-          import json
+            -o /tmp/deploy.json -w '%{http_code}')"
+          python3 - "$http_code" <<'PY'
+          import json,sys
+          http_code=sys.argv[1]
           d=json.load(open('/tmp/deploy.json'))
+          print('http_status='+http_code)
           print(json.dumps({
             'ok':d.get('ok'),
             'alreadyDone':d.get('alreadyDone',False),
@@ -33,7 +35,9 @@ jobs:
             'changed':d.get('changed'),
             'beforeState':d.get('beforeState'),
             'afterState':d.get('afterState'),
-            'restartSignal':d.get('restartSignal')
+            'restartSignal':d.get('restartSignal'),
+            'error':d.get('error'),
+            'rollback':d.get('rollback')
           },ensure_ascii=False))
           if not d.get('ok'):
               raise SystemExit('CTA deploy failed: '+str(d.get('error')))
