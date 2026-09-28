@@ -1,5 +1,5 @@
 name: Ops Anime Diagnostic Once
-# recovery pass: wait for runtime stable state 2026-09-28T06:42+01:00
+# diagnostic pass: inspect NexAccount anime log after recovery 2026-09-28T06:44+01:00
 
 on:
   push:
@@ -13,25 +13,15 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 4
     steps:
-      - name: Poll VPS runtime
+      - name: NexAccount anime log
         run: |
-          for i in 1 2 3 4 5 6; do
-            echo "=== RUNTIME CHECK $i ==="
-            out="$(curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once")"
-            echo "$out"
-            state="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("server",{}).get("state",""))' <<<"$out")"
-            if [ "$state" = "running" ]; then
-              echo "RUNTIME_STABLE=running"
-              exit 0
-            fi
-            sleep 15
-          done
-          echo "Runtime did not reach running state" >&2
-          exit 1
-      - name: Console after stable runtime
+          echo '=== NEXACCOUNT LOG ==='
+          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-diag"
+          echo
+      - name: Runtime snapshot
         run: |
-          echo '=== CONSOLE ==='
-          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"
+          echo '=== RUNTIME ==='
+          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"
           echo
