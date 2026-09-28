@@ -1,5 +1,5 @@
 name: Ops Anime Diagnostic Once
-# recovery pass: deploy current anime runtime + verify NexCanal 2026-09-28T06:39+01:00
+# recovery pass: wait for runtime stable state 2026-09-28T06:42+01:00
 
 on:
   push:
@@ -13,21 +13,24 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 6
     steps:
-      - name: Deploy current NexAnime runtime files
+      - name: Poll VPS runtime
         run: |
-          echo '=== DEPLOY ANIME ==='
-          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once"
-          echo
-      - name: Wait for boot
-        run: sleep 25
-      - name: Runtime after anime deploy
-        run: |
-          echo '=== RUNTIME ==='
-          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"
-          echo
-      - name: Console after anime deploy
+          for i in 1 2 3 4 5 6; do
+            echo "=== RUNTIME CHECK $i ==="
+            out="$(curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once")"
+            echo "$out"
+            state="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("server",{}).get("state",""))' <<<"$out")"
+            if [ "$state" = "running" ]; then
+              echo "RUNTIME_STABLE=running"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Runtime did not reach running state" >&2
+          exit 1
+      - name: Console after stable runtime
         run: |
           echo '=== CONSOLE ==='
           curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"
