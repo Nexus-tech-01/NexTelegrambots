@@ -16,5 +16,13 @@ jobs:
           curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"
           echo
           curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-puppeteer-cache-status"
+          echo
+          for root in "%2Fdata" "%2F.local" "%2F.nexmeta-browser-profile" "%2Fbots"; do
+            echo "=== SIZE $root ==="
+            curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=$root" || true
+            echo
+          done
 
 # take-repair-package-inspect
+
+# take-repair-size-targets
