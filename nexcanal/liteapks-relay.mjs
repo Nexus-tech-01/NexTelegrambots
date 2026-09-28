@@ -843,8 +843,37 @@ async function runWithClient(c,{ownsReader=false,signal=null,expectedUsername=ex
 
 
 
-export function startEmbeddedLiteApksRelay(client,{signal,expectedUsername='tresor20009'}={}){
-  return runWithClient(client,{ownsReader:false,signal,expectedUsername});
+function floodWaitDelayMs(error){
+  const message=String(error?.errorMessage||error?.message||error||'');
+  const match=message.match(/FLOOD_WAIT_(\d+)/i);
+  if(!match)return 0;
+  return Math.max(1000,(Number(match[1])||0)*1000+2000);
+}
+
+function waitWithSignal(ms,signal){
+  if(signal?.aborted)return Promise.resolve(false);
+  return new Promise(resolve=>{
+    let timer;
+    const cleanup=()=>signal?.removeEventListener?.('abort',onAbort);
+    const onAbort=()=>{clearTimeout(timer);cleanup();resolve(false)};
+    timer=setTimeout(()=>{cleanup();resolve(true)},Math.max(0,Number(ms)||0));
+    signal?.addEventListener?.('abort',onAbort,{once:true});
+  });
+}
+
+export async function startEmbeddedLiteApksRelay(client,{signal,expectedUsername='tresor20009'}={}){
+  while(!signal?.aborted){
+    try{
+      return await runWithClient(client,{ownsReader:false,signal,expectedUsername});
+    }catch(error){
+      const waitMs=floodWaitDelayMs(error);
+      if(!waitMs)throw error;
+      warn('embedded scanner paused for Telegram FloodWait',Math.ceil(waitMs/1000)+'s');
+      const resume=await waitWithSignal(waitMs,signal);
+      if(!resume)return {ok:true,aborted:true};
+    }
+  }
+  return {ok:true,aborted:true};
 }
 
 async function run(session){
