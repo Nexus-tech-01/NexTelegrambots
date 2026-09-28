@@ -24,6 +24,7 @@ import { ensureEmojiLibraryPalette, ensurePremiumEmojiPalette, sanitizeAnimatedE
 import { putInlineResponse } from './inline-response-store.mjs';
 import { resolveBotUsername } from './secrets.mjs';
 import { ensureNexAiBotPresentation } from './bot-factory.mjs';
+import { handlePremiumPowerEvent, startPremiumPowers } from './premium-engine.mjs';
 
 const commands=commandMap();
 const runtimes=new Map();
@@ -1613,6 +1614,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false,ses
       // arrive with out=false. Treat recognized self-authored commands as commands.
       if(await maybeHandleSelfCommand(runtime,event,'incoming-self'))return;
       if(await handleAnimeIngestEvent(runtime,event))return;
+      await handlePremiumPowerEvent(runtime,event);
       await maybeAutoModerate(runtime,event);
       await maybeServiceGreeting(runtime,event);
       await maybeAutoReact(runtime,event);
@@ -1648,6 +1650,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false,ses
 
   await startAnimeIngest(runtime).catch(e=>console.error('[NexAnime start]',id,String(e?.message||e)));
   await startEmbeddedLiteApkScanner(runtime).catch(e=>console.error('[NexAccount LiteAPK start]',id,String(e?.message||e)));
+  await startPremiumPowers(runtime).catch(e=>console.error('[NexAI Premium start]',id,String(e?.message||e)));
 
   runAutoJoin(runtime).catch(()=>{});
   runtime.autoJoinTimer=setInterval(()=>runAutoJoin(runtime).catch(()=>{}),30*60*1000);
