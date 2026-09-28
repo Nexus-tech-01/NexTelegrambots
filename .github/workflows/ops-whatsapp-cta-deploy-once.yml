@@ -10,25 +10,33 @@ permissions:
   contents: read
 
 jobs:
-  inspect:
+  validate:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Inspect WhatsApp runtime paths
+      - uses: actions/checkout@v4
+      - name: Validate NexTech WhatsApp CTA path
         shell: bash
         run: |
           set -euo pipefail
+          node --check nexcanal/nextech-whatsapp-mirror.mjs
+          node --check internal-automation/interroute.mjs
+          node --check whatsapp-publisher/server.mjs
           python3 - <<'PY'
-          import json,urllib.parse,urllib.request
-          base='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read'
-          for d in ['/whatsapp-publisher','/data','/nexcanal']:
-              try:
-                  url=base+'?dir='+urllib.parse.quote(d,safe='')
-                  with urllib.request.urlopen(url,timeout=45) as r:
-                      obj=json.load(r)
-                  print(json.dumps(obj,ensure_ascii=False))
-              except Exception as e:
-                  print(json.dumps({'dir':d,'error':str(e)},ensure_ascii=False))
+          from pathlib import Path
+          mirror=Path('nexcanal/nextech-whatsapp-mirror.mjs').read_text()
+          inter=Path('internal-automation/interroute.mjs').read_text()
+          wa=Path('whatsapp-publisher/server.mjs').read_text()
+          checks={
+            'telegram_reply_markup': "message?.reply_markup" in mirror,
+            'telegram_message_buttons': "message?.buttons" in mirror,
+            'buttons_preserved_to_interroute': "buttons:e.content.buttons" in inter,
+            'cta_url': "name:'cta_url'" in wa,
+            'merchant_url': "merchant_url:b.url" in wa,
+            'interactive_header': "hasMediaAttachment:false" in wa,
+            'cta_fallback': "linksText(buttons)" in wa,
+          }
+          print(checks)
+          if not all(checks.values()):
+              raise SystemExit('CTA pipeline assertion failed')
           PY
-
-# retry-locate-live-paths-1790601065195
