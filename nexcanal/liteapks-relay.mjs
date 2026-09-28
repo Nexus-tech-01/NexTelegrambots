@@ -180,6 +180,14 @@ function descriptorScore(p,m){
   return s;
 }
 function chooseUrl(m){
+  // LiteAPK/iMadeaux can expose the real download URL only through a
+  // Telegram URL button or a text_link entity. Prefer those before looking
+  // for a raw URL in the visible caption.
+  const linked=telegramButtons(m);
+  const preferred=linked.find(button=>dlRe.test(String(button?.text||'')));
+  if(preferred?.url)return preferred.url;
+  if(linked.length===1)return linked[0].url;
+
   const lines=String(m?.message||'').split(/\r?\n/);
   for(let i=0;i<lines.length;i++){
     if(!dlRe.test(lines[i]))continue;
@@ -190,7 +198,11 @@ function chooseUrl(m){
       if(b)return b.replace(/[),.;]+$/,'');
     }
   }
-  return '';
+
+  // If there are several Telegram links but no explicit "download" label,
+  // keep the first HTTPS target as a last-resort CTA instead of dropping all
+  // links from the WhatsApp mirror.
+  return linked[0]?.url||'';
 }
 function translateMadeauxLine(line=''){
   return String(line)
@@ -279,12 +291,37 @@ async function enqueueWhatsAppMirror(body){
 function telegramButtons(m){
   const rows=Array.isArray(m?.replyMarkup?.rows)?m.replyMarkup.rows:[];
   const out=[];
+  const seen=new Set();
+  const add=(label,value)=>{
+    const url=String(value||'').trim();
+    if(!/^https?:\/\//i.test(url)||seen.has(url))return;
+    seen.add(url);
+    out.push({text:(String(label||'Ouvrir').trim().slice(0,64)||'Ouvrir'),url});
+  };
+
   for(const row of rows){
     for(const button of (Array.isArray(row?.buttons)?row.buttons:[])){
-      const url=String(button?.url||'').trim();
-      if(!/^https?:\/\//i.test(url))continue;
-      out.push({text:String(button?.text||'Ouvrir').trim().slice(0,64),url});
+      add(button?.text,button?.url);
+      if(out.length>=12)return out;
     }
+  }
+
+  // Telegram text_link / URL entities are not part of replyMarkup. Without
+  // reading them, a LiteAPK post can look correct in Telegram while the
+  // WhatsApp copy loses the download target entirely.
+  const messageText=String(m?.message||'');
+  for(const entity of (Array.isArray(m?.entities)?m.entities:[])){
+    const offset=Math.max(0,Number(entity?.offset)||0);
+    const length=Math.max(0,Number(entity?.length)||0);
+    const label=length?messageText.slice(offset,offset+length):'Ouvrir';
+    const explicit=String(entity?.url||'').trim();
+    if(explicit){
+      add(label,explicit);
+    }else if(length){
+      const visible=messageText.slice(offset,offset+length).trim();
+      if(/^https?:\/\//i.test(visible))add(label,visible);
+    }
+    if(out.length>=12)break;
   }
   return out.slice(0,12);
 }
@@ -352,7 +389,7 @@ async function mirrorNextechChannelMessage(c,m){
   if(!text&&!buttons.length&&!media.length)return true;
   const out=await enqueueWhatsAppMirror({
     ownerDomain:'system',
-    idempotencyKey:'nextech-channel:'+String(id)+':v1',
+    idempotencyKey:'nextech-channel:'+String(id)+':v2-download-links',
     source:{platform:'telegram',name:'thenexusorigin',messageId:String(id),accountRole:'system-channel-mirror'},
     content:{text,media,buttons},
     routes:[{platform:'whatsapp'}]

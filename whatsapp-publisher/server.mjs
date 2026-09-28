@@ -102,6 +102,30 @@ async function body(req){ const chunks=[]; for await(const c of req) chunks.push
 function sourceName(v=''){ return String(v).replace(/^@/,'').toLowerCase().trim(); }
 function flatButtons(v){ const src=Array.isArray(v)?v:[]; const flat=src.flatMap(x=>Array.isArray(x)?x:[x]); return flat.map(x=>({text:String(x?.text||x?.label||'Ouvrir').trim(),url:String(x?.url||'').trim()})).filter(x=>/^https?:\/\//i.test(x.url)).slice(0,12); }
 function linksText(buttons){ return buttons.map(b=>`• ${b.text}: ${b.url}`).join('\n'); }
+function isDownloadButton(button={}){
+  return /(?:download|t[eé]l[eé]charg|installer|install|\bapk\b|get\s+(?:apk|app))/i.test(String(button?.text||''));
+}
+function orderedChannelButtons(buttons=[]){
+  return [...(Array.isArray(buttons)?buttons:[])]
+    .map((button,index)=>({button,index,priority:isDownloadButton(button)?1:0}))
+    .sort((a,b)=>b.priority-a.priority||a.index-b.index)
+    .map(x=>x.button);
+}
+function channelMediaCaption(text='',buttons=[],limit=1024){
+  const cleanText=String(text||'').trim();
+  const ordered=orderedChannelButtons(buttons);
+  let linkBlock='';
+  for(const button of ordered){
+    let line=`• ${button.text}: ${button.url}`;
+    if(line.length>limit&&String(button.url||'').length<=limit)line=String(button.url);
+    const candidate=linkBlock?linkBlock+'\n'+line:line;
+    if(candidate.length<=limit)linkBlock=candidate;
+  }
+  if(!linkBlock)return cleanText.slice(0,limit);
+  const budget=Math.max(0,limit-linkBlock.length-(cleanText?2:0));
+  const body=cleanText.slice(0,budget).trimEnd();
+  return [body,linkBlock].filter(Boolean).join('\n\n');
+}
 
 function groupForwardContext(){
   const newsletterJid=state.channelJid||PRESENTATION_NEWSLETTER_JID;
@@ -536,8 +560,10 @@ async function sendPublication(jid,destination,pub){
 
   const isGroup=destination==='group';
   const forwardContext=isGroup?groupForwardContext():undefined;
-  const buttons=isGroup?groupActionButtons(pub):(pub.buttons||[]);
-  const channelText=[pub.text,linksText(pub.buttons||[])].filter(Boolean).join('\n\n');
+  const channelButtons=orderedChannelButtons(pub.buttons||[]);
+  const buttons=isGroup?groupActionButtons(pub):channelButtons;
+  const channelText=[pub.text,linksText(channelButtons)].filter(Boolean).join('\n\n');
+  const channelCaption=channelMediaCaption(pub.text,channelButtons,1024);
   const groupFallback=[pub.text,linksText(buttons)].filter(Boolean).join('\n\n');
 
   if(!pub.media.length){
@@ -588,7 +614,7 @@ async function sendPublication(jid,destination,pub){
   // an unsupported interactive channel-update placeholder. Groups keep the
   // richer native CTA flow with a plain-text fallback.
   for(let i=0;i<pub.media.length;i++){
-    const caption=i===0?((isGroup?pub.text:channelText)||undefined):undefined;
+    const caption=i===0?((isGroup?pub.text:channelCaption)||undefined):undefined;
     await sendOneMedia(jid,pub.media[i],caption,isGroup?forwardContext:undefined);
   }
 
