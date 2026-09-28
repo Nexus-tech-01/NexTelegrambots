@@ -3,7 +3,7 @@ import { Bot, InputFile } from 'grammy';
 import { cfg, isOwnerId } from './config.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { commandMap } from './commands.mjs';
-import { accountRecord, settingsFor, patchSettings, saveSharedBotIdentity, nexAiPremiumState, grantNexAiPremium } from './store.mjs';
+import { accountRecord, settingsFor, patchSettings, saveSharedBotIdentity, nexAiPremiumState, grantNexAiPremium, acquireServiceLease, renewServiceLease, releaseServiceLease } from './store.mjs';
 import { menuModel, stylesModel } from './menu.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { getInlineResponse } from './inline-response-store.mjs';
@@ -34,6 +34,39 @@ let replyArtworkBuffer=null;
 const NEXAI_PREMIUM_STARS=250;
 const NEXAI_PREMIUM_PERIOD_SECONDS=30*24*60*60;
 const NEXAI_PREMIUM_PAYLOAD_PREFIX='nexai-premium-v1:';
+const NEXAI_POLLER_LEASE_TTL_MS=Math.max(60_000,Number(process.env.NEXAI_POLLER_LEASE_TTL_MS||120_000));
+const NEXAI_POLLER_LEASE_RENEW_MS=Math.max(15_000,Math.min(45_000,Number(process.env.NEXAI_POLLER_LEASE_RENEW_MS||30_000)));
+const NEXAI_POLLER_CONFLICT_RETRIES=Math.max(3,Math.min(30,Number(process.env.NEXAI_POLLER_CONFLICT_RETRIES||12)));
+let pollerLeaseKey='';
+let pollerLeaseTimer=null;
+
+const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+function telegramConflict409(error){
+  const code=Number(error?.error_code||error?.error?.error_code||error?.error?.code||error?.code||0);
+  const message=String(error?.description||error?.error?.description||error?.message||error?.error?.message||error||'');
+  return code===409||/409: Conflict|terminated by other getUpdates request|only one bot instance/i.test(message);
+}
+
+async function startPollingWithTakeover(target){
+  for(let attempt=1;attempt<=NEXAI_POLLER_CONFLICT_RETRIES;attempt++){
+    try{
+      await target.start({drop_pending_updates:false});
+      return;
+    }catch(error){
+      if(!telegramConflict409(error))throw error;
+      if(attempt>=NEXAI_POLLER_CONFLICT_RETRIES)throw error;
+      const delay=Math.min(12_000,1200+(attempt-1)*900);
+      console.warn('[NexAI poller] 409 conflict · retry '+attempt+'/'+NEXAI_POLLER_CONFLICT_RETRIES+' in '+delay+'ms');
+      await wait(delay);
+    }
+  }
+}
+
+function clearPollerLeaseTimer(){
+  if(pollerLeaseTimer)clearInterval(pollerLeaseTimer);
+  pollerLeaseTimer=null;
+}
+
 
 function nexAiReplyArtworkInput(){
   if(!replyArtworkBuffer){
@@ -839,19 +872,45 @@ export async function startInlineBot(){
 
   bot.catch(e=>console.error('[NexAI Bot]',e.error||e));
   await syncTelegramCommandMenu(bot).catch(e=>console.error('[NexAI commands]',String(e?.description||e?.message||e)));
-  bot.start({drop_pending_updates:false}).catch(e=>console.error('[NexAI start]',e));
   const me=await bot.api.getMe();
   cfg.botUsername=String(me.username||cfg.botUsername||'').replace(/^@/,'');
   await saveSharedBotIdentity({
     username:cfg.botUsername,
     telegramBotId:String(me.id||'')
   }).catch(error=>console.warn('[NexAI bot identity] persist_failed',String(error?.message||error).slice(0,180)));
-  console.log('[NexAccount] inline bot @'+me.username+' online');
+
+  pollerLeaseKey='nexai-inline:'+String(me.id||'unknown');
+  const ownsPoller=await acquireServiceLease(pollerLeaseKey,cfg.workerId,NEXAI_POLLER_LEASE_TTL_MS);
+  if(!ownsPoller){
+    console.warn('[NexAI poller] standby · another NexAccount worker owns '+pollerLeaseKey);
+    console.log('[NexAccount] inline bot @'+me.username+' API ready · polling standby');
+    return bot;
+  }
+
+  clearPollerLeaseTimer();
+  pollerLeaseTimer=setInterval(async()=>{
+    const renewed=await renewServiceLease(pollerLeaseKey,cfg.workerId,NEXAI_POLLER_LEASE_TTL_MS).catch(()=>false);
+    if(renewed)return;
+    clearPollerLeaseTimer();
+    console.error('[NexAI poller] lease lost · stopping local polling');
+    try{await bot?.stop()}catch{}
+  },NEXAI_POLLER_LEASE_RENEW_MS);
+  pollerLeaseTimer.unref?.();
+
+  startPollingWithTakeover(bot).catch(async error=>{
+    console.error('[NexAI start]',error);
+    clearPollerLeaseTimer();
+    await releaseServiceLease(pollerLeaseKey,cfg.workerId).catch(()=>{});
+  });
+  console.log('[NexAccount] inline bot @'+me.username+' online · singleton poller');
   return bot;
 }
 
 export async function stopInlineBot(){
+  clearPollerLeaseTimer();
   try{await bot?.stop()}catch{}
+  if(pollerLeaseKey)await releaseServiceLease(pollerLeaseKey,cfg.workerId).catch(()=>{});
+  pollerLeaseKey='';
 }
 
 
