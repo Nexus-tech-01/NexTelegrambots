@@ -5,7 +5,7 @@ import path from 'node:path';
 import { db } from './store.mjs';
 import { generateAiReply } from './ai-engine.mjs';
 
-const POWER_NAMES=new Set(['autopilot','botforge','webapp','mirror','vault','watch','studio','research','build','memory']);
+const POWER_NAMES=new Set(['autopilot','botforge','webapp','mirror','vault','watch','nexstudio','research','build','memory']);
 const RUNNER_MS=Math.max(30000,Number(process.env.NEXAI_PREMIUM_RUNNER_MS||60000));
 const MIRROR_CACHE_TTL=Math.max(5000,Number(process.env.NEXAI_MIRROR_CACHE_TTL_MS||20000));
 const mirrorCache=new Map();
@@ -308,7 +308,7 @@ export async function handlePremiumCommand({runtime,event,name,args=[],reply}){
   if(key==='vault')return handleVault({runtime,event,args,reply});
   if(key==='research')return handleResearch({runtime,event,args,reply});
   if(key==='webapp'||key==='botforge'||key==='build')return handleGenerator({runtime,event,name:key,args,reply});
-  if(key==='studio')return handleStudio({runtime,event,args,reply});
+  if(key==='nexstudio')return handleStudio({runtime,event,args,reply});
   return false;
 }
 
