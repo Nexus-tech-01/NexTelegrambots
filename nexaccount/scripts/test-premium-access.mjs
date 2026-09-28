@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { commandMap } from '../commands.mjs';
 import { menuModel } from '../menu.mjs';
+import { canHandlePremiumCommand, __test as premiumEngineTest } from '../premium-engine.mjs';
 
 const commands=commandMap();
 
@@ -13,6 +14,18 @@ for(const name of ['waifuhd','cosplayvip','amvhd','openingvip']){
   assert.equal(cmd.nexaiPremium,true,name+' must require NexAI Premium');
   assert.notEqual(cmd.telegramPremium,true,name+' must not require Telegram Premium');
 }
+
+const premiumPowers=['autopilot','botforge','webapp','mirror','vault','watch','studio','research','build','memory'];
+for(const name of premiumPowers){
+  const cmd=commands.get(name);
+  assert.ok(cmd,name+' must be registered');
+  assert.equal(cmd.category,'PREMIUM',name+' must live in the Premium category');
+  assert.equal(cmd.nexaiPremium,true,name+' must require NexAI Premium');
+  assert.equal(cmd.engine,'premium',name+' must use the premium engine');
+  assert.equal(canHandlePremiumCommand(name),true,name+' must have a premium engine handler');
+}
+assert.equal(premiumEngineTest.parseIntervalMs('chaque 15 minutes'),15*60*1000);
+assert.equal(premiumEngineTest.extractUrls('watch https://example.com now')[0],'https://example.com');
 
 const clone=commands.get('clonepack');
 assert.notEqual(clone.nexaiPremium,true,'clonepack stays available to Free users under quota');
@@ -46,6 +59,7 @@ const premiumMenu=await menuModel({
   includeArtwork:false
 });
 assert.match(premiumMenu.text,/\/Waifuhd/i,'Premium category must aggregate NexAI Premium commands');
+assert.match(premiumMenu.text,/\/Autopilot/i,'Premium category must expose NexAI Premium Powers');
 assert.match(premiumMenu.text,/\/Customreact/i,'Premium category must include Telegram Premium commands');
 assert.ok(
   premiumMenu.reply_markup.inline_keyboard.flat().some(button=>String(button.callback_data||'')==='premium:buy'),
