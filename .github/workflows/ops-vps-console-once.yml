@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Inspect boot
         run: |
+          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"
+          echo
           curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"
           echo
           curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-puppeteer-cache-status"
@@ -26,3 +28,5 @@ jobs:
 # take-repair-package-inspect
 
 # take-repair-size-targets
+
+# otaku-status-1790600350961
