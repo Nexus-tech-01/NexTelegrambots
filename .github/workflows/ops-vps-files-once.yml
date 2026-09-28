@@ -9,15 +9,8 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
     steps:
-      - name: Inspect safe disk targets
-        shell: bash
-        run: |
-          set -euo pipefail
-          for d in "%2Fdata" "%2F.local" "%2F.nexmeta-browser-profile" "%2F.cache" "%2F.npm" "%2F.nexcontrol"; do
-            echo "=== $d ==="
-            curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=$d" || true
-            echo
-          done
-# take-repair-shallow-safe-targets
+      - name: Inspect data directory
+        run: curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=%2Fdata"
+# take-repair-data-only
