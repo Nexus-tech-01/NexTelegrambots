@@ -10,25 +10,18 @@ permissions:
   contents: read
 
 jobs:
-  agents:
+  deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Locate active NexControl agents
+      - name: Deploy Otaku runtime recovery
         shell: bash
         run: |
           set -euo pipefail
-          curl --silent --show-error --max-time 45 \
-            "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-chatgpt-diag-once" \
-            -o /tmp/agents.json
-          python3 - <<'PY'
-          import json
-          d=json.load(open('/tmp/agents.json'))
-          print(json.dumps({
-            'ok':d.get('ok'),
-            'now':d.get('now'),
-            'agents':d.get('agents',[]),
-            'jobs':d.get('jobs',[])[:12],
-            'error':d.get('error')
-          },ensure_ascii=False))
-          PY
+          curl --fail-with-body --silent --show-error \
+            "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once"
+          echo
+          sleep 8
+          curl --fail-with-body --silent --show-error \
+            "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"
+          echo
