@@ -9,6 +9,15 @@ const fileMessage=(name,caption='')=>({
   }
 });
 
+// Scheduler contract: stale environment values must never regress the publishing cadence.
+{
+  assert.equal(__test.timing.publishMs,30_000);
+  assert.ok(__test.timing.publishMs<=60_000);
+  assert.equal(__test.timing.interSeriesMs,15*60_000);
+  const base=new Date('2026-01-01T00:00:00.000Z');
+  assert.equal(__test.interSeriesDeadlineFrom(base).toISOString(),'2026-01-01T00:15:00.000Z');
+}
+
 {
   const x=__test.parseEpisode('Classroom of the Elite S04E15 VOSTFR 1080p');
   assert.equal(x.season,4);

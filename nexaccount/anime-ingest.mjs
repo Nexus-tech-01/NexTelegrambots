@@ -18,8 +18,12 @@ const NEXCANAL_STAGE_BOT=String(process.env.NEXANIME_NEXCANAL_BOT||'the_big_dipp
 const NEXCANAL_HANDOFF_COLLECTION='nexanime_nexcanal_handoffs';
 const NEXCANAL_HANDOFF_TIMEOUT_MS=Math.max(15_000,Number(process.env.NEXANIME_NEXCANAL_HANDOFF_TIMEOUT_MS||120_000));
 const DISCOVERY_MS=Math.max(15*60*1000,Number(process.env.NEXANIME_DISCOVERY_MS||6*60*60*1000));
-const PUBLISH_MS=Math.max(2*60*1000,Number(process.env.NEXANIME_PUBLISH_MS||5*60*1000));
-const INTER_SERIES_MS=Math.max(60_000,Number(process.env.NEXANIME_INTER_SERIES_MS||60*60*1000));
+// Publication cadence is a product invariant, not an environment override:
+// - same anime: another publication opportunity every 30s (<= 1 min)
+// - different anime: exactly 15 min from the previous series' last confirmed publication
+// Fixed values prevent stale VPS env settings from restoring the old 5m/1h delays.
+const PUBLISH_MS=30_000;
+const INTER_SERIES_MS=15*60_000;
 const PUBLISHER_LEASE_GRACE_MS=Math.max(INTER_SERIES_MS+60_000,Number(process.env.NEXANIME_PUBLISHER_LEASE_GRACE_MS||INTER_SERIES_MS+5*60*1000));
 const POLL_MS=Math.max(30000,Number(process.env.NEXANIME_POLL_MS||60000));
 const STALE_PUBLISH_MS=Math.max(2*60*1000,Number(process.env.NEXANIME_STALE_PUBLISH_MS||10*60*1000));
@@ -1544,6 +1548,19 @@ async function preparePlannedSeries(d,seriesKey){
     {upsert:true}
   );
 }
+function interSeriesDeadlineFrom(lastPublishedAt,fallbackNow=Date.now()){
+  const publishedMs=lastPublishedAt?new Date(lastPublishedAt).getTime():NaN;
+  const fallbackMs=fallbackNow instanceof Date?fallbackNow.getTime():Number(fallbackNow);
+  const baseMs=Number.isFinite(publishedMs)?publishedMs:(Number.isFinite(fallbackMs)?fallbackMs:Date.now());
+  return new Date(baseMs+INTER_SERIES_MS);
+}
+async function interSeriesDeadline(d,seriesKey,now=new Date()){
+  const last=await d.collection('nexanime_publications').findOne(
+    {seriesKey,purgedAt:{$exists:false}},
+    {sort:{publishedAt:-1,_id:-1},projection:{publishedAt:1}}
+  );
+  return interSeriesDeadlineFrom(last?.publishedAt,now);
+}
 async function chooseActiveSeries(d){
   const scheduler=d.collection('nexanime_config');
   const now=new Date();
@@ -1569,10 +1586,9 @@ async function chooseActiveSeries(d){
       next=candidates?.[0]?._id||'';
     }
     if(next){
-      const skipCooldown=Boolean(
-        forcedNext&&next===forcedNext&&current?.skipCooldownForForcedNext===true
-      );
-      const cooldownUntil=skipCooldown?now:new Date(Date.now()+INTER_SERIES_MS);
+      // Cross-series spacing is never bypassed, including legacy forced-next requests.
+      // Anchor it to the last confirmed public post so timer polling adds no extra delay.
+      const cooldownUntil=await interSeriesDeadline(d,current.activeSeriesKey,now);
       await scheduler.updateOne(
         {_id:'scheduler'},
         {$set:{
@@ -2386,7 +2402,9 @@ export const __test={
   cleanSeriesTitle,sourceTitleCandidate,deriveRawAnchors,commonPrefixTitle,verifyAnimeTitle,
   standardizedCaption,quotedCaption,titleFromMessage,titleEvidenceFromMessage,titlesClearlyConflict,
   episodeEvidenceFromMessage,meaningfulTitleSimilarity,bestAnchor,episodeVariantScore,episodeIdentityCompatible,
-  isTransientPublishError,inferredSeasonAlias
+  isTransientPublishError,inferredSeasonAlias,
+  interSeriesDeadlineFrom,
+  timing:{publishMs:PUBLISH_MS,interSeriesMs:INTER_SERIES_MS}
 };
 
 
