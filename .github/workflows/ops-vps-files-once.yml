@@ -18,3 +18,5 @@ jobs:
           curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=%2F"
           echo
           curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=%2Fbots"
+
+# take-repair-disk-inspect
