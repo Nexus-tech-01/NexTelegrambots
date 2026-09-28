@@ -11,6 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Inspect data directory
-        run: curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=%2Fdata"
-# take-repair-data-only
+      - name: Measure data tree
+        run: curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=%2Fdata"
+# take-repair-data-tree
