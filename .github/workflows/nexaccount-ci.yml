@@ -7,11 +7,13 @@ on:
       - 'nexaccount/**'
       - 'nexcontrol/api/index.mjs'
       - '.github/workflows/nexaccount-ci.yml'
+      - '.github/workflows/deploy-nexaccount.yml'
   pull_request:
     paths:
       - 'nexaccount/**'
       - 'nexcontrol/api/index.mjs'
       - '.github/workflows/nexaccount-ci.yml'
+      - '.github/workflows/deploy-nexaccount.yml'
   workflow_dispatch:
 
 permissions:
@@ -42,6 +44,8 @@ jobs:
         run: node nexaccount/scripts/test-anime-ingest.mjs
       - name: NexAnime runtime protection contract
         run: node nexaccount/anime-contract.mjs
+      - name: Deploy isolation regression
+        run: node nexaccount/scripts/test-deploy-isolation.mjs
       - name: Media send regression
         run: node nexaccount/scripts/test-media-send.mjs
       - name: WhatsApp sticker package regression
