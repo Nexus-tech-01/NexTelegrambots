@@ -23,6 +23,7 @@ import { sendTelegramMedia } from './media-send.mjs';
 import { ensureEmojiLibraryPalette, ensurePremiumEmojiPalette, sanitizeAnimatedEmojiText, sendBrandedText, syncOwnedCustomEmojiLibrary } from './response-ui.mjs';
 import { putInlineResponse } from './inline-response-store.mjs';
 import { resolveBotUsername } from './secrets.mjs';
+import { ensureNexAiBotPresentation } from './bot-factory.mjs';
 
 const commands=commandMap();
 const runtimes=new Map();
@@ -461,20 +462,54 @@ async function sendMenu(runtime,peer){
     console.log('[NexAccount menu]',String(account.telegramUserId),'inline:sent');
     return sent;
   }catch(error){
-    const reason=String(error?.errorMessage||error?.message||error||'unknown_error').slice(0,500);
+    let reason=String(error?.errorMessage||error?.message||error||'unknown_error').slice(0,500);
     console.error('[NexAccount menu]',String(account.telegramUserId),'inline:failed',reason);
+
+    // Existing NexAI bots may predate the automatic BotFather /setinline
+    // setup. Repair that setting on demand, then retry the exact same inline
+    // menu once before degrading to text.
+    if(/INLINE_DISABLED|BOT_INLINE_DISABLED/i.test(reason)){
+      try{
+        const repair=await ensureNexAiBotPresentation(client,account,{force:true});
+        console.log('[NexAccount menu]',String(account.telegramUserId),'inline:repair',JSON.stringify(repair));
+        if(repair?.updated===true||repair?.reason==='already_ensured'){
+          await sleep(650);
+          const sent=await sendInline(client,peer,'menu');
+          console.log('[NexAccount menu]',String(account.telegramUserId),'inline:recovered');
+          return sent;
+        }
+      }catch(repairError){
+        reason+=' | repair='+String(repairError?.errorMessage||repairError?.message||repairError).slice(0,300);
+        console.error('[NexAccount menu]',String(account.telegramUserId),'inline:repair_failed',String(repairError?.message||repairError).slice(0,350));
+      }
+    }
+
     const settings=await settingsFor(account.telegramUserId);
     const model=await menuModel({account,settings,commands,view:'home'});
 
-    // Last-resort degradation stays TEXT-only. A media fallback would force
-    // the menu into Telegram's 1024-char caption limit and recreate the old
-    // image/header shifting problem. The next .menu attempt can recover the
-    // full artwork + inline keyboard path.
-    const fallback=String(model.text||'NexAI').slice(0,4096);
+    // Last-resort degradation must never be a header-only card. Preserve the
+    // selected theme, then append a compact set of clickable slash commands so
+    // the menu remains usable even if Telegram inline mode is temporarily down.
+    const quick=String(settings?.language||'fr').toLowerCase().startsWith('en')
+      ? '\n\nMENU TEMPORARILY IN TEXT MODE\n/Menu  /Style  /Ping  /Account  /Settings  /Premium  /Owner'
+      : '\n\nMENU TEMPORAIRE EN MODE TEXTE\n/Menu  /Style  /Ping  /Account  /Settings  /Premium  /Owner';
+    const fallback=(String(model.text||'NexAI')+quick).slice(0,4096);
+    const fallbackModel={
+      ...model,
+      text:fallback,
+      entities:[
+        ...(model.entities||[]),
+        ...[...fallback.matchAll(/\/[A-Za-z][A-Za-z0-9_]{0,63}/g)].map(m=>({
+          type:'bot_command',
+          offset:utf16len(fallback.slice(0,m.index)),
+          length:utf16len(m[0])
+        }))
+      ]
+    };
     try{
       return await client.sendMessage(peer,{
         message:fallback,
-        formattingEntities:menuFormattingEntities(model,4096)
+        formattingEntities:menuFormattingEntities(fallbackModel,4096)
       });
     }catch{
       return sendBrandedText(client,peer,fallback);
