@@ -12,4 +12,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Inspect boot
-        run: curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"
+        run: |
+          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"
+          echo
+          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-puppeteer-cache-status"
+
+# take-repair-package-inspect
