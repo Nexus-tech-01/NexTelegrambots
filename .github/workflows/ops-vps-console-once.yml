@@ -11,8 +11,25 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Final NexAI runtime tail
+      - uses: actions/checkout@v4
+      - name: Inspect Render bundle for NexAccount
+        shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error --max-time 45 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-diag"
-# nexai-final-runtime-tail
+          : > /tmp/nexus-bots.tar.xz
+          for f in $(printf '%s\n' render-src.b64.part-* | sort); do
+            base64 -d "$f" >> /tmp/nexus-bots.tar.xz
+          done
+          mkdir -p /tmp/nexus-render
+          tar -xJf /tmp/nexus-bots.tar.xz -C /tmp/nexus-render
+          echo "=== NEXACCOUNT PATHS ==="
+          find /tmp/nexus-render -maxdepth 4 -type f | grep -Ei '/nexaccount/|nexai' | head -80 || true
+          echo "=== ORCHESTRATOR REFERENCES ==="
+          if [ -f /tmp/nexus-render/scripts/orchestrator.mjs ]; then
+            grep -Ein -C 5 'nexaccount|nexai|bot token|daemon|bootstrap' /tmp/nexus-render/scripts/orchestrator.mjs || true
+          fi
+          echo "=== PREFLIGHT REFERENCES ==="
+          if [ -f /tmp/nexus-render/scripts/preflight.mjs ]; then
+            grep -Ein -C 3 'nexaccount|nexai' /tmp/nexus-render/scripts/preflight.mjs || true
+          fi
+# render-bundle-nexai-duplicate-check
