@@ -22,6 +22,9 @@ const maxFetch=500;
 const interrouteUrl=String(process.env.NEX_INTERROUTE_URL||'http://127.0.0.1:18130').replace(/\/$/,'');
 const nextechMirrorTmpDir=String(process.env.NEXTECH_WHATSAPP_MIRROR_TMP||'/var/lib/nex/tmp/internal-automation/nextech-channel-mirror');
 const nextechMirrorRetentionMs=Math.max(60*60*1000,Number(process.env.NEXTECH_WHATSAPP_MIRROR_RETENTION_MS||24*60*60*1000));
+const mediaTmpRetentionMs=Math.max(30*60*1000,Number(process.env.NEXCANAL__WATCHER_MEDIA_RETENTION_MS||2*60*60*1000));
+const mediaTmpCleanupMs=Math.max(60*1000,Number(process.env.NEXCANAL__WATCHER_MEDIA_CLEANUP_MS||10*60*1000));
+const mediaDownloadLocks=new Map();
 
 const sourceSpecs=[
   {key:'liteapks',username:'liteapks',kind:'liteapks'},
@@ -251,7 +254,7 @@ async function media(c,m){
   if(!b)throw new Error('media download failed');
   return Buffer.isBuffer(b)?b:Buffer.from(b);
 }
-async function cleanupMediaTmp(maxAgeMs=6*60*60*1000){
+async function cleanupMediaTmp(maxAgeMs=mediaTmpRetentionMs){
   await fs.mkdir(mediaTmpDir,{recursive:true});
   const now=Date.now();
   const entries=await fs.readdir(mediaTmpDir,{withFileTypes:true}).catch(()=>[]);
@@ -265,11 +268,32 @@ async function cleanupMediaTmp(maxAgeMs=6*60*60*1000){
 async function mediaToFile(c,m,name){
   await fs.mkdir(mediaTmpDir,{recursive:true});
   const safe=String(name||`package-${m.id}.apk`).replace(/[^A-Za-z0-9._ -]+/g,'_').slice(-180)||`package-${m.id}.apk`;
-  const target=path.join(mediaTmpDir,`${m.id}-${Date.now()}-${safe}`);
-  const out=await c.downloadMedia(m.media,{outputFile:target});
-  const file=typeof out==='string'&&out?out:target;
-  const st=await fs.stat(file);
-  return {file,size:st.size,cleanup:async()=>{await fs.rm(file,{force:true}).catch(()=>{});if(file!==target)await fs.rm(target,{force:true}).catch(()=>{});}};
+  // Stable name: retries reuse one cache file instead of creating a new
+  // multi-hundred-MB copy every time a transfer hits its timeout.
+  const target=path.join(mediaTmpDir,`${m.id}-${safe}`);
+  const expected=Number(m?.document?.size||0);
+  try{
+    const st=await fs.stat(target);
+    if(st.isFile()&&st.size>0&&(!expected||st.size===expected)){
+      const now=new Date();await fs.utimes(target,now,now).catch(()=>{});
+      return {file:target,size:st.size,cleanup:async()=>{await fs.rm(target,{force:true}).catch(()=>{});}};
+    }
+    await fs.rm(target,{force:true}).catch(()=>{});
+  }catch{}
+  const key=target;
+  let active=mediaDownloadLocks.get(key);
+  if(!active){
+    active=(async()=>{
+      const out=await c.downloadMedia(m.media,{outputFile:target,workers:1});
+      const file=typeof out==='string'&&out?out:target;
+      const st=await fs.stat(file);
+      if(!st.isFile()||st.size<=0)throw new Error('large APK download empty');
+      if(expected&&st.size!==expected)throw new Error('large APK download incomplete '+st.size+'/'+expected);
+      return {file,size:st.size,cleanup:async()=>{await fs.rm(file,{force:true}).catch(()=>{});if(file!==target)await fs.rm(target,{force:true}).catch(()=>{});}};
+    })().finally(()=>mediaDownloadLocks.delete(key));
+    mediaDownloadLocks.set(key,active);
+  }
+  return active;
 }
 
 async function enqueueWhatsAppMirror(body){
@@ -705,6 +729,7 @@ async function runWithClient(c,{ownsReader=false,signal=null,expectedUsername=ex
   if(!token||!apiId||!apiHash)throw new Error('missing NexCanal watcher credentials');
   if(!c)throw new Error('missing NexCanal reader client');
   await cleanupMediaTmp();
+  let nextMediaCleanupAt=Date.now()+mediaTmpCleanupMs;
   if(c.connected!==true)await c.connect();
   if(!(await c.isUserAuthorized()))throw new Error('watcher session is not authorized');
   const me=await c.getMe();
@@ -794,6 +819,10 @@ async function runWithClient(c,{ownsReader=false,signal=null,expectedUsername=ex
         void runEngagement(false);
       }
       if(socialFeed)void socialFeed.tick();
+      if(Date.now()>=nextMediaCleanupAt){
+        nextMediaCleanupAt=Date.now()+mediaTmpCleanupMs;
+        await cleanupMediaTmp().catch(e=>warn('media tmp cleanup failed',e?.message||e));
+      }
       await cleanupNextechMirrorTmp().catch(e=>warn('Nextech mirror tmp cleanup failed',e?.message||e));
     }catch(e){
       const message=String(e?.errorMessage||e?.message||e);
