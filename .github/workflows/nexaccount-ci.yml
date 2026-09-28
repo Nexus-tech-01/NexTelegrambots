@@ -58,6 +58,8 @@ jobs:
         run: node nexaccount/scripts/test-critical-routes.mjs
       - name: Core architecture regression
         run: node nexaccount/scripts/test-core-architecture.mjs
+      - name: Premium separation regression
+        run: node nexaccount/scripts/test-premium-access.mjs
       - name: Syntax
         run: |
           for f in nexaccount/*.mjs nexaccount/core/*.mjs nexaccount/scripts/*.mjs nexcontrol/api/index.mjs; do node --check "$f"; done
