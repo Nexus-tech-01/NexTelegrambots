@@ -11,17 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Verify NexAI poller log after restart
-        run: |
-          set -euo pipefail
-          body="$(curl --fail-with-body --silent --show-error --max-time 45 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once")"
-          echo "$body"
-          python3 - "$body" <<'PY'
-          import json,sys
-          d=json.loads(sys.argv[1])
-          assert d.get("ok") is True, d
-          assert d.get("singleton") is True or d.get("standby") is True, d
-          assert d.get("fatalStart") is False, d
-          print("NEXAI_POLLER_OK", "singleton" if d.get("singleton") else "standby", "conflicts", d.get("conflicts"), "retries", d.get("retries"), "state", d.get("state"))
-          PY
-# nexai-poll409-log-verify-v29
+      - name: Compare Pterodactyl REST and Wings websocket state
+        run: curl --fail-with-body --silent --show-error --max-time 45 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once"
+# ptero-rest-websocket-state-v30
