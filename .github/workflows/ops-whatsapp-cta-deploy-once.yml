@@ -10,53 +10,30 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
+  discover:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Deploy WhatsApp CTA hotfix
+      - name: Locate live WhatsApp publisher
         shell: bash
         run: |
           set -euo pipefail
-          http_code="$(curl --silent --show-error --max-time 180 \
-            "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once" \
-            -o /tmp/deploy.json -w '%{http_code}')"
-          python3 - "$http_code" <<'PY'
-          import json,sys
-          http_code=sys.argv[1]
-          d=json.load(open('/tmp/deploy.json'))
-          print('http_status='+http_code)
-          print(json.dumps({
-            'ok':d.get('ok'),
-            'alreadyDone':d.get('alreadyDone',False),
-            'commit':d.get('commit'),
-            'path':d.get('path'),
-            'sha':d.get('sha'),
-            'changed':d.get('changed'),
-            'beforeState':d.get('beforeState'),
-            'afterState':d.get('afterState'),
-            'restartSignal':d.get('restartSignal'),
-            'error':d.get('error'),
-            'rollback':d.get('rollback')
-          },ensure_ascii=False))
-          if not d.get('ok'):
-              raise SystemExit('CTA deploy failed: '+str(d.get('error')))
-          PY
-
-      - name: Verify runtime after restart
-        shell: bash
-        run: |
-          set -euo pipefail
-          sleep 8
-          curl --fail-with-body --silent --show-error --max-time 45 \
-            "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live" \
-            -o /tmp/runtime.json
           python3 - <<'PY'
-          import json,re
-          d=json.load(open('/tmp/runtime.json'))
-          logs=[str(x) for x in d.get('logs',[])]
-          keep=[x[-800:] for x in logs if re.search(r'whatsapp|publisher|bridge|connected|interroute|nexcanal',x,re.I)]
-          print(json.dumps({'ok':d.get('ok'),'state':d.get('state'),'signals':keep[-20:]},ensure_ascii=False))
-          if not d.get('ok') or str(d.get('state','')).lower() not in {'running','starting'}:
-              raise SystemExit('VPS runtime verification failed')
+          import json,urllib.parse,urllib.request
+          base='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe'
+          roots=['/services','/nexus-bridge','/nexai-connect-v2','/ecosystem','/scripts','/shared','/bots','/pterodactyl']
+          all_named=[]
+          for root in roots:
+              try:
+                  with urllib.request.urlopen(base+'?root='+urllib.parse.quote(root,safe=''),timeout=120) as r:
+                      d=json.load(r)
+                  named=d.get('named',[])
+                  if named:
+                      all_named.extend(named)
+                      print(json.dumps({'root':root,'named':named},ensure_ascii=False))
+                  else:
+                      print(json.dumps({'root':root,'named_count':0,'visited':d.get('visited'),'files':d.get('files')},ensure_ascii=False))
+              except Exception as e:
+                  print(json.dumps({'root':root,'error':str(e)},ensure_ascii=False))
+          print('DISCOVERED='+json.dumps(all_named,ensure_ascii=False))
           PY
