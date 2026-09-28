@@ -265,6 +265,11 @@ export async function sendNexUi(sock,{
     ? await renderSvg(categorySvg({category:selected,commands:categories[selected]||[],sender,status}),dataDir)
     : await renderSvg(dashboardSvg({sender,rank,status,commandCount,categories}),dataDir);
 
+  const classicCaption=selected
+    ? 'NexAI • '+selected+'\n\n'+(categories[selected]||[]).map(x=>'.'+x).join(' · ')+'\n\n.menu pour revenir à l’accueil'
+    : 'NexAI Control Deck\n'+commandCount+' commandes • '+String(status).toUpperCase()+'\n\n.menu general • .menu group • .menu media • .menu tools';
+  return sock.sendMessage(jid,{image,caption:classicCaption,contextInfo});
+
   const buttons = selected
     ? [
         {label:'⌂ ACCUEIL',id:'nexui:home'},
