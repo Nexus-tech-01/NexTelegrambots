@@ -11,24 +11,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Inspect files
+      - name: Inspect safe disk targets
         shell: bash
         run: |
           set -euo pipefail
-          for d in "%2F" "%2F.nexcontrol" "%2F.nexcontrol%2Fbackups" "%2F.nexcontrol%2Flogs" "%2Fbots%2Fnexaccount" "%2Fbots%2Fnexaccount%2F.runtime" "%2Fnode_modules" "%2Fdata" "%2Ftmp"; do
+          for d in "%2Fdata" "%2F.local" "%2F.nexmeta-browser-profile" "%2F.cache" "%2F.npm" "%2F.nexcontrol"; do
             echo "=== $d ==="
             curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=$d" || true
             echo
           done
-          echo "=== recursive node_modules ==="
-          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=%2Fnode_modules"
-          echo
-          echo "=== recursive nexcontrol ==="
-          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=%2F.nexcontrol"
-          echo
-
-# take-repair-disk-inspect
-
-# take-repair-disk-inspect-deep
-
-# take-repair-recursive-size
+# take-repair-shallow-safe-targets
