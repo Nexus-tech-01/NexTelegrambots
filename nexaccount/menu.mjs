@@ -105,6 +105,18 @@ function localized(settings,fr,en){
   return String(settings?.language||'fr').toLowerCase().startsWith('en')?en:fr;
 }
 
+function premiumCommands(commands){
+  const out=[],seen=new Set();
+  for(const cmd of commands.values()){
+    if(cmd.hidden||(!cmd.nexaiPremium&&!cmd.telegramPremium&&!cmd.premium))continue;
+    const canonical=cmd.aliasFor||cmd.name;
+    if(seen.has(canonical))continue;
+    seen.add(canonical);
+    out.push({...cmd,name:canonical});
+  }
+  return out.sort((a,b)=>a.name.localeCompare(b.name));
+}
+
 function emojiEntitySpans(text,glyph,id){
   if(!glyph||!id)return [];
   const value=String(text);
@@ -160,7 +172,9 @@ export async function menuModel({account,settings,commands,view='home',category=
   const menuButtonStyle=activeTheme.buttonStyle||'primary';
   const visible=cmd=>!cmd.hidden&&(!cmd.ownerOnly||owner);
   const user=displayUser(account,settings);
-  const rank=owner?'owner':account.premium?'premium':'user';
+  const telegramPremium=account.telegramPremium===true||account.premium===true;
+  const nexaiPremium=owner||account.nexaiPremium===true;
+  const rank=owner?'owner':nexaiPremium?'NEXAI PREMIUM':telegramPremium?'TG PREMIUM':'user';
   const header=sanitizeAnimatedEmojiText(renderThemeHeader(style.id,{
     botName:String(settings.botDisplayName||'NEXAI').slice(0,32),
     user,
@@ -172,7 +186,7 @@ export async function menuModel({account,settings,commands,view='home',category=
   const quoteRange={start:0,length:header.length};
 
   if(view==='category'&&category){
-    const list=(groups[category]||[]).filter(visible);
+    const list=(category==='PREMIUM'?premiumCommands(commands):(groups[category]||[])).filter(visible);
     const label=toSmallCaps(CATEGORY_LABELS[category]||category);
     const themedLabel=(FALLBACK_EMOJI[category]||'')+(FALLBACK_EMOJI[category]?' ':'')+label;
     const themed=renderThemeCategory(style.id,themedLabel);
@@ -181,13 +195,33 @@ export async function menuModel({account,settings,commands,view='home',category=
     const themedFooter=sanitizeAnimatedEmojiText(themed.footer,settings?.customEmojiIds||{});
     body=header+'\n'+themedTitle+'\n';
     body+=toSmallCaps(localized(settings,'Commandes','Commands'))+' • '+list.length+'\n';
+    if(category==='PREMIUM'){
+      body+=toSmallCaps(localized(
+        settings,
+        'NexAI Premium : '+(nexaiPremium?'ACTIF':'INACTIF')+' • 250 ⭐ / 30 jours',
+        'NexAI Premium: '+(nexaiPremium?'ACTIVE':'INACTIVE')+' • 250 ⭐ / 30 days'
+      ))+'\n';
+      body+=toSmallCaps(localized(
+        settings,
+        'Telegram Premium : '+(telegramPremium?'ACTIF':'INACTIF'),
+        'Telegram Premium: '+(telegramPremium?'ACTIVE':'INACTIVE')
+      ))+'\n';
+      body+=toSmallCaps(localized(
+        settings,
+        'Take / Clonepack Free : 2 utilisations tous les 3 jours',
+        'Take / Clonepack Free: 2 uses every 3 days'
+      ))+'\n\n';
+    }
 
     const visibleCommands=list.map(cmd=>({
       name:cmd.name,
       suffix:[
         cmd.privateOnly?'  · '+toSmallCaps(localized(settings,'Privé','Private')):'',
         cmd.groupOnly?(cmd.adminOnly?'  · '+toSmallCaps(localized(settings,'Groupe/Admin','Group/Admin')):'  · '+toSmallCaps(localized(settings,'Groupe','Group'))):'',
-        cmd.premium&&!account.premium
+        (cmd.telegramPremium||cmd.premium)&&!telegramPremium
+          ?'  · 👑 '+toSmallCaps('Telegram Premium')
+          :'',
+        cmd.nexaiPremium&&!nexaiPremium
           ?'  · 👑 '+toSmallCaps('Premium')
           :''
       ].join('')
@@ -220,6 +254,9 @@ export async function menuModel({account,settings,commands,view='home',category=
     if(primaryLinks.length)buttons.push(primaryLinks);
     if(cfg.darkUniverseUrl)buttons.push([urlButton('ᴅᴀʀᴋ ᴜɴɪᴠᴇʀѕᴇ',cfg.darkUniverseUrl,'success','dark',settings)]);
   }else{
+    if(category==='PREMIUM'&&!nexaiPremium){
+      buttons.push([button(toSmallCaps(localized(settings,'Activer NexAI Premium · 250 ⭐','Activate NexAI Premium · 250 ⭐')),'premium:buy','success','premium',settings)]);
+    }
     buttons.push([button(toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back',settings)]);
     if(cfg.nextechUrl)buttons.push([urlButton('ɴᴇxᴛᴇᴄʜ',cfg.nextechUrl,'success','nextech',settings)]);
   }
