@@ -18,6 +18,7 @@ export async function db(){
       d.collection('nexaccount_settings').createIndex({telegramUserId:1},{unique:true}),
       d.collection('nexaccount_runtime_leases').createIndex({expiresAt:1},{expireAfterSeconds:0}),
       d.collection('nexaccount_session_leases').createIndex({expiresAt:1},{expireAfterSeconds:0}),
+      d.collection('nexaccount_service_leases').createIndex({expiresAt:1},{expireAfterSeconds:0}),
       d.collection('nexaccount_pairing_state').createIndex({expiresAt:1},{expireAfterSeconds:0}),
       d.collection('nexaccount_command_claims').createIndex({expiresAt:1},{expireAfterSeconds:0}),
       d.collection('nexaccount_custom_emoji_library').createIndex({sourceUsername:1,documentId:1},{unique:true}),
@@ -323,6 +324,60 @@ export async function renewRuntimeLease(telegramUserId,workerId=cfg.workerId,ttl
 export async function releaseRuntimeLease(telegramUserId,workerId=cfg.workerId){
   const d=await db();
   const result=await d.collection('nexaccount_runtime_leases').deleteOne({_id:String(telegramUserId),workerId:String(workerId)});
+  return result.deletedCount===1;
+}
+
+export async function acquireServiceLease(name,workerId=cfg.workerId,ttlMs=cfg.runtimeLeaseMs){
+  const id=String(name||'').trim();
+  const owner=String(workerId||'').trim();
+  if(!id||!owner)return false;
+  const d=await db(),now=new Date(),expiresAt=new Date(Date.now()+Math.max(30_000,Number(ttlMs)||cfg.runtimeLeaseMs));
+  const leases=d.collection('nexaccount_service_leases');
+  const set={$set:{workerId:owner,expiresAt,updatedAt:now}};
+  const updated=await leases.updateOne(
+    {_id:id,$or:[
+      {workerId:owner},
+      {expiresAt:{$lte:now}},
+      {expiresAt:{$exists:false}}
+    ]},
+    set
+  );
+  if(updated.matchedCount===1)return true;
+
+  const existing=await leases.findOne({_id:id},{projection:{workerId:1,expiresAt:1}});
+  if(existing&&deadPreviousWorkerOnSameHost(existing.workerId,owner)){
+    const reclaimed=await leases.updateOne({_id:id,workerId:String(existing.workerId||'')},set);
+    return reclaimed.matchedCount===1;
+  }
+  if(existing)return false;
+
+  try{
+    await leases.insertOne({_id:id,workerId:owner,expiresAt,updatedAt:now,createdAt:now});
+    return true;
+  }catch(error){
+    if(Number(error?.code)===11000)return false;
+    throw error;
+  }
+}
+
+export async function renewServiceLease(name,workerId=cfg.workerId,ttlMs=cfg.runtimeLeaseMs){
+  const id=String(name||'').trim();
+  const owner=String(workerId||'').trim();
+  if(!id||!owner)return false;
+  const d=await db(),now=new Date(),expiresAt=new Date(Date.now()+Math.max(30_000,Number(ttlMs)||cfg.runtimeLeaseMs));
+  const result=await d.collection('nexaccount_service_leases').updateOne(
+    {_id:id,workerId:owner},
+    {$set:{expiresAt,updatedAt:now}}
+  );
+  return result.matchedCount===1;
+}
+
+export async function releaseServiceLease(name,workerId=cfg.workerId){
+  const id=String(name||'').trim();
+  const owner=String(workerId||'').trim();
+  if(!id||!owner)return false;
+  const d=await db();
+  const result=await d.collection('nexaccount_service_leases').deleteOne({_id:id,workerId:owner});
   return result.deletedCount===1;
 }
 
