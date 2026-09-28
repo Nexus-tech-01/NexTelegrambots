@@ -2186,6 +2186,7 @@ export async function stopRuntimes(){
     await stopEmbeddedLiteApkScanner(r).catch(()=>{});
     await stopAnimeIngest(r).catch(()=>{});
     try{await r.client.disconnect()}catch{}
+    if(r.sessionFingerprint)await releaseSessionLease(r.sessionFingerprint,id).catch(()=>{});
     await releaseRuntimeLease(id).catch(()=>{});
   }
   runtimes.clear();
