@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#070606">
+<title>NexAI Control Deck</title>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#050505;--ink:#f7f3ed;--muted:#958e88;--line:#463226;
+  --panel:#130d0b;--panel2:#1d1210;--brown:#6e422b;--copper:#b67748;
+  --red:#e32332;--red2:#7d1019;--teal:#16cda1;--teal2:#063e34;
+  --gold:#f2b14c;--cyan:#28e4ff;--blue:#1688e8;--green:#62ff8e;
+}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:#050505;color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button,input,textarea,select{font:inherit}button{-webkit-tap-highlight-color:transparent}
+body{overflow-x:hidden;background:
+ radial-gradient(circle at 50% -5%,#4f151d52,transparent 28%),
+ radial-gradient(circle at 16% 38%,#113d3650,transparent 22%),
+ linear-gradient(#050505,#090706 52%,#040404)}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.17;background-image:
+ linear-gradient(#ffffff08 1px,transparent 1px),linear-gradient(90deg,#ffffff06 1px,transparent 1px);
+ background-size:24px 24px;mask-image:linear-gradient(to bottom,#000,transparent 85%)}
+body:after{content:"";position:fixed;inset:0;pointer-events:none;opacity:.13;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.74' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.4'/%3E%3C/svg%3E")}
+.splash{position:fixed;inset:0;z-index:200;display:grid;place-items:center;background:#050505;transition:.55s ease}
+.ready .splash{opacity:0;visibility:hidden;pointer-events:none}
+.splash-core{text-align:center}.splash-mark{width:80px;height:80px;margin:auto;border-radius:24px;display:grid;place-items:center;
+ background:linear-gradient(145deg,#3b090d,#170708);border:1px solid #b12834;box-shadow:0 0 0 8px #e3233212,0 0 50px #e3233250,inset 0 0 35px #e3233229;font-size:34px;font-weight:1000}
+.splash h1{font-size:18px;letter-spacing:.35em;margin:20px 0 0}.load{width:120px;height:3px;background:#241818;border-radius:99px;margin:15px auto;overflow:hidden}.load i{display:block;width:45%;height:100%;background:var(--red);animation:load 1s infinite ease-in-out}
+@keyframes load{from{transform:translateX(-130%)}to{transform:translateX(260%)}}
+.shell{position:relative;z-index:2;width:min(100%,520px);margin:0 auto;padding:12px 12px calc(96px + env(safe-area-inset-bottom))}
+.top{display:flex;align-items:center;justify-content:space-between;padding:8px 4px 14px;position:sticky;top:0;z-index:20;background:linear-gradient(#050505f4,#050505b8 70%,transparent);backdrop-filter:blur(12px)}
+.brand{display:flex;align-items:center;gap:10px}.brandMark{width:42px;height:42px;border-radius:15px;display:grid;place-items:center;font-weight:1000;background:#250b0e;border:1px solid #71222a;box-shadow:inset 0 0 22px #d6293833}
+.brand b{display:block;font-size:14px;letter-spacing:.12em}.brand small{display:block;color:#8f8580;margin-top:2px;font-size:10px;letter-spacing:.08em}
+.live{display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:999px;background:#12100f;border:1px solid #352923;font-size:10px;font-weight:900;letter-spacing:.06em}
+.live i{width:7px;height:7px;border-radius:50%;background:#7e716a}.live.on i{background:var(--green);box-shadow:0 0 12px var(--green)}
+.page{display:none}.page.active{display:block;animation:pageIn .3s cubic-bezier(.2,.8,.2,1)}@keyframes pageIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.machine{border:1px solid #432a20;border-radius:24px;padding:9px;background:linear-gradient(160deg,#291713,#0d0908 34%,#160e0c);box-shadow:0 24px 60px #000b,inset 0 0 0 1px #8f5b3327}
+.frame{border-radius:18px;border:1px solid #7c4c31;background:#090807;box-shadow:inset 0 0 0 3px #271611,0 0 0 1px #130a08;padding:9px}
+.aiHead{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;border-radius:14px;padding:10px 11px;background:linear-gradient(180deg,#671019,#2d090e);border:1px solid #bb2b36;box-shadow:0 0 22px #e3233229,inset 0 0 20px #ff394322}
+.avatar{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:#d4202f;border:1px solid #ff6370;font-weight:1000;box-shadow:0 0 18px #e3233260}
+.aiHead b{font-size:13px;letter-spacing:.12em}.aiHead small{display:block;font-size:9px;color:#ffb4b8;margin-top:4px;letter-spacing:.05em}.signal{display:flex;gap:2px;align-items:end;height:20px}.signal i{width:4px;background:#ff8590;border-radius:4px}.signal i:nth-child(1){height:6px}.signal i:nth-child(2){height:10px}.signal i:nth-child(3){height:15px}.signal i:nth-child(4){height:19px}
+.board{margin-top:10px;border-radius:13px;padding:12px;background:radial-gradient(circle at 50% 40%,#14642b,#082b16 58%,#04170c);border:1px solid #1d8740;box-shadow:inset 0 0 35px #000,0 0 18px #16b95627;min-height:220px;position:relative;overflow:hidden}
+.board:before{content:"";position:absolute;inset:0;background:linear-gradient(#fff05 1px,transparent 1px),linear-gradient(90deg,#fff04 1px,transparent 1px);background-size:18px 18px;opacity:.2}
+.boardTitle{position:relative;z-index:2;font-size:9px;letter-spacing:.22em;color:#9cffb4;text-align:center}.core{position:relative;z-index:2;width:116px;height:116px;margin:22px auto 12px;border-radius:28px;display:grid;place-items:center;background:radial-gradient(circle,#102927,#07120f);border:1px solid #25d8ba;box-shadow:0 0 0 8px #16cda10b,0 0 30px #16cda144,inset 0 0 25px #16cda122}
+.core:before,.core:after{content:"";position:absolute;border-radius:50%;border:1px dashed #30f2ce80;inset:14px;animation:spin 12s linear infinite}.core:after{inset:29px;animation-direction:reverse;animation-duration:8s}@keyframes spin{to{transform:rotate(360deg)}}
+.core strong{font-size:22px;letter-spacing:.05em;color:#b9fff0;text-shadow:0 0 14px #2cffe3}.core em{display:block;font-style:normal;font-size:8px;color:#54cdb7;text-align:center;margin-top:3px}
+.boardStats{position:relative;z-index:2;display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.miniStat{padding:9px 6px;border-radius:10px;background:#06160fcb;border:1px solid #1a5635;text-align:center}.miniStat span{display:block;font-size:7px;color:#65a986;letter-spacing:.16em}.miniStat b{display:block;font-size:15px;margin-top:3px}
+.player{margin-top:10px;border-radius:13px;padding:10px;background:linear-gradient(180deg,#07564a,#07372f);border:1px solid #12b494;box-shadow:0 0 16px #16cda125;display:flex;align-items:center;justify-content:space-between}.playerLeft{display:flex;align-items:center;gap:9px}.you{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:#15b88f;border:1px solid #61ffd5;font-weight:1000}.player b{font-size:12px}.player small{display:block;font-size:8px;color:#8debd5;margin-top:2px}.pill{font-size:9px;padding:6px 8px;border:1px solid #2ab99d;border-radius:999px;color:#adffed}
+.bigAction{width:100%;margin-top:10px;height:52px;border:1px solid #ff4654;border-radius:12px;background:linear-gradient(180deg,#e82736,#a80f1b);color:white;font-size:12px;font-weight:1000;letter-spacing:.16em;box-shadow:inset 0 1px #ff8490,0 0 18px #e3233228}
+.bigAction:active{transform:scale(.985)}
+.meta{display:flex;justify-content:space-between;gap:10px;padding:10px 4px 0;color:#776d68;font-size:8px;letter-spacing:.08em}
+.sectionTitle{display:flex;align-items:end;justify-content:space-between;margin:18px 3px 10px}.sectionTitle h2{margin:0;font-size:16px;letter-spacing:-.02em}.sectionTitle p{margin:3px 0 0;color:#887f7a;font-size:9px}.tag{font-size:8px;padding:5px 7px;border-radius:999px;border:1px solid #4d3127;background:#160e0c;color:#bd9c89;font-weight:900}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:9px}.card{border:1px solid #35261f;background:linear-gradient(180deg,#15100e,#0b0908);border-radius:16px;padding:13px;min-height:104px;position:relative;overflow:hidden}.card:after{content:"";position:absolute;width:80px;height:80px;border-radius:50%;right:-30px;top:-30px;background:var(--glow,#e32332);opacity:.08;filter:blur(5px)}
+.cardIcon{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:#201310;border:1px solid #523526;font-size:16px}.card b{display:block;font-size:11px;margin-top:9px}.card small{display:block;color:#827873;font-size:8px;line-height:1.45;margin-top:3px}.card button{position:absolute;inset:0;opacity:0}
+.card.cyan{--glow:#28e4ff;border-color:#173841}.card.green{--glow:#16cda1;border-color:#17433a}.card.gold{--glow:#f2b14c;border-color:#4b3720}
+.console{border:1px solid #34302e;border-radius:18px;background:#090909;padding:12px;box-shadow:inset 0 0 24px #000}.consoleHead{display:flex;align-items:center;justify-content:space-between}.consoleHead b{font-size:11px;letter-spacing:.13em}.consoleHead span{font-size:8px;color:#60e8ff}.consoleScreen{margin-top:10px;min-height:150px;border-radius:13px;padding:12px;background:linear-gradient(#031315,#02090a);border:1px solid #0e5360;box-shadow:inset 0 0 28px #02bad523}.terminalLine{font:500 10px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace;color:#7defff}.terminalLine.dim{color:#347b84}.terminalLine.ok{color:#7aff9b}
+.queue{display:grid;gap:7px}.queueItem{display:grid;grid-template-columns:9px 1fr auto;gap:9px;align-items:center;padding:10px;border-radius:12px;background:#0e0b0a;border:1px solid #2c211c}.queueItem i{width:7px;height:7px;border-radius:50%;background:#7d6c63}.queueItem.pending i{background:var(--gold);box-shadow:0 0 9px var(--gold)}.queueItem.done i{background:var(--teal)}.queueItem.failed i{background:var(--red)}.queueItem b{font-size:9px}.queueItem small{display:block;font-size:7px;color:#756c67;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}.queueItem span{font-size:7px;color:#9b8f88}
+.formCard{border:1px solid #463021;border-radius:20px;background:linear-gradient(160deg,#1c100c,#090706);padding:14px;box-shadow:inset 0 0 30px #0007}.field{display:grid;gap:6px;margin-top:10px}.field label{font-size:8px;color:#9f8b7e;letter-spacing:.12em;text-transform:uppercase}.input{width:100%;border:1px solid #4b3226;border-radius:11px;background:#090706;color:#fff;padding:12px 12px;outline:none;font-size:12px}.input:focus{border-color:#b77a4a;box-shadow:0 0 0 3px #b77a4a16}textarea.input{min-height:115px;resize:vertical}.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.submit{width:100%;height:48px;margin-top:12px;border-radius:11px;border:1px solid #f04b56;background:linear-gradient(#de2634,#8e1018);color:#fff;font-weight:1000;font-size:10px;letter-spacing:.13em}
+.source{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:12px;border-radius:14px;background:#0d0a09;border:1px solid #33231c;margin-top:8px}.sourceIcon{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:#17110e;border:1px solid #513527;font-weight:1000;color:#e5a16d}.source b{font-size:10px}.source small{display:block;color:#80756f;font-size:8px;margin-top:3px}.switch{width:34px;height:19px;border-radius:99px;background:#124a3b;border:1px solid #1f9e7c;position:relative}.switch:after{content:"";position:absolute;width:13px;height:13px;border-radius:50%;right:2px;top:2px;background:#50efbd;box-shadow:0 0 8px #50efbd}
+.commands{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.command{min-height:58px;border-radius:12px;border:1px solid #33241e;background:#0f0c0a;color:#d5c9c1;font-size:9px;font-weight:850;padding:8px 5px}.command:active{border-color:#b67748;background:#1d110d}.tabs{display:flex;gap:6px;overflow:auto;padding:1px 0 8px;scrollbar-width:none}.tabs::-webkit-scrollbar{display:none}.tab{flex:none;padding:8px 10px;border-radius:999px;border:1px solid #33241e;background:#0d0a09;color:#857a74;font-size:8px;font-weight:900}.tab.active{background:#391217;border-color:#8d2730;color:#ffb7bd}
+.nav{position:fixed;z-index:60;left:50%;bottom:max(10px,env(safe-area-inset-bottom));transform:translateX(-50%);width:min(496px,calc(100% - 20px));display:grid;grid-template-columns:repeat(5,1fr);gap:4px;padding:7px;border:1px solid #38251e;background:#0b0807eb;border-radius:18px;backdrop-filter:blur(20px);box-shadow:0 18px 48px #000c}.nav button{height:54px;border:0;border-radius:12px;background:transparent;color:#6e625d;font-size:8px;font-weight:900}.nav button span{display:block;font-size:18px;margin-bottom:3px}.nav button.active{color:#fff;background:linear-gradient(180deg,#451017,#210b0e);box-shadow:inset 0 0 0 1px #842630}
+.overlay{position:fixed;inset:0;z-index:100;display:none;place-items:center;padding:22px;background:#000b;backdrop-filter:blur(6px)}.overlay.show{display:grid;animation:fade .18s ease}@keyframes fade{from{opacity:0}to{opacity:1}}
+.modal{width:min(330px,100%);border-radius:18px;padding:9px;background:linear-gradient(160deg,#3b2116,#0c0807);border:1px solid #a76c3f;box-shadow:0 0 0 3px #3a2118,0 28px 90px #000,inset 0 0 25px #b7774822}.modalInner{border-radius:12px;border:1px solid #6c4931;background:#0d0908;padding:16px;text-align:center}.modalIcon{width:50px;height:50px;margin:auto;border-radius:16px;display:grid;place-items:center;background:#4a1016;border:1px solid #aa2b35;color:#ff626d;font-weight:1000;font-size:20px}.modal h3{margin:13px 0 4px;font-size:15px;letter-spacing:.03em}.modal p{margin:0 0 13px;color:#948680;font-size:9px;line-height:1.6}.choice{display:grid;grid-template-columns:1fr 1fr;gap:7px}.choice button,.modalWide{min-height:44px;border-radius:10px;border:1px solid #555;background:#2b2725;color:#fff;font-size:9px;font-weight:1000;letter-spacing:.06em}.choice .left{background:#138e77;border-color:#24d5af}.choice .right{background:#d88a24;border-color:#ffbd54;color:#1c0f05}.modalWide{width:100%;margin-top:7px;background:#2c2927;border-color:#5d5550}.modalWide.red{background:#97131d;border-color:#e63d49}
+.toast{position:fixed;z-index:130;top:14px;left:50%;transform:translate(-50%,-20px);width:min(440px,calc(100% - 26px));padding:11px 13px;border-radius:12px;background:#15100e;border:1px solid #5d3a29;box-shadow:0 16px 50px #000c;opacity:0;pointer-events:none;transition:.25s;font-size:10px}.toast.show{opacity:1;transform:translate(-50%,0)}.toast.bad{border-color:#842630;color:#ffc3c7}
+.login{position:fixed;inset:0;z-index:150;display:grid;place-items:center;padding:20px;background:#050505f7;backdrop-filter:blur(16px)}.login.hide{display:none}.loginBox{width:min(360px,100%)}.loginBox .machine{padding:8px}.loginBox .frame{padding:16px}.loginBox h1{margin:14px 0 5px;font-size:26px}.loginBox p{margin:0;color:#81746e;font-size:10px;line-height:1.6}.error{min-height:17px;color:#ff7c85;font-size:9px;margin-top:8px}
+.empty{padding:18px;text-align:center;color:#6f655f;border:1px dashed #33241e;border-radius:12px;font-size:9px}
+@media(min-width:700px){.shell{padding-top:22px}.machine{padding:12px}.frame{padding:12px}}
+</style>
+</head>
+<body>
+<div class="splash"><div class="splash-core"><div class="splash-mark">N</div><h1>NEXAI</h1><div class="load"><i></i></div></div></div>
+<div id="toast" class="toast"></div>
+
+<div id="login" class="login">
+  <form id="loginForm" class="loginBox">
+    <div class="machine"><div class="frame">
+      <div class="aiHead"><div class="avatar">N</div><div><b>NEXAI ACCESS</b><small>PRIVATE CONTROL LAYER</small></div><div class="signal"><i></i><i></i><i></i><i></i></div></div>
+      <h1>Control Deck</h1><p>Entre le mot de passe du panneau pour accéder à la mini-app WhatsApp.</p>
+      <div class="field"><label>Mot de passe</label><input id="password" class="input" type="password" autocomplete="current-password" required></div>
+      <button class="submit">ENTRER DANS NEXAI</button><div id="loginError" class="error"></div>
+    </div></div>
+  </form>
+</div>
+
+<main class="shell">
+<header class="top">
+  <div class="brand"><div class="brandMark">N</div><div><b>NEXAI</b><small>WHATSAPP CONTROL SYSTEM</small></div></div>
+  <div id="live" class="live"><i></i><span id="liveText">SYNC</span></div>
+</header>
+
+<section id="page-home" class="page active">
+  <div class="machine"><div class="frame">
+    <div class="aiHead"><div class="avatar">AI</div><div><b>NEXAI CORE</b><small id="coreSub">AUTOMATION INTELLIGENCE</small></div><div class="signal"><i></i><i></i><i></i><i></i></div></div>
+    <div class="board">
+      <div class="boardTitle">LIVE AUTOMATION MATRIX</div>
+      <div class="core"><div><strong id="coreStatus">SYNC</strong><em>CONTROL CORE</em></div></div>
+      <div class="boardStats">
+        <div class="miniStat"><span>QUEUE</span><b id="statPending">0</b></div>
+        <div class="miniStat"><span>SENT</span><b id="statPublished">0</b></div>
+        <div class="miniStat"><span>ERROR</span><b id="statFailed">0</b></div>
+      </div>
+    </div>
+    <div class="player"><div class="playerLeft"><div class="you">Y</div><div><b>YOU · OWNER</b><small>NEXTECH CONTROL</small></div></div><span id="sessionPill" class="pill">CHECKING</span></div>
+    <button class="bigAction" data-go="publish">NEW OPERATION</button>
+    <div class="meta"><span>REAL WEB INTERFACE</span><span>POWERED BY NEXAI</span></div>
+  </div></div>
+
+  <div class="sectionTitle"><div><h2>Quick Control</h2><p>Actions réelles du publisher.</p></div><span class="tag">LIVE</span></div>
+  <div class="cards">
+    <article class="card green"><div class="cardIcon">＋</div><b>Publier</b><small>Composer et router une publication.</small><button data-go="publish"></button></article>
+    <article class="card cyan"><div class="cardIcon">⌁</div><b>Sources</b><small>Nextech, NexNews, Universe.</small><button data-go="sources"></button></article>
+    <article class="card gold"><div class="cardIcon">≡</div><b>File</b><small>Jobs, retries et erreurs live.</small><button data-go="ops"></button></article>
+    <article class="card"><div class="cardIcon">⌘</div><b>Commandes</b><small>50 outils classés par catégorie.</small><button data-go="commands"></button></article>
+  </div>
+
+  <div class="sectionTitle"><div><h2>Live Feed</h2><p>Derniers événements.</p></div><button class="tag" id="refreshHome">REFRESH</button></div>
+  <div id="homeQueue" class="queue"></div>
+</section>
+
+<section id="page-ops" class="page">
+  <div class="machine"><div class="frame">
+    <div class="aiHead"><div class="avatar">Q</div><div><b>OPERATIONS</b><small>QUEUE · ROUTES · RETRIES</small></div><div class="signal"><i></i><i></i><i></i><i></i></div></div>
+    <div class="console" style="margin-top:10px"><div class="consoleHead"><b>RUNTIME STREAM</b><span id="runtimeState">ONLINE</span></div>
+      <div id="terminal" class="consoleScreen"><div class="terminalLine dim">$ nexai --sync</div><div class="terminalLine ok">waiting for runtime data…</div></div>
+    </div>
+    <button id="retryBtn" class="bigAction">RETRY FAILED JOBS</button>
+  </div></div>
+  <div class="sectionTitle"><div><h2>Queue</h2><p>État réel des publications.</p></div><span class="tag" id="queueCount">0 JOBS</span></div>
+  <div id="queueList" class="queue"></div>
+</section>
+
+<section id="page-publish" class="page">
+  <div class="machine"><div class="frame">
+    <div class="aiHead"><div class="avatar">＋</div><div><b>PUBLISH LAB</b><small>COMPOSE · ROUTE · SEND</small></div><div class="signal"><i></i><i></i><i></i><i></i></div></div>
+    <form id="publishForm" class="formCard" style="margin-top:10px">
+      <div class="field"><label>Source</label><select id="source" class="input"><option value="thenexusorigin">Nextech</option><option value="thenexnews">NexNews</option><option value="tresor_universe">Tresor Universe</option></select></div>
+      <div class="field"><label>Texte / caption</label><textarea id="caption" class="input" placeholder="Écris la publication…" required></textarea></div>
+      <div class="row"><div class="field"><label>Nom du lien</label><input id="buttonText" class="input" placeholder="Source"></div><div class="field"><label>URL</label><input id="buttonUrl" class="input" type="url" placeholder="https://…"></div></div>
+      <button class="submit">SEND TO NEXAI QUEUE</button>
+    </form>
+    <div class="meta"><span>AUTO ROUTING ENABLED</span><span>GROUP + CHANNEL POLICY</span></div>
+  </div></div>
+</section>
+
+<section id="page-sources" class="page">
+  <div class="machine"><div class="frame">
+    <div class="aiHead"><div class="avatar">S</div><div><b>SOURCE GRID</b><small>TELEGRAM → WHATSAPP</small></div><div class="signal"><i></i><i></i><i></i><i></i></div></div>
+    <div class="board" style="min-height:150px"><div class="boardTitle">ROUTING NETWORK</div>
+      <div style="position:relative;z-index:2;display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;margin-top:26px">
+        <div class="miniStat"><span>INPUT</span><b style="font-size:11px">TELEGRAM</b></div><div style="font-size:24px;color:#71ffb0">⇄</div><div class="miniStat"><span>OUTPUT</span><b style="font-size:11px">WHATSAPP</b></div>
+      </div>
+    </div>
+    <div class="source"><div class="sourceIcon">NX</div><div><b>@thenexusorigin</b><small>Nextech · outils, APK, tech.</small></div><div class="switch"></div></div>
+    <div class="source"><div class="sourceIcon">NW</div><div><b>@thenexnews</b><small>News et mises à jour.</small></div><div class="switch"></div></div>
+    <div class="source"><div class="sourceIcon">TU</div><div><b>@tresor_universe</b><small>Lifestyle / Otaku route.</small></div><div class="switch"></div></div>
+    <button id="resolveBtn" class="bigAction">RESOLVE CHANNEL ROUTES</button>
+  </div></div>
+</section>
+
+<section id="page-commands" class="page">
+  <div class="machine"><div class="frame">
+    <div class="aiHead"><div class="avatar">⌘</div><div><b>COMMAND DECK</b><small>50 COMMANDS · 4 MODULES</small></div><div class="signal"><i></i><i></i><i></i><i></i></div></div>
+    <div class="console" style="margin-top:10px"><div class="consoleHead"><b>SELECT MODULE</b><span>CLICKABLE</span></div>
+      <div class="consoleScreen" style="min-height:105px"><div class="terminalLine dim">$ command registry loaded</div><div class="terminalLine ok">Tap any command to inspect/copy it.</div><div class="terminalLine">Web-native actions are executed directly from their dedicated panels.</div></div>
+    </div>
+  </div></div>
+  <div class="sectionTitle"><div><h2>Commands</h2><p>Pas une image : vrais boutons DOM.</p></div><span class="tag">50</span></div>
+  <div id="commandTabs" class="tabs"></div><div id="commandGrid" class="commands"></div>
+</section>
+
+<section id="page-connect" class="page">
+  <div class="machine"><div class="frame">
+    <div class="aiHead"><div class="avatar">L</div><div><b>LINK DEVICE</b><small>WHATSAPP SESSION CONTROL</small></div><div class="signal"><i></i><i></i><i></i><i></i></div></div>
+    <div class="formCard" style="margin-top:10px">
+      <div class="field"><label>Numéro WhatsApp</label><input id="phone" class="input" type="tel" placeholder="+229…"></div>
+      <button id="pairBtn" class="submit">GENERATE PAIR CODE</button>
+      <div id="pairCode" class="consoleScreen" style="display:none;min-height:90px;margin-top:10px;text-align:center"><div class="terminalLine dim">PAIR CODE</div><div id="code" style="font-size:26px;font-weight:1000;letter-spacing:.2em;color:#8bffe0;margin-top:10px">—</div></div>
+    </div>
+    <div class="player" style="margin-top:10px"><div class="playerLeft"><div class="you">WA</div><div><b id="connectState">UNKNOWN</b><small id="connectedAt">SESSION</small></div></div><span class="pill" id="connectPill">SYNC</span></div>
+    <button id="resetBtn" class="bigAction">RESET SESSION</button>
+  </div></div>
+</section>
+</main>
+
+<nav class="nav">
+<button class="active" data-page="home"><span>⌂</span>HOME</button>
+<button data-page="ops"><span>≡</span>OPS</button>
+<button data-page="publish"><span>＋</span>PUBLISH</button>
+<button data-page="commands"><span>⌘</span>TOOLS</button>
+<button data-page="connect"><span>●</span>LINK</button>
+</nav>
+
+<div id="overlay" class="overlay"><div class="modal"><div class="modalInner">
+  <div id="modalIcon" class="modalIcon">N</div><h3 id="modalTitle">NEXAI</h3><p id="modalText"></p>
+  <div id="modalChoice" class="choice" style="display:none"><button id="modalLeft" class="left">CONFIRM</button><button id="modalRight" class="right">ACTION</button></div>
+  <button id="modalMain" class="modalWide">CLOSE</button>
+</div></div></div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const commandMap={
+ GENERAL:['menu','help','ping','alive','status','uptime','runtime','owner','jid','rules'],
+ GROUP:['hidetag','tagall','open','close','kick','add','promote','demote','admins','members','grouplink','revoke','groupinfo','setname','setdesc','requests','approveall'],
+ MEDIA:['stickers','take','toimg','tomp4','toaudio','mediainfo','tt','fb','ig','yt','play','song','video','thumbnail'],
+ TOOLS:['delete','react','vv','resend','quoted','forward','readmore','save','inspect']
+};
+let lastStatus=null, activeCategory='GENERAL', modalAction=null;
+function toast(msg,bad=false){const t=$('#toast');t.textContent=msg;t.className='toast show'+(bad?' bad':'');clearTimeout(t._x);t._x=setTimeout(()=>t.className='toast',2600)}
+async function api(url,opt={}){const r=await fetch(url,{...opt,headers:{'content-type':'application/json',...(opt.headers||{})}});const j=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(j.error||('HTTP '+r.status));e.status=r.status;throw e}return j}
+function page(name){$$('.page').forEach(x=>x.classList.toggle('active',x.id==='page-'+name));$$('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.page===name));scrollTo({top:0,behavior:'smooth'})}
+$$('[data-page]').forEach(b=>b.onclick=()=>page(b.dataset.page));$$('[data-go]').forEach(b=>b.onclick=()=>page(b.dataset.go));
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function short(v,n=68){v=String(v??'');return v.length>n?v.slice(0,n-1)+'…':v}
+function queueHtml(x){return '<div class="queueItem '+esc(x.status||'')+'"><i></i><div><b>'+esc((x.destination||'JOB').toUpperCase())+' · '+esc(x.pub?.source||'NexAI')+'</b><small>'+esc(short(x.lastError||x.pub?.text||x.id||''))+'</small></div><span>'+esc(x.status||'—')+'</span></div>'}
+function modal(title,text,{icon='N',confirm=null,confirmText='CONFIRM'}={}){$('#modalIcon').textContent=icon;$('#modalTitle').textContent=title;$('#modalText').textContent=text;$('#modalChoice').style.display=confirm?'grid':'none';$('#modalLeft').textContent=confirmText;modalAction=confirm;$('#overlay').classList.add('show')}
+function closeModal(){$('#overlay').classList.remove('show');modalAction=null}
+$('#modalMain').onclick=closeModal;$('#overlay').onclick=e=>{if(e.target.id==='overlay')closeModal()};$('#modalRight').onclick=closeModal;$('#modalLeft').onclick=async()=>{const fn=modalAction;closeModal();if(fn)await fn()};
+function renderCommands(){const tabs=$('#commandTabs');tabs.innerHTML=Object.keys(commandMap).map(k=>'<button class="tab '+(k===activeCategory?'active':'')+'" data-cat="'+k+'">'+k+'</button>').join('');tabs.querySelectorAll('button').forEach(b=>b.onclick=()=>{activeCategory=b.dataset.cat;renderCommands()});$('#commandGrid').innerHTML=commandMap[activeCategory].map(c=>'<button class="command" data-command="'+c+'">.'+c+'</button>').join('');$('#commandGrid').querySelectorAll('button').forEach(b=>b.onclick=async()=>{const cmd='.'+b.dataset.command;modal(cmd,'Commande WhatsApp · '+activeCategory+'. Tu peux la copier puis l’utiliser dans le chat. Les fonctions web natives restent accessibles dans les autres écrans.',{icon:'⌘'});try{await navigator.clipboard.writeText(cmd);toast(cmd+' copié')}catch{}})}
+renderCommands();
+async function refresh(){
+ try{
+  const d=await api('/api/status');lastStatus=d;$('#login').classList.add('hide');
+  const w=d.whatsapp||{},s=d.stats||{},q=d.queue||[],h=d.history||[];
+  const on=w.status==='connected';$('#live').classList.toggle('on',on);$('#liveText').textContent=String(w.status||'unknown').toUpperCase();
+  $('#coreStatus').textContent=on?'ONLINE':'SYNC';$('#sessionPill').textContent=String(w.status||'unknown').toUpperCase();$('#statPending').textContent=s.pending||0;$('#statPublished').textContent=s.published||0;$('#statFailed').textContent=s.failed||0;
+  $('#connectState').textContent=String(w.status||'unknown').toUpperCase();$('#connectPill').textContent=on?'LINKED':'CHECK';$('#connectedAt').textContent=w.connectedAt?new Date(w.connectedAt).toLocaleString():'SESSION';
+  $('#queueCount').textContent=(q.length||0)+' JOBS';const recent=q.slice(0,5);$('#homeQueue').innerHTML=recent.map(queueHtml).join('')||'<div class="empty">Aucune opération en attente.</div>';$('#queueList').innerHTML=q.slice(0,40).map(queueHtml).join('')||'<div class="empty">File vide.</div>';
+  const term=['<div class="terminalLine dim">$ nexai runtime --live</div>','<div class="terminalLine ok">whatsapp = '+esc(w.status||'unknown')+'</div>','<div class="terminalLine">pending = '+(s.pending||0)+' · done = '+(s.done||0)+' · failed = '+(s.failed||0)+'</div>','<div class="terminalLine">channel = '+esc(short(w.channelTitle||w.channelJid||'unresolved',42))+'</div>','<div class="terminalLine dim">events = '+h.length+'</div>'];$('#terminal').innerHTML=term.join('');$('#runtimeState').textContent=on?'ONLINE':'DEGRADED';
+ }catch(e){if(e.status===401)$('#login').classList.remove('hide');else toast(e.message,true)}
+}
+$('#loginForm').onsubmit=async e=>{e.preventDefault();try{await api('/api/login',{method:'POST',body:JSON.stringify({password:$('#password').value})});$('#loginError').textContent='';await refresh()}catch(err){$('#loginError').textContent=err.message}}
+$('#publishForm').onsubmit=async e=>{e.preventDefault();try{const d=await api('/api/manual-publish',{method:'POST',body:JSON.stringify({source:$('#source').value,text:$('#caption').value.trim(),buttonText:$('#buttonText').value.trim(),buttonUrl:$('#buttonUrl').value.trim()})});toast(d.duplicate?'Déjà connue':'Publication mise en file');$('#caption').value='';refresh();page('ops')}catch(err){toast(err.message,true)}}
+$('#retryBtn').onclick=()=>modal('RETRY FAILED','Relancer maintenant tous les jobs en échec ?',{icon:'R',confirm:async()=>{try{const d=await api('/api/retry-failed',{method:'POST'});toast((d.retried||0)+' job(s) relancé(s)');refresh()}catch(e){toast(e.message,true)}},confirmText:'RETRY'});
+$('#pairBtn').onclick=async()=>{try{$('#pairBtn').disabled=true;const d=await api('/api/pair',{method:'POST',body:JSON.stringify({phone:$('#phone').value})});$('#code').textContent=d.formatted||d.code||'—';$('#pairCode').style.display='block';toast('Code généré')}catch(e){toast(e.message,true)}finally{$('#pairBtn').disabled=false}}
+$('#resetBtn').onclick=()=>modal('RESET SESSION','Cette action réinitialise la session WhatsApp. Continuer ?',{icon:'!',confirm:async()=>{try{await api('/api/reset',{method:'POST'});toast('Session réinitialisée');setTimeout(refresh,1200)}catch(e){toast(e.message,true)}},confirmText:'RESET'});
+$('#resolveBtn').onclick=async()=>{try{await Promise.all([api('/api/resolve-channel',{method:'POST'}),api('/api/resolve-otaku-channel',{method:'POST'})]);toast('Routes résolues');refresh()}catch(e){toast(e.message,true)}};
+$('#refreshHome').onclick=refresh;
+setTimeout(()=>document.body.classList.add('ready'),520);refresh();setInterval(refresh,7000);
+</script>
+</body></html>
