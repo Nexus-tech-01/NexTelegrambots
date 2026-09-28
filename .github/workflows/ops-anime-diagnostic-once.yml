@@ -1,5 +1,5 @@
 name: Ops Anime Diagnostic Once
-# recovery pass: expanded safe cache cleanup + anime runtime verify 2026-09-28T06:36+01:00
+# recovery pass: deploy current anime runtime + verify NexCanal 2026-09-28T06:39+01:00
 
 on:
   push:
@@ -15,31 +15,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Disk layout before cleanup
+      - name: Deploy current NexAnime runtime files
         run: |
-          for d in / /.npm /node_modules /tmp /.cache /bots /data; do
-            echo "=== BEFORE $d ==="
-            curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=""))' "$d")"
-            echo
-          done
-      - name: Safe cache cleanup
-        run: |
-          echo '=== SAFE CLEANUP ==='
-          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-safe-cache-clean-once"
-          echo
-      - name: Start VPS
-        run: |
-          echo '=== START ==='
-          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-restart-once"
+          echo '=== DEPLOY ANIME ==='
+          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once"
           echo
       - name: Wait for boot
-        run: sleep 20
-      - name: Runtime after cleanup
+        run: sleep 25
+      - name: Runtime after anime deploy
         run: |
           echo '=== RUNTIME ==='
           curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"
           echo
-      - name: Console after cleanup
+      - name: Console after anime deploy
         run: |
           echo '=== CONSOLE ==='
           curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"
