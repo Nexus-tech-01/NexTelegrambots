@@ -12,7 +12,9 @@ const apiHash=(process.env.NEXCANAL__WATCHER_API_HASH||process.env.NEXGROUP__TEL
 const sessionFile=process.env.NEX_LITEAPKS_SESSION_FILE||process.env.NEXCANAL__WATCHER_SESSION_FILE||'/home/container/.nexcontrol/nexcanal-reader-session.txt';
 const stateFile=process.env.NEX_LITEAPKS_STATE_FILE||process.env.NEXCANAL__WATCHER_STATE_FILE||'/home/container/.nexcontrol/nexcanal-watch-state-v2.json';
 const mediaTmpDir=process.env.NEX_LITEAPKS_MEDIA_TMP||process.env.NEXCANAL__WATCHER_MEDIA_TMP||'/home/container/.nexcontrol/nexcanal-media';
-const mediaTmpRetentionMs=Math.max(60*60*1000,Number(process.env.NEXCANAL__WATCHER_MEDIA_RETENTION_MS||24*60*60*1000));
+// Keep the shared APK cache short-lived. The mirror has durable recovery jobs,
+// so a full-day retention only risks exhausting the VPS disk on large packages.
+const mediaTmpRetentionMs=Math.max(60*60*1000,Number(process.env.NEXCANAL__WATCHER_MEDIA_RETENTION_MS||2*60*60*1000));
 const mediaTmpCleanupMs=Math.max(60*1000,Number(process.env.NEXCANAL__WATCHER_MEDIA_CLEANUP_MS||15*60*1000));
 const watcherIdentityFile=process.env.NEX_LITEAPKS_ID_FILE||process.env.NEXCANAL__WATCHER_ID_FILE||'/home/container/.nexcontrol/nexcanal-watcher-id.txt';
 const publisherSessionFile=process.env.NEX_LITEAPKS_PUBLISHER_SESSION_FILE||'/var/lib/nex/sessions/internal/nexcanal-publisher-session.txt';
