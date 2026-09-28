@@ -66,3 +66,5 @@ jobs:
           curl --fail-with-body --silent --show-error 'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live'
 
 # premium-powers-deploy-ee242699-20260928
+
+# retry-premium-powers-v21-20260928
