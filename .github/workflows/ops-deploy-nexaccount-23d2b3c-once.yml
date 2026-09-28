@@ -41,19 +41,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for i in $(seq 1 36); do
-            body="$(curl --fail-with-body --silent --show-error 'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once')"
+          for i in $(seq 1 48); do
+            body="$(curl --fail-with-body --silent --show-error --max-time 20 'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once')"
             echo "$body"
             state="$(python3 - "$body" <<'PY'
           import json,sys
-          print((json.loads(sys.argv[1]).get("server") or {}).get("state") or "")
+          d=json.loads(sys.argv[1])
+          print(d.get("currentState") or d.get("afterState") or "")
           PY
           )"
             if [ "$state" = "running" ]; then
               echo "VPS_RUNNING"
               exit 0
             fi
-            sleep 5
+            sleep 4
           done
           echo "VPS did not reach running state in time" >&2
           exit 1
