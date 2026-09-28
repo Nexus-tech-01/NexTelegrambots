@@ -20,7 +20,7 @@ async function ytdl(m,a,k){
     const o=path.join(d,audio?'a.%(ext)s':'v.%(ext)s');
     await reply(m,audio?'Recherche audio…':'Téléchargement…');
 
-    const base=['--no-playlist','--socket-timeout','30','--retries','3','--fragment-retries','3','--max-filesize','45M'];
+    const base=['--no-playlist','--socket-timeout','30','--retries','3','--fragment-retries','3','--js-runtimes','node','--max-filesize','45M'];
     if(k==='tt')base.push('--impersonate','chrome');
 
     const attempts=audio
