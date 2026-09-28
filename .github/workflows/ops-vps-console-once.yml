@@ -9,22 +9,18 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
     steps:
-      - name: Deploy 409 fix and clean-restart VPS
+      - name: Verify NexAI poller after clean restart
         run: |
           set -euo pipefail
-          body="$(curl --fail-with-body --silent --show-error --max-time 150 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once")"
+          body="$(curl --fail-with-body --silent --show-error --max-time 45 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once")"
           echo "$body"
           python3 - "$body" <<'PY'
           import json,sys
           d=json.loads(sys.argv[1])
           assert d.get("ok") is True, d
-          assert d.get("commit")=="91ca76313d0ea10d49d3709a22162f74c1c5694f", d
-          if not d.get("alreadyDone"):
-              assert len(d.get("written") or [])==2, d
-              assert all(x.get("ok") for x in d.get("checks") or []), d
-              assert d.get("stoppedState")=="offline", d
-          print("NEXAI_409_FIX_DEPLOYED",d.get("afterState"))
+          assert d.get("singleton") is True or d.get("standby") is True, d
+          print("POLLER_STATE", "singleton" if d.get("singleton") else "standby", "conflicts", d.get("conflicts"), "state", d.get("state"))
           PY
-# nexai-poll409-clean-restart-v26
+# nexai-poll409-postrestart-verify-v27
