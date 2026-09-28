@@ -5,7 +5,7 @@ import { NewMessage } from 'teleproto/events/index.js';
 import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { cfg, isOwnerId } from './config.mjs';
 import { commandMap } from './commands.mjs';
-import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, acquireSessionLease, claimCommandDelivery, consumeQuota, disableAccount, enableAccount, listAccountsForWorker, markSessionRepairRequired, nexAiPremiumState, patchSettings, releaseRuntimeLease, releaseSessionLease, renewRuntimeLease, renewSessionLease, sessionFingerprint, settingsFor, sharedBotIdentity } from './store.mjs';
+import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, acquireSessionLease, claimCommandDelivery, disableAccount, enableAccount, listAccountsForWorker, markSessionRepairRequired, nexAiPremiumState, patchSettings, releaseRuntimeLease, releaseSessionLease, renewRuntimeLease, renewSessionLease, sessionFingerprint, settingsFor, sharedBotIdentity } from './store.mjs';
 import { listStyles } from './styles.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { recordEvent } from './analytics.mjs';
@@ -691,14 +691,6 @@ async function handleCommand(runtime,event,parsed){
     await nexAiPremiumDenied(runtime,peer,name);
     return true;
   }
-  if(canonicalCommand==='clonepack'&&!account.nexaiPremium){
-    const quota=await consumeQuota(account.telegramUserId,'clonepack',{limit:2,windowMs:3*24*60*60*1000});
-    if(!quota.allowed){
-      const reset=quota.resetAt?new Date(quota.resetAt).toISOString().replace('T',' ').slice(0,16)+' UTC':'dans 3 jours';
-      await nexAiPremiumDenied(runtime,peer,name,'Quota Free atteint : 2 clonages tous les 3 jours. Réinitialisation : '+reset+'.');
-      return true;
-    }
-  }
   if(name==='premium'){
     try{return await sendInline(client,peer,'cat:PREMIUM')}
     catch{
@@ -712,7 +704,14 @@ async function handleCommand(runtime,event,parsed){
     runtime,
     event,
     args:parsed.args,
-    sendText
+    sendText,
+    onNexAiPremiumRequired:async(error)=>{
+      const reset=error?.resetAt?new Date(error.resetAt).toISOString().replace('T',' ').slice(0,16)+' UTC':'dans 3 jours';
+      const detail=error?.quotaKey==='clonepack'
+        ?'Quota Free atteint : 2 clonages tous les 3 jours. Réinitialisation : '+reset+'.'
+        :String(error?.message||'').replace(/^NEXAI_PREMIUM_REQUIRED:?\s*/,'');
+      await nexAiPremiumDenied(runtime,peer,name,detail);
+    }
   });
   if(engineHandled)return true;
 
