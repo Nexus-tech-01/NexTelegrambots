@@ -28,6 +28,7 @@ jobs:
             'ok':d.get('ok'),
             'now':d.get('now'),
             'agents':d.get('agents',[]),
-            'jobs':d.get('jobs',[])[:12]
+            'jobs':d.get('jobs',[])[:12],
+            'error':d.get('error')
           },ensure_ascii=False))
           PY
