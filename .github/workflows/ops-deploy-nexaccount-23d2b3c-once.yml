@@ -1,4 +1,4 @@
-name: Ops Deploy NexAccount Menu Fix Once
+name: Ops Deploy NexAccount Premium Powers Once
 
 on:
   push:
@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - name: Deploy NexAccount menu fix to VPS
+      - name: Deploy NexAccount Premium Powers to VPS
         shell: bash
         run: |
           set -euo pipefail
@@ -28,13 +28,13 @@ jobs:
           data=json.loads(sys.argv[1])
           if data.get("ok") is not True:
               raise SystemExit("deployment did not report ok=true: "+str(data))
-          if data.get("commit")!="77d5f8e43efa6da37365436e023db7af5176ae55":
+          if data.get("commit")!="ee242699fdc07cda63fd34fdede0f1443b24b51a":
               raise SystemExit("wrong deployed commit: "+str(data.get("commit")))
           if data.get("alreadyDone") is not True:
               written=data.get("written") or []
-              if len(written) < 2:
-                  raise SystemExit("expected runtime + bot-factory writes: "+str(written))
-          print("MENU_FIX_FILES_OK",data)
+              if len(written) < 6:
+                  raise SystemExit("expected Premium Powers runtime writes: "+str(written))
+          print("PREMIUM_POWERS_FILES_OK",data)
           PY
 
       - name: Wait for VPS to become running
@@ -64,3 +64,5 @@ jobs:
         run: |
           set -euo pipefail
           curl --fail-with-body --silent --show-error 'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live'
+
+# premium-powers-deploy-ee242699-20260928
