@@ -1,21 +1,24 @@
-name: Ops Deploy NexAccount 23d2b3c Once
+name: Ops Deploy NexAccount Menu Fix Once
+
 on:
   push:
     branches: [main]
     paths:
       - '.github/workflows/ops-deploy-nexaccount-23d2b3c-once.yml'
+
 permissions:
   contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Deploy exact NexAccount commit to VPS
+      - name: Deploy NexAccount menu fix to VPS
         shell: bash
         run: |
           set -euo pipefail
-          resp="$(curl --silent --show-error --max-time 240 -w '\n%{http_code}' 'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once')"
+          resp="$(curl --silent --show-error --max-time 300 -w '\n%{http_code}' 'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once')"
           code="$(printf '%s' "$resp" | tail -n1)"
           body="$(printf '%s' "$resp" | sed '$d')"
           echo "HTTP $code"
@@ -25,15 +28,18 @@ jobs:
           data=json.loads(sys.argv[1])
           if data.get("ok") is not True:
               raise SystemExit("deployment did not report ok=true: "+str(data))
-          if data.get("commit")!="23d2b3c3746132a3fde61a110c3db805058e9d1e":
-              raise SystemExit("wrong deployed commit")
+          if data.get("commit")!="77d5f8e43efa6da37365436e023db7af5176ae55":
+              raise SystemExit("wrong deployed commit: "+str(data.get("commit")))
           if data.get("alreadyDone") is not True:
-              if int(data.get("fileCount",0)) < 70:
-                  raise SystemExit("unexpected deployed file count")
+              written=data.get("written") or []
+              if len(written) < 2:
+                  raise SystemExit("expected runtime + bot-factory writes: "+str(written))
               if data.get("afterState")!="running":
-                  raise SystemExit("VPS is not running after deployment")
+                  raise SystemExit("VPS is not running after deployment: "+str(data))
+          print("MENU_FIX_DEPLOY_OK",data)
           PY
-      - name: Verify server responds after deployment
+
+      - name: Verify VPS console after deployment
         shell: bash
         run: |
           set -euo pipefail
