@@ -686,6 +686,25 @@ function plan(raw){
   return {duplicate:false,pub,route};
 }
 
+function publisherReadiness(){
+  const queue=readJson('queue.json',[]);
+  const pending=queue.filter(x=>x.status==='pending');
+  const pendingOtaku=pending.filter(x=>x?.pub?.source==='tresor_universe'||x?.jid==='__OTAKU_CHANNEL__');
+  const connected=state.status==='connected';
+  const otakuResolved=Boolean(state.otakuChannelJid);
+  return {
+    ready:connected&&otakuResolved,
+    connected,
+    otakuResolved,
+    status:state.status,
+    otakuChannelJid:state.otakuChannelJid,
+    pending:pending.length,
+    pendingOtaku:pendingOtaku.length,
+    lastPublishAt:state.lastPublishAt,
+    lastError:state.lastError
+  };
+}
+
 const html=`
 <!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#07110d"><title>NexAI · EliteProTech</title><style>
 :root{--bg:#06100c;--panel:#0b1712;--panel2:#0f2119;--line:#1a3529;--soft:#91a89d;--text:#f3fbf7;--green:#25d366;--green2:#5cf28f;--danger:#ff6b6b;--amber:#ffc96b;--shadow:0 22px 70px #0008}
@@ -778,7 +797,11 @@ refresh();setInterval(refresh,7000);
 const server=http.createServer(async(req,res)=>{
   try{
     const url=new URL(req.url,'http://localhost');
-    if(req.method==='GET'&&url.pathname==='/healthz') return json(res,200,{ok:true,status:state.status,channelJid:state.channelJid});
+    if(req.method==='GET'&&url.pathname==='/healthz') return json(res,200,{ok:true,...publisherReadiness()});
+    if(req.method==='GET'&&url.pathname==='/readyz'){
+      const r=publisherReadiness();
+      return json(res,r.ready?200:503,{ok:r.ready,...r});
+    }
     if(req.method==='GET'&&(url.pathname==='/'||url.pathname==='/app')) { res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}); const ui=new URL('./nexai-ui.html',import.meta.url); return res.end(fs.existsSync(ui)?fs.readFileSync(ui,'utf8'):html); }
     if(req.method==='POST'&&url.pathname==='/api/login'){
       const q=await body(req); if(!DASHBOARD_PASSWORD||!safeEq(q.password,DASHBOARD_PASSWORD)) return json(res,401,{error:'Mot de passe incorrect'});
@@ -836,7 +859,11 @@ const server=http.createServer(async(req,res)=>{
 const bridgeServer=http.createServer(async(req,res)=>{
   try{
     const url=new URL(req.url,'http://localhost');
-    if(req.method==='GET'&&url.pathname==='/healthz') return json(res,200,{ok:true});
+    if(req.method==='GET'&&url.pathname==='/healthz') return json(res,200,{ok:true,...publisherReadiness()});
+    if(req.method==='GET'&&url.pathname==='/readyz'){
+      const r=publisherReadiness();
+      return json(res,r.ready?200:503,{ok:r.ready,...r});
+    }
     if(req.method==='POST'&&url.pathname==='/publish'){
       const q=await body(req);
       const out=plan(q);
