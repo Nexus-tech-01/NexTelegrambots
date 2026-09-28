@@ -1,8 +1,10 @@
 import fs from 'node:fs/promises';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
+const PINNED_ANIME_SHA256='81c762e918bc8b59f092c9ffece732a9480326f93f8bfbfb4f133f3e54ef7480';
 
 const CONTRACT={
   'anime-ingest.mjs':[
@@ -47,6 +49,12 @@ export async function assertAnimeRuntimeContract(root=here){
     for(const marker of markers){
       if(!source.includes(marker))failures.push(relative+': missing '+JSON.stringify(marker));
     }
+    if(relative==='anime-ingest.mjs'){
+      const actual=crypto.createHash('sha256').update(source,'utf8').digest('hex');
+      if(actual!==PINNED_ANIME_SHA256){
+        failures.push(relative+': protected SHA-256 changed ('+actual+' != '+PINNED_ANIME_SHA256+')');
+      }
+    }
   }
   if(failures.length){
     const error=new Error('NEXANIME_PROTECTION_GATE_FAILED\n'+failures.join('\n'));
@@ -54,7 +62,7 @@ export async function assertAnimeRuntimeContract(root=here){
     error.failures=failures;
     throw error;
   }
-  return {ok:true,version:1,files:Object.keys(CONTRACT)};
+  return {ok:true,version:2,files:Object.keys(CONTRACT),protectedAnimeSha256:PINNED_ANIME_SHA256};
 }
 
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){

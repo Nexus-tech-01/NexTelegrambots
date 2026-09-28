@@ -1,18 +1,14 @@
 name: Deploy NexAccount
-# ops trigger: recover anime publication runtime 2026-09-28
+# Production safety: manual-only. Unrelated pushes must never restart NexAnime.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'nexaccount/**'
-      - 'nexcanal/liteapks-relay.mjs'
-      - 'nexcanal/internal-event-core.mjs'
-      - 'nexcanal/social-feed.mjs'
-      - 'nexcontrol/api/index.mjs'
-      - '.github/workflows/deploy-nexaccount.yml'
   workflow_dispatch:
-
+    inputs:
+      confirm_nexanime_restart:
+        description: 'Confirm an intentional NexAccount/NexAnime production restart'
+        required: true
+        default: false
+        type: boolean
 permissions:
   contents: read
 
@@ -22,6 +18,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: ${{ inputs.confirm_nexanime_restart == true }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
