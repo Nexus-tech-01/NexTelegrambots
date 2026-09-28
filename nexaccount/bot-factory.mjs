@@ -1,4 +1,4 @@
-import { saveBotToken, loadBotToken } from './secrets.mjs';
+import { saveBotToken, loadBotToken, resolveBotUsername } from './secrets.mjs';
 import { cfg } from './config.mjs';
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -28,9 +28,43 @@ async function configure(client,peer,username,command,value){
   if(value!==undefined)await sendAndWait(client,peer,value);
 }
 
+const presentationEnsured=new Set();
+
+export async function ensureNexAiBotPresentation(client,account,{force=false}={}){
+  const accountUsername=String(account?.username||'').trim().replace(/^@/,'').toLowerCase();
+  const ownerUsername=String(cfg.creatorUsername||'').trim().replace(/^@/,'').toLowerCase();
+  if(ownerUsername&&accountUsername!==ownerUsername){
+    return {updated:false,reason:'owner_account_required'};
+  }
+
+  const token=await loadBotToken();
+  if(!token)return {updated:false,reason:'bot_token_missing'};
+
+  const username=String(await resolveBotUsername({refresh:true})||'').trim().replace(/^@/,'');
+  if(!username)return {updated:false,reason:'bot_username_missing'};
+
+  const key=username.toLowerCase();
+  if(!force&&presentationEnsured.has(key)){
+    return {updated:false,reason:'already_ensured',username};
+  }
+
+  const peer=await client.getInputEntity('@BotFather');
+  await configure(client,peer,username,'/setinline','Search NexAI commands…');
+  presentationEnsured.add(key);
+  cfg.botUsername=username;
+  return {updated:true,username};
+}
+
 export async function ensureNexAiBot(client,account){
   const existing=await loadBotToken();
-  if(existing)return {created:false,reason:'already_configured'};
+  if(existing){
+    const presentation=await ensureNexAiBotPresentation(client,account).catch(error=>({
+      updated:false,
+      reason:'presentation_repair_failed',
+      error:String(error?.message||error).slice(0,220)
+    }));
+    return {created:false,reason:'already_configured',presentation};
+  }
 
   const accountUsername=String(account?.username||'').trim().replace(/^@/,'').toLowerCase();
   const ownerUsername=String(cfg.creatorUsername||'').trim().replace(/^@/,'').toLowerCase();
