@@ -17,6 +17,8 @@ jobs:
           echo
           curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"
           echo
+          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-diag"
+          echo
           curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-puppeteer-cache-status"
           echo
           for root in "%2Fdata" "%2F.local" "%2F.nexmeta-browser-profile" "%2Fbots"; do
@@ -32,3 +34,5 @@ jobs:
 # otaku-status-1790600350961
 
 # menu-fix-diag-1790620803170
+
+# nexaccount-menu-log-check-1790621024251
