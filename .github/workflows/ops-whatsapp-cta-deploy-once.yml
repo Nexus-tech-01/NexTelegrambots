@@ -14,25 +14,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Inspect bridge directories
+      - name: Inspect live bridge files
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json,urllib.parse,urllib.request
           base='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe'
-          roots=['/nexus-bridge','/services','/nexai-connect-v2','/ecosystem','/scripts','/shared','/pterodactyl','/bots']
+          roots=['/nexus-bridge','/services','/pterodactyl','/ecosystem']
           for root in roots:
-              try:
-                  with urllib.request.urlopen(base+'?root='+urllib.parse.quote(root,safe=''),timeout=120) as r:
-                      d=json.load(r)
-                  print(json.dumps({
-                    'root':root,
-                    'visited':d.get('visited'),
-                    'files':d.get('files'),
-                    'top':d.get('top',[])[:80],
-                    'named':d.get('named',[])[:120]
-                  },ensure_ascii=False))
-              except Exception as e:
-                  print(json.dumps({'root':root,'error':str(e)},ensure_ascii=False))
+              with urllib.request.urlopen(base+'?root='+urllib.parse.quote(root,safe=''),timeout=120) as r:
+                  d=json.load(r)
+              print(json.dumps({'root':root,'fileList':d.get('fileList',[])},ensure_ascii=False))
           PY
