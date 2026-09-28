@@ -3,6 +3,7 @@ import { canHandleDownloadCommand, handleDownloadCommand } from '../dipper-fallb
 import { canHandleAiCommand, handleAiCommand } from '../ai-engine.mjs';
 import { canHandleStickerCommand, handleStickerCommand } from '../sticker-engine.mjs';
 import { canHandleGameCommand, handleGameCommand } from '../game-engine.mjs';
+import { canHandlePremiumCommand, handlePremiumCommand } from '../premium-engine.mjs';
 import { createProgress, ensurePremiumEmojiPalette } from '../response-ui.mjs';
 import { settingsFor } from '../store.mjs';
 
@@ -11,11 +12,12 @@ const ENGINE_LABELS={
   ai:'IA',
   download:'Download',
   sticker:'Sticker',
-  game:'Game'
+  game:'Game',
+  premium:'NexAI Premium'
 };
 const STICKER_PROGRESS=new Set(['sticker','clonepack','createpack','exportwhatsapp']);
 function needsProgress(engine,name){
-  if(engine==='download'||engine==='ai'||engine==='anime')return true;
+  if(engine==='download'||engine==='ai'||engine==='anime'||engine==='premium')return true;
   if(engine==='sticker')return STICKER_PROGRESS.has(String(name||''));
   return false;
 }
@@ -118,6 +120,17 @@ export async function routeEngineCommand({cmd,runtime,event,args=[],sendText,onN
     return guarded({
       label:ENGINE_LABELS[engine],name,client:runtime.client,peer,sendText:(p,t)=>sendText(runtime.client,p,t),progressEnabled:needsProgress(engine,name),runtimeAccount:runtime.account,onNexAiPremiumRequired,
       run:progress=>handleStickerCommand({runtime,event,name,args,progress,reply:text=>sendText(runtime.client,peer,text)})
+    });
+  }
+
+  if(engine==='premium'){
+    if(!canHandlePremiumCommand(name)){
+      await reply('Erreur interne : route Premium inconnue pour .'+name);
+      return true;
+    }
+    return guarded({
+      label:ENGINE_LABELS[engine],name,client:runtime.client,peer,sendText:(p,t)=>sendText(runtime.client,p,t),progressEnabled:needsProgress(engine,name),runtimeAccount:runtime.account,
+      run:progress=>handlePremiumCommand({runtime,event,name,args,progress,reply:text=>sendText(runtime.client,peer,text)})
     });
   }
 
