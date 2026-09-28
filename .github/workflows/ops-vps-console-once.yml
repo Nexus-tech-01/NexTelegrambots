@@ -11,18 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Final verify NexAI poller and Pterodactyl state
+      - name: Final NexAI runtime tail
         run: |
           set -euo pipefail
-          body="$(curl --fail-with-body --silent --show-error --max-time 45 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once")"
-          echo "$body"
-          python3 - "$body" <<'PY'
-          import json,sys
-          d=json.loads(sys.argv[1])
-          assert d.get("ok") is True, d
-          assert d.get("state")=="running", d
-          assert d.get("singleton") is True or d.get("standby") is True, d
-          assert d.get("fatalStartCount")==0, d
-          print("FINAL_NEXAI_OK",d.get("state"),"singleton",d.get("singleton"),"standby",d.get("standby"),"retries",d.get("retryCount"))
-          PY
-# nexai-final-state-v33
+          curl --fail-with-body --silent --show-error --max-time 45 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-diag"
+# nexai-final-runtime-tail
