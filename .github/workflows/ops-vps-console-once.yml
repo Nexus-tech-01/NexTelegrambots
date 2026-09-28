@@ -11,40 +11,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Inspect boot
+      - name: Inspect NexAI Premium Powers startup
+        shell: bash
         run: |
-          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-chatgpt-diag-once"
+          set -u
+          echo "=== DEPLOY STATE ==="
+          curl --silent --show-error --max-time 30 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once" || true
           echo
-          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol-fleet-health"
+          echo "=== CONSOLE ==="
+          curl --silent --show-error --max-time 30 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live" || true
           echo
-          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"
+          echo "=== PTERO DIAG ==="
+          curl --silent --show-error --max-time 30 "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-diag" || true
           echo
-          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"
-          echo
-          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-diag"
-          echo
-          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-puppeteer-cache-status"
-          echo
-          for root in "%2Fdata" "%2F.local" "%2F.nexmeta-browser-profile" "%2Fbots"; do
-            echo "=== SIZE $root ==="
-            curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=$root" || true
-            echo
-          done
-
-# take-repair-package-inspect
-
-# take-repair-size-targets
-
-# otaku-status-1790600350961
-
-# menu-fix-diag-1790620803170
-
-# nexaccount-menu-log-check-1790621024251
-
-# nexaccount-tail-diag-1790621163531
-
-# dark-universe-whatsapp-diag-20260928-2006
-
-# dark-universe-agent-locate-20260928-2017
-
-# premium-powers-startup-diag-20260928
+# premium-powers-targeted-diag-20260928
