@@ -13,6 +13,10 @@ jobs:
     steps:
       - name: Inspect boot
         run: |
+          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-chatgpt-diag-once"
+          echo
+          curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol-fleet-health"
+          echo
           curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"
           echo
           curl -fsS "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"
@@ -40,3 +44,5 @@ jobs:
 # nexaccount-tail-diag-1790621163531
 
 # dark-universe-whatsapp-diag-20260928-2006
+
+# dark-universe-agent-locate-20260928-2017
