@@ -93,6 +93,42 @@ async function waitForQr(timeoutMs=15000){
 const f = name => path.join(DATA_DIR, name);
 function readJson(name, fallback) { try { return JSON.parse(fs.readFileSync(f(name), 'utf8')); } catch { return fallback; } }
 function writeJson(name, value) { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(f(name), JSON.stringify(value, null, 2)); }
+function collectNewsletterMessageNodes(value,out=[],depth=0){
+  if(depth>10||value==null) return out;
+  if(Array.isArray(value)){ for(const item of value) collectNewsletterMessageNodes(item,out,depth+1); return out; }
+  if(Buffer.isBuffer(value)||value instanceof Uint8Array) return out;
+  if(typeof value==='object'){
+    if(value.tag==='message'){
+      out.push({attrs:{...(value.attrs||{})},children:Array.isArray(value.content)?value.content.map(x=>x?.tag).filter(Boolean):[]});
+    }
+    for(const item of Object.values(value)) collectNewsletterMessageNodes(item,out,depth+1);
+  }
+  return out;
+}
+async function newsletterSnapshot(jid){
+  if(!socket||state.status!=='connected') throw new Error('WhatsApp non connecté');
+  let metadata=null;
+  try{ metadata=await socket.newsletterMetadata('jid',jid); }catch(error){ metadata={error:String(error?.message||error)}; }
+  let messages=[];
+  try{
+    const raw=await socket.newsletterFetchMessages(jid,25,0,0);
+    messages=collectNewsletterMessageNodes(raw).slice(-50);
+  }catch(error){
+    messages=[{error:String(error?.message||error)}];
+  }
+  const viewer=metadata?.viewer_metadata||metadata?.viewer||null;
+  return {
+    jid,
+    metadata: metadata&&typeof metadata==='object'?{
+      id:metadata.id||null,
+      name:metadata.name||null,
+      invite:metadata.invite||null,
+      viewer_metadata:viewer,
+      keys:Object.keys(metadata).slice(0,40)
+    }:metadata,
+    messages
+  };
+}
 function safeEq(a,b){ const aa=Buffer.from(String(a||'')),bb=Buffer.from(String(b||'')); return aa.length===bb.length && crypto.timingSafeEqual(aa,bb); }
 function sessionToken(){ return crypto.createHmac('sha256', SESSION_SECRET || 'unsafe').update('nex-whatsapp-owner').digest('hex'); }
 function cookies(req){ return Object.fromEntries(String(req.headers.cookie||'').split(';').map(x=>x.trim().split('=').map(decodeURIComponent)).filter(x=>x.length===2)); }
@@ -861,6 +897,11 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&url.pathname==='/readyz'){
       const r=publisherReadiness();
       return json(res,r.ready?200:503,{ok:r.ready,...r});
+    }
+    if(req.method==='GET'&&url.pathname==='/newsletterz'){
+      const nextech=await newsletterSnapshot(state.channelJid||PRESENTATION_NEWSLETTER_JID);
+      const otaku=await newsletterSnapshot(state.otakuChannelJid||await resolveOtakuChannel());
+      return json(res,200,{ok:true,nextech,otaku});
     }
     if(req.method==='GET'&&(url.pathname==='/'||url.pathname==='/app')) { res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}); const ui=new URL('./nexai-ui.html',import.meta.url); return res.end(fs.existsSync(ui)?fs.readFileSync(ui,'utf8'):html); }
     if(req.method==='POST'&&url.pathname==='/api/login'){
