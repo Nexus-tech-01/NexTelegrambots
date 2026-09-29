@@ -2,7 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const interrouteUrl=String(process.env.NEX_INTERROUTE_URL||'http://127.0.0.1:18130').replace(/\/$/,'');
-const stageDir=String(process.env.NEXTECH_WHATSAPP_BOTAPI_STAGE_DIR||'/var/lib/nex/state/nexcanal/wa-media');
+const stageDir=String(process.env.NEXTECH_WHATSAPP_BOTAPI_STAGE_DIR||'/var/lib/nex/tmp/internal-automation/telegram-channel-mirror');
+const MIRRORED_SOURCES=new Set(['thenexusorigin','thenexnews','theotaku_nexus','tresor_universe']);
 
 function buttons(msg){
   const out=[],seen=new Set();
@@ -54,13 +55,13 @@ export async function mirrorNextechChannelPostToWhatsApp(api,update){
   const msg=update?.channel_post;
   if(!msg||msg?.chat?.type!=='channel')return {skipped:true};
   const username=String(msg?.chat?.username||'').replace(/^@/,'').toLowerCase();
-  if(username!=='thenexusorigin')return {skipped:true};
+  if(!MIRRORED_SOURCES.has(username))return {skipped:true};
   const id=Number(msg?.message_id||0);
   if(!id)return {skipped:true};
 
   const text=String(msg?.text??msg?.caption??'').trim();
   const links=buttons(msg);
-  if(!links.length)links.push({text:'Voir sur Telegram',url:'https://t.me/thenexusorigin/'+String(id)});
+  if(!links.length)links.push({text:'Voir sur Telegram',url:'https://t.me/'+username+'/'+String(id)});
 
   let items=[];
   try{items=await media(api,msg);}
@@ -71,8 +72,8 @@ export async function mirrorNextechChannelPostToWhatsApp(api,update){
     headers:{'content-type':'application/json'},
     body:JSON.stringify({
       ownerDomain:'system',
-      idempotencyKey:'nextech-channel:'+String(id)+':v2-download-links',
-      source:{platform:'telegram',name:'thenexusorigin',messageId:String(id),accountRole:'bot-channel-post'},
+      idempotencyKey:'telegram-channel:'+username+':'+String(id)+':whatsapp-v3',
+      source:{platform:'telegram',name:username,messageId:String(id),accountRole:'bot-channel-post'},
       content:{text,media:items,buttons:links},
       routes:[{platform:'whatsapp'}]
     }),
@@ -80,6 +81,6 @@ export async function mirrorNextechChannelPostToWhatsApp(api,update){
   });
   const result=await response.json().catch(()=>({}));
   if(!response.ok)throw new Error('interroute '+response.status+': '+String(result?.error||'enqueue failed'));
-  console.log('[NexTech/WhatsApp] queued channel_post #'+id,result?.duplicate?'duplicate':'ok');
+  console.log('[Telegram/WhatsApp] queued @'+username+' #'+id,result?.duplicate?'duplicate':'ok');
   return result;
 }
