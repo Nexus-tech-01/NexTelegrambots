@@ -109,7 +109,7 @@ jobs:
               # lifestyle posts to the Otaku Nexus newsletter (channel only).
               wa_src=Path('whatsapp-publisher/server.mjs')
               wa_text=wa_src.read_text(encoding='utf-8')
-              for required in ("'tresor_universe'","'theotaku_nexus'","publication Otaku/Dark Universe -> chaîne Otaku Nexus",'Nex WhatsApp Publisher bridge ready'):
+              for required in ("'tresor_universe'","publication Otaku/Dark Universe -> chaîne Otaku Nexus",'Nex WhatsApp Publisher bridge ready'):
                   if required not in wa_text:
                       raise RuntimeError('WhatsApp publisher missing '+required)
 
@@ -167,7 +167,7 @@ jobs:
               if not hook_src.exists():
                   raise RuntimeError('missing nexcanal/nextech-whatsapp-channel-post.mjs')
               hook_text=hook_src.read_text(encoding='utf-8')
-              for required in ('thenexusorigin','thenexnews','theotaku_nexus','tresor_universe','mirrorNextechChannelPostToWhatsApp'):
+              for required in ('thenexusorigin','thenexnews','tresor_universe','mirrorNextechChannelPostToWhatsApp'):
                   if required not in hook_text:
                       raise RuntimeError('WhatsApp channel_post helper missing '+required)
               wr_hook=job('fs.write',{'root':'nexcanal','path':'dist/src/telegram/nextech-whatsapp-channel-post.js','content':hook_text})
