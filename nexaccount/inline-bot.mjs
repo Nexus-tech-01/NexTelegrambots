@@ -39,6 +39,10 @@ const NEXAI_POLLER_LEASE_RENEW_MS=Math.max(15_000,Math.min(45_000,Number(process
 const NEXAI_POLLER_CONFLICT_RETRIES=Math.max(3,Math.min(30,Number(process.env.NEXAI_POLLER_CONFLICT_RETRIES||12)));
 let pollerLeaseKey='';
 let pollerLeaseTimer=null;
+let pollerSupervisorTimer=null;
+let pollerSupervisorRunning=false;
+let pollerSupervisorStopping=true;
+let pollerRestartAttempt=0;
 
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function telegramConflict409(error){
@@ -65,6 +69,71 @@ async function startPollingWithTakeover(target){
 function clearPollerLeaseTimer(){
   if(pollerLeaseTimer)clearInterval(pollerLeaseTimer);
   pollerLeaseTimer=null;
+}
+
+function clearPollerSupervisorTimer(){
+  if(pollerSupervisorTimer)clearTimeout(pollerSupervisorTimer);
+  pollerSupervisorTimer=null;
+}
+
+function pollerRestartDelay(){
+  return Math.min(30_000,1500*(2**Math.min(4,pollerRestartAttempt)));
+}
+
+function schedulePollerSupervisor(delayMs=0){
+  if(pollerSupervisorStopping||pollerSupervisorRunning||pollerSupervisorTimer||!bot||!pollerLeaseKey)return;
+  pollerSupervisorTimer=setTimeout(()=>{
+    pollerSupervisorTimer=null;
+    runPollerSupervisor().catch(error=>{
+      console.error('[NexAI poller supervisor]',String(error?.message||error).slice(0,500));
+    });
+  },Math.max(0,Number(delayMs)||0));
+  pollerSupervisorTimer.unref?.();
+}
+
+async function runPollerSupervisor(){
+  if(pollerSupervisorStopping||pollerSupervisorRunning||!bot||!pollerLeaseKey)return false;
+  pollerSupervisorRunning=true;
+  const leaseKey=pollerLeaseKey;
+  let ownsLease=false;
+  try{
+    ownsLease=await acquireServiceLease(leaseKey,cfg.workerId,NEXAI_POLLER_LEASE_TTL_MS);
+    if(!ownsLease){
+      console.warn('[NexAI poller] standby · another NexAccount worker owns '+leaseKey);
+      return false;
+    }
+
+    clearPollerLeaseTimer();
+    pollerLeaseTimer=setInterval(async()=>{
+      const renewed=await renewServiceLease(leaseKey,cfg.workerId,NEXAI_POLLER_LEASE_TTL_MS).catch(()=>false);
+      if(renewed)return;
+      clearPollerLeaseTimer();
+      console.error('[NexAI poller] lease lost · stopping local polling for takeover');
+      try{await bot?.stop()}catch{}
+    },NEXAI_POLLER_LEASE_RENEW_MS);
+    pollerLeaseTimer.unref?.();
+
+    pollerRestartAttempt=0;
+    console.log('[NexAI poller] lease acquired · polling active');
+    await startPollingWithTakeover(bot);
+    if(!pollerSupervisorStopping){
+      console.warn('[NexAI poller] polling stopped unexpectedly · scheduling recovery');
+    }
+    return true;
+  }catch(error){
+    console.error('[NexAI poller] polling failed',String(error?.description||error?.message||error).slice(0,700));
+    return false;
+  }finally{
+    clearPollerLeaseTimer();
+    if(ownsLease&&leaseKey){
+      await releaseServiceLease(leaseKey,cfg.workerId).catch(()=>{});
+    }
+    pollerSupervisorRunning=false;
+    if(!pollerSupervisorStopping&&pollerLeaseKey===leaseKey){
+      pollerRestartAttempt=Math.min(8,pollerRestartAttempt+1);
+      schedulePollerSupervisor(pollerRestartDelay());
+    }
+  }
 }
 
 
@@ -880,37 +949,22 @@ export async function startInlineBot(){
   }).catch(error=>console.warn('[NexAI bot identity] persist_failed',String(error?.message||error).slice(0,180)));
 
   pollerLeaseKey='nexai-inline:'+String(me.id||'unknown');
-  const ownsPoller=await acquireServiceLease(pollerLeaseKey,cfg.workerId,NEXAI_POLLER_LEASE_TTL_MS);
-  if(!ownsPoller){
-    console.warn('[NexAI poller] standby · another NexAccount worker owns '+pollerLeaseKey);
-    console.log('[NexAccount] inline bot @'+me.username+' API ready · polling standby');
-    return bot;
-  }
-
-  clearPollerLeaseTimer();
-  pollerLeaseTimer=setInterval(async()=>{
-    const renewed=await renewServiceLease(pollerLeaseKey,cfg.workerId,NEXAI_POLLER_LEASE_TTL_MS).catch(()=>false);
-    if(renewed)return;
-    clearPollerLeaseTimer();
-    console.error('[NexAI poller] lease lost · stopping local polling');
-    try{await bot?.stop()}catch{}
-  },NEXAI_POLLER_LEASE_RENEW_MS);
-  pollerLeaseTimer.unref?.();
-
-  startPollingWithTakeover(bot).catch(async error=>{
-    console.error('[NexAI start]',error);
-    clearPollerLeaseTimer();
-    await releaseServiceLease(pollerLeaseKey,cfg.workerId).catch(()=>{});
-  });
-  console.log('[NexAccount] inline bot @'+me.username+' online · singleton poller');
+  pollerSupervisorStopping=false;
+  pollerRestartAttempt=0;
+  clearPollerSupervisorTimer();
+  schedulePollerSupervisor(0);
+  console.log('[NexAccount] inline bot @'+me.username+' API ready · supervised singleton poller');
   return bot;
 }
 
 export async function stopInlineBot(){
+  pollerSupervisorStopping=true;
+  clearPollerSupervisorTimer();
   clearPollerLeaseTimer();
   try{await bot?.stop()}catch{}
   if(pollerLeaseKey)await releaseServiceLease(pollerLeaseKey,cfg.workerId).catch(()=>{});
   pollerLeaseKey='';
+  pollerRestartAttempt=0;
 }
 
 
