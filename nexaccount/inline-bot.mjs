@@ -11,6 +11,8 @@ import { observeUser, recordEvent } from './analytics.mjs';
 import { ownerPanelText, usersText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
 import { listStyles, toSmallCaps } from './styles.mjs';
 import { animatedCustomEmojiEntitySpecs, animatedCustomEmojiEntitySpecsFromLibrary, ensureEmojiLibraryPalette, sanitizeAnimatedEmojiText } from './response-ui.mjs';
+import { runtimeStatus } from './runtime.mjs';
+import { sessionsText } from './session-view.mjs';
 
 const commands=commandMap();
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
@@ -749,6 +751,22 @@ export async function startInlineBot(){
     const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
     const t=lang==='en'?'ᴜѕᴇ /language fr ᴏʀ /language en.':'ᴜᴛɪʟɪѕᴇ /language fr ᴏᴜ /language en.';
     return ctx.reply(t,{entities:quotedEntities(t,['/language'])});
+  });
+
+  bot.command('sessions',async ctx=>{
+    if(ctx.chat?.type!=='private')return;
+    const owner=isOwnerId(ctx.from.id);
+    const account=await accountRecord(ctx.from.id);
+    if(!owner&&(!account||account.enabled!==true)){
+      const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
+      return sendPairLink(ctx,lang);
+    }
+    const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
+    return ctx.reply(sessionsText(runtimeStatus(),{
+      viewerTelegramUserId:ctx.from.id,
+      owner,
+      language:lang
+    }));
   });
 
   bot.command('pair',async ctx=>{

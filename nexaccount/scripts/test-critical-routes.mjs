@@ -8,11 +8,28 @@ import { canHandleDownloadCommand } from '../dipper-fallback.mjs';
 import { canHandleStickerCommand } from '../sticker-engine.mjs';
 import { canHandleGameCommand } from '../game-engine.mjs';
 import { canHandleAnimeCommand } from '../anime-engine.mjs';
+import { connectedSessionRows, sessionsText } from '../session-view.mjs';
 
 const HERE=path.dirname(fileURLToPath(import.meta.url));
 const ROOT=path.dirname(HERE);
 const commands=commandMap();
 const errors=[];
+
+const sessionFixture=[
+  {telegramUserId:'100',username:'alpha',firstName:'Alpha',connected:true,premium:false,workerId:'w0'},
+  {telegramUserId:'200',username:'stale',firstName:'Stale',connected:false,premium:false,workerId:'w0'},
+  {telegramUserId:'300',username:'beta',firstName:'Beta',connected:true,premium:true,workerId:'w0'},
+  {telegramUserId:'100',username:'alpha',firstName:'Alpha duplicate',connected:true,premium:false,workerId:'w0'}
+];
+assert.deepEqual(connectedSessionRows(sessionFixture).map(x=>x.telegramUserId),['100','300']);
+const ownerSessions=sessionsText(sessionFixture,{viewerTelegramUserId:'100',owner:true,language:'fr'});
+if(!ownerSessions.includes('@alpha')||!ownerSessions.includes('@beta'))errors.push('sessions-owner-live-accounts-missing');
+if(ownerSessions.includes('@stale'))errors.push('sessions-owner-stale-account-leaked');
+if(!ownerSessions.includes('sessions connectées : 2'))errors.push('sessions-owner-live-count-wrong');
+const userSessions=sessionsText(sessionFixture,{viewerTelegramUserId:'100',owner:false,language:'fr'});
+if(!userSessions.includes('@alpha')||userSessions.includes('@beta')||userSessions.includes('@stale'))errors.push('sessions-user-scope-wrong');
+const disconnectedSessions=sessionsText(sessionFixture,{viewerTelegramUserId:'200',owner:false,language:'fr'});
+if(!disconnectedSessions.includes('Aucun compte Telegram actif'))errors.push('sessions-disconnected-user-must-not-look-connected');
 
 function requireCommand(name,checks={}){
   const cmd=commands.get(name);
@@ -174,6 +191,11 @@ if(!runtime.includes('userIsGroupAdmin(client,message.peerId,sender)'))errors.pu
 if(!inline.includes("bot.command('start'"))errors.push('/start-handler-missing');
 if(!inline.includes("bot.command('menu'"))errors.push('/menu-handler-missing');
 if(!inline.includes("bot.command('help'"))errors.push('/help-handler-missing');
+if(!runtime.includes('activeSessions:runtimeStatus'))errors.push('sessions-live-runtime-provider-missing');
+if(compat.includes('listAccounts()'))errors.push('sessions-must-not-read-registered-account-list');
+if(!compat.includes('sessionsText(live'))errors.push('sessions-live-view-handler-missing');
+if(!inline.includes("bot.command('sessions'"))errors.push('/sessions-handler-missing');
+if(!inline.includes('sessionsText(runtimeStatus()'))errors.push('/sessions-must-use-live-runtime-status');
 
 for(const visible of [...commands.values()].filter(c=>!c.hidden)){
   const route=String(visible.handler||visible.aliasFor||visible.name);

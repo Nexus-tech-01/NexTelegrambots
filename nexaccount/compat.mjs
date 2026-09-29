@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import { Api } from 'teleproto';
 import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { cfg, isOwnerId } from './config.mjs';
-import { customEmojiLibraryStats, listAccounts, patchSettings, settingsFor } from './store.mjs';
+import { customEmojiLibraryStats, patchSettings, settingsFor } from './store.mjs';
+import { sessionsText } from './session-view.mjs';
 import { toSmallCaps } from './styles.mjs';
 import { AUDIO_LAB_COMMANDS, handleAudioLabCommand } from './audio-lab.mjs';
 import { canHandleDownloadCommand, handleDownloadCommand } from './dipper-fallback.mjs';
@@ -459,7 +460,7 @@ async function doModeration(client,peer,message,name,args){
   return '';
 }
 
-export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,sendInline}){
+export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,sendInline,activeSessions=()=>[]}){
   const progressFor=async label=>{
     try{return await createProgress(runtime.client,event.message.peerId,label)}catch{return null}
   };
@@ -875,13 +876,14 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     await sendText(client,peer,'Auto-react : '+(enabled?'ON':'OFF'));return true;
   }
   if(name==='sessions'){
-    if(!isOwnerId(account.telegramUserId)){
-      await sendText(client,peer,'NexAi · session\nCompte : '+(account.username?'@'+account.username:account.firstName||account.telegramUserId)+'\nTelegram ID : '+account.telegramUserId+'\nÉtat : connectée');
-      return true;
-    }
-    const accounts=await listAccounts();
-    const lines=accounts.map((a,i)=>(i+1)+'. '+(a.username?'@'+a.username:a.firstName||a.telegramUserId)+' · '+a.telegramUserId);
-    await sendText(client,peer,'NexAi · sessions plateforme : '+accounts.length+'\n\n'+(lines.join('\n')||'Aucune session.'));return true;
+    const live=typeof activeSessions==='function'?await activeSessions():[];
+    const settings=await settingsFor(account.telegramUserId);
+    await sendText(client,peer,sessionsText(live,{
+      viewerTelegramUserId:account.telegramUserId,
+      owner:isOwnerId(account.telegramUserId),
+      language:settings.language||account.preferredLanguage||'fr'
+    }));
+    return true;
   }
   if(name==='pair'){
     await sendText(client,peer,'Pour ajouter ou reconnecter un compte : ouvre @NexAi01_bot et utilise /pair. Le numéro, le code Telegram et la 2FA se saisissent uniquement sur la page sécurisée, jamais dans un chat Telegram.');return true;

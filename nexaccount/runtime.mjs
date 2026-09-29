@@ -760,7 +760,7 @@ async function handleCommand(runtime,event,parsed){
   if(engineHandled)return true;
 
   const compatHandled=await handleCompatCommand({
-    runtime,event,name,args:parsed.args,cmd,sendText,sendInline
+    runtime,event,name,args:parsed.args,cmd,sendText,sendInline,activeSessions:runtimeStatus
   });
   if(compatHandled)return true;
 
