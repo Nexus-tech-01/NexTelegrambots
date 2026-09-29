@@ -1,4 +1,4 @@
-name: Ops Recover Anime Publishing 2026-09-29
+name: Ops Recover Anime Publishing 2026-09-29 # trace
 
 on:
   pull_request:
