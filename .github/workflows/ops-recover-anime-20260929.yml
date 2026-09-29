@@ -1,4 +1,4 @@
-name: Ops Recover Anime Publishing 2026-09-29
+name: Ops Deploy Anime Stall Fix 2026-09-29
 
 on:
   pull_request:
@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Run one-shot anime recovery bridge
+      - name: Run one-shot anime deploy bridge
         shell: bash
         run: |
           set -euo pipefail
@@ -28,12 +28,16 @@ jobs:
           import json,sys
           d=json.loads(sys.argv[1])
           if d.get("ok") is not True:
-              raise SystemExit("anime recovery failed: "+str(d))
+              raise SystemExit("anime deployment failed: "+str(d))
+          if d.get("commit") != "cc29d731e15080765dfaf848b0f59f1d0aa46dc6":
+              raise SystemExit("unexpected deployed commit: "+str(d.get("commit")))
+          if d.get("publicationTriggered") is not True:
+              raise SystemExit("no anime publication was triggered after deployment")
           if d.get("publisherActive") is not True:
               raise SystemExit("anime publisher not active after recovery")
           if d.get("statusHealthy") is not True:
               raise SystemExit("anime status unhealthy after recovery")
-          print("NEXANIME_RECOVERY_OK", json.dumps({
+          print("NEXANIME_DEPLOY_OK", json.dumps({
               "publicationTriggered":d.get("publicationTriggered"),
               "lastPublishedAt":d.get("lastPublishedAt"),
               "destination":d.get("destination")
