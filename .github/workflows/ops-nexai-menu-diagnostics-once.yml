@@ -20,3 +20,5 @@ jobs:
           set -euo pipefail
           curl --fail-with-body --silent --show-error --max-time 90 \
             'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once'
+
+# probe-run-2
