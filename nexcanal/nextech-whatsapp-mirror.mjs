@@ -135,9 +135,24 @@ async function enqueue(client,message){
   const id=Number(message?.id||0);
   if(!id||message?.action)return {skipped:true};
   const text=String(message?.message||'').trim();
-  const media=await mediaItems(client,message);
   const inlineButtons=buttons(message);
-  if(!text&&!media.length&&!inlineButtons.length)return {skipped:true};
+  let media=[];
+  let mediaError=null;
+  if(message?.media){
+    try{
+      media=await mediaItems(client,message);
+    }catch(error){
+      mediaError=String(error?.message||error).slice(0,500);
+      warn('media degraded','#'+String(id),mediaError);
+    }
+  }
+  // A single broken/oversized Telegram media item must never freeze the
+  // mirror cursor forever. If the post still has useful caption/CTA content,
+  // enqueue that immediately and let later posts continue normally.
+  if(!text&&!media.length&&!inlineButtons.length){
+    if(mediaError)throw new Error('media unavailable: '+mediaError);
+    return {skipped:true};
+  }
   const body={
     ownerDomain:'system',
     idempotencyKey:'nextech-channel:'+String(id)+':v2-download-links',
