@@ -4,12 +4,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
-const PINNED_ANIME_SHA256='49d7a3ccad94ec203e7a8017e1a9159dc44bbc3cdf7da2aea5a4b57eb595febd';
+const PINNED_ANIME_SHA256='8d929b13085fe70042bc71cc6c7dae89139975a3a043717de30b1b04763e4b36';
 
 const CONTRACT={
   'anime-ingest.mjs':[
     'const PUBLISH_MS=30_000;',
     'const INTER_SERIES_MS=15*60_000;',
+    'const TRANSIENT_VARIANT_RETRY_MS=Math.max(PUBLISH_MS*2,90_000);',
+    'function episodeVariantRetryReady',
     'async function preflightSeriesBeforeSynopsis',
     "blockedSeriesReason:'source_unavailable_after_retries'",
     'function scheduleDiscoveryRetry',

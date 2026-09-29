@@ -9,22 +9,32 @@ const fileMessage=(name,caption='')=>({
   }
 });
 
-// A stale Telegram source can pause one anime, but it must never freeze the global feed.
+// A stale source may park a series before it starts, but must never interrupt
+// an anime after episode publication has begun.
 {
   assert.equal(__test.shouldParkTransientEpisode(
     {kind:'episode',seriesKey:'witch hat atelier'},
     {code:'SOURCE_UNAVAILABLE',message:'source_message_unavailable_for_runtime'},
-    3
+    3,
+    false
   ),true);
   assert.equal(__test.shouldParkTransientEpisode(
     {kind:'episode',seriesKey:'witch hat atelier'},
     {code:'SOURCE_UNAVAILABLE',message:'source_message_unavailable_for_runtime'},
-    2
+    3,
+    true
+  ),false);
+  assert.equal(__test.shouldParkTransientEpisode(
+    {kind:'episode',seriesKey:'witch hat atelier'},
+    {code:'SOURCE_UNAVAILABLE',message:'source_message_unavailable_for_runtime'},
+    2,
+    false
   ),false);
   assert.equal(__test.shouldParkTransientEpisode(
     {kind:'presentation',seriesKey:'witch hat atelier'},
     {code:'SOURCE_UNAVAILABLE',message:'source_message_unavailable_for_runtime'},
-    5
+    5,
+    false
   ),false);
 }
 
@@ -33,6 +43,7 @@ const fileMessage=(name,caption='')=>({
   assert.equal(__test.timing.publishMs,30_000);
   assert.ok(__test.timing.publishMs<=60_000);
   assert.equal(__test.timing.interSeriesMs,15*60_000);
+  assert.ok(__test.timing.transientVariantRetryMs>=__test.timing.publishMs*2);
   const base=new Date('2026-01-01T00:00:00.000Z');
   assert.equal(__test.interSeriesDeadlineFrom(base).toISOString(),'2026-01-01T00:15:00.000Z');
 }
@@ -297,6 +308,15 @@ console.log('NexAnime ingest regression tests: OK');
   assert.equal(c.episode,6);
 }
 
+
+// transiently failed episode copies cool down so another copy of the same episode
+// can be tried without abandoning the active anime.
+{
+  const now=Date.parse('2026-09-30T00:00:00.000Z');
+  assert.equal(__test.episodeVariantRetryReady({},now),true);
+  assert.equal(__test.episodeVariantRetryReady({retryAfter:new Date(now-1)},now),true);
+  assert.equal(__test.episodeVariantRetryReady({retryAfter:new Date(now+60_000)},now),false);
+}
 
 // episode variant preference must be deterministic: prefer VF first, then quality.
 {
