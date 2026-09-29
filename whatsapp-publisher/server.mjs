@@ -28,8 +28,8 @@ const WEBHOOK_TOKEN = process.env.NEX_WHATSAPP_PUBLISHER_TOKEN || process.env.NE
 const DASHBOARD_PASSWORD = process.env.NEX_WHATSAPP_DASHBOARD_PASSWORD || '';
 const SESSION_SECRET = process.env.NEX_WHATSAPP_SESSION_SECRET || '';
 const TELEGRAM_BOT_TOKEN = process.env.NEXCANAL__BOT_TOKEN || '';
-const SOURCES = new Set(['thenexusorigin', 'thenexnews', 'tresor_universe']);
-const BLOCKED_DOC_EXT = new Set(['apk','xapk','apks','zip','rar','7z','exe','dmg','deb','rpm']);
+const SOURCES = new Set(['thenexusorigin', 'thenexnews', 'tresor_universe', 'theotaku_nexus']);
+const BLOCKED_DOC_EXT = new Set(['apk','xapk','apks','apkm']);
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
 fs.mkdirSync(AUTH_DIR, { recursive: true });
@@ -148,7 +148,8 @@ function groupActionButtons(pub){
 }
 function inviteCode(url=''){ const m=String(url).match(/whatsapp\.com\/channel\/([A-Za-z0-9_-]+)/i); return m?.[1] || String(url).trim(); }
 function ext(name=''){ return path.extname(String(name).split('?')[0].toLowerCase()).replace('.',''); }
-function documentBlocked(item){ const type=String(item?.type||'').toLowerCase(); const e=ext(item?.fileName||''); return type==='document'||type==='file'||BLOCKED_DOC_EXT.has(e); }
+function documentBlocked(item){ const e=ext(item?.fileName||''); const mime=String(item?.mimetype||'').toLowerCase(); return BLOCKED_DOC_EXT.has(e)||mime==='application/vnd.android.package-archive'; }
+function isOtakuSource(source=''){ const s=sourceName(source); return s==='tresor_universe'||s==='theotaku_nexus'; }
 
 async function telegramFileUrl(fileId){
   if(!fileId) return null;
@@ -236,7 +237,7 @@ function normalizePublication(raw={}){
 
 function routePublication(pub){
   const channelBlocked=pub.media.some(documentBlocked);
-  const lifestyle=pub.source==='tresor_universe';
+  const lifestyle=isOtakuSource(pub.source);
   return {
     // Lifestyle/Otaku/Luxury social posts mirror to the Otaku Nexus
     // newsletter only. Nextech/NexNews preserve their existing group relay.
@@ -653,7 +654,7 @@ async function processQueue(){
       try{
         job.attempts=Number(job.attempts||0)+1;
         if(job.destination==='channel'&&(!job.jid||job.jid==='__CHANNEL__'||job.jid==='__OTAKU_CHANNEL__')){
-          const lifestyle=job.pub?.source==='tresor_universe'||job.jid==='__OTAKU_CHANNEL__';
+          const lifestyle=isOtakuSource(job.pub?.source)||job.jid==='__OTAKU_CHANNEL__';
           const resolved=lifestyle?await resolveOtakuChannel():await resolveChannel();
           if(!resolved) throw new Error(lifestyle?'Chaîne WhatsApp Otaku non résolue':'Chaîne WhatsApp non résolue');
           job.jid=resolved;
@@ -682,7 +683,7 @@ function plan(raw){
   const route=routePublication(pub);
   if(route.group) enqueue('group',GROUP_JID,pub);
   if(route.channel){
-    const lifestyle=pub.source==='tresor_universe';
+    const lifestyle=isOtakuSource(pub.source);
     enqueue('channel',lifestyle?(state.otakuChannelJid||'__OTAKU_CHANNEL__'):(state.channelJid||'__CHANNEL__'),pub);
   }
   addHistory({type:'planned',publicationId:pub.id,source:pub.source,sourceMessageId:pub.sourceMessageId,route,textPreview:pub.text.slice(0,180)});
@@ -693,7 +694,7 @@ function plan(raw){
 function publisherReadiness(){
   const queue=readJson('queue.json',[]);
   const pending=queue.filter(x=>x.status==='pending');
-  const pendingOtaku=pending.filter(x=>x?.pub?.source==='tresor_universe'||x?.jid==='__OTAKU_CHANNEL__');
+  const pendingOtaku=pending.filter(x=>isOtakuSource(x?.pub?.source)||x?.jid==='__OTAKU_CHANNEL__');
   const connected=state.status==='connected';
   const otakuResolved=Boolean(state.otakuChannelJid);
   return {
