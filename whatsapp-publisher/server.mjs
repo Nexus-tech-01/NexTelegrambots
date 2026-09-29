@@ -203,7 +203,11 @@ function normalizeMedia(input){
   const arr = Array.isArray(input) ? input : (input ? [input] : []);
   return arr.map((m,i)=>{
     const rawLocal=String(m?.localPath||m?.local_path||'');
-    const localPath=rawLocal&&path.resolve(rawLocal).startsWith('/var/lib/nex/tmp/internal-automation/')?path.resolve(rawLocal):'';
+    const resolvedLocal=rawLocal?path.resolve(rawLocal):'';
+    const localPath=resolvedLocal&&(
+      resolvedLocal.startsWith('/var/lib/nex/tmp/internal-automation/')||
+      resolvedLocal.startsWith('/var/lib/nex/tmp/shared-whatsapp/')
+    )?resolvedLocal:'';
     const meta=mediaMeta(
       String(m?.fileName||m?.original_name||m?.filename||`media-${i+1}`),
       String(m?.type||m?.media_type||'document'),
@@ -258,22 +262,49 @@ function sameSourceMessage(a,b){
   const ai=a?.sourceMessageId,bi=b?.sourceMessageId;
   return Boolean(as&&bs&&as===bs&&ai!=null&&bi!=null&&String(ai)===String(bi));
 }
+function samePublication(a,b){
+  return Boolean(
+    String(a?.id||'')===String(b?.id||'')||
+    sameSourceMessage(a,b)
+  );
+}
+function mediaUpgrade(existing,pub){
+  return Boolean(pub?.media?.length)&&!Boolean(existing?.pub?.media?.length);
+}
 function enqueue(destination,jid,pub){
   const q=readJson('queue.json',[]);
-  const existing=q.find(x=>
+  const matches=q.filter(x=>
     String(x?.destination||'')===String(destination) &&
     ['pending','done'].includes(String(x?.status||'')) &&
-    (String(x?.pub?.id||'')===String(pub?.id||'')||sameSourceMessage(x?.pub,pub))
+    samePublication(x?.pub,pub)
   );
-  if(existing)return {...existing,deduplicated:true};
-  const item={id:crypto.randomUUID(),destination,jid,pub,status:'pending',attempts:0,nextAttemptAt:Date.now(),createdAt:new Date().toISOString()};
+  const rich=matches.find(x=>Boolean(x?.pub?.media?.length));
+  if(rich)return {...rich,deduplicated:true};
+  const pendingBare=matches.find(x=>x.status==='pending'&&!x?.pub?.media?.length);
+  if(pendingBare&&pub?.media?.length){
+    pendingBare.pub=pub;
+    pendingBare.jid=jid;
+    pendingBare.nextAttemptAt=Date.now();
+    pendingBare.lastError=null;
+    pendingBare.upgradedAt=new Date().toISOString();
+    writeJson('queue.json',q);
+    return {...pendingBare,upgraded:true};
+  }
+  const existing=matches[0];
+  if(existing&&!mediaUpgrade(existing,pub))return {...existing,deduplicated:true};
+  const item={id:crypto.randomUUID(),destination,jid,pub,status:'pending',attempts:0,nextAttemptAt:Date.now(),createdAt:new Date().toISOString(),upgradeOf:existing?.id||null};
   q.push(item);
   writeJson('queue.json',q);
   return item;
 }
 function dedupeSeen(pub){
   const q=readJson('queue.json',[]);
-  if(q.some(x=>['pending','done'].includes(String(x?.status||''))&&(String(x?.pub?.id||'')===String(pub?.id||'')||sameSourceMessage(x?.pub,pub))))return true;
+  const same=q.filter(x=>['pending','done'].includes(String(x?.status||''))&&samePublication(x?.pub,pub));
+  if(same.some(x=>Boolean(x?.pub?.media?.length)))return true;
+  if(same.length&&!pub?.media?.length)return true;
+  // A richer retry (for example an anime video after a Bot API text fallback)
+  // is intentionally allowed through so the missing media can be delivered.
+  if(pub?.media?.length&&same.length)return false;
   const h=readJson('history.json',[]);
   return h.some(x=>x.type==='planned'&&(x.publicationId===pub.id||sameSourceMessage(x,pub)));
 }
