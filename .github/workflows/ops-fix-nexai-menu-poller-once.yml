@@ -1,0 +1,199 @@
+name: Ops Fix NexAI Menu Poller Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-fix-nexai-menu-poller-once.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-fix-nexai-menu-poller-once
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NXC_BASE: https://nexcontrol-ochre.vercel.app
+      NXC_AGENT: nexus-main
+      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
+      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate inline menu recovery patch
+        run: |
+          npm install --prefix nexaccount --ignore-scripts
+          node --check nexaccount/inline-bot.mjs
+          node nexaccount/scripts/test-menu-resilience.mjs
+
+      - name: Deploy only inline poller fix through NexControl
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,json,time,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib,base64
+          from pathlib import Path
+
+          BASE=os.environ['NXC_BASE'].rstrip('/')
+          AGENT=os.environ['NXC_AGENT']
+          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
+          SECRET=os.environ.get('NXC_SESSION_SECRET','')
+
+          jar=http.cookiejar.CookieJar()
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          cookie=''
+          if SECRET:
+              exp=int(time.time()*1000)+30*60*1000
+              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
+              sig=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
+              cookie=payload+'.'+sig
+          elif ADMIN:
+              data=urllib.parse.urlencode({'password':ADMIN}).encode()
+              op.open(urllib.request.Request(BASE+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=45).read()
+          else:
+              raise RuntimeError('No NexControl credential in Actions secrets')
+
+          def http(method,path,data=None,timeout=60):
+              headers={'Accept':'application/json'}
+              if cookie: headers['Cookie']='nexcontrol_session='+cookie
+              body=None
+              if data is not None:
+                  body=json.dumps(data,separators=(',',':')).encode()
+                  headers['Content-Type']='application/json'
+              req=urllib.request.Request(BASE+path,data=body,headers=headers,method=method)
+              try:
+                  with op.open(req,timeout=timeout) as r:
+                      raw=r.read().decode('utf-8','replace')
+                      return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  raise RuntimeError(f'HTTP {e.code} {path}: '+e.read().decode('utf-8','replace')[:2000])
+
+          def job(kind,payload,timeout=180):
+              j=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload})
+              jid=j.get('jobId')
+              if not jid: raise RuntimeError(f'No jobId for {kind}: {j}')
+              end=time.time()+timeout
+              while time.time()<end:
+                  x=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid),timeout=45)
+                  st=x.get('status')
+                  if st=='succeeded': return x.get('result') or {}
+                  if st=='failed': raise RuntimeError(f'{kind} failed: {x.get("error")}')
+                  time.sleep(1)
+              raise TimeoutError(f'{kind} timeout: {jid}')
+
+          def runtime_json(args,timeout_ms=30000):
+              r=job('runtime.exec',{
+                  'root':'nexus',
+                  'command':'node',
+                  'args':['bots/nexaccount/cli.mjs',*args],
+                  'timeoutMs':timeout_ms
+              },timeout=max(60,timeout_ms//1000+30))
+              if r.get('ok') is False:
+                  raise RuntimeError('runtime exec failed: '+str(r)[-2500:])
+              raw=(r.get('stdout') or '').strip()
+              return json.loads(raw or '{}')
+
+          def assert_critical_automations(accounts):
+              active=accounts.get('runtimes') or []
+              by_name={str(x.get('username') or '').lower().lstrip('@'):x for x in active if x.get('connected') is True}
+              primary=by_name.get('tresor20001')
+              scanner=by_name.get('tresor20009')
+              if not primary:
+                  raise RuntimeError('critical runtime missing: @tresor20001')
+              pa=primary.get('anime') or {}
+              if pa.get('listener') is not True or pa.get('publisher') is not True:
+                  raise RuntimeError('@tresor20001 anime contract failed: '+str(pa))
+              if not scanner:
+                  raise RuntimeError('critical runtime missing: @tresor20009')
+              sa=scanner.get('anime') or {}
+              if sa.get('listener') is not True:
+                  raise RuntimeError('@tresor20009 anime listener contract failed: '+str(sa))
+              lite=scanner.get('liteApks') or {}
+              if lite.get('scanner') is not True or lite.get('running') is not True:
+                  raise RuntimeError('@tresor20009 LiteAPK scanner contract failed: '+str(lite))
+              return str(primary.get('telegramUserId') or '')
+
+          before=runtime_json(['accounts'])
+          primary_id=assert_critical_automations(before)
+          print('PRE_DEPLOY_AUTOMATIONS_OK')
+
+          source=Path('nexaccount/inline-bot.mjs').read_text(encoding='utf-8')
+          write=None
+          backup_id=None
+          created=False
+          try:
+              write=job('fs.write',{
+                  'root':'nexus',
+                  'path':'bots/nexaccount/inline-bot.mjs',
+                  'content':source
+              })
+              backup_id=write.get('backupId')
+              created=bool(write.get('created',False))
+              print('INLINE_BOT_WRITTEN',str(write)[:800])
+
+              syntax=job('check.run',{
+                  'check':'node-check',
+                  'root':'nexus',
+                  'file':'bots/nexaccount/inline-bot.mjs',
+                  'timeoutMs':60000
+              })
+              if not syntax.get('ok'):
+                  raise RuntimeError('production node-check failed: '+str(syntax))
+
+              boot=job('runtime.exec',{
+                  'root':'nexus',
+                  'command':'node',
+                  'args':['bots/nexaccount/bootstrap.mjs','--restart','--production'],
+                  'timeoutMs':60000
+              },timeout=90)
+              if boot.get('ok') is False:
+                  raise RuntimeError('NexAccount restart failed: '+str(boot)[-2500:])
+
+              health=runtime_json(['health'])
+              if health.get('ok') is not True or health.get('pairingOnly') is True:
+                  raise RuntimeError('NexAccount health failed: '+str(health))
+
+              after=runtime_json(['accounts'])
+              primary_id=assert_critical_automations(after)
+
+              anime=runtime_json(['anime-status'])
+              if anime.get('ok') is not True or anime.get('enabled') is not True:
+                  raise RuntimeError('NexAnime status unhealthy: '+str(anime))
+              if str(anime.get('destination') or '').lower()!='@theotaku_nexus':
+                  raise RuntimeError('NexAnime destination regression: '+str(anime.get('destination')))
+              if float(anime.get('interSeriesMinutes') or 0)!=15:
+                  raise RuntimeError('NexAnime cadence regression: '+str(anime.get('interSeriesMinutes')))
+
+              probe=runtime_json(['menu-probe',primary_id])
+              if probe.get('ok') is not True or not probe.get('resultId'):
+                  raise RuntimeError('NexAI inline menu probe failed: '+str(probe))
+
+              print('NEXAI_MENU_PROBE_OK',json.dumps(probe,separators=(',',':')))
+              print('POST_DEPLOY_AUTOMATIONS_OK')
+              print('DEPLOYMENT_OK NexAI inline poller recovery')
+          except Exception:
+              try:
+                  if backup_id:
+                      job('fs.rollback',{'backupId':backup_id})
+                  elif created:
+                      job('fs.delete',{'root':'nexus','path':'bots/nexaccount/inline-bot.mjs','allowDir':False})
+                  job('runtime.exec',{
+                      'root':'nexus',
+                      'command':'node',
+                      'args':['bots/nexaccount/bootstrap.mjs','--restart','--production'],
+                      'timeoutMs':60000
+                  },timeout=90)
+                  print('ROLLBACK_OK')
+              except Exception as rollback_error:
+                  print('ROLLBACK_WARNING',rollback_error)
+              raise
+          PY
