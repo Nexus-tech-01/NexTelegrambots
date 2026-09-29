@@ -827,7 +827,7 @@ async function runWithClient(c,{ownsReader=false,signal=null,expectedUsername=ex
     }catch(e){
       const message=String(e?.errorMessage||e?.message||e);
       warn('cycle failed',message);
-      if(/AUTH_KEY_DUPLICATED|AuthKeyDuplicatedError|Concurrent usage of the current session from multiple connections/i.test(message)){
+      if(/AUTH_KEY_DUPLICATED|AuthKeyDuplicatedError|Concurrent usage of the current session from multiple connections|AuthKeyUnregistered|AUTH_KEY_UNREGISTERED|authorization is invalid|watcher session is not authorized|Cannot send requests while disconnected|not connected/i.test(message)){
         if(ownsReader)await c.disconnect().catch(()=>{});
         throw e;
       }
