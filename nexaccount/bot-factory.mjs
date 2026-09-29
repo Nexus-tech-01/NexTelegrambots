@@ -69,8 +69,6 @@ export async function ensureNexAiBot(client,account){
   const accountUsername=String(account?.username||'').trim().replace(/^@/,'').toLowerCase();
   const ownerUsername=String(cfg.creatorUsername||'').trim().replace(/^@/,'').toLowerCase();
   if(ownerUsername&&accountUsername!==ownerUsername)return {created:false,reason:'owner_account_required'};
-  if(account?.premium!==true)return {created:false,reason:'premium_owner_required'};
-
   const peer=await client.getInputEntity('@BotFather');
   const knownUsername=String(cfg.botUsername||'').trim().replace(/^@/,'');
   if(knownUsername){
@@ -84,6 +82,11 @@ export async function ensureNexAiBot(client,account){
     // A known bot identity must never silently turn into a newly-created bot.
     return {created:false,reason:'known_bot_token_unavailable',username:knownUsername};
   }
+
+  // Telegram Premium is only a prerequisite for creating a brand-new bot.
+  // Recovery of the already configured NexAI bot must always remain possible
+  // for the owner, otherwise a deployment can permanently disable inline menus.
+  if(account?.premium!==true)return {created:false,reason:'premium_owner_required'};
 
   const start=await sendAndWait(client,peer,'/newbot');
   if(/too many|try again later|flood/i.test(start))throw new Error('BotFather rate limit');
