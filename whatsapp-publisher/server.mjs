@@ -21,7 +21,7 @@ const HOST = process.env.WA_PUBLISHER_HOST || '127.0.0.1';
 const DATA_DIR = process.env.WA_PUBLISHER_DATA_DIR || '/var/lib/nex/data/internal/whatsapp-publisher';
 const AUTH_DIR = path.join(DATA_DIR, 'wa-auth');
 const GROUP_JID = process.env.WHATSAPP_GROUP_JID || '120363426961054070@g.us';
-const CHANNEL_INVITE_URL = process.env.WHATSAPP_CHANNEL_INVITE_URL || 'https://whatsapp.com/channel/0029VbCKhnq7j6gEhuUKMP1V';
+const CHANNEL_INVITE_URL = process.env.WHATSAPP_CHANNEL_INVITE_URL || 'https://whatsapp.com/channel/0029VbDkWGYHltYHGr1HHQ07';
 const OTAKU_CHANNEL_INVITE_URL = process.env.OTAKU_WHATSAPP_CHANNEL_INVITE_URL || 'https://whatsapp.com/channel/0029VbCKhnq7j6gEhuUKMP1V';
 const PRESENTATION_NEWSLETTER_JID = process.env.PRESENTATION_NEWSLETTER_JID || '120363411005383995@newsletter';
 const WEBHOOK_TOKEN = process.env.NEX_WHATSAPP_PUBLISHER_TOKEN || process.env.NEXCANAL__WEBHOOK_SECRET || '';
@@ -236,19 +236,19 @@ function normalizePublication(raw={}){
 }
 
 function routePublication(pub){
-  const channelBlocked=pub.media.some(documentBlocked);
   const lifestyle=isOtakuSource(pub.source);
+  const channelBlocked=!lifestyle&&pub.media.some(documentBlocked);
   return {
-    // Lifestyle/Otaku/Luxury social posts mirror to the Otaku Nexus
-    // newsletter only. Nextech/NexNews preserve their existing group relay.
+    // NexTech/NexNews => groupe + chaîne NexTech, sauf APK packages => groupe.
+    // Otaku Nexus/Dark Universe => chaîne Otaku Nexus uniquement.
     group:lifestyle?false:Boolean(GROUP_JID),
-    channel:!channelBlocked,
+    channel:lifestyle||!channelBlocked,
     channelBlocked,
     reason:channelBlocked
-      ?'fichier/document réservé au groupe'
+      ?'APK réservé au groupe NexTech'
       :lifestyle
-        ?'publication lifestyle -> chaîne Otaku Nexus'
-        :'compatible chaîne + groupe',
+        ?'publication Otaku/Dark Universe -> chaîne Otaku Nexus'
+        :'compatible chaîne + groupe NexTech',
   };
 }
 
