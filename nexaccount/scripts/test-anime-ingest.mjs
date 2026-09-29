@@ -9,6 +9,25 @@ const fileMessage=(name,caption='')=>({
   }
 });
 
+// A stale Telegram source can pause one anime, but it must never freeze the global feed.
+{
+  assert.equal(__test.shouldParkTransientEpisode(
+    {kind:'episode',seriesKey:'witch hat atelier'},
+    {code:'SOURCE_UNAVAILABLE',message:'source_message_unavailable_for_runtime'},
+    3
+  ),true);
+  assert.equal(__test.shouldParkTransientEpisode(
+    {kind:'episode',seriesKey:'witch hat atelier'},
+    {code:'SOURCE_UNAVAILABLE',message:'source_message_unavailable_for_runtime'},
+    2
+  ),false);
+  assert.equal(__test.shouldParkTransientEpisode(
+    {kind:'presentation',seriesKey:'witch hat atelier'},
+    {code:'SOURCE_UNAVAILABLE',message:'source_message_unavailable_for_runtime'},
+    5
+  ),false);
+}
+
 // Scheduler contract: stale environment values must never regress the publishing cadence.
 {
   assert.equal(__test.timing.publishMs,30_000);
