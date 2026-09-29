@@ -14,10 +14,12 @@ if(/\n\s*pull_request:\s*/.test(triggerBlock))failures.push('pull_request trigge
 if(!triggerBlock.includes('confirm_nexanime_restart:'))failures.push('manual NexAnime restart confirmation input is missing');
 if(!source.includes('if: ${{ inputs.confirm_nexanime_restart == true }}'))failures.push('deploy job must require explicit NexAnime restart confirmation');
 if(!source.includes('NEXANIME_RUNTIME_CONTRACT_OK'))failures.push('post-deploy NexAnime health contract is missing');
-if(!source.includes('ROLLBACK_KEPT_HEALTHY_RUNTIME'))failures.push('healthy-runtime rollback protection is missing');
+if(!source.includes('promote-systemd-release.mjs'))failures.push('canonical systemd release promotion is missing');
+if(source.includes('bootstrap.mjs'))failures.push('deploy workflow must not start an auxiliary NexAccount bootstrap runtime');
+if(!source.includes('PRODUCTION_ROLLBACK_OK'))failures.push('canonical production rollback protection is missing');
 
 if(failures.length){
   console.error('DEPLOY_ISOLATION_REGRESSION\n'+failures.join('\n'));
   process.exit(1);
 }
-console.log('DEPLOY_ISOLATION_OK manual-only + explicit restart confirmation + health/rollback guards');
+console.log('DEPLOY_ISOLATION_OK manual-only + canonical systemd promotion + explicit health/rollback guards');
