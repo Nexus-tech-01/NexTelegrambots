@@ -428,7 +428,7 @@ async function mirrorDescriptor(m,sourceKind,sent){
     idempotencyKey:'nextech-mirror:descriptor:'+sourceKind+':'+String(m.id)+':v1',
     source:{platform:'telegram',name:'thenexusorigin',messageId:String(sent?.message_id||m.id),accountRole:'system-apk-worker'},
     content:{text,media,buttons:mirrorButtons(u)},
-    routes:[{platform:'facebook',pageId:nexusTechFacebookPageId},{platform:'whatsapp'}]
+    routes:[{platform:'facebook',pageId:nexusTechFacebookPageId}]
   });
 }
 async function mirrorApk(m,sourceKind,sent,linked,mirrorVersion='v1'){
