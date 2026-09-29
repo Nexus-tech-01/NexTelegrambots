@@ -1,0 +1,22 @@
+name: Ops NexAI Menu Diagnostics Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-nexai-menu-diagnostics-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read NexAccount console diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --max-time 90 \
+            'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live'
