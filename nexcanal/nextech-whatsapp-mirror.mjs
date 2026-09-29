@@ -10,7 +10,7 @@ const CHANNELS=[...new Set(
 )];
 const API_ID=Number(process.env.NEXCANAL__WATCHER_API_ID||process.env.NEXGROUP__TELEGRAM_API_ID||0);
 const API_HASH=String(process.env.NEXCANAL__WATCHER_API_HASH||process.env.NEXGROUP__TELEGRAM_API_HASH||'').trim();
-const USER_SESSION=String(process.env.NEXCANAL__WATCHER_SESSION||process.env.NEXGROUP__TELEGRAM_MTPROTO_SESSION||'').trim();
+const USER_SESSION=String(process.env.NEXCANAL__WATCHER_SESSION||'').trim();
 const SESSION_FILE=String(process.env.NEXCANAL__WATCHER_SESSION_FILE||'/var/lib/nex/sessions/system/nexcanal-reader-session.txt').trim();
 const INTERROUTE=String(process.env.NEX_INTERROUTE_URL||'http://127.0.0.1:18130').replace(/\/$/,'');
 const STATE_FILE=String(process.env.NEXTECH_WHATSAPP_MIRROR_STATE_FILE||'/var/lib/nex/state/nexcanal/nextech-whatsapp-mirror-state.json');
