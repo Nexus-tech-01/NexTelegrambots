@@ -1,0 +1,184 @@
+name: Ops Auto React Owned Channels Deploy Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-auto-react-owned-channels-deploy-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      NXC_BASE: https://nexcontrol-ochre.vercel.app
+      NXC_AGENT: nexus-main
+      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
+      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate targeted NexAccount files
+        run: |
+          node --check nexaccount/config.mjs
+          node --check nexaccount/store.mjs
+          node --check nexaccount/runtime.mjs
+          grep -F "DEFAULT_OWNED_AUTO_REACT_TARGETS='thenexusorigin,thenexnews,tresor_universe,theotaku_nexus'" nexaccount/config.mjs
+          ! grep -F "autoReactTargets:(pick('NEXAI_AUTO_REACT_TARGETS')||'*')" nexaccount/config.mjs
+          ! grep -F "targets:['*']" nexaccount/store.mjs
+          grep -F "function safeAutoReactTargets" nexaccount/runtime.mjs
+
+      - name: Deploy targeted files through NexControl and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,json,time,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib,base64
+          from pathlib import Path
+
+          BASE=os.environ['NXC_BASE'].rstrip('/')
+          AGENT=os.environ['NXC_AGENT']
+          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
+          SECRET=os.environ.get('NXC_SESSION_SECRET','')
+
+          jar=http.cookiejar.CookieJar()
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          cookie=''
+          if SECRET:
+              exp=int(time.time()*1000)+30*60*1000
+              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
+              sig=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
+              cookie=payload+'.'+sig
+          elif ADMIN:
+              data=urllib.parse.urlencode({'password':ADMIN}).encode()
+              op.open(urllib.request.Request(BASE+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=45).read()
+          else:
+              raise RuntimeError('No NexControl credential in Actions secrets')
+
+          def http(method,path,data=None,timeout=60):
+              headers={'Accept':'application/json'}
+              if cookie: headers['Cookie']='nexcontrol_session='+cookie
+              body=None
+              if data is not None:
+                  body=json.dumps(data,separators=(',',':')).encode()
+                  headers['Content-Type']='application/json'
+              req=urllib.request.Request(BASE+path,data=body,headers=headers,method=method)
+              try:
+                  with op.open(req,timeout=timeout) as r:
+                      raw=r.read().decode('utf-8','replace')
+                      return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  raise RuntimeError(f'HTTP {e.code} {path}: '+e.read().decode('utf-8','replace')[:2000])
+
+          def job(kind,payload,timeout=180):
+              j=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload})
+              jid=j.get('jobId')
+              if not jid: raise RuntimeError(f'No jobId for {kind}: {j}')
+              end=time.time()+timeout
+              while time.time()<end:
+                  x=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid),timeout=45)
+                  st=x.get('status')
+                  if st=='succeeded': return x.get('result') or {}
+                  if st=='failed': raise RuntimeError(f'{kind} failed: {x.get("error")}')
+                  time.sleep(1)
+              raise TimeoutError(f'{kind} timeout: {jid}')
+
+          files=['config.mjs','store.mjs','runtime.mjs']
+          backups=[]
+          try:
+              for rel in files:
+                  src=Path('nexaccount')/rel
+                  result=job('fs.write',{
+                      'root':'nexus',
+                      'path':'bots/nexaccount/'+rel,
+                      'content':src.read_text(encoding='utf-8')
+                  })
+                  backups.append((rel,result.get('backupId'),result.get('created',False)))
+
+              for rel in files:
+                  ck=job('check.run',{
+                      'check':'node-check',
+                      'root':'nexus',
+                      'file':'bots/nexaccount/'+rel,
+                      'timeoutMs':60000
+                  })
+                  if not ck.get('ok'):
+                      raise RuntimeError('node-check failed '+rel+': '+str(ck))
+
+              boot=job('runtime.exec',{
+                  'root':'nexus',
+                  'command':'node',
+                  'args':['bots/nexaccount/bootstrap.mjs','--restart','--production'],
+                  'timeoutMs':60000
+              },timeout=90)
+              if boot.get('ok') is False:
+                  raise RuntimeError('bootstrap failed: '+str(boot)[-4000:])
+
+              health=job('runtime.exec',{
+                  'root':'nexus',
+                  'command':'node',
+                  'args':['bots/nexaccount/cli.mjs','health'],
+                  'timeoutMs':30000
+              },timeout=60)
+              health_text=(health.get('stdout') or '').strip()
+              print('NEXACCOUNT_HEALTH',health_text[-5000:])
+              health_json=json.loads(health_text or '{}')
+              if health_json.get('ok') is not True or health_json.get('pairingOnly') is True:
+                  raise RuntimeError('NexAccount health regression: '+str(health_json))
+
+              anime=job('runtime.exec',{
+                  'root':'nexus',
+                  'command':'node',
+                  'args':['bots/nexaccount/cli.mjs','anime-status'],
+                  'timeoutMs':30000
+              },timeout=60)
+              anime_text=(anime.get('stdout') or '').strip()
+              print('NEXANIME_STATUS',anime_text[-5000:])
+              anime_json=json.loads(anime_text or '{}')
+              if anime_json.get('ok') is not True or anime_json.get('enabled') is not True:
+                  raise RuntimeError('NexAnime regression: '+str(anime_json))
+              if str(anime_json.get('destination') or '').lower()!='@theotaku_nexus':
+                  raise RuntimeError('NexAnime destination regression: '+str(anime_json.get('destination')))
+              if float(anime_json.get('interSeriesMinutes') or 0)!=15:
+                  raise RuntimeError('NexAnime cadence regression: '+str(anime_json.get('interSeriesMinutes')))
+
+              verify=job('runtime.exec',{
+                  'root':'nexus',
+                  'command':'grep',
+                  'args':['-nE',"DEFAULT_OWNED_AUTO_REACT_TARGETS|safeAutoReactTargets|targets:\[\.\.\.cfg\.autoReactTargets\]",'bots/nexaccount/config.mjs','bots/nexaccount/store.mjs','bots/nexaccount/runtime.mjs'],
+                  'timeoutMs':15000
+              },timeout=30)
+              verify_text=(verify.get('stdout') or '').strip()
+              print('AUTO_REACT_DEPLOY_VERIFY',verify_text)
+              required=('DEFAULT_OWNED_AUTO_REACT_TARGETS','safeAutoReactTargets','targets:[...cfg.autoReactTargets]')
+              if not all(x in verify_text for x in required):
+                  raise RuntimeError('deployed auto-react guard not verified')
+
+              print('DEPLOYMENT_OK auto-react restricted to owned channels')
+          except Exception:
+              for rel,bid,created in reversed(backups):
+                  try:
+                      if bid: job('fs.rollback',{'backupId':bid})
+                      elif created: job('fs.delete',{'root':'nexus','path':'bots/nexaccount/'+rel,'allowDir':False})
+                  except Exception as e:
+                      print('rollback warning',rel,e)
+              try:
+                  job('runtime.exec',{
+                      'root':'nexus',
+                      'command':'node',
+                      'args':['bots/nexaccount/bootstrap.mjs','--restart','--production'],
+                      'timeoutMs':60000
+                  },timeout=90)
+              except Exception as e:
+                  print('rollback restart warning',e)
+              raise
+          PY
+
+# auto-react-owned-channels-deploy-20260929
