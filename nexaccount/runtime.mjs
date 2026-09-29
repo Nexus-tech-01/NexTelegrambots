@@ -43,6 +43,9 @@ function telegramRuntimeErrorText(error){
 function isAuthKeyDuplicatedError(error){
   return /AUTH_KEY_DUPLICATED|AuthKeyDuplicatedError|Concurrent usage of the current session from multiple connections/i.test(telegramRuntimeErrorText(error));
 }
+function isReconnectableTelegramTransportError(error){
+  return /Cannot send requests while disconnected|authorization is invalid|AuthKeyUnregistered|AUTH_KEY_UNREGISTERED|watcher session is not authorized|not connected/i.test(telegramRuntimeErrorText(error));
+}
 
 async function quarantineAuthKeyDuplicated(runtime,error,source='runtime'){
   if(!runtime)return false;
@@ -128,7 +131,12 @@ async function startEmbeddedLiteApkScanner(runtime){
       runtime.liteApksScannerLastExitAt=new Date();
       runtime.liteApksScannerLastError=telegramRuntimeErrorText(error).slice(0,500);
       console.error('[NexAccount LiteAPK]',String(runtime.account.telegramUserId),runtime.liteApksScannerLastError);
-      if(isAuthKeyDuplicatedError(error))await quarantineAuthKeyDuplicated(runtime,error,'liteapk-embedded').catch(()=>{});
+      if(isAuthKeyDuplicatedError(error)){
+        await quarantineAuthKeyDuplicated(runtime,error,'liteapk-embedded').catch(()=>{});
+      }else if(isReconnectableTelegramTransportError(error)){
+        console.warn('[NexAccount LiteAPK]',String(runtime.account.telegramUserId),'forcing runtime transport recycle after scanner connection failure');
+        try{await runtime.client?.disconnect?.()}catch{}
+      }
     });
     console.log('[NexAccount LiteAPK] embedded scanner started @'+username);
     return true;
@@ -1839,8 +1847,15 @@ export async function reconcileRuntimes(){
   if(reconcilingRuntimes)return [];
   reconcilingRuntimes=true;
   try{
-    for(const id of [...runtimes.keys()]){
-      if(cfg.workerCount>1&&!accountAssignedToWorker(id))await detachRuntime(id);
+    for(const [id,runtime] of [...runtimes.entries()]){
+      if(cfg.workerCount>1&&!accountAssignedToWorker(id)){
+        await detachRuntime(id);
+        continue;
+      }
+      if(runtime?.sessionInvalidated!==true&&runtime?.client?.connected!==true){
+        console.warn('[NexAccount reconcile]',id,'Telegram transport disconnected; recycling saved runtime');
+        await detachRuntime(id);
+      }
     }
     const repaired=await reconcileRuntimeAutomations();
     const capacity=Math.max(0,cfg.maxRuntimesPerWorker-runtimes.size);
