@@ -27,6 +27,7 @@ const INTER_SERIES_MS=15*60_000;
 // A broken or incomplete series must never freeze the entire anime feed.
 // It is parked temporarily, while episode order inside that series stays strict.
 const GAP_RETRY_MS=Math.max(5*60_000,Number(process.env.NEXANIME_GAP_RETRY_MS||15*60_000));
+const TRANSIENT_VARIANT_RETRY_MS=Math.max(PUBLISH_MS*2,90_000);
 const PUBLISHER_LEASE_GRACE_MS=Math.max(INTER_SERIES_MS+60_000,Number(process.env.NEXANIME_PUBLISHER_LEASE_GRACE_MS||INTER_SERIES_MS+5*60*1000));
 const POLL_MS=Math.max(30000,Number(process.env.NEXANIME_POLL_MS||60000));
 const STALE_PUBLISH_MS=Math.max(2*60*1000,Number(process.env.NEXANIME_STALE_PUBLISH_MS||10*60*1000));
@@ -1596,7 +1597,7 @@ async function markPublication(item,sent,runtime){
   );
   await d.collection('nexanime_queue').updateOne(
     {_id:item._id},
-    {$set:{status:'published',publishedAt:now,updatedAt:now},$unset:{claimAt:'',claimBy:''}}
+    {$set:{status:'published',publishedAt:now,updatedAt:now},$unset:{claimAt:'',claimBy:'',retryAfter:'',lastTransientAt:''}}
   );
   if(item.kind==='episode'&&item.episode!=null){
     await d.collection('nexanime_queue').updateMany(
@@ -1624,12 +1625,13 @@ function isTransientPublishError(error){
   return code==='SOURCE_UNAVAILABLE'||message==='source_message_unavailable_for_runtime';
 }
 
-function shouldParkTransientEpisode(item,error,attempts){
+function shouldParkTransientEpisode(item,error,attempts,inProgress=false){
   return Boolean(
     isTransientPublishError(error)&&
     item?.kind==='episode'&&
     String(item?.seriesKey||'')&&
-    Number(attempts)>=3
+    Number(attempts)>=3&&
+    inProgress!==true
   );
 }
 
@@ -1644,9 +1646,16 @@ async function releaseClaim(item,error){
     {$set:{
       status:identityMismatch?'quarantine':(mediaPolicy?'awaiting_rights':'queued'),
       ...(identityMismatch?{quarantineReason:'source_identity_mismatch'}:{}),
+      ...(transient?{
+        retryAfter:new Date(now.getTime()+TRANSIENT_VARIANT_RETRY_MS),
+        lastTransientAt:now
+      }:{}),
       lastError:String(error?.message||error).slice(0,500),
       updatedAt:now
-    },$inc:{attempts:1},$unset:{claimAt:'',claimBy:''}}
+    },$inc:{attempts:1},$unset:{
+      claimAt:'',claimBy:'',
+      ...(!transient?{retryAfter:'',lastTransientAt:''}:{})
+    }}
   );
   // A temporarily unreachable source must never quarantine the missing episode:
   // doing so creates a permanent gap deadlock (E(N) quarantined while E(N+1)
@@ -1656,10 +1665,18 @@ async function releaseClaim(item,error){
     await d.collection('nexanime_queue').updateOne({_id:item._id},{$set:{status:'quarantine',quarantineReason:'publish_failures',updatedAt:now}});
   }
 
-  // Repeatedly unreachable Telegram media must not let one anime monopolize the feed.
-  // Keep the episode queued so discovery can heal its sources, but park this series
-  // temporarily and allow another runnable series to take the publisher.
-  if(shouldParkTransientEpisode(item,error,attempts)){
+  // Before a series has actually started, repeated source failures may park it
+  // temporarily so one dead source cannot block the whole feed. Once at least one
+  // episode of this series is already public, keep the series active: the failed
+  // variant is cooled down above so another queued copy of the same episode can run.
+  let inProgress=false;
+  if(transient&&item?.kind==='episode'&&String(item?.seriesKey||'')){
+    inProgress=!!(await d.collection('nexanime_publications').findOne(
+      {seriesKey:item.seriesKey,kind:'episode',purgedAt:{$exists:false}},
+      {projection:{_id:1}}
+    ));
+  }
+  if(shouldParkTransientEpisode(item,error,attempts,inProgress)){
     const cooldownUntil=await interSeriesDeadline(d,item.seriesKey,now);
     await d.collection('nexanime_config').updateOne(
       {_id:'scheduler',activeSeriesKey:item.seriesKey},
@@ -2092,16 +2109,22 @@ async function suppressAlreadyPublishedEpisode(d,seriesKey,season,episode){
   return true;
 }
 
+function episodeVariantRetryReady(item,now=Date.now()){
+  const nowMs=now instanceof Date?now.getTime():Number(now);
+  const retryAt=item?.retryAfter?new Date(item.retryAfter).getTime():0;
+  return !Number.isFinite(retryAt)||retryAt<=nowMs;
+}
 async function preferredEpisodeVariant(d,seriesKey,season,episode){
   const variants=await d.collection('nexanime_queue').find(
     {seriesKey,status:'queued',kind:'episode',season,episode}
   ).limit(50).toArray();
   if(!variants.length)return null;
-  variants.sort((a,b)=>episodeVariantScore(b)-episodeVariantScore(a)||new Date(a.createdAt||0)-new Date(b.createdAt||0));
-  // Do not discard fallback variants before the preferred source has actually
-  // been validated and published. If the first one is stale/wrong, it will be
-  // quarantined and the next valid variant can be tried on the next cycle.
-  return variants[0];
+  const ready=variants.filter(item=>episodeVariantRetryReady(item));
+  if(!ready.length)return null;
+  ready.sort((a,b)=>episodeVariantScore(b)-episodeVariantScore(a)||new Date(a.createdAt||0)-new Date(b.createdAt||0));
+  // A transiently broken preferred copy is temporarily skipped, allowing another
+  // validated variant of the SAME episode to continue the active anime.
+  return ready[0];
 }
 
 async function preflightSeriesBeforeSynopsis(runtime,d,seriesKey){
@@ -2815,9 +2838,9 @@ export const __test={
   cleanSeriesTitle,sourceTitleCandidate,deriveRawAnchors,commonPrefixTitle,verifyAnimeTitle,
   standardizedCaption,quotedCaption,titleFromMessage,titleEvidenceFromMessage,titlesClearlyConflict,
   episodeEvidenceFromMessage,meaningfulTitleSimilarity,bestAnchor,episodeVariantScore,episodeIdentityCompatible,
-  isTransientPublishError,inferredSeasonAlias,shouldParkTransientEpisode,
+  isTransientPublishError,inferredSeasonAlias,shouldParkTransientEpisode,episodeVariantRetryReady,
   interSeriesDeadlineFrom,
-  timing:{publishMs:PUBLISH_MS,interSeriesMs:INTER_SERIES_MS}
+  timing:{publishMs:PUBLISH_MS,interSeriesMs:INTER_SERIES_MS,transientVariantRetryMs:TRANSIENT_VARIANT_RETRY_MS}
 };
 
 
