@@ -989,6 +989,11 @@ const bridgeServer=http.createServer(async(req,res)=>{
       const out=plan(q);
       return json(res,202,{ok:true,duplicate:out.duplicate,route:out.route});
     }
+    if(req.method==='POST'&&url.pathname==='/kickz'){
+      const wasProcessing=processing;
+      processQueue().catch(error=>logger.error({err:error},'manual queue kick failed'));
+      return json(res,202,{ok:true,wasProcessing,status:state.status});
+    }
     return json(res,404,{error:'not_found'});
   }catch(e){ logger.error({err:e},'bridge request failed'); return json(res,500,{error:String(e?.message||e)}); }
 });
