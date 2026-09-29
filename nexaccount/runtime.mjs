@@ -2177,6 +2177,16 @@ export async function engineStatus(){
   };
 }
 
+export function runtimeConnectionFor(target=''){
+  const q=String(target||'').trim().replace(/^@/,'').toLowerCase();
+  const candidates=[...runtimes.values()].filter(r=>r?.client?.connected===true);
+  const runtime=q
+    ?candidates.find(r=>String(r.account?.telegramUserId||'')===q||String(r.account?.username||'').trim().replace(/^@/,'').toLowerCase()===q)
+    :candidates.find(r=>r.account?.premium===true)||candidates[0];
+  if(!runtime)return null;
+  return {client:runtime.client,account:runtime.account};
+}
+
 export function runtimeStatus(){
   return [...runtimes.values()].map(r=>({
     telegramUserId:r.account.telegramUserId,
