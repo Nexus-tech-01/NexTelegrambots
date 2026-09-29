@@ -1,7 +1,7 @@
 name: Ops Recover Anime Publishing 2026-09-29
 
 on:
-  pull_request:
+  push:
     branches: [main]
     paths:
       - '.github/workflows/ops-recover-anime-20260929.yml'
@@ -121,6 +121,15 @@ jobs:
               'steps':{}
           }
 
+          expected_hash=hashlib.sha256(Path('nexaccount/anime-ingest.mjs').read_bytes()).hexdigest()
+          live_hash_exec=job('runtime.exec',{
+              'root':'nexus','command':'node',
+              'args':['--input-type=module','-e',"import fs from 'node:fs';import crypto from 'node:crypto';const b=fs.readFileSync('bots/nexaccount/anime-ingest.mjs');process.stdout.write(crypto.createHash('sha256').update(b).digest('hex'))"],
+              'timeoutMs':30000
+          },timeout=60)
+          live_hash=(live_hash_exec.get('stdout') or '').strip()
+          report['steps']['versionCheck']={'expectedSha256':expected_hash,'liveSha256':live_hash,'match':live_hash==expected_hash}
+
           pre_health=safe_runtime(['health'])
           pre_accounts=safe_runtime(['accounts'])
           pre_anime=safe_runtime(['anime-status'])
@@ -198,6 +207,7 @@ jobs:
           status_ok=bool(after_anime.get('ok') and (after_anime.get('data') or {}).get('ok') is True and (after_anime.get('data') or {}).get('enabled') is True)
           report['ok']=bool(report['publisherActiveAfter'] and status_ok)
           OUT.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print('ANIME_RECOVERY_REPORT '+json.dumps(report,ensure_ascii=False,separators=(',',':')))
           print(json.dumps({'ok':report['ok'],'publicationTriggered':did_publish,'publisherActiveAfter':report['publisherActiveAfter']},separators=(',',':')))
           PY
 
