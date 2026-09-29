@@ -163,6 +163,50 @@ export async function listAccounts(){
     .toArray();
 }
 
+export async function listConnectedAccounts(){
+  const d=await db(),now=new Date();
+  const leases=await d.collection('nexaccount_runtime_leases')
+    .find({expiresAt:{$gt:now}},{projection:{workerId:1,expiresAt:1,updatedAt:1}})
+    .toArray();
+  if(!leases.length)return [];
+
+  const leaseById=new Map();
+  for(const lease of leases){
+    const id=String(lease?._id||'').trim();
+    if(!id)continue;
+    const previous=leaseById.get(id);
+    if(!previous||new Date(lease.updatedAt||0).getTime()>new Date(previous.updatedAt||0).getTime()){
+      leaseById.set(id,lease);
+    }
+  }
+  const ids=[...leaseById.keys()];
+  if(!ids.length)return [];
+
+  const accounts=await d.collection('nexaccount_accounts')
+    .find({
+      telegramUserId:{$in:ids},
+      enabled:true,
+      sessionRepairRequired:{$ne:true}
+    },{
+      projection:{
+        sessionEncrypted:0,
+        sessionFingerprint:0
+      }
+    })
+    .toArray();
+
+  return accounts.map(account=>{
+    const lease=leaseById.get(String(account.telegramUserId))||{};
+    return {
+      ...account,
+      connected:true,
+      workerId:String(lease.workerId||''),
+      runtimeLeaseUpdatedAt:lease.updatedAt||null,
+      runtimeLeaseExpiresAt:lease.expiresAt||null
+    };
+  }).sort((a,b)=>new Date(a.connectedAt||0)-new Date(b.connectedAt||0));
+}
+
 export async function listAccountsForWorker({limit=cfg.maxRuntimesPerWorker}={}){
   const d=await db();
   const {start,end}=workerBucketRange();

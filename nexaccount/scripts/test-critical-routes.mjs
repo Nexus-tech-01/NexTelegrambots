@@ -92,6 +92,7 @@ for(const name of ['tourl','crop','resize','analyzesound','vv']){
   requireCommand(name,{category:'MEDIA'});
 }
 
+const storeSource=fs.readFileSync(path.join(ROOT,'store.mjs'),'utf8');
 const runtime=fs.readFileSync(path.join(ROOT,'runtime.mjs'),'utf8');
 const compat=fs.readFileSync(path.join(ROOT,'compat.mjs'),'utf8');
 const inline=fs.readFileSync(path.join(ROOT,'inline-bot.mjs'),'utf8');
@@ -116,6 +117,9 @@ for(const marker of [
   if(!runtime.includes(marker))errors.push('runtime-marker:'+marker);
 }
 if(!compat.includes("name==='menuemoji'"))errors.push('menuemoji-session-handler-missing');
+if(!storeSource.includes('export async function listConnectedAccounts'))errors.push('live-session-store-query-missing');
+if(!storeSource.includes("find({expiresAt:{$gt:now}}"))errors.push('live-session-store-must-require-unexpired-runtime-lease');
+if(!storeSource.includes("sessionRepairRequired:{$ne:true}"))errors.push('live-session-store-must-exclude-repair-required-sessions');
 if(compat.includes('250 Stars/mois')||compat.includes('NexAi Premium ·'))errors.push('unimplemented-nexai-stars-subscription-advertised');
 for(const name of ['waifuhd','cosplayvip','amvhd','openingvip']){
   const cmd=commands.get(name);
@@ -191,11 +195,12 @@ if(!runtime.includes('userIsGroupAdmin(client,message.peerId,sender)'))errors.pu
 if(!inline.includes("bot.command('start'"))errors.push('/start-handler-missing');
 if(!inline.includes("bot.command('menu'"))errors.push('/menu-handler-missing');
 if(!inline.includes("bot.command('help'"))errors.push('/help-handler-missing');
-if(!runtime.includes('activeSessions:runtimeStatus'))errors.push('sessions-live-runtime-provider-missing');
 if(compat.includes('listAccounts()'))errors.push('sessions-must-not-read-registered-account-list');
+if(!compat.includes('listConnectedAccounts()'))errors.push('sessions-live-store-provider-missing');
 if(!compat.includes('sessionsText(live'))errors.push('sessions-live-view-handler-missing');
 if(!inline.includes("bot.command('sessions'"))errors.push('/sessions-handler-missing');
-if(!inline.includes('sessionsText(runtimeStatus()'))errors.push('/sessions-must-use-live-runtime-status');
+if(!inline.includes('listConnectedAccounts()'))errors.push('/sessions-must-use-live-session-source');
+if(inline.includes("from './runtime.mjs'"))errors.push('/sessions-must-not-couple-inline-bot-to-runtime');
 
 for(const visible of [...commands.values()].filter(c=>!c.hidden)){
   const route=String(visible.handler||visible.aliasFor||visible.name);

@@ -3,7 +3,7 @@ import { Bot, InputFile } from 'grammy';
 import { cfg, isOwnerId } from './config.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { commandMap } from './commands.mjs';
-import { accountRecord, settingsFor, patchSettings, saveSharedBotIdentity, nexAiPremiumState, grantNexAiPremium, acquireServiceLease, renewServiceLease, releaseServiceLease } from './store.mjs';
+import { accountRecord, listConnectedAccounts, settingsFor, patchSettings, saveSharedBotIdentity, nexAiPremiumState, grantNexAiPremium, acquireServiceLease, renewServiceLease, releaseServiceLease } from './store.mjs';
 import { menuModel, stylesModel } from './menu.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { getInlineResponse } from './inline-response-store.mjs';
@@ -11,7 +11,6 @@ import { observeUser, recordEvent } from './analytics.mjs';
 import { ownerPanelText, usersText, countriesText, languagesText, userText, botStatsText, activityText, growthText, commandStatsText } from './owner.mjs';
 import { listStyles, toSmallCaps } from './styles.mjs';
 import { animatedCustomEmojiEntitySpecs, animatedCustomEmojiEntitySpecsFromLibrary, ensureEmojiLibraryPalette, sanitizeAnimatedEmojiText } from './response-ui.mjs';
-import { runtimeStatus } from './runtime.mjs';
 import { sessionsText } from './session-view.mjs';
 
 const commands=commandMap();
@@ -762,7 +761,8 @@ export async function startInlineBot(){
       return sendPairLink(ctx,lang);
     }
     const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
-    return ctx.reply(sessionsText(runtimeStatus(),{
+    const live=await listConnectedAccounts();
+    return ctx.reply(sessionsText(live,{
       viewerTelegramUserId:ctx.from.id,
       owner,
       language:lang

@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { Api } from 'teleproto';
 import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { cfg, isOwnerId } from './config.mjs';
-import { customEmojiLibraryStats, patchSettings, settingsFor } from './store.mjs';
+import { customEmojiLibraryStats, listConnectedAccounts, patchSettings, settingsFor } from './store.mjs';
 import { sessionsText } from './session-view.mjs';
 import { toSmallCaps } from './styles.mjs';
 import { AUDIO_LAB_COMMANDS, handleAudioLabCommand } from './audio-lab.mjs';
@@ -460,7 +460,7 @@ async function doModeration(client,peer,message,name,args){
   return '';
 }
 
-export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,sendInline,activeSessions=()=>[]}){
+export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,sendInline}){
   const progressFor=async label=>{
     try{return await createProgress(runtime.client,event.message.peerId,label)}catch{return null}
   };
@@ -876,7 +876,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     await sendText(client,peer,'Auto-react : '+(enabled?'ON':'OFF'));return true;
   }
   if(name==='sessions'){
-    const live=typeof activeSessions==='function'?await activeSessions():[];
+    const live=await listConnectedAccounts();
     const settings=await settingsFor(account.telegramUserId);
     await sendText(client,peer,sessionsText(live,{
       viewerTelegramUserId:account.telegramUserId,
