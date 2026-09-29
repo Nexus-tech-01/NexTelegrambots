@@ -39,6 +39,9 @@ const MAX_SELECTED_SOURCES=Math.min(25,Math.max(3,Number(process.env.NEXANIME_MA
 const MEDIA_POLICY_DEFAULT=String(process.env.NEXANIME_MEDIA_POLICY||'authorized_only').toLowerCase();
 let MEDIA_POLICY_CACHE={value:MEDIA_POLICY_DEFAULT,expires:0};
 const TMP_ROOT=process.env.NEXANIME_TMP_DIR||path.join(os.tmpdir(),'nexanime');
+const WHATSAPP_BRIDGE=String(process.env.NEXANIME_WHATSAPP_BRIDGE||'http://127.0.0.1:18787/publish').trim();
+const WHATSAPP_STAGE_ROOT=String(process.env.NEXANIME_WHATSAPP_STAGE_DIR||'/var/lib/nex/tmp/shared-whatsapp/nexanime').trim();
+const WHATSAPP_STAGE_TTL_MS=Math.max(6*60*60_000,Number(process.env.NEXANIME_WHATSAPP_STAGE_TTL_MS||24*60*60_000));
 const TMP_RETENTION_MS=Math.max(60*60*1000,Number(process.env.NEXANIME_TMP_RETENTION_MS||24*60*60*1000));
 const TMP_CLEANUP_MS=Math.max(60*1000,Number(process.env.NEXANIME_TMP_CLEANUP_MS||15*60*1000));
 const SOURCE_CACHE=new Map();
@@ -737,6 +740,89 @@ async function retainedMediaFile(client,message,target){
 }
 async function removeTmpFile(file){
   if(file)await fs.rm(file,{force:true}).catch(()=>{});
+}
+
+function whatsappCaption(caption=''){
+  const buttons=[];
+  const seen=new Set();
+  const add=(text,url)=>{
+    const u=String(url||'').trim();
+    if(!/^https?:\/\//i.test(u)||seen.has(u))return;
+    seen.add(u);buttons.push({text:String(text||'Ouvrir').replace(/<[^>]+>/g,' ').trim().slice(0,64)||'Ouvrir',url:u});
+  };
+  let plain=String(caption||'').replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,(m,url,label)=>{add(label,url);return String(label).replace(/<[^>]+>/g,' ')+'\n'+url;});
+  plain=plain.replace(/<br\s*\/?>/gi,'\n').replace(/<[^>]+>/g,' ');
+  plain=plain.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
+  plain=plain.replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
+  return {text:plain,buttons:buttons.slice(0,12)};
+}
+async function cleanupWhatsAppStage(){
+  await fs.mkdir(WHATSAPP_STAGE_ROOT,{recursive:true});
+  const cutoff=Date.now()-WHATSAPP_STAGE_TTL_MS;
+  for(const name of await fs.readdir(WHATSAPP_STAGE_ROOT).catch(()=>[])){
+    const file=path.join(WHATSAPP_STAGE_ROOT,name);
+    try{const st=await fs.stat(file);if(st.isFile()&&st.mtimeMs<cutoff)await fs.rm(file,{force:true});}catch{}
+  }
+}
+async function stageAnimeForWhatsApp(runtime,item,resolved){
+  const message=resolved?.message;
+  if(item?.synthetic===true&&item?.imageUrl){
+    return [{type:'photo',url:String(item.imageUrl),fileName:'anime-presentation.jpg',mimetype:'image/jpeg',position:0}];
+  }
+  if(!message?.media)return [];
+  await cleanupWhatsAppStage().catch(()=>{});
+  const original=item?.cleanedFilename||item?.originalFilename||filename(message)||('anime-'+String(item?._id||Date.now()));
+  const type=message?.photo?'photo':item?.mediaKind==='video'?'video':item?.mediaKind==='document'?'document':mediaKind(message);
+  let ext=path.extname(original);
+  if(!ext)ext=type==='photo'?'.jpg':type==='video'?'.mp4':'.bin';
+  const key=crypto.createHash('sha256').update(String(item?.dedupeKey||item?._id||Date.now())).digest('hex').slice(0,24);
+  const safeBase=String(original).replace(/[^A-Za-z0-9._ -]+/g,'_').slice(-120).replace(/\.[^.]+$/,'')||'anime';
+  const target=path.join(WHATSAPP_STAGE_ROOT,key+'-'+safeBase+ext);
+  const file=await retainedMediaFile(runtime.client,message,target);
+  await fs.chmod(file,0o640).catch(()=>{});
+  const mimetype=message?.photo?'image/jpeg':String(message?.document?.mimeType||'application/octet-stream');
+  return [{type,localPath:file,fileName:path.basename(file),mimetype,position:0}];
+}
+async function mirrorPublishedAnimeToWhatsApp(runtime,item,resolved,sent){
+  const sourceMessageId=Number(sent?.messageId||sent?.id||0);
+  if(!sourceMessageId)return {skipped:true,reason:'missing_destination_message_id'};
+  const caption=await publicationCaption(item);
+  const formatted=whatsappCaption(caption);
+  let mediaItems=[];
+  try{mediaItems=await stageAnimeForWhatsApp(runtime,item,resolved);}
+  catch(error){
+    console.warn('[NexAnime/WhatsApp] media stage failed',String(item?.dedupeKey||''),String(error?.message||error).slice(0,260));
+    if(item?.kind==='episode')return {queued:false,error:String(error?.message||error)};
+  }
+  const payload={
+    id:'nexanime:'+String(item?.dedupeKey||sourceMessageId),
+    source:DESTINATION.toLowerCase(),
+    sourceMessageId,
+    text:formatted.text,
+    mediaItems,
+    buttons:formatted.buttons,
+    createdAt:new Date().toISOString()
+  };
+  let lastError=null;
+  for(let attempt=1;attempt<=3;attempt++){
+    try{
+      const response=await fetch(WHATSAPP_BRIDGE,{
+        method:'POST',
+        headers:{'content-type':'application/json'},
+        body:JSON.stringify(payload),
+        signal:AbortSignal.timeout(30_000)
+      });
+      const out=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(String(out?.error||('WhatsApp bridge HTTP '+response.status)));
+      console.log('[NexAnime/WhatsApp] queued',String(item?.dedupeKey||''),'message #'+sourceMessageId,out?.duplicate?'duplicate':'ok');
+      return {queued:true,...out};
+    }catch(error){
+      lastError=error;
+      if(attempt<3)await sleep(1500*attempt);
+    }
+  }
+  console.warn('[NexAnime/WhatsApp] enqueue failed',String(item?.dedupeKey||''),String(lastError?.message||lastError).slice(0,260));
+  return {queued:false,error:String(lastError?.message||lastError)};
 }
 
 async function currentMediaPolicy(){
@@ -2623,6 +2709,7 @@ async function publishOne(runtime){
     }
     const sent=await publishViaNexCanal(runtime,item,resolved);
     await markPublication(item,sent,runtime);
+    await mirrorPublishedAnimeToWhatsApp(runtime,item,resolved,sent).catch(error=>console.warn('[NexAnime/WhatsApp]',String(error?.message||error).slice(0,300)));
     runtime.animeIngest.lastPublishedAt=new Date();
     runtime.animeIngest.published=(runtime.animeIngest.published||0)+1;
     console.log('[NexAnime] published',item.dedupeKey,'-> @'+DESTINATION);
