@@ -28,7 +28,7 @@ const WEBHOOK_TOKEN = process.env.NEX_WHATSAPP_PUBLISHER_TOKEN || process.env.NE
 const DASHBOARD_PASSWORD = process.env.NEX_WHATSAPP_DASHBOARD_PASSWORD || '';
 const SESSION_SECRET = process.env.NEX_WHATSAPP_SESSION_SECRET || '';
 const TELEGRAM_BOT_TOKEN = process.env.NEXCANAL__BOT_TOKEN || '';
-const SOURCES = new Set(['thenexusorigin', 'thenexnews', 'tresor_universe', 'theotaku_nexus']);
+const SOURCES = new Set(['thenexusorigin', 'thenexnews', 'tresor_universe']);
 const BLOCKED_DOC_EXT = new Set(['apk','xapk','apks','apkm']);
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -149,7 +149,7 @@ function groupActionButtons(pub){
 function inviteCode(url=''){ const m=String(url).match(/whatsapp\.com\/channel\/([A-Za-z0-9_-]+)/i); return m?.[1] || String(url).trim(); }
 function ext(name=''){ return path.extname(String(name).split('?')[0].toLowerCase()).replace('.',''); }
 function documentBlocked(item){ const e=ext(item?.fileName||''); const mime=String(item?.mimetype||'').toLowerCase(); return BLOCKED_DOC_EXT.has(e)||mime==='application/vnd.android.package-archive'; }
-function isOtakuSource(source=''){ const s=sourceName(source); return s==='tresor_universe'||s==='theotaku_nexus'; }
+function isOtakuSource(source=''){ const s=sourceName(source); return s==='tresor_universe'; }
 
 async function telegramFileUrl(fileId){
   if(!fileId) return null;
