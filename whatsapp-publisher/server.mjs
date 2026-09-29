@@ -9,6 +9,7 @@ import makeWASocket, {
   Browsers,
   DisconnectReason,
   generateWAMessageFromContent,
+  generateMessageIDV2,
   proto,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
@@ -656,9 +657,11 @@ async function sendPublication(jid,destination,pub){
     // as “channel update unsupported”. Keep channel updates strictly to
     // standard text/media payloads and flatten Telegram buttons into links.
     if(!isGroup){
-      await socket.sendMessage(
+      const messageId=generateMessageIDV2(socket.user?.id);
+      await socket.relayMessage(
         jid,
-        {text:channelText||'Publication Nextech'}
+        {conversation:channelText||'Publication Nextech'},
+        {messageId}
       );
       return;
     }
