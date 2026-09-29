@@ -76,6 +76,7 @@ assert.deepEqual(
 
 const inlineSource=fs.readFileSync(path.join(ROOT,'inline-bot.mjs'),'utf8');
 const runtimeSource=fs.readFileSync(path.join(ROOT,'runtime.mjs'),'utf8');
+const daemonSource=fs.readFileSync(path.join(ROOT,'daemon.mjs'),'utf8');
 const secretsSource=fs.readFileSync(path.join(ROOT,'secrets.mjs'),'utf8');
 const pairingSource=fs.readFileSync(path.join(ROOT,'pairing.mjs'),'utf8');
 const menuSource=fs.readFileSync(path.join(ROOT,'menu.mjs'),'utf8');
@@ -104,6 +105,11 @@ assert.match(runtimeSource,/import \{ menuModel, stylesModel \} from '\.\/menu\.
 assert.match(runtimeSource,/\[NexAccount styles\].*inline:failed/s,'style selector must log inline failures');
 assert.match(runtimeSource,/stylesModel\(\{account,settings\}\)/,'style selector must fall back to a direct styles model');
 assert.match(runtimeSource,/runtimeBotUsername\(\)/,'runtime must resolve the inline bot identity on every worker');
+assert.match(runtimeSource,/export function runtimeConnectionFor\(/,'runtime must expose a connected restored account for NexAI bot recovery');
+assert.match(daemonSource,/async function recoverInlineBotAfterRestore\(\)/,'startup must recover a missing NexAI bot token after restoring accounts');
+assert.match(daemonSource,/runtimeConnectionFor\(cfg\.creatorUsername\)\|\|runtimeConnectionFor\(''\)/,'token recovery must prefer the configured owner runtime');
+assert.match(daemonSource,/made\.recovered\?'recovered'/,'a recovered BotFather token must start the inline bot, not only a newly created bot');
+assert.match(daemonSource,/if\(cfg\.coordinator&&!PAIRING_ONLY&&!hadBotToken\)[\s\S]*recoverInlineBotAfterRestore\(\)/,'startup must retry inline bot setup after restored sessions are available');
 assert.match(runtimeSource,/runtimeBotUsername\(\{refresh:true\}\)/,'inline transport must refresh a stale bot username before degrading');
 assert.match(runtimeSource,/sharedBotIdentity\(\)/,'runtime workers must be able to recover the NexAI bot identity from shared storage');
 assert.match(inlineSource,/saveSharedBotIdentity/,'the coordinator must persist the verified NexAI bot identity for other workers');
