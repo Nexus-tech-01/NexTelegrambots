@@ -271,6 +271,16 @@ function samePublication(a,b){
 function mediaUpgrade(existing,pub){
   return Boolean(pub?.media?.length)&&!Boolean(existing?.pub?.media?.length);
 }
+function mergeQueueWithLatest(snapshot){
+  const latest=readJson('queue.json',[]);
+  const ids=new Set(snapshot.map(x=>String(x?.id||'')));
+  for(const item of latest){
+    const id=String(item?.id||'');
+    if(id&&!ids.has(id)){snapshot.push(item);ids.add(id);}
+  }
+  return snapshot;
+}
+
 function enqueue(destination,jid,pub){
   const q=readJson('queue.json',[]);
   const matches=q.filter(x=>
@@ -710,6 +720,7 @@ async function processQueue(){
         job.nextAttemptAt=Date.now()+delay;
         if(job.attempts>=50){ job.status='failed'; addHistory({type:'failed',publicationId:job.pub.id,destination:job.destination,error:job.lastError}); }
       }
+      mergeQueueWithLatest(q);
       writeJson('queue.json',q);
     }
   }finally{processing=false;}
