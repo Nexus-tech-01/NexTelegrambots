@@ -8,17 +8,31 @@ function discoverRuntimePort(){
   if(Number.isInteger(explicit)&&explicit>0&&explicit<65536)return explicit;
   try{
     const numeric=x=>x&&[...x].every(ch=>ch>='0'&&ch<='9');
+    const zero=String.fromCharCode(0);
+    const candidates=[];
     for(const pid of fs.readdirSync('/proc').filter(numeric)){
       try{
-        const zero=String.fromCharCode(0);
-        const cmd=fs.readFileSync('/proc/'+pid+'/cmdline').toString().split(zero).join(' ');
-        if(!cmd.includes('/nexai/current/daemon.mjs')&&!cmd.includes('/nexaccount/daemon.mjs'))continue;
+        const argv=fs.readFileSync('/proc/'+pid+'/cmdline').toString().split(zero).filter(Boolean);
+        const entry=String(argv[1]||'');
+        const isPublicNexAi=entry==='/opt/nex/apps/public/nexai/current/daemon.mjs'
+          ||entry.includes('/opt/nex/apps/public/nexai/releases/');
+        const isNexAccount=entry.endsWith('/nexaccount/daemon.mjs');
+        if(!isPublicNexAi&&!isNexAccount)continue;
         const env=fs.readFileSync('/proc/'+pid+'/environ').toString().split(zero);
         const row=env.find(x=>x.startsWith('NEXACCOUNT_PORT='));
         const found=Number(row?.slice('NEXACCOUNT_PORT='.length)||0);
-        if(Number.isInteger(found)&&found>0&&found<65536)return found;
+        if(!Number.isInteger(found)||found<=0||found>=65536)continue;
+        let score=isPublicNexAi?100:10;
+        try{
+          const cgroup=fs.readFileSync('/proc/'+pid+'/cgroup','utf8');
+          if(cgroup.includes('nex-nexaccount.service'))score+=50;
+          if(cgroup.includes('nexcontrol-agent.service'))score-=25;
+        }catch{}
+        candidates.push({port:found,score,pid:Number(pid)});
       }catch{}
     }
+    candidates.sort((a,b)=>b.score-a.score||b.pid-a.pid);
+    if(candidates.length)return candidates[0].port;
   }catch{}
   return 3491+workerIndex;
 }
