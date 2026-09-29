@@ -102,6 +102,24 @@ function normalizeEvent(raw){
 }
 function eventDone(e){return e.routes.every(r=>['succeeded','skipped','dead_letter'].includes(r.status));}
 function eventStatus(e){if(!eventDone(e))return e.routes.some(r=>r.status==='running')?'running':'queued';if(e.routes.every(r=>['succeeded','skipped'].includes(r.status)))return 'succeeded';return 'partial_failure';}
+{
+  let recovered=0;
+  for(const e of state.events){
+    for(const r of (Array.isArray(e.routes)?e.routes:[])){
+      if(r.status!=='running')continue;
+      r.status='pending';
+      r.nextAttemptAt=0;
+      r.lastError='stale_routes_recovered_after_restart';
+      r.completedAt=null;
+      recovered++;
+    }
+    e.status=eventStatus(e);
+  }
+  if(recovered){
+    console.warn('[interroute] recovered stale running routes',recovered);
+    await persist();
+  }
+}
 async function tg(method,payload,timeout=30000){
   if(!TG_BASE)throw new Error('telegram_publisher_unconfigured');
   const r=await fetch(TG_BASE+'/'+method,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(timeout)});
@@ -182,11 +200,15 @@ async function publishWhatsApp(e){
   const out=await res.json().catch(()=>({}));if(!res.ok)throw new Error(out.error||('whatsapp_http_'+res.status));return out;
 }
 function facebookAdapt(e){
-  const c=e.content,apkLike=c.media.some(m=>m.type==='document'||m.type==='file'||/\.(?:apk|xapk|apks|zip|rar|7z)$/i.test(m.fileName));
-  if(apkLike)return {skip:true,reason:'facebook_incompatible_document'};
-  const links=c.buttons.map(b=>b.text+': '+b.url),message=[c.text,...links].filter(Boolean).join('\n\n').slice(0,63206);
-  const image=c.media.find(m=>m.type==='photo'||m.type==='image'||String(m.mimetype||'').toLowerCase().startsWith('image/')||/\.(?:jpe?g|png|webp|gif|bmp)$/i.test(m.fileName||''));
-  const link=image?(c.buttons.map(b=>b.url).find(Boolean)||''):(c.media.map(m=>m.url).find(Boolean)||c.buttons.map(b=>b.url).find(Boolean)||'');
+  const c=e.content;
+  const compatible=c.media.filter(m=>!(
+    m.type==='document'||m.type==='file'||/\.(?:apk|xapk|apks|apkm|zip|rar|7z)$/i.test(m.fileName||'')
+  ));
+  const links=c.buttons.map(b=>b.text+': '+b.url);
+  const message=[c.text,...links].filter(Boolean).join('\n\n').slice(0,63206);
+  const image=compatible.find(m=>m.type==='photo'||m.type==='image'||String(m.mimetype||'').toLowerCase().startsWith('image/')||/\.(?:jpe?g|png|webp|gif|bmp)$/i.test(m.fileName||''));
+  const link=c.buttons.map(b=>b.url).find(Boolean)||compatible.map(m=>m.url).find(Boolean)||'';
+  if(!message&&!image&&!link)return {skip:true,reason:'facebook_no_compatible_content'};
   return {skip:false,message,link,image:image||null};
 }
 async function publishFacebook(e,r){
