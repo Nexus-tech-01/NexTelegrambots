@@ -1043,6 +1043,25 @@ async function sendConfiguredReaction(runtime,peer,messageId,settings,target='')
   return {ok:false,target,messageId:Number(messageId),error,policy:policy.mode,allowed:policy.emoticons||[]};
 }
 
+function isWildcardAutoReactTarget(value){
+  const v=String(value||'').trim().toLowerCase();
+  return v==='*'||v==='all'||v==='all_channels'||v==='toutes_les_chaines';
+}
+
+function safeAutoReactTargets(rawTargets){
+  const explicit=(Array.isArray(rawTargets)?rawTargets:[])
+    .filter(x=>!isWildcardAutoReactTarget(x))
+    .map(normalizeAutomationTarget)
+    .filter(Boolean);
+  if(explicit.length)return [...new Set(explicit)];
+  return [...new Set(
+    (Array.isArray(cfg.autoReactTargets)?cfg.autoReactTargets:[])
+      .filter(x=>!isWildcardAutoReactTarget(x))
+      .map(normalizeAutomationTarget)
+      .filter(Boolean)
+  )];
+}
+
 async function maybeAutoReact(runtime,event){
   const {client,account}=runtime;
   const message=event?.message;
@@ -1051,31 +1070,38 @@ async function maybeAutoReact(runtime,event){
   if(autoFeaturesMuted(settings,event))return null;
   const cfgReact=settings.autoReact||{};
   if(cfgReact.enabled!==true)return null;
-  const targets=Array.isArray(cfgReact.targets)?cfgReact.targets:[];
+
+  const storedTargets=Array.isArray(cfgReact.targets)?cfgReact.targets:[];
+  const targets=safeAutoReactTargets(storedTargets);
   if(!targets.length)return null;
+
+  // Legacy settings used "*" to mean every joined broadcast channel. That is
+  // intentionally no longer supported: auto-react is restricted to the
+  // configured owner allowlist. Migrate old rows opportunistically.
+  if(storedTargets.some(isWildcardAutoReactTarget)){
+    patchSettings(account.telegramUserId,{
+      autoReact:{...cfgReact,targets}
+    }).catch(error=>console.warn(
+      '[NexAccount auto-react]',
+      String(account.telegramUserId),
+      'target_migration_failed',
+      String(error?.message||error).slice(0,220)
+    ));
+  }
+
   const chatId=String(event.chatId||message.chatId||message.peerId?.channelId||'');
   let chat=event.chat||null;
   if(!chat){try{chat=await client.getEntity(message.peerId)}catch{}}
   const username=normalizeAutomationTarget(chat?.username||'');
-  const wildcard=targets.some(x=>{
-    const v=String(x||'').trim().toLowerCase();
-    return v==='*'||v==='all'||v==='all_channels'||v==='toutes_les_chaines';
-  });
-  const isBroadcastChannel=Boolean(
-    chat?.broadcast===true ||
-    (message.peerId?.channelId && chat?.megagroup!==true && event?.isGroup!==true)
-  );
-  const matchedTarget=targets.find(x=>{
-    const v=normalizeAutomationTarget(x);
-    return Boolean(v)&&(v===chatId||v===username);
-  });
-  if(!matchedTarget&&!(wildcard&&isBroadcastChannel))return null;
+  const matchedTarget=targets.find(x=>x===chatId||x===username);
+  if(!matchedTarget)return null;
+
   return sendConfiguredReaction(
     runtime,
     message.peerId,
     message.id,
     settings,
-    matchedTarget?(normalizeAutomationTarget(matchedTarget)||chatId):(username||chatId||'channel')
+    matchedTarget||username||chatId||'channel'
   );
 }
 
