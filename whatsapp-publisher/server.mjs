@@ -316,7 +316,9 @@ function dedupeSeen(pub){
   // is intentionally allowed through so the missing media can be delivered.
   if(pub?.media?.length&&same.length)return false;
   const h=readJson('history.json',[]);
-  return h.some(x=>x.type==='planned'&&(x.publicationId===pub.id||sameSourceMessage(x,pub)));
+  // A planned history entry is not proof that a durable queue item survived.
+  // Only a confirmed publication may suppress a replay when the queue no longer has it.
+  return h.some(x=>x.type==='published'&&(x.publicationId===pub.id||sameSourceMessage(x,pub)));
 }
 
 async function resolveNewsletter({inviteUrl,cacheFile,jidKey,titleKey}){
