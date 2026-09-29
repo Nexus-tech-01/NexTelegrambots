@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const interrouteUrl=String(process.env.NEX_INTERROUTE_URL||'http://127.0.0.1:18130').replace(/\/$/,'');
 const stageDir=String(process.env.NEXTECH_WHATSAPP_BOTAPI_STAGE_DIR||'/var/lib/nex/tmp/internal-automation/telegram-channel-mirror');
-const MIRRORED_SOURCES=new Set(['thenexusorigin','thenexnews','theotaku_nexus','tresor_universe']);
+const MIRRORED_SOURCES=new Set(['thenexusorigin','thenexnews','tresor_universe']);
 
 function buttons(msg){
   const out=[],seen=new Set();
