@@ -693,6 +693,17 @@ async function processQueue(){
         await sendPublication(job.jid,job.destination,job.pub);
         job.status='done'; job.completedAt=new Date().toISOString(); state.lastPublishAt=job.completedAt;
         addHistory({type:'published',publicationId:job.pub.id,source:job.pub.source,destination:job.destination,attempts:job.attempts});
+        // Otaku/Dark media staged by NexAnime has a single WhatsApp destination.
+        // Delete it only after the newsletter send succeeds; failed jobs retain
+        // the file for retries.
+        if(isOtakuSource(job.pub?.source)){
+          for(const media of job.pub?.media||[]){
+            const local=String(media?.localPath||'');
+            if(local&&path.resolve(local).startsWith('/var/lib/nex/tmp/shared-whatsapp/')){
+              try{fs.rmSync(local,{force:true});}catch{}
+            }
+          }
+        }
       }catch(e){
         job.lastError=String(e?.message||e);
         const delay=Math.min(300000,5000*(2**Math.min(6,job.attempts-1)));
