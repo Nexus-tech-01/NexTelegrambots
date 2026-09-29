@@ -118,6 +118,8 @@ jobs:
               files.append((p,rel))
 
           backups=[]
+          production_previous=None
+          production_release=None
           try:
               # NexTech APK watcher is embedded into the already connected
               # @tresor20009 NexAccount runtime. Copy the canonical modules to
@@ -159,14 +161,21 @@ jobs:
                   })
                   if not ck.get('ok'):
                       raise RuntimeError('embedded watcher node-check failed '+embedded+': '+str(ck))
-              boot=job('runtime.exec',{
+              promote=job('runtime.exec',{
                   'root':'nexus',
                   'command':'node',
-                  'args':['bots/nexaccount/bootstrap.mjs','--restart','--production'],
-                  'timeoutMs':60000
-              },timeout=90)
-              if boot.get('ok') is False:
-                  raise RuntimeError('bootstrap failed: '+str(boot)[-4000:])
+                  'args':['bots/nexaccount/scripts/promote-systemd-release.mjs','--promote',os.environ.get('GITHUB_SHA','manual')],
+                  'timeoutMs':120000
+              },timeout=150)
+              if promote.get('ok') is False:
+                  raise RuntimeError('canonical systemd promotion failed: '+str(promote)[-4000:])
+              promote_text=promote.get('stdout','').strip()
+              promote_json=json.loads(promote_text or '{}')
+              if promote_json.get('ok') is not True:
+                  raise RuntimeError('canonical systemd promotion returned unhealthy result: '+str(promote_json))
+              production_previous=promote_json.get('previousRelease')
+              production_release=promote_json.get('currentRelease')
+              print('NEXACCOUNT_CANONICAL_RELEASE',production_release)
               health=job('runtime.exec',{
                   'root':'nexus',
                   'command':'node',
@@ -263,35 +272,27 @@ jobs:
               print('AUTOMATIONS_OK @tresor20001 anime publisher + @tresor20009 anime/APK scanner')
               print('DEPLOYMENT_OK NexAccount')
           except Exception:
+              if production_previous:
+                  try:
+                      rollback=job('runtime.exec',{
+                          'root':'nexus',
+                          'command':'node',
+                          'args':['bots/nexaccount/scripts/promote-systemd-release.mjs','--rollback',production_previous],
+                          'timeoutMs':120000
+                      },timeout=150)
+                      if rollback.get('ok') is False:
+                          raise RuntimeError('canonical rollback command failed: '+str(rollback)[-4000:])
+                      rollback_json=json.loads((rollback.get('stdout') or '{}').strip() or '{}')
+                      if rollback_json.get('ok') is not True:
+                          raise RuntimeError('canonical rollback returned unhealthy result: '+str(rollback_json))
+                      print('PRODUCTION_ROLLBACK_OK',production_previous)
+                  except Exception as e:
+                      print('PRODUCTION_ROLLBACK_FAILED',production_previous,e)
               for rel,bid,created in reversed(backups):
                   try:
                       if bid: job('fs.rollback',{'backupId':bid})
                       elif created: job('fs.delete',{'root':'nexus','path':'bots/nexaccount/'+rel,'allowDir':False})
                   except Exception as e:
                       print('rollback warning',rel,e)
-              try:
-                  keep_running=False
-                  try:
-                      old_health=job('runtime.exec',{
-                          'root':'nexus',
-                          'command':'node',
-                          'args':['bots/nexaccount/cli.mjs','health'],
-                          'timeoutMs':15000
-                      },timeout=30)
-                      old_health_json=json.loads((old_health.get('stdout') or '{}').strip() or '{}')
-                      keep_running=old_health_json.get('ok') is True
-                  except Exception:
-                      keep_running=False
-                  if keep_running:
-                      print('ROLLBACK_KEPT_HEALTHY_RUNTIME NexAnime was never stopped')
-                  else:
-                      job('runtime.exec',{
-                          'root':'nexus',
-                          'command':'node',
-                          'args':['bots/nexaccount/bootstrap.mjs','--restart','--production'],
-                          'timeoutMs':60000
-                      },timeout=90)
-              except Exception as e:
-                  print('rollback restart warning',e)
               raise
           PY
