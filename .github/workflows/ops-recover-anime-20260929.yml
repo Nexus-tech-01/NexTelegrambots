@@ -1,4 +1,4 @@
-name: Ops Recover Anime Publishing 2026-09-29 # trace
+name: Ops Recover Anime Publishing 2026-09-29
 
 on:
   pull_request:
@@ -7,7 +7,7 @@ on:
       - '.github/workflows/ops-recover-anime-20260929.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ops-recover-anime-20260929
@@ -16,188 +16,26 @@ concurrency:
 jobs:
   recover:
     runs-on: ubuntu-latest
-    timeout-minutes: 18
-    env:
-      NXC_BASE: https://nexcontrol-ochre.vercel.app
-      NXC_AGENT: nexus-main
-      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
-      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    timeout-minutes: 8
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Recover NexAnime without disturbing unrelated automations
+      - name: Run one-shot anime recovery bridge
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p ops-results
-          python3 - <<'PY'
-          import os,json,time,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib,base64
-          from datetime import datetime, timezone
-          from pathlib import Path
-
-          BASE=os.environ['NXC_BASE'].rstrip('/')
-          AGENT=os.environ['NXC_AGENT']
-          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
-          SECRET=os.environ.get('NXC_SESSION_SECRET','')
-          OUT=Path('ops-results/anime-recovery-20260929.json')
-
-          jar=http.cookiejar.CookieJar()
-          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-          cookie=''
-          if SECRET:
-              exp=int(time.time()*1000)+30*60*1000
-              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
-              sig=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
-              cookie=payload+'.'+sig
-          elif ADMIN:
-              data=urllib.parse.urlencode({'password':ADMIN}).encode()
-              op.open(urllib.request.Request(BASE+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=45).read()
-          else:
-              raise RuntimeError('No NexControl credential in Actions secrets')
-
-          def http(method,path,data=None,timeout=60):
-              headers={'Accept':'application/json'}
-              if cookie: headers['Cookie']='nexcontrol_session='+cookie
-              body=None
-              if data is not None:
-                  body=json.dumps(data,separators=(',',':')).encode()
-                  headers['Content-Type']='application/json'
-              req=urllib.request.Request(BASE+path,data=body,headers=headers,method=method)
-              try:
-                  with op.open(req,timeout=timeout) as r:
-                      raw=r.read().decode('utf-8','replace')
-                      return json.loads(raw) if raw else {}
-              except urllib.error.HTTPError as e:
-                  msg=e.read().decode('utf-8','replace')[:1800]
-                  raise RuntimeError(f'HTTP {e.code} {path}: {msg}')
-
-          def job(kind,payload,timeout=180):
-              j=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload})
-              jid=j.get('jobId')
-              if not jid:
-                  raise RuntimeError(f'No jobId for {kind}: {j}')
-              end=time.time()+timeout
-              while time.time()<end:
-                  x=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid),timeout=45)
-                  st=x.get('status')
-                  if st=='succeeded': return x.get('result') or {}
-                  if st=='failed': raise RuntimeError(f'{kind} failed: {x.get("error")}')
-                  time.sleep(1)
-              raise TimeoutError(f'{kind} timeout: {jid}')
-
-          def runtime_json(args,timeout_ms=30000):
-              r=job('runtime.exec',{
-                  'root':'nexus',
-                  'command':'node',
-                  'args':['bots/nexaccount/cli.mjs',*args],
-                  'timeoutMs':timeout_ms
-              },timeout=max(60,timeout_ms//1000+35))
-              if r.get('ok') is False:
-                  raise RuntimeError('runtime exec failed: '+str(r)[-1800:])
-              raw=(r.get('stdout') or '').strip()
-              return json.loads(raw or '{}')
-
-          def safe_runtime(args,timeout_ms=30000):
-              try:
-                  return {'ok':True,'data':runtime_json(args,timeout_ms)}
-              except Exception as e:
-                  return {'ok':False,'error':str(e)[:1800]}
-
-          def publisher_active(accounts):
-              if not accounts.get('ok'): return False
-              rows=(accounts.get('data') or {}).get('runtimes') or []
-              for row in rows:
-                  if row.get('connected') is True and str(row.get('username') or '').lower().lstrip('@')=='tresor20001':
-                      anime=row.get('anime') or {}
-                      return anime.get('listener') is True and anime.get('publisher') is True
-              return False
-
-          report={
-              'startedAt':datetime.now(timezone.utc).isoformat(),
-              'target':'@theotaku_nexus',
-              'rules':{'sameAnimeMaxSeconds':60,'differentAnimeMinutes':15},
-              'steps':{}
-          }
-
-          pre_health=safe_runtime(['health'])
-          pre_accounts=safe_runtime(['accounts'])
-          pre_anime=safe_runtime(['anime-status'])
-          report['steps']['preHealth']=pre_health
-          report['steps']['preAccounts']=pre_accounts
-          report['steps']['preAnime']=pre_anime
-
-          restarted=False
-          if (not pre_health.get('ok')) or (not publisher_active(pre_accounts)):
-              boot=job('runtime.exec',{
-                  'root':'nexus',
-                  'command':'node',
-                  'args':['bots/nexaccount/bootstrap.mjs','--restart','--production'],
-                  'timeoutMs':60000
-              },timeout=100)
-              report['steps']['conditionalRestart']={'ok':boot.get('ok') is not False,'result':boot}
-              restarted=True
-              time.sleep(8)
-
-          # Repair only known scheduler/queue inconsistencies. This does not purge publications.
-          audit_code=(
-              "import('./bots/nexaccount/anime-ingest.mjs')"
-              ".then(async m=>{const r=await m.animeSupervisorAudit({repair:true,source:'ops-recover-anime-20260929'});"
-              "process.stdout.write(JSON.stringify(r));})"
-              ".catch(e=>{console.error(String(e?.stack||e));process.exit(1)})"
-          )
-          try:
-              audit=job('runtime.exec',{
-                  'root':'nexus','command':'node',
-                  'args':['--input-type=module','-e',audit_code],
-                  'timeoutMs':90000
-              },timeout=125)
-              audit_raw=(audit.get('stdout') or '').strip()
-              report['steps']['supervisorRepair']={'ok':audit.get('ok') is not False,'data':json.loads(audit_raw or '{}')}
-          except Exception as e:
-              report['steps']['supervisorRepair']={'ok':False,'error':str(e)[:1800]}
-
-          # Refresh both authorized listener accounts; discovery is asynchronous.
-          report['steps']['discoverPrimary']=safe_runtime(['anime-discover','@tresor20001'],90000)
-          report['steps']['discoverScanner']=safe_runtime(['anime-discover','@tresor20009'],90000)
-          time.sleep(10)
-
-          publish1=safe_runtime(['anime-publish-now','@tresor20001'],180000)
-          report['steps']['publishNow1']=publish1
-
-          # If the first forced pass did not publish, retry one cadence later after another
-          # scheduler audit. This stays within the product rule for the same series.
-          did_publish=bool(publish1.get('ok') and (publish1.get('data') or {}).get('published') is True)
-          if not did_publish:
-              time.sleep(32)
-              try:
-                  audit2=job('runtime.exec',{
-                      'root':'nexus','command':'node',
-                      'args':['--input-type=module','-e',audit_code],
-                      'timeoutMs':90000
-                  },timeout=125)
-                  raw=(audit2.get('stdout') or '').strip()
-                  report['steps']['supervisorRepair2']={'ok':audit2.get('ok') is not False,'data':json.loads(raw or '{}')}
-              except Exception as e:
-                  report['steps']['supervisorRepair2']={'ok':False,'error':str(e)[:1800]}
-              publish2=safe_runtime(['anime-publish-now','@tresor20001'],180000)
-              report['steps']['publishNow2']=publish2
-              did_publish=bool(publish2.get('ok') and (publish2.get('data') or {}).get('published') is True)
-
-          after_accounts=safe_runtime(['accounts'])
-          after_anime=safe_runtime(['anime-status'])
-          report['steps']['afterAccounts']=after_accounts
-          report['steps']['afterAnime']=after_anime
-          report['restartedNexAccount']=restarted
-          report['publicationTriggered']=did_publish
-          report['publisherActiveAfter']=publisher_active(after_accounts)
-          report['finishedAt']=datetime.now(timezone.utc).isoformat()
-
-          # A healthy result requires an active primary publisher and a healthy global anime status.
-          status_ok=bool(after_anime.get('ok') and (after_anime.get('data') or {}).get('ok') is True and (after_anime.get('data') or {}).get('enabled') is True)
-          report['ok']=bool(report['publisherActiveAfter'] and status_ok)
-          OUT.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
-          print(json.dumps({'ok':report['ok'],'publicationTriggered':did_publish,'publisherActiveAfter':report['publisherActiveAfter']},separators=(',',':')))
+          body="$(curl --fail-with-body --silent --show-error --max-time 420 'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once')"
+          echo "$body"
+          python3 - "$body" <<'PY'
+          import json,sys
+          d=json.loads(sys.argv[1])
+          if d.get("ok") is not True:
+              raise SystemExit("anime recovery failed: "+str(d))
+          if d.get("publisherActive") is not True:
+              raise SystemExit("anime publisher not active after recovery")
+          if d.get("statusHealthy") is not True:
+              raise SystemExit("anime status unhealthy after recovery")
+          print("NEXANIME_RECOVERY_OK", json.dumps({
+              "publicationTriggered":d.get("publicationTriggered"),
+              "lastPublishedAt":d.get("lastPublishedAt"),
+              "destination":d.get("destination")
+          },separators=(",",":")))
           PY
-
