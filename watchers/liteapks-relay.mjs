@@ -527,7 +527,7 @@ async function mirrorNextechChannelMessage(c,m){
     idempotencyKey:'nextech-channel:'+String(id)+':v1',
     source:{platform:'telegram',name:'thenexusorigin',messageId:String(id),accountRole:'system-channel-mirror'},
     content:{text,media,buttons},
-    routes:[{platform:'whatsapp'}]
+    routes:[{platform:'facebook',pageId:nexusTechFacebookPageId},{platform:'whatsapp'}]
   });
   return Boolean(out);
 }
