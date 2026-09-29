@@ -1,0 +1,39 @@
+name: Ops WhatsApp Publisher Diagnostic Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-whatsapp-publisher-diagnostic-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Live VPS console
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== CONSOLE ==='
+          curl --fail-with-body --silent --show-error --max-time 20             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"
+
+      - name: WhatsApp service files
+        shell: bash
+        run: |
+          set -euo pipefail
+          for root in /services /data /bots /scripts /config; do
+            echo
+            echo "=== FILES $root ==="
+            curl --fail-with-body --silent --show-error --max-time 25               "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=""))' "$root")"               | python3 -c 'import json,sys; d=json.load(sys.stdin); keep={"ok":d.get("ok"),"root":d.get("root"),"named":d.get("named"),"top":d.get("top"),"truncated":d.get("truncated")}; print(json.dumps(keep,ensure_ascii=False))'
+          done
+
+      - name: Runtime resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== PTERO DIAG ==='
+          curl --fail-with-body --silent --show-error --max-time 25             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-diag"             | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({"ok":d.get("ok"),"state":d.get("state"),"resources":d.get("resources"),"interesting":d.get("interesting",[])[-80:]},ensure_ascii=False))'
