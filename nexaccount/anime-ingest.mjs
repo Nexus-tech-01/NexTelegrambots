@@ -1538,6 +1538,15 @@ function isTransientPublishError(error){
   return code==='SOURCE_UNAVAILABLE'||message==='source_message_unavailable_for_runtime';
 }
 
+function shouldParkTransientEpisode(item,error,attempts){
+  return Boolean(
+    isTransientPublishError(error)&&
+    item?.kind==='episode'&&
+    String(item?.seriesKey||'')&&
+    Number(attempts)>=3
+  );
+}
+
 async function releaseClaim(item,error){
   const d=await db(),now=new Date();
   const attempts=Number(item.attempts||0)+1;
@@ -1559,6 +1568,36 @@ async function releaseClaim(item,error){
   // alternate sources can be attached and retried safely.
   if(attempts>=5&&!mediaPolicy&&!identityMismatch&&!transient){
     await d.collection('nexanime_queue').updateOne({_id:item._id},{$set:{status:'quarantine',quarantineReason:'publish_failures',updatedAt:now}});
+  }
+
+  // Repeatedly unreachable Telegram media must not let one anime monopolize the feed.
+  // Keep the episode queued so discovery can heal its sources, but park this series
+  // temporarily and allow another runnable series to take the publisher.
+  if(shouldParkTransientEpisode(item,error,attempts)){
+    const cooldownUntil=await interSeriesDeadline(d,item.seriesKey,now);
+    await d.collection('nexanime_config').updateOne(
+      {_id:'scheduler',activeSeriesKey:item.seriesKey},
+      {
+        $set:{
+          blockedSeriesKey:item.seriesKey,
+          blockedSeriesUntil:new Date(now.getTime()+GAP_RETRY_MS),
+          blockedSeriesReason:'source_unavailable_after_retries',
+          cooldownUntil,
+          gapDetected:{
+            seriesKey:item.seriesKey,
+            season:Number(item.season??1),
+            expectedEpisode:item.episode==null?null:Number(item.episode),
+            blockedEpisode:item.episode==null?null:Number(item.episode),
+            detectedAt:now
+          },
+          updatedAt:now
+        },
+        $unset:{
+          activeSeriesKey:'',activeSeriesStartedAt:'',
+          plannedSeriesKey:'',plannedAt:'',plannedSummary:''
+        }
+      }
+    );
   }
 }
 
@@ -2557,7 +2596,8 @@ async function purgePublishedEpisodeImageCards(runtime){
 async function publishOne(runtime){
   if(!isPublisherRuntime(runtime)||runtime.animeIngest?.publishing)return false;
   runtime.animeIngest ??={};
-  if(await anyDiscoveryInProgress())return false;
+  // Queue writes from discovery are idempotent and claimNext already enforces
+  // synopsis + strict episode order. Long discovery scans must not pause publishing.
   const locked=await acquireGlobalPublishLock(runtime);
   if(!locked)return false;
   runtime.animeIngest.publishing=true;
@@ -2688,7 +2728,7 @@ export const __test={
   cleanSeriesTitle,sourceTitleCandidate,deriveRawAnchors,commonPrefixTitle,verifyAnimeTitle,
   standardizedCaption,quotedCaption,titleFromMessage,titleEvidenceFromMessage,titlesClearlyConflict,
   episodeEvidenceFromMessage,meaningfulTitleSimilarity,bestAnchor,episodeVariantScore,episodeIdentityCompatible,
-  isTransientPublishError,inferredSeasonAlias,
+  isTransientPublishError,inferredSeasonAlias,shouldParkTransientEpisode,
   interSeriesDeadlineFrom,
   timing:{publishMs:PUBLISH_MS,interSeriesMs:INTER_SERIES_MS}
 };
