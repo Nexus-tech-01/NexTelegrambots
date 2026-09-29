@@ -211,3 +211,17 @@ jobs:
           print(json.dumps({'ok':report['ok'],'publicationTriggered':did_publish,'publisherActiveAfter':report['publisherActiveAfter']},separators=(',',':')))
           PY
 
+
+      - name: Persist recovery evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Nexus Ops"
+          git config user.email "nexus-ops@users.noreply.github.com"
+          git add ops-results/anime-recovery-20260929.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "ops: record anime recovery result 2026-09-29"
+          git pull --rebase origin main
+          git push origin HEAD:main
