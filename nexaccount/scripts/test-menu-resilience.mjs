@@ -107,6 +107,11 @@ assert.match(runtimeSource,/runtimeBotUsername\(\)/,'runtime must resolve the in
 assert.match(runtimeSource,/runtimeBotUsername\(\{refresh:true\}\)/,'inline transport must refresh a stale bot username before degrading');
 assert.match(runtimeSource,/sharedBotIdentity\(\)/,'runtime workers must be able to recover the NexAI bot identity from shared storage');
 assert.match(inlineSource,/saveSharedBotIdentity/,'the coordinator must persist the verified NexAI bot identity for other workers');
+assert.match(inlineSource,/function schedulePollerSupervisor\(/,'inline polling must have a recovery supervisor');
+assert.match(inlineSource,/pollerSupervisorStopping/,'intentional shutdown must be distinguished from an unexpected poller stop');
+assert.match(inlineSource,/polling stopped unexpectedly · scheduling recovery/,'an unexpected long-poll stop must schedule automatic recovery');
+assert.match(inlineSource,/standby · another NexAccount worker owns/,'standby workers must recognize the distributed poller lease');
+assert.match(inlineSource,/schedulePollerSupervisor\(pollerRestartDelay\(\)\)/,'standby or failed pollers must retry takeover after the lease changes');
 assert.match(secretsSource,/api\.telegram\.org\/bot.*\/getMe/,'bot username resolver must verify identity through Telegram getMe');
 assert.match(pairingSource,/Command: menu/,'new accounts must be instructed to use bare menu');
 assert.match(pairingSource,/Commande : menu/,'French pairing instructions must use bare menu');
