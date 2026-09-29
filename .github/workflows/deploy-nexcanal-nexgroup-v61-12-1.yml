@@ -109,7 +109,7 @@ jobs:
               # lifestyle posts to the Otaku Nexus newsletter (channel only).
               wa_src=Path('whatsapp-publisher/server.mjs')
               wa_text=wa_src.read_text(encoding='utf-8')
-              for required in ("'tresor_universe'","publication lifestyle -> chaîne Otaku Nexus",'Nex WhatsApp Publisher bridge ready'):
+              for required in ("'tresor_universe'","'theotaku_nexus'","publication Otaku/Dark Universe -> chaîne Otaku Nexus",'Nex WhatsApp Publisher bridge ready'):
                   if required not in wa_text:
                       raise RuntimeError('WhatsApp publisher missing '+required)
 
@@ -159,6 +159,39 @@ jobs:
               if not wh.get('ok'):
                   raise RuntimeError('WhatsApp bridge health failed after restart: '+str(wh))
               print('WHATSAPP_BRIDGE_OK',wh.get('status'),flush=True)
+
+              # Direct Telegram channel_post -> WhatsApp bridge.
+              # Avoid a second MTProto reader/session: NexCanal already receives
+              # channel_post updates through the Bot API.
+              hook_src=Path('nexcanal/nextech-whatsapp-channel-post.mjs')
+              if not hook_src.exists():
+                  raise RuntimeError('missing nexcanal/nextech-whatsapp-channel-post.mjs')
+              hook_text=hook_src.read_text(encoding='utf-8')
+              for required in ('thenexusorigin','thenexnews','theotaku_nexus','tresor_universe','mirrorNextechChannelPostToWhatsApp'):
+                  if required not in hook_text:
+                      raise RuntimeError('WhatsApp channel_post helper missing '+required)
+              wr_hook=job('fs.write',{'root':'nexcanal','path':'dist/src/telegram/nextech-whatsapp-channel-post.js','content':hook_text})
+              backups.append(('nexcanal','dist/src/telegram/nextech-whatsapp-channel-post.js',wr_hook.get('backupId'),wr_hook.get('created',False)))
+              ck=job('check.run',{'check':'node-check','root':'nexcanal','file':'dist/src/telegram/nextech-whatsapp-channel-post.js','timeoutMs':60000})
+              if not ck.get('ok'):
+                  raise RuntimeError('node-check failed channel_post helper: '+str(ck))
+
+              main=job('fs.read',{'root':'nexcanal','path':'dist/src/main.js','startLine':1,'endLine':900}).get('content','')
+              import_line="import { mirrorNextechChannelPostToWhatsApp } from './telegram/nextech-whatsapp-channel-post.js';"
+              import_anchor="import { TelegramBotApi, TelegramApiError } from './telegram/api.js';"
+              hook_line="    if (update?.channel_post) await mirrorNextechChannelPostToWhatsApp(api, update).catch((error) => console.warn('[Telegram/WhatsApp] channel_post mirror failed', error instanceof Error ? error.message : String(error)));"
+              processor_anchor="    const update = u;"
+              if import_line not in main:
+                  if import_anchor not in main: raise RuntimeError('NexCanal main import anchor missing')
+                  main=main.replace(import_anchor,import_anchor+'\\n'+import_line,1)
+              if hook_line not in main:
+                  if processor_anchor not in main: raise RuntimeError('NexCanal processor anchor missing')
+                  main=main.replace(processor_anchor,processor_anchor+'\\n'+hook_line,1)
+              wr_main=job('fs.write',{'root':'nexcanal','path':'dist/src/main.js','content':main})
+              backups.append(('nexcanal','dist/src/main.js',wr_main.get('backupId'),wr_main.get('created',False)))
+              ck=job('check.run',{'check':'node-check','root':'nexcanal','file':'dist/src/main.js','timeoutMs':60000})
+              if not ck.get('ok'):
+                  raise RuntimeError('node-check failed NexCanal main WhatsApp hook: '+str(ck))
 
               # Canonical APK watcher. @tresor20009 only scans; NexCanal bot publishes.
               watcher_src=Path('nexcanal/liteapks-relay.mjs')
