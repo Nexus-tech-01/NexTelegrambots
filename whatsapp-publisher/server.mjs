@@ -10,6 +10,7 @@ import makeWASocket, {
   DisconnectReason,
   generateWAMessageFromContent,
   generateMessageIDV2,
+  encodeNewsletterMessage,
   proto,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
@@ -640,6 +641,23 @@ async function sendOneMedia(jid,item,caption,contextInfo){
   return socket.sendMessage(jid,{document:source,mimetype:meta.mimetype,fileName:meta.fileName||'fichier',caption,...ctx});
 }
 
+function promiseWithTimeout(promise,ms,label='operation'){
+  let timer;
+  const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(label+' timeout after '+ms+'ms')),ms);});
+  return Promise.race([Promise.resolve(promise).finally(()=>clearTimeout(timer)),timeout]);
+}
+async function sendNewsletterTextDirect(jid,text){
+  const messageId=generateMessageIDV2(socket.user?.id);
+  const message={conversation:String(text||'Publication Nextech')};
+  const bytes=encodeNewsletterMessage(message);
+  await socket.sendNode({
+    tag:'message',
+    attrs:{to:jid,id:messageId,type:'text'},
+    content:[{tag:'plaintext',attrs:{},content:bytes}]
+  });
+  return messageId;
+}
+
 async function sendPublication(jid,destination,pub){
   if(!socket||state.status!=='connected') throw new Error('WhatsApp non connecté');
 
@@ -657,12 +675,7 @@ async function sendPublication(jid,destination,pub){
     // as “channel update unsupported”. Keep channel updates strictly to
     // standard text/media payloads and flatten Telegram buttons into links.
     if(!isGroup){
-      const messageId=generateMessageIDV2(socket.user?.id);
-      await socket.relayMessage(
-        jid,
-        {conversation:channelText||'Publication Nextech'},
-        {messageId}
-      );
+      await sendNewsletterTextDirect(jid,channelText||'Publication Nextech');
       return;
     }
 
@@ -735,14 +748,17 @@ async function processQueue(){
       if(job.status!=='pending'||Number(job.nextAttemptAt||0)>Date.now()) continue;
       try{
         job.attempts=Number(job.attempts||0)+1;
+        job.inFlightAt=new Date().toISOString();
+        mergeQueueWithLatest(q);
+        writeJson('queue.json',q);
         if(job.destination==='channel'&&(!job.jid||job.jid==='__CHANNEL__'||job.jid==='__OTAKU_CHANNEL__')){
           const lifestyle=isOtakuSource(job.pub?.source)||job.jid==='__OTAKU_CHANNEL__';
-          const resolved=lifestyle?await resolveOtakuChannel():await resolveChannel();
+          const resolved=lifestyle?await promiseWithTimeout(resolveOtakuChannel(),10000,'resolve Otaku channel'):await promiseWithTimeout(resolveChannel(),10000,'resolve NexTech channel');
           if(!resolved) throw new Error(lifestyle?'Chaîne WhatsApp Otaku non résolue':'Chaîne WhatsApp non résolue');
           job.jid=resolved;
         }
-        await sendPublication(job.jid,job.destination,job.pub);
-        job.status='done'; job.completedAt=new Date().toISOString(); state.lastPublishAt=job.completedAt;
+        await promiseWithTimeout(sendPublication(job.jid,job.destination,job.pub),25000,'WhatsApp publication');
+        job.status='done'; job.completedAt=new Date().toISOString(); delete job.inFlightAt; state.lastPublishAt=job.completedAt;
         addHistory({type:'published',publicationId:job.pub.id,source:job.pub.source,destination:job.destination,attempts:job.attempts});
         // Otaku/Dark media staged by NexAnime has a single WhatsApp destination.
         // Delete it only after the newsletter send succeeds; failed jobs retain
@@ -756,7 +772,7 @@ async function processQueue(){
           }
         }
       }catch(e){
-        job.lastError=String(e?.message||e);
+        job.lastError=String(e?.message||e); delete job.inFlightAt;
         const delay=Math.min(300000,5000*(2**Math.min(6,job.attempts-1)));
         job.nextAttemptAt=Date.now()+delay;
         if(job.attempts>=50){ job.status='failed'; addHistory({type:'failed',publicationId:job.pub.id,destination:job.destination,error:job.lastError}); }
