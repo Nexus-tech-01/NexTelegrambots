@@ -7,10 +7,12 @@ const CHANNEL=String(process.env.NEXTECH_TELEGRAM_CHANNEL||'thenexusorigin').tri
 const TOKEN=String(process.env.NEXCANAL__BOT_TOKEN||process.env.NEXCANAL_BOT_TOKEN||'').trim();
 const API_ID=Number(process.env.NEXCANAL__WATCHER_API_ID||process.env.NEXGROUP__TELEGRAM_API_ID||0);
 const API_HASH=String(process.env.NEXCANAL__WATCHER_API_HASH||process.env.NEXGROUP__TELEGRAM_API_HASH||'').trim();
+const USER_SESSION=String(process.env.NEXCANAL__WATCHER_SESSION||process.env.NEXGROUP__TELEGRAM_MTPROTO_SESSION||'').trim();
 const INTERROUTE=String(process.env.NEX_INTERROUTE_URL||'http://127.0.0.1:18130').replace(/\/$/,'');
-const STATE_FILE=String(process.env.NEXTECH_WHATSAPP_MIRROR_STATE_FILE||'/var/lib/nex/data/internal/nextech-whatsapp-mirror-state.json');
+const STATE_FILE=String(process.env.NEXTECH_WHATSAPP_MIRROR_STATE_FILE||'/var/lib/nex/state/nexcanal/nextech-whatsapp-mirror-state.json');
 const TMP_DIR=String(process.env.NEXTECH_WHATSAPP_MIRROR_TMP||'/var/lib/nex/tmp/internal-automation/nextech-channel-mirror');
-const POLL_MS=Math.max(1500,Number(process.env.NEXTECH_WHATSAPP_MIRROR_POLL_MS||3000));
+const POLL_MS=Math.max(5000,Number(process.env.NEXTECH_WHATSAPP_MIRROR_POLL_MS||15000));
+const BACKFILL_MS=Math.max(60*60*1000,Number(process.env.NEXTECH_WHATSAPP_MIRROR_BACKFILL_MS||24*60*60*1000));
 const TMP_RETENTION_MS=Math.max(60*60*1000,Number(process.env.NEXTECH_WHATSAPP_MIRROR_RETENTION_MS||24*60*60*1000));
 const CLEANUP_MS=Math.max(60*1000,Number(process.env.NEXTECH_WHATSAPP_MIRROR_CLEANUP_MS||15*60*1000));
 
@@ -181,22 +183,27 @@ async function cleanup(){
   }
 }
 async function run(){
-  if(!TOKEN||!API_ID||!API_HASH)throw new Error('missing Telegram bot/API credentials');
-  const client=new TelegramClient(new StringSession(''),API_ID,API_HASH,{connectionRetries:10,autoReconnect:true,floodSleepThreshold:60});
+  if(!USER_SESSION||!API_ID||!API_HASH)throw new Error('missing Telegram user MTProto watcher credentials');
+  const client=new TelegramClient(new StringSession(USER_SESSION),API_ID,API_HASH,{connectionRetries:10,autoReconnect:true,floodSleepThreshold:60});
   try{
-    await client.start({botAuthToken:TOKEN});
+    await client.connect();
     const me=await client.getMe();
-    if(me?.bot!==true)throw new Error('Nextech mirror identity is not a bot');
+    if(me?.bot===true)throw new Error('Nextech mirror watcher must use a Telegram user session');
     const entity=await client.getEntity('@'+CHANNEL);
     const state=await loadState();
     log('connected as',me?.username?'@'+me.username:String(me?.id||'bot'),'watching @'+CHANNEL,'cursor='+state.cursor);
     if(!state.cursor){
-      const latest=await client.getMessages(entity,{limit:1});
-      const newest=Number(latest?.[0]?.id||0);
-      if(newest){
-        state.cursor=Math.max(0,newest-1);
+      const bootstrap=await client.getMessages(entity,{limit:100});
+      const cutoff=Date.now()-BACKFILL_MS;
+      const recent=(bootstrap||[]).filter(m=>{
+        const t=m?.date instanceof Date?m.date.getTime():Number(m?.date||0)*1000;
+        return Number(m?.id||0)>0 && (!t||t>=cutoff);
+      });
+      const ids=recent.map(m=>Number(m.id)).filter(Boolean);
+      if(ids.length){
+        state.cursor=Math.max(0,Math.min(...ids)-1);
         await saveState(state);
-        log('bootstrap will verify latest Nextech post','#'+newest);
+        log('bootstrap backfill',ids.length,'Nextech post(s)','from #'+Math.min(...ids),'to #'+Math.max(...ids));
       }
     }
     let nextCleanupAt=Date.now()+CLEANUP_MS;
