@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { cfg, assertCoreConfig } from './config.mjs';
 import { beginPairing, beginQrPairing, cancelPairing, cleanupPairings, pairingStatus, qrPairingStatus, setPairingConnectedHandler, submitPairingCode, submitPairingPassword } from './pairing.mjs';
-import { animeRuntimeDedupe, animeRuntimeDiscover, animeRuntimePublishNow, animeRuntimeRebuild, attachConnectedClient, engineStatus, loadSavedRuntimes, reconcileRuntimes, runtimeAutomationProbe, runtimeCommandTest, runtimeGroupSmoke, runtimeMenuProbe, runtimeStatus, stopRuntimes } from './runtime.mjs';
+import { animeRuntimeDedupe, animeRuntimeDiscover, animeRuntimePublishNow, animeRuntimeRebuild, attachConnectedClient, engineStatus, loadSavedRuntimes, reconcileRuntimes, runtimeAutomationProbe, runtimeCommandTest, runtimeConnectionFor, runtimeGroupSmoke, runtimeMenuProbe, runtimeStatus, stopRuntimes } from './runtime.mjs';
 import { listAccounts, patchSettings, closeStore } from './store.mjs';
 import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
 import { loadBotToken } from './secrets.mjs';
@@ -42,9 +42,12 @@ async function onPaired(client,account){
   if(!(await loadBotToken())){
     try{
       const made=await ensureNexAiBot(client,account);
-      if(made.created){
-        console.log('[NexAccount] NexAI created @'+made.username);
+      if(await loadBotToken()){
+        const action=made.created?'created':made.recovered?'recovered':'restored';
+        console.log('[NexAccount] NexAI '+action+' @'+String(made.username||cfg.botUsername||''));
         await startInlineBot();
+      }else if(made?.reason){
+        console.warn('[NexAccount BotFactory] token unavailable after pairing · '+made.reason);
       }
     }catch(e){
       console.error('[NexAccount BotFactory]',String(e?.message||e));
@@ -56,6 +59,32 @@ async function onPaired(client,account){
 }
 
 setPairingConnectedHandler(onPaired);
+
+async function recoverInlineBotAfterRestore(){
+  if(!cfg.coordinator||PAIRING_ONLY)return null;
+  if(await loadBotToken())return startInlineBot();
+
+  const ownerRuntime=runtimeConnectionFor(cfg.creatorUsername)||runtimeConnectionFor('');
+  if(!ownerRuntime){
+    console.warn('[NexAccount BotFactory] no connected owner runtime available to recover NexAI token');
+    return null;
+  }
+
+  try{
+    const made=await ensureNexAiBot(ownerRuntime.client,ownerRuntime.account);
+    const token=await loadBotToken();
+    if(!token){
+      console.error('[NexAccount BotFactory] NexAI token recovery failed · '+String(made?.reason||'token_missing'));
+      return null;
+    }
+    const action=made.created?'created':made.recovered?'recovered':'restored';
+    console.log('[NexAccount] NexAI '+action+' after runtime restore @'+String(made.username||cfg.botUsername||''));
+    return startInlineBot();
+  }catch(error){
+    console.error('[NexAccount BotFactory recovery]',String(error?.message||error));
+    return null;
+  }
+}
 
 async function runStartupSmoke(){
   const mode=String(process.env.NEXACCOUNT_STARTUP_SMOKE||'').trim().toLowerCase();
@@ -230,10 +259,22 @@ async function route(req,res){
 const server=http.createServer((req,res)=>route(req,res));
 server.listen(cfg.port,cfg.host,async()=>{
   console.log('[NexAccount] local control http://'+cfg.host+':'+cfg.port+(PAIRING_ONLY?' · pairing-only':''));
-  if(cfg.coordinator&&!PAIRING_ONLY)await startInlineBot().catch(e=>console.error('[NexAI bot]',e));
+
+  const hadBotToken=cfg.coordinator&&!PAIRING_ONLY
+    ?Boolean(await loadBotToken())
+    :false;
+  if(hadBotToken){
+    await startInlineBot().catch(e=>console.error('[NexAI bot]',e));
+  }
+
   const loaded=PAIRING_ONLY
     ?[]
     :await loadSavedRuntimes().catch(e=>{console.error('[NexAccount restore]',e);return[]});
+
+  if(cfg.coordinator&&!PAIRING_ONLY&&!hadBotToken){
+    await recoverInlineBotAfterRestore();
+  }
+
   if(cfg.coordinator&&!PAIRING_ONLY)await startSecondaryAnimeReader().catch(e=>console.error('[NexAnime secondary]',e));
   console.log('[NexAccount] worker '+cfg.workerIndex+'/'+cfg.workerCount+(cfg.coordinator?' · coordinator':'')+(PAIRING_ONLY?' · pairing-only':'')+' restored '+loaded.length+' account(s), capacity '+cfg.maxRuntimesPerWorker);
   if(!PAIRING_ONLY)await runStartupSmoke().catch(error=>console.error('[NexAccount startup-smoke]',String(error?.message||error)));
