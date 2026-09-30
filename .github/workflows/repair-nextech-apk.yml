@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/repair-nextech-apk.yml'
-  pull_request:
+  pull_request_target:
     branches: [main]
     types: [opened, synchronize, reopened]
     paths:
@@ -20,6 +20,7 @@ concurrency:
 
 jobs:
   repair:
+    if: github.event_name == 'push' || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/apk-redeploy-trigger-20260930')
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
@@ -29,6 +30,9 @@ jobs:
       NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
       - name: Deploy only the NexTech APK watcher
         shell: bash
         run: |
