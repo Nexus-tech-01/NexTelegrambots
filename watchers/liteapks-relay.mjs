@@ -703,10 +703,12 @@ async function recoverMissedApks(c,destinationEntity,st,sources){
         Math.max(opTimeoutMs,60000),
         key+' APK recovery scan'
       );
+      const ss=ensureSourceState(st,key);
       for(const m of [...(recent||[])].sort((a,b)=>Number(a.id)-Number(b.id))){
         const id=Number(m?.id||0);
         const dateMs=Number(m?.date||0)*1000;
         if(!id||!isApk(m)||(dateMs&&dateMs<cutoff))continue;
+        if((ss.publishedIds||[]).some(x=>Number(x)===id))continue;
         const fp=apkFingerprint(m);
         if(fp&&published.has(fp))continue;
         const qk=queueKey(key,id);
@@ -736,9 +738,17 @@ async function recoverMissedApks(c,destinationEntity,st,sources){
 }
 
 function ensureSourceState(st,key){
-  st.sources[key]=st.sources[key]||{cursor:0,descriptors:[]};
+  st.sources[key]=st.sources[key]||{cursor:0,descriptors:[],publishedIds:[]};
   st.sources[key].descriptors=Array.isArray(st.sources[key].descriptors)?st.sources[key].descriptors:[];
+  st.sources[key].publishedIds=Array.isArray(st.sources[key].publishedIds)?st.sources[key].publishedIds:[];
   return st.sources[key];
+}
+function markSourcePublished(ss,id){
+  const n=Number(id||0);
+  if(!n)return;
+  ss.publishedIds=(ss.publishedIds||[]).filter(x=>Number(x)!==n);
+  ss.publishedIds.push(n);
+  ss.publishedIds=ss.publishedIds.slice(-500);
 }
 function queueKey(sourceKey,id){return sourceKey+':'+id;}
 function isQueued(st,sourceKey,id){const k=queueKey(sourceKey,id);return st.queue.some(x=>x.key===k);}
@@ -948,6 +958,7 @@ async function processItem(c,publisher,destination,st,sources,item){
     }
 
     const sent=await postApk(c,publisher,destination,m,source.kind,!!linked,item);
+    markSourcePublished(ss,Number(m.id));
     await mirrorApk(m,source.kind,sent,!!linked);
     if(linked)linked.used=true;
     pruneDescriptors(ss);
