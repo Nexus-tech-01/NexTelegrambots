@@ -1581,18 +1581,28 @@ async function publishEpisode(runtime,item,resolved,destination){
 }
 async function markPublication(item,sent,runtime){
   const d=await db(),now=new Date();
+  const accountFallback=String(sent?.via||'')==='account-fallback';
   await d.collection('nexanime_publications').updateOne(
     {dedupeKey:item.dedupeKey},
     {$setOnInsert:{
       dedupeKey:item.dedupeKey,seriesKey:item.seriesKey,kind:item.kind,title:item.title,season:item.season,episode:item.episode,
       language:item.language||'',quality:item.quality||'',mode:item.mode||'',destination:'@'+DESTINATION,createdAt:now
     },$set:{
-      publishedAt:now,publisherRole:'nexcanal-bot',
-      publisherBotUsername:NEXCANAL_STAGE_BOT,
-      stagingAccountId:String(runtime.account.telegramUserId),
-      stagingAccountUsername:String(runtime.account.username||''),
+      publishedAt:now,
+      publisherRole:accountFallback?'account-fallback':'nexcanal-bot',
+      ...(accountFallback?{
+        publisherAccountId:String(runtime.account.telegramUserId),
+        publisherUsername:String(runtime.account.username||'')
+      }:{
+        publisherBotUsername:NEXCANAL_STAGE_BOT,
+        stagingAccountId:String(runtime.account.telegramUserId),
+        stagingAccountUsername:String(runtime.account.username||'')
+      }),
       telegramMessageId:Number(sent?.id||sent?.messageId||0)
-    },$unset:{purgedAt:'',purgedBy:'',purgeError:''}},
+    },$unset:{
+      purgedAt:'',purgedBy:'',purgeError:'',
+      ...(accountFallback?{publisherBotUsername:'',stagingAccountId:'',stagingAccountUsername:''}:{publisherAccountId:'',publisherUsername:''})
+    }},
     {upsert:true}
   );
   await d.collection('nexanime_queue').updateOne(
@@ -2450,6 +2460,10 @@ async function waitNexCanalHandoff(item){
   }
   throw new Error('nexcanal_handoff_timeout');
 }
+function isNexCanalCopyMissingError(error){
+  const message=String(error?.message||error||'').toLowerCase();
+  return message.includes('nexcanal_handoff_failed:')&&message.includes('message to copy not found');
+}
 async function prepareNexCanalCopyHandoff(runtime,item,{caption='',stageMarker=''}) {
   await ensureIndexes();
   const d=await db(),c=d.collection(NEXCANAL_HANDOFF_COLLECTION),now=new Date();
@@ -2506,6 +2520,16 @@ async function enqueueNexCanalHandoff(runtime,item,{type,sourceMessageId=0,capti
     );
   }
   return waitNexCanalHandoff(item);
+}
+async function publishDirectAnimeFallback(runtime,item,resolved){
+  const destination=await destinationEntity(runtime);
+  let sent;
+  if(item.synthetic===true)sent=await publishSyntheticPresentation(runtime,item,destination);
+  else if(item.kind==='presentation')sent=await publishPresentation(runtime,item,resolved,destination);
+  else sent=await publishEpisode(runtime,item,resolved,destination);
+  const messageId=Number(sent?.id||sent?.messageId||0);
+  if(!messageId)throw new Error('direct_anime_fallback_message_missing');
+  return {id:messageId,messageId,via:'account-fallback'};
 }
 async function publishViaNexCanal(runtime,item,resolved){
   const caption=await publicationCaption(item);
@@ -2777,7 +2801,14 @@ async function publishOne(runtime){
         throw error;
       }
     }
-    const sent=await publishViaNexCanal(runtime,item,resolved);
+    let sent;
+    try{
+      sent=await publishViaNexCanal(runtime,item,resolved);
+    }catch(error){
+      if(!isNexCanalCopyMissingError(error))throw error;
+      console.warn('[NexAnime] NexCanal copy unavailable; using anime-only direct fallback',item.dedupeKey);
+      sent=await publishDirectAnimeFallback(runtime,item,resolved);
+    }
     await markPublication(item,sent,runtime);
     await mirrorPublishedAnimeToWhatsApp(runtime,item,resolved,sent).catch(error=>console.warn('[NexAnime/WhatsApp]',String(error?.message||error).slice(0,300)));
     runtime.animeIngest.lastPublishedAt=new Date();
@@ -2886,7 +2917,7 @@ export const __test={
   standardizedCaption,quotedCaption,titleFromMessage,titleEvidenceFromMessage,titlesClearlyConflict,
   episodeEvidenceFromMessage,meaningfulTitleSimilarity,bestAnchor,episodeVariantScore,episodeIdentityCompatible,
   isTransientPublishError,inferredSeasonAlias,shouldParkTransientEpisode,episodeVariantRetryReady,
-  queuedPresentationNeedsRepair,interSeriesDeadlineFrom,
+  queuedPresentationNeedsRepair,isNexCanalCopyMissingError,interSeriesDeadlineFrom,
   timing:{publishMs:PUBLISH_MS,interSeriesMs:INTER_SERIES_MS,transientVariantRetryMs:TRANSIENT_VARIANT_RETRY_MS}
 };
 
