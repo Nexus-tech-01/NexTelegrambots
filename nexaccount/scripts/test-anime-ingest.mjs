@@ -9,8 +9,9 @@ const fileMessage=(name,caption='')=>({
   }
 });
 
-// A stale source may park a series before it starts, but must never interrupt
-// an anime after episode publication has begun.
+// A stale source may park a series quickly before it starts. Once publication
+// has begun, allow many more retries for alternate copies, but never let one
+// permanently dead frontier episode block the global publisher forever.
 {
   assert.equal(__test.shouldParkTransientEpisode(
     {kind:'episode',seriesKey:'witch hat atelier'},
@@ -27,14 +28,26 @@ const fileMessage=(name,caption='')=>({
   assert.equal(__test.shouldParkTransientEpisode(
     {kind:'episode',seriesKey:'witch hat atelier'},
     {code:'SOURCE_UNAVAILABLE',message:'source_message_unavailable_for_runtime'},
+    11,
+    true
+  ),false);
+  assert.equal(__test.shouldParkTransientEpisode(
+    {kind:'episode',seriesKey:'witch hat atelier'},
+    {code:'SOURCE_UNAVAILABLE',message:'source_message_unavailable_for_runtime'},
+    12,
+    true
+  ),true);
+  assert.equal(__test.shouldParkTransientEpisode(
+    {kind:'episode',seriesKey:'witch hat atelier'},
+    {code:'SOURCE_UNAVAILABLE',message:'source_message_unavailable_for_runtime'},
     2,
     false
   ),false);
   assert.equal(__test.shouldParkTransientEpisode(
     {kind:'presentation',seriesKey:'witch hat atelier'},
     {code:'SOURCE_UNAVAILABLE',message:'source_message_unavailable_for_runtime'},
-    5,
-    false
+    20,
+    true
   ),false);
 }
 
