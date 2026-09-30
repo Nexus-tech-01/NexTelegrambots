@@ -5,11 +5,6 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/repair-nextech-apk.yml'
-  pull_request_target:
-    branches: [main]
-    types: [opened, synchronize, reopened]
-    paths:
-      - '.ops/apk-redeploy-trigger'
 
 permissions:
   contents: read
@@ -20,7 +15,6 @@ concurrency:
 
 jobs:
   repair:
-    if: github.event_name == 'push' || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/apk-redeploy-trigger-20260930')
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
