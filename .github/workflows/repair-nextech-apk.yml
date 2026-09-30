@@ -1,0 +1,135 @@
+name: Repair NexTech APK pipeline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/repair-nextech-apk.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repair-nextech-apk
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      NXC_BASE: https://nexcontrol-ochre.vercel.app
+      NXC_AGENT: nexus-main
+      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
+      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy only the NexTech APK watcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,json,time,base64,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib,traceback
+          from pathlib import Path
+
+          BASE=os.environ['NXC_BASE'].rstrip('/')
+          AGENT=os.environ['NXC_AGENT']
+          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
+          SECRET=os.environ.get('NXC_SESSION_SECRET','')
+          jar=http.cookiejar.CookieJar()
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          cookie=''
+
+          if SECRET:
+              exp=int(time.time()*1000)+20*60*1000
+              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
+              sig=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
+              cookie=payload+'.'+sig
+          elif ADMIN:
+              data=urllib.parse.urlencode({'password':ADMIN}).encode()
+              op.open(urllib.request.Request(BASE+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=45).read()
+          else:
+              raise RuntimeError('No NexControl credential in Actions secrets')
+
+          def http(method,path,data=None):
+              headers={'Accept':'application/json'}
+              if cookie:
+                  headers['Cookie']='nexcontrol_session='+cookie
+              body=None
+              if data is not None:
+                  body=json.dumps(data,separators=(',',':')).encode()
+                  headers['Content-Type']='application/json'
+              req=urllib.request.Request(BASE+path,data=body,headers=headers,method=method)
+              try:
+                  with op.open(req,timeout=45) as r:
+                      raw=r.read().decode('utf-8','replace')
+                      return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  raise RuntimeError(f'HTTP {e.code} {path}: '+e.read().decode('utf-8','replace')[:1500])
+
+          def job(kind,payload):
+              created=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload})
+              jid=created.get('jobId')
+              if not jid:
+                  raise RuntimeError(f'No jobId for {kind}: {created}')
+              end=time.time()+180
+              while time.time()<end:
+                  state=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid))
+                  status=state.get('status')
+                  if status=='succeeded':
+                      return state.get('result') or {}
+                  if status=='failed':
+                      raise RuntimeError(f'{kind} failed: {state.get("error")}')
+                  time.sleep(2)
+              raise TimeoutError(f'{kind} timed out: {jid}')
+
+          src=Path('nexcanal/liteapks-relay.mjs')
+          text=src.read_text(encoding='utf-8')
+          required=(
+              'sourceResolveRetryMs',
+              'source unavailable at startup; isolated retry enabled',
+              'source still unavailable; other APK sources continue',
+              "key:'liteapks'",
+              "key:'imadeaux'",
+              'tresor20009',
+              'thenexusorigin'
+          )
+          missing=[x for x in required if x not in text]
+          if missing:
+              raise RuntimeError('Repository APK watcher missing protection markers: '+', '.join(missing))
+          if 'required source unavailable:' in text:
+              raise RuntimeError('Fatal cross-source coupling still present in repository watcher')
+
+          backup=None
+          try:
+              write=job('fs.write',{'root':'nexcanal','path':'liteapks-relay.mjs','content':text})
+              backup=write.get('backupId')
+              check=job('check.run',{'check':'node-check','root':'nexcanal','file':'liteapks-relay.mjs','timeoutMs':60000})
+              if not check.get('ok'):
+                  raise RuntimeError('node-check failed: '+str(check))
+
+              live=job('fs.read',{'root':'nexcanal','path':'liteapks-relay.mjs','startLine':1,'endLine':1300}).get('content','')
+              for marker in required[:3]:
+                  if marker not in live:
+                      raise RuntimeError('Live watcher missing '+marker)
+              if 'required source unavailable:' in live:
+                  raise RuntimeError('Live watcher still contains fatal cross-source coupling')
+
+              job('runtime.restart',{'target':'nexcanal','reason':'Targeted NexTech APK source isolation repair only'})
+              time.sleep(12)
+              logs=job('logs.tail',{'log':'launcher','bytes':180000}).get('content','')
+              signals=('scanner connected as @tresor20009','public publisher connected as @','watching')
+              absent=[x for x in signals if x not in logs]
+              if absent:
+                  raise RuntimeError('APK runtime verification missing: '+', '.join(absent))
+              print('APK_REPAIR_OK',flush=True)
+          except Exception:
+              traceback.print_exc()
+              if backup:
+                  try:
+                      job('fs.rollback',{'backupId':backup})
+                      job('runtime.restart',{'target':'nexcanal','reason':'Rollback failed targeted APK repair'})
+                  except Exception as rollback_error:
+                      print('ROLLBACK_WARNING',rollback_error,flush=True)
+              raise
+          PY
