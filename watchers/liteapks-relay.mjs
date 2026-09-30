@@ -783,12 +783,14 @@ async function queueMessage(c,source,st,item){
     .filter((id,index,array)=>id>0&&array.indexOf(id)===index)
     .slice(0,50);
   let rows;
+  let isolatedFetch=false;
   try{
     rows=await withTimeout(c.getMessages(source.entity,{ids}),Math.max(opTimeoutMs,60000),item.source+' queue batch fetch');
   }catch(error){
     if(!isTlDecodeError(error))throw error;
     warn('queue batch decode failed; isolating requested message',wantedKey,String(error?.message||error));
     try{
+      isolatedFetch=true;
       rows=await withTimeout(
         c.getMessages(source.entity,{ids:[Number(item.id)]}),
         Math.max(opTimeoutMs,60000),
@@ -809,7 +811,7 @@ async function queueMessage(c,source,st,item){
   }
   // Only mark misses from a successful multi-message fetch. An isolated fetch
   // must never poison unrelated queued IDs with null cache entries.
-  if(ids.length===Number(returned.size||0)||returned.size!==1){
+  if(!isolatedFetch){
     for(const id of ids)if(!returned.has(id))queueMessageCache.set(queueKey(item.source,id),null);
   }
   return queueMessageCache.get(wantedKey)||null;
