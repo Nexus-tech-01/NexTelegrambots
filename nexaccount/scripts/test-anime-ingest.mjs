@@ -38,6 +38,23 @@ const fileMessage=(name,caption='')=>({
   ),false);
 }
 
+// A dead source synopsis must be recycled into a synthetic synopsis instead of
+// blocking the active anime forever. Clean queued/synthetic synopses are untouched.
+{
+  assert.equal(__test.queuedPresentationNeedsRepair({
+    status:'queued',synthetic:false,attempts:1,lastError:'source_message_unavailable_for_runtime'
+  }),true);
+  assert.equal(__test.queuedPresentationNeedsRepair({
+    status:'queued',synthetic:false,attempts:0,retryAfter:new Date()
+  }),true);
+  assert.equal(__test.queuedPresentationNeedsRepair({
+    status:'queued',synthetic:true,attempts:0,lastError:''
+  }),false);
+  assert.equal(__test.queuedPresentationNeedsRepair({
+    status:'queued',synthetic:false,attempts:0,lastError:''
+  }),false);
+}
+
 // Scheduler contract: stale environment values must never regress the publishing cadence.
 {
   assert.equal(__test.timing.publishMs,30_000);

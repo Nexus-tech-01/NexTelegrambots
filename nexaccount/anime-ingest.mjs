@@ -1950,21 +1950,57 @@ async function claimExactItem(d,item,accountId,{allowAny=false}={}){
   );
 }
 
+function queuedPresentationNeedsRepair(item){
+  return Boolean(
+    item&&
+    item.status==='queued'&&
+    item.synthetic!==true&&
+    (
+      Number(item.attempts||0)>0||
+      Boolean(item.retryAfter)||
+      String(item.lastError||'').trim()
+    )
+  );
+}
 async function ensureGeneralPresentation(d,seriesKey){
   const queue=d.collection('nexanime_queue');
   const existingQueue=await queue.findOne({
     seriesKey,kind:'presentation',
     $or:[{episode:null},{episode:{$exists:false}}],
     status:{$in:['queued','publishing']}
-  },{projection:{_id:1}});
-  if(existingQueue)return;
+  },{
+    projection:{
+      _id:1,dedupeKey:1,status:1,synthetic:1,mode:1,
+      attempts:1,retryAfter:1,lastError:1
+    }
+  });
 
   const existingPublished=await d.collection('nexanime_publications').findOne({
     seriesKey,kind:'presentation',
     $or:[{episode:null},{episode:{$exists:false}}],
     purgedAt:{$exists:false}
   },{projection:{_id:1}});
-  if(existingPublished)return;
+  if(existingPublished){
+    // Never let a stale queued synopsis outrank an already-published synopsis
+    // after a restart or source rescan.
+    if(existingQueue){
+      await queue.updateOne(
+        {_id:existingQueue._id,status:{$in:['queued','publishing']}},
+        {$set:{
+          status:'superseded',
+          supersededAt:new Date(),
+          supersededReason:'presentation_already_published',
+          updatedAt:new Date()
+        },$unset:{claimAt:'',claimBy:'',retryAfter:'',lastTransientAt:''}}
+      );
+    }
+    return;
+  }
+
+  // A clean queued synopsis may still be published from its source. If a source
+  // synopsis has already failed, recycle it into the synthetic synopsis path
+  // instead of retrying the same dead Telegram message forever.
+  if(existingQueue&&!queuedPresentationNeedsRepair(existingQueue))return;
 
   const episode=await queue.findOne(
     {seriesKey,kind:'episode',status:'queued'},
@@ -1983,6 +2019,7 @@ async function ensureGeneralPresentation(d,seriesKey){
   };
   const dedupeKey=presentationKey(presentation);
   const existingAny=await queue.findOne({dedupeKey});
+  const target=existingAny||existingQueue;
 
   const payload={
     dedupeKey,status:'queued',kind:'presentation',seriesKey,
@@ -1994,15 +2031,25 @@ async function ensureGeneralPresentation(d,seriesKey){
     repairedPresentation:true,repairedPresentationAt:now,updatedAt:now
   };
 
-  if(existingAny){
-    // A failed source synopsis with the same dedupe key must not permanently
-    // block the series. Recycle it into a clean synthetic presentation.
-    if(existingAny.status==='published')return;
+  if(target){
+    if(target.status==='published')return;
+    if(existingAny&&existingQueue&&String(existingAny._id)!==String(existingQueue._id)){
+      await queue.updateOne(
+        {_id:existingQueue._id},
+        {$set:{
+          status:'superseded',
+          supersededAt:now,
+          supersededReason:'presentation_replaced_by_synthetic',
+          updatedAt:now
+        },$unset:{claimAt:'',claimBy:'',retryAfter:'',lastTransientAt:''}}
+      );
+    }
     await queue.updateOne(
-      {_id:existingAny._id},
+      {_id:target._id},
       {$set:payload,$unset:{
         claimAt:'',claimBy:'',lastError:'',quarantineReason:'',
-        supersededAt:'',supersededReason:'',recoveredAt:'',recoveredReason:''
+        supersededAt:'',supersededReason:'',recoveredAt:'',recoveredReason:'',
+        retryAfter:'',lastTransientAt:''
       }}
     );
     return;
@@ -2839,7 +2886,7 @@ export const __test={
   standardizedCaption,quotedCaption,titleFromMessage,titleEvidenceFromMessage,titlesClearlyConflict,
   episodeEvidenceFromMessage,meaningfulTitleSimilarity,bestAnchor,episodeVariantScore,episodeIdentityCompatible,
   isTransientPublishError,inferredSeasonAlias,shouldParkTransientEpisode,episodeVariantRetryReady,
-  interSeriesDeadlineFrom,
+  queuedPresentationNeedsRepair,interSeriesDeadlineFrom,
   timing:{publishMs:PUBLISH_MS,interSeriesMs:INTER_SERIES_MS,transientVariantRetryMs:TRANSIENT_VARIANT_RETRY_MS}
 };
 
