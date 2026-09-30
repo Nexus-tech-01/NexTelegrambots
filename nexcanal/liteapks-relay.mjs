@@ -49,6 +49,9 @@ const opTimeoutMs=Math.max(5000,Number(process.env.NEXCANAL__WATCHER_OP_TIMEOUT_
 const bootstrapLimit=Math.max(1,Math.min(maxFetch,Number(process.env.NEXCANAL__WATCHER_BOOTSTRAP_LIMIT||80)));
 const bootstrapHours=Math.max(1,Number(process.env.NEXCANAL__WATCHER_BOOTSTRAP_HOURS||48));
 const sourceResolveRetryMs=Math.max(30_000,Number(process.env.NEXCANAL__WATCHER_SOURCE_RESOLVE_RETRY_MS||60_000));
+const apkRecoveryHours=Math.max(1,Number(process.env.NEXCANAL__WATCHER_RECOVERY_HOURS||48));
+const apkRecoveryLimit=Math.max(20,Math.min(500,Number(process.env.NEXCANAL__WATCHER_RECOVERY_LIMIT||200)));
+const destinationRecoveryLimit=Math.max(50,Math.min(500,Number(process.env.NEXCANAL__WATCHER_DESTINATION_RECOVERY_LIMIT||250)));
 function withTimeout(promise,ms=opTimeoutMs,label='operation'){
   let timer;
   const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(label+' timeout after '+ms+'ms')),ms);});
@@ -539,13 +542,65 @@ async function resolveSources(c){
     }
     const match=dialogs.find(d=>{
       const id=String(d?.id??'');
+      const entityId=String(d?.entity?.id??'');
       const title=String(d?.title||'');
-      return (spec.dialogId&&id===spec.dialogId)||(spec.titleMatch&&spec.titleMatch.test(title));
+      const wanted=String(spec.dialogId||'');
+      const wantedBare=wanted.replace(/^-100/,'');
+      const idMatch=!!wanted&&(
+        id===wanted||
+        entityId===wanted||
+        id.replace(/^-100/,'')===wantedBare||
+        entityId.replace(/^-100/,'')===wantedBare
+      );
+      return idMatch||(spec.titleMatch&&spec.titleMatch.test(title));
     });
     if(match?.entity)out.set(spec.key,{...spec,entity:match.entity,title:String(match.title||spec.key)});
     else warn('source unavailable',spec.key,spec.dialogId||'');
   }
   return out;
+}
+
+function apkFingerprint(m){
+  if(!isApk(m))return '';
+  const n=norm(filename(m));
+  const size=Number(m?.document?.size||0);
+  return n?n+'|'+String(size||0):'';
+}
+async function recoverMissedApks(c,destinationEntity,st,sources){
+  const cutoff=Date.now()-apkRecoveryHours*60*60*1000;
+  const destRows=await withTimeout(
+    c.getMessages(destinationEntity,{limit:destinationRecoveryLimit}),
+    Math.max(opTimeoutMs,60000),
+    'APK recovery destination scan'
+  );
+  const published=new Set((destRows||[]).map(apkFingerprint).filter(Boolean));
+  let queued=0;
+  for(const [key,source] of sources){
+    try{
+      const recent=await withTimeout(
+        c.getMessages(source.entity,{limit:apkRecoveryLimit}),
+        Math.max(opTimeoutMs,60000),
+        key+' APK recovery scan'
+      );
+      for(const m of [...(recent||[])].sort((x,y)=>Number(x.id)-Number(y.id))){
+        const id=Number(m?.id||0);
+        const dateMs=Number(m?.date||0)*1000;
+        if(!id||!isApk(m)||(dateMs&&dateMs<cutoff))continue;
+        if(hasEvent(st,key,id))continue;
+        const fp=apkFingerprint(m);
+        if(fp&&published.has(fp))continue;
+        if(enqueueDiscovered(st,key,id))queued++;
+      }
+    }catch(error){
+      warn('APK recovery scan failed; source continues normally',key,String(error?.message||error));
+    }
+  }
+  if(queued){
+    await save(st);
+    log('recovery queued',queued,'missed APK(s) from last',apkRecoveryHours,'hour(s)');
+  }else{
+    log('recovery found no missing APKs in last',apkRecoveryHours,'hour(s)');
+  }
 }
 
 function ensureSourceState(st,key){
@@ -796,8 +851,9 @@ async function runWithClient(c,{ownsReader=false,signal=null,expectedUsername=ex
     }
   }catch{}
 
-  kickWorkers(c,publisher,destination,st,sources);
   try{
+    await recoverMissedApks(c,nextechEntity,st,sources);
+    kickWorkers(c,publisher,destination,st,sources);
     await withTimeout(pollNextechChannelMirror(c,nextechEntity,st),opTimeoutMs,'initial Nextech WhatsApp mirror');
     await withTimeout(discover(c,st,sources),opTimeoutMs,'initial source discovery');
   }catch(e){
