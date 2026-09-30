@@ -1635,13 +1635,14 @@ function isTransientPublishError(error){
   return code==='SOURCE_UNAVAILABLE'||message==='source_message_unavailable_for_runtime';
 }
 
+const IN_PROGRESS_TRANSIENT_PARK_ATTEMPTS=12;
 function shouldParkTransientEpisode(item,error,attempts,inProgress=false){
+  const minimumAttempts=inProgress===true?IN_PROGRESS_TRANSIENT_PARK_ATTEMPTS:3;
   return Boolean(
     isTransientPublishError(error)&&
     item?.kind==='episode'&&
     String(item?.seriesKey||'')&&
-    Number(attempts)>=3&&
-    inProgress!==true
+    Number(attempts)>=minimumAttempts
   );
 }
 
@@ -1675,10 +1676,10 @@ async function releaseClaim(item,error){
     await d.collection('nexanime_queue').updateOne({_id:item._id},{$set:{status:'quarantine',quarantineReason:'publish_failures',updatedAt:now}});
   }
 
-  // Before a series has actually started, repeated source failures may park it
-  // temporarily so one dead source cannot block the whole feed. Once at least one
-  // episode of this series is already public, keep the series active: the failed
-  // variant is cooled down above so another queued copy of the same episode can run.
+  // Repeated source failures may park a series temporarily so one dead source
+  // cannot block the whole feed. An in-progress series gets a much larger retry
+  // budget so alternate copies can recover continuity, but it must not own the
+  // global publisher forever when every source for the frontier episode is dead.
   let inProgress=false;
   if(transient&&item?.kind==='episode'&&String(item?.seriesKey||'')){
     inProgress=!!(await d.collection('nexanime_publications').findOne(
