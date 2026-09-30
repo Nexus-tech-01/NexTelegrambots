@@ -18,6 +18,9 @@ const mediaTmpDir=process.env.NEXCANAL__WATCHER_MEDIA_TMP||'/home/container/.nex
 const watcherIdentityFile=process.env.NEXCANAL__WATCHER_ID_FILE||'/home/container/.nexcontrol/nexcanal-watcher-id.txt';
 const poll=Math.max(1500,Number(process.env.NEXCANAL__WATCHER_POLL_MS||2500));
 const botLimit=49*1024*1024;
+const smallDownloadTimeoutMs=Math.max(180000,Number(process.env.NEXCANAL__WATCHER_SMALL_DOWNLOAD_TIMEOUT_MS||300000));
+const largeDownloadTimeoutMs=Math.max(300000,Number(process.env.NEXCANAL__WATCHER_LARGE_DOWNLOAD_TIMEOUT_MS||900000));
+const largeUploadTimeoutMs=Math.max(300000,Number(process.env.NEXCANAL__WATCHER_LARGE_UPLOAD_TIMEOUT_MS||900000));
 const maxFetch=500;
 const interrouteUrl=String(process.env.NEX_INTERROUTE_URL||'http://127.0.0.1:18130').replace(/\/$/,'');
 const nextechMirrorTmpDir=String(process.env.NEXTECH_WHATSAPP_MIRROR_TMP||'/var/lib/nex/tmp/internal-automation/nextech-channel-mirror');
@@ -253,7 +256,22 @@ async function bot(method,fields,file){
   if(!r.ok||!j.ok)throw new Error(`${method}: ${j.description||r.status}`);
   return j.result;
 }
+function documentLocation(m){
+  const doc=m?.document;
+  if(!doc?.id||!doc?.accessHash)return null;
+  return new Api.InputDocumentFileLocation({
+    id:doc.id,
+    accessHash:doc.accessHash,
+    fileReference:doc.fileReference||Buffer.alloc(0),
+    thumbSize:''
+  });
+}
 async function media(c,m){
+  if(m?.document){
+    const tmp=await mediaToFile(c,m,filename(m)||('document-'+String(m.id)));
+    try{return await fs.readFile(tmp.file)}
+    finally{await tmp.cleanup();}
+  }
   const b=await c.downloadMedia(m.media,{workers:1});
   if(!b)throw new Error('media download failed');
   return Buffer.isBuffer(b)?b:Buffer.from(b);
@@ -272,28 +290,77 @@ async function cleanupMediaTmp(maxAgeMs=mediaTmpRetentionMs){
 async function mediaToFile(c,m,name){
   await fs.mkdir(mediaTmpDir,{recursive:true});
   const safe=String(name||`package-${m.id}.apk`).replace(/[^A-Za-z0-9._ -]+/g,'_').slice(-180)||`package-${m.id}.apk`;
-  // Stable name: retries reuse one cache file instead of creating a new
-  // multi-hundred-MB copy every time a transfer hits its timeout.
   const target=path.join(mediaTmpDir,`${m.id}-${safe}`);
+  const partial=target+'.part';
   const expected=Number(m?.document?.size||0);
+
   try{
-    const st=await fs.stat(target);
-    if(st.isFile()&&st.size>0&&(!expected||st.size===expected)){
-      const now=new Date();await fs.utimes(target,now,now).catch(()=>{});
-      return {file:target,size:st.size,cleanup:async()=>{await fs.rm(target,{force:true}).catch(()=>{});}};
+    const existing=await fs.stat(target);
+    if(existing.isFile()&&existing.size>0&&(!expected||existing.size===expected)){
+      const now=new Date();
+      await fs.utimes(target,now,now).catch(()=>{});
+      return {file:target,size:existing.size,cleanup:async()=>{await fs.rm(target,{force:true}).catch(()=>{});}};
     }
-    await fs.rm(target,{force:true}).catch(()=>{});
+    if(existing.isFile()&&expected&&existing.size<expected){
+      await fs.rm(partial,{force:true}).catch(()=>{});
+      await fs.rename(target,partial);
+    }else if(existing.isFile()){
+      await fs.rm(target,{force:true}).catch(()=>{});
+    }
   }catch{}
+
   const key=target;
   let active=mediaDownloadLocks.get(key);
   if(!active){
     active=(async()=>{
-      const out=await c.downloadMedia(m.media,{outputFile:target,workers:1});
-      const file=typeof out==='string'&&out?out:target;
-      const st=await fs.stat(file);
-      if(!st.isFile()||st.size<=0)throw new Error('large APK download empty');
-      if(expected&&st.size!==expected)throw new Error('large APK download incomplete '+st.size+'/'+expected);
-      return {file,size:st.size,cleanup:async()=>{await fs.rm(file,{force:true}).catch(()=>{});if(file!==target)await fs.rm(target,{force:true}).catch(()=>{});}};
+      const location=documentLocation(m);
+      if(!location)throw new Error('document location unavailable');
+      let offset=0;
+      try{
+        const ps=await fs.stat(partial);
+        if(ps.isFile())offset=ps.size;
+      }catch{}
+      if(expected&&offset>expected){
+        await fs.rm(partial,{force:true});
+        offset=0;
+      }
+
+      if(!expected||offset<expected){
+        const fh=await fs.open(partial,'a');
+        try{
+          const remaining=expected?expected-offset:undefined;
+          let appended=0;
+          for await(const chunk of c.iterDownload(location,{
+            offset,
+            ...(remaining?{limit:remaining}:{}),
+            requestSize:512*1024,
+            dcId:Number(m.document?.dcId||0)||undefined,
+            requestTimeout:120000
+          })){
+            let data=chunk;
+            if(remaining){
+              const left=remaining-appended;
+              if(left<=0)break;
+              if(data.length>left)data=data.subarray(0,left);
+            }
+            if(data.length){
+              await fh.write(data);
+              appended+=data.length;
+            }
+            if(remaining&&appended>=remaining)break;
+          }
+        }finally{
+          await fh.close();
+        }
+      }
+
+      const st=await fs.stat(partial);
+      if(!st.isFile()||st.size<=0)throw new Error('APK download produced an empty file');
+      if(expected&&st.size!==expected)throw new Error(`APK download incomplete: ${st.size}/${expected}`);
+      await fs.rm(target,{force:true}).catch(()=>{});
+      await fs.rename(partial,target);
+      const ready=await fs.stat(target);
+      return {file:target,size:ready.size,cleanup:async()=>{await fs.rm(target,{force:true}).catch(()=>{});}};
     })().finally(()=>mediaDownloadLocks.delete(key));
     mediaDownloadLocks.set(key,active);
   }
@@ -494,17 +561,24 @@ async function postApk(c,publisher,dstEntity,m,sourceKind,linked){
   }
   const size=Number(m.document?.size||0);
   if(size&&size<=botLimit){
-    const b=await withTimeout(media(c,m),120000,'small APK download');
-    return bot('sendDocument',{
-      chat_id:`@${dst}`,
-      caption:linked?'':text.slice(0,1024),
-      reply_markup:linked?undefined:kb
-    },{field:'document',buf:b,name,mime:m.document?.mimeType||'application/vnd.android.package-archive'});
+    const tmp=await withTimeout(mediaToFile(c,m,name),smallDownloadTimeoutMs,'small APK download');
+    try{
+      const b=await fs.readFile(tmp.file);
+      return await bot('sendDocument',{
+        chat_id:`@${dst}`,
+        caption:linked?'':text.slice(0,1024),
+        reply_markup:linked?undefined:kb
+      },{field:'document',buf:b,name,mime:m.document?.mimeType||'application/vnd.android.package-archive'});
+    }finally{await tmp.cleanup();}
   }
   if(!linked&&u&&(text||kb))await bot('sendMessage',{chat_id:`@${dst}`,text:text||name,reply_markup:kb,disable_web_page_preview:true});
-  const tmp=await withTimeout(mediaToFile(c,m,name),180000,'large APK download');
+  const tmp=await withTimeout(mediaToFile(c,m,name),largeDownloadTimeoutMs,'large APK download');
   try{
-    return await withTimeout(publisher.sendFile(dstEntity,{file:new CustomFile(name,tmp.size,tmp.file),caption:linked||u?'':text.slice(0,1024),forceDocument:true,workers:1}),180000,'large APK upload');
+    return await withTimeout(
+      publisher.sendFile(dstEntity,{file:new CustomFile(name,tmp.size,tmp.file),caption:linked||u?'':text.slice(0,1024),forceDocument:true,workers:1}),
+      largeUploadTimeoutMs,
+      'large APK upload'
+    );
   }finally{await tmp.cleanup();}
 }
 
