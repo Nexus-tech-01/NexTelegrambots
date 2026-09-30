@@ -1,0 +1,47 @@
+name: Notify search engines with IndexNow
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ecosystem.html"
+      - "bots/**"
+      - "sitemap.xml"
+      - "llms.txt"
+      - "llms-full.txt"
+      - "7a93d1c4e8f25b60a4c9e3127d8b5f21.txt"
+      - ".github/workflows/indexnow.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Submit Nextech public entity URLs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > payload.json <<'JSON'
+          {
+            "host": "nex-telegrambots.vercel.app",
+            "key": "7a93d1c4e8f25b60a4c9e3127d8b5f21",
+            "keyLocation": "https://nex-telegrambots.vercel.app/7a93d1c4e8f25b60a4c9e3127d8b5f21.txt",
+            "urlList": [
+              "https://nex-telegrambots.vercel.app/",
+              "https://nex-telegrambots.vercel.app/ecosystem",
+              "https://nex-telegrambots.vercel.app/bots",
+              "https://nex-telegrambots.vercel.app/bots/nexai",
+              "https://nex-telegrambots.vercel.app/bots/stacy",
+              "https://nex-telegrambots.vercel.app/bots/nexcanal-manager",
+              "https://nex-telegrambots.vercel.app/bots/nexdownloader",
+              "https://nex-telegrambots.vercel.app/bots/nexgroup-manager",
+              "https://nex-telegrambots.vercel.app/bots/nexstick",
+              "https://nex-telegrambots.vercel.app/bots/nexgame",
+              "https://nex-telegrambots.vercel.app/bots/nexwhisper"
+            ]
+          }
+          JSON
+          curl --fail-with-body --retry 3             -H "Content-Type: application/json; charset=utf-8"             --data-binary @payload.json             https://api.indexnow.org/indexnow
