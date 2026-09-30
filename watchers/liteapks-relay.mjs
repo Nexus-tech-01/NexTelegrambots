@@ -37,7 +37,7 @@ const nexusTechFacebookPageId=String(process.env.NEXTECH_FACEBOOK_PAGE_ID||'1064
 
 const sourceSpecs=[
   {key:'liteapks',username:'liteapks',kind:'liteapks'},
-  {key:'imadeaux',dialogId:'-1001918663716',titleMatch:/madeaux/i,kind:'imadeaux'}
+  {key:'imadeaux',username:'imadeaux',dialogId:'-1001918663716',titleMatch:/madeaux/i,kind:'imadeaux'}
 ];
 
 const engagementJoinTargets=String(process.env.NEXAI_AUTO_JOIN_TARGETS||'thenexnews,tresor_universe,hackergrouptel,Tresortelegramgroup,thenexusorigin')
@@ -57,6 +57,9 @@ const opTimeoutMs=Math.max(5000,Number(process.env.NEXCANAL__WATCHER_OP_TIMEOUT_
 const bootstrapLimit=Math.max(1,Math.min(maxFetch,Number(process.env.NEXCANAL__WATCHER_BOOTSTRAP_LIMIT||80)));
 const bootstrapHours=Math.max(1,Number(process.env.NEXCANAL__WATCHER_BOOTSTRAP_HOURS||48));
 const sourceResolveRetryMs=Math.max(30_000,Number(process.env.NEXCANAL__WATCHER_SOURCE_RESOLVE_RETRY_MS||60_000));
+const apkRecoveryHours=Math.max(1,Number(process.env.NEXCANAL__WATCHER_RECOVERY_HOURS||48));
+const apkRecoveryLimit=Math.max(20,Math.min(500,Number(process.env.NEXCANAL__WATCHER_RECOVERY_LIMIT||200)));
+const destinationRecoveryLimit=Math.max(50,Math.min(500,Number(process.env.NEXCANAL__WATCHER_DESTINATION_RECOVERY_LIMIT||250)));
 function withTimeout(promise,ms=opTimeoutMs,label='operation'){
   let timer;
   const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(label+' timeout after '+ms+'ms')),ms);});
@@ -669,6 +672,60 @@ async function resolveSources(c){
   return out;
 }
 
+function apkFingerprint(m){
+  if(!isApk(m))return '';
+  const n=norm(filename(m));
+  const size=Number(m?.document?.size||0);
+  return n? n+'|'+String(size||0) : '';
+}
+async function recoverMissedApks(c,destinationEntity,st,sources){
+  const cutoff=Date.now()-apkRecoveryHours*60*60*1000;
+  const destRows=await withTimeout(
+    c.getMessages(destinationEntity,{limit:destinationRecoveryLimit}),
+    Math.max(opTimeoutMs,60000),
+    'APK recovery destination scan'
+  );
+  const published=new Set((destRows||[]).map(apkFingerprint).filter(Boolean));
+  let queued=0;
+  for(const [key,source] of sources){
+    try{
+      const recent=await withTimeout(
+        c.getMessages(source.entity,{limit:apkRecoveryLimit}),
+        Math.max(opTimeoutMs,60000),
+        key+' APK recovery scan'
+      );
+      for(const m of [...(recent||[])].sort((a,b)=>Number(a.id)-Number(b.id))){
+        const id=Number(m?.id||0);
+        const dateMs=Number(m?.date||0)*1000;
+        if(!id||!isApk(m)||(dateMs&&dateMs<cutoff))continue;
+        const fp=apkFingerprint(m);
+        if(fp&&published.has(fp))continue;
+        const qk=queueKey(key,id);
+        const alreadyDone=(st.deadLetter||[]).some(x=>x.key===qk&&x.reason==='published');
+        if(isQueued(st,key,id)||alreadyDone)continue;
+        st.queue.push({
+          key:qk,
+          source:key,
+          id,
+          addedAt:Date.now(),
+          retries:0,
+          nextRetryAt:0,
+          recovered:true
+        });
+        queued++;
+      }
+    }catch(error){
+      warn('APK recovery scan failed; source continues normally',key,String(error?.message||error));
+    }
+  }
+  if(queued){
+    await save(st);
+    log('recovery queued',queued,'missed APK(s) from last',apkRecoveryHours,'hour(s)');
+  }else{
+    log('recovery found no missing APKs in last',apkRecoveryHours,'hour(s)');
+  }
+}
+
 function ensureSourceState(st,key){
   st.sources[key]=st.sources[key]||{cursor:0,descriptors:[]};
   st.sources[key].descriptors=Array.isArray(st.sources[key].descriptors)?st.sources[key].descriptors:[];
@@ -1112,8 +1169,9 @@ async function run(session){
     }
   }catch{}
 
-  kickWorkers(c,publisher,destination,st,sources);
   try{
+    await recoverMissedApks(c,nextechEntity,st,sources);
+    kickWorkers(c,publisher,destination,st,sources);
     await withTimeout(pollNextechChannelMirror(c,nextechEntity,st,{bootstrap:true}),opTimeoutMs,'initial Nextech WhatsApp mirror');
     await withTimeout(discover(c,st,sources),opTimeoutMs,'initial source discovery');
   }catch(e){
