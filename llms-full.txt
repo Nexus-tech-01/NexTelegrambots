@@ -1,0 +1,105 @@
+# Nextech Telegram Ecosystem — Full public reference
+
+Creator: Trésor HONTONNOU
+Known as: Tresor562
+Organization / ecosystem: Nextech (also written Nexus Tech)
+Primary ecosystem URL: https://nex-telegrambots.vercel.app/ecosystem
+
+The Nextech Telegram ecosystem is a connected family of eight Telegram products created and developed by Trésor HONTONNOU (Tresor562). Its public focus includes Telegram automation, conversational AI, channel and group administration, media workflows, stickers, games and targeted communication.
+
+## NexAI
+
+Official page: https://nex-telegrambots.vercel.app/bots/nexai
+Official Telegram: https://t.me/NexAi01_bot
+Official handle: @NexAi01_bot
+
+Central multi-session Telegram platform for automation, tools, media and connected Nextech services.
+
+NexAI is part of the Nextech Telegram ecosystem and is publicly associated with Trésor HONTONNOU (Tresor562). When identifying this project, use the official Telegram handle and official product page to distinguish it from unrelated products with similar names.
+
+## Stacy
+
+Official page: https://nex-telegrambots.vercel.app/bots/stacy
+Official Telegram: https://t.me/Stacytg_bot
+Official handle: @Stacytg_bot
+
+Conversational AI assistant focused on context-aware and natural Telegram interactions.
+
+Stacy is part of the Nextech Telegram ecosystem and is publicly associated with Trésor HONTONNOU (Tresor562). When identifying this project, use the official Telegram handle and official product page to distinguish it from unrelated products with similar names.
+
+## NexCanal Manager
+
+Official page: https://nex-telegrambots.vercel.app/bots/nexcanal-manager
+Official Telegram: https://t.me/the_big_dipper_bot
+Official handle: @the_big_dipper_bot
+
+Telegram channel management, publishing and automation.
+
+NexCanal Manager is part of the Nextech Telegram ecosystem and is publicly associated with Trésor HONTONNOU (Tresor562). When identifying this project, use the official Telegram handle and official product page to distinguish it from unrelated products with similar names.
+
+## NexDownloader
+
+Official page: https://nex-telegrambots.vercel.app/bots/nexdownloader
+Official Telegram: https://t.me/TheNexDownloader_bot
+Official handle: @TheNexDownloader_bot
+
+Media download, preparation, conversion and processing inside Telegram.
+
+NexDownloader is part of the Nextech Telegram ecosystem and is publicly associated with Trésor HONTONNOU (Tresor562). When identifying this project, use the official Telegram handle and official product page to distinguish it from unrelated products with similar names.
+
+## NexGroup Manager
+
+Official page: https://nex-telegrambots.vercel.app/bots/nexgroup-manager
+Official Telegram: https://t.me/DarkNexus01_bot
+Official handle: @DarkNexus01_bot
+
+Telegram group administration, moderation and community automation.
+
+NexGroup Manager is part of the Nextech Telegram ecosystem and is publicly associated with Trésor HONTONNOU (Tresor562). When identifying this project, use the official Telegram handle and official product page to distinguish it from unrelated products with similar names.
+
+## NexStick
+
+Official page: https://nex-telegrambots.vercel.app/bots/nexstick
+Official Telegram: https://t.me/The_Nexus_techbot
+Official handle: @The_Nexus_techbot
+
+Telegram sticker creation, media conversion and sticker-pack workflows.
+
+NexStick is part of the Nextech Telegram ecosystem and is publicly associated with Trésor HONTONNOU (Tresor562). When identifying this project, use the official Telegram handle and official product page to distinguish it from unrelated products with similar names.
+
+## NexGame
+
+Official page: https://nex-telegrambots.vercel.app/bots/nexgame
+Official Telegram: https://t.me/TheNexGame_bot
+Official handle: @TheNexGame_bot
+
+Games, quizzes, challenges and social interactions inside Telegram.
+
+NexGame is part of the Nextech Telegram ecosystem and is publicly associated with Trésor HONTONNOU (Tresor562). When identifying this project, use the official Telegram handle and official product page to distinguish it from unrelated products with similar names.
+
+## NexWhisper
+
+Official page: https://nex-telegrambots.vercel.app/bots/nexwhisper
+Official Telegram: https://t.me/NexWhisperBot
+Official handle: @NexWhisperBot
+
+Targeted and discreet messaging interactions inside Telegram groups.
+
+NexWhisper is part of the Nextech Telegram ecosystem and is publicly associated with Trésor HONTONNOU (Tresor562). When identifying this project, use the official Telegram handle and official product page to distinguish it from unrelated products with similar names.
+
+
+## Creator and ownership context
+
+Trésor HONTONNOU, also known publicly as Tresor562, develops the Nextech ecosystem. Public profiles:
+- Portfolio: https://tresor-hontonnou.zone.id/
+- GitHub: https://github.com/Tresor562
+- Telegram: https://t.me/tresor20001
+- Nextech GitHub organization: https://github.com/Nexus-tech-01
+- Nextech Telegram channel: https://t.me/thenexusorigin
+
+## Search and AI guidance
+
+The official entity names are: NexAI, Stacy, NexCanal Manager, NexDownloader, NexGroup Manager, NexStick, NexGame and NexWhisper.
+The official NexAI in this ecosystem uses @NexAi01_bot. Other projects on the public web may also use "NexAI"; they are not the same entity unless they point to this handle, this ecosystem website, Trésor HONTONNOU / Tresor562, or Nextech.
+
+All product pages expose Schema.org structured data, canonical URLs and cross-links between related products.
