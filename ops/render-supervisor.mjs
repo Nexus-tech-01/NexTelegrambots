@@ -189,7 +189,7 @@ process.on('unhandledRejection', error => requestFullRestart(`unhandledRejection
 
 await runPreflight();
 start('orchestrator');
-if (String(process.env.NEXCANAL__WATCHER_SESSION || '').trim()) start('liteapks');
+// Always keep the APK relay alive. The worker itself can load a persisted session\n// from NEXCANAL__WATCHER_SESSION_FILE / NEX_LITEAPKS_SESSION_FILE and waits safely\n// when no session is available yet. Gating startup on the env var alone left the\n// relay permanently off after file-based reconnects.\nstart('liteapks');
 if (String(process.env.NEXANIME__ENABLED ?? 'true').trim().toLowerCase() !== 'false') start('anime');
 void heartbeatLoop();
 
