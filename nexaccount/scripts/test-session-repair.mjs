@@ -10,6 +10,8 @@ const runtime=fs.readFileSync(path.join(ROOT,'runtime.mjs'),'utf8');
 const anime=fs.readFileSync(path.join(ROOT,'anime-ingest.mjs'),'utf8');
 const relayPath=path.resolve(ROOT,'..','nexcanal','liteapks-relay.mjs');
 const relay=fs.existsSync(relayPath)?fs.readFileSync(relayPath,'utf8'):'';
+const standaloneRelayPath=path.resolve(ROOT,'..','watchers','liteapks-relay.mjs');
+const standaloneRelay=fs.existsSync(standaloneRelayPath)?fs.readFileSync(standaloneRelayPath,'utf8'):'';
 
 assert.match(store,/sessionRepairRequired:\s*false/);
 assert.match(store,/markSessionRepairRequired/);
@@ -30,5 +32,15 @@ if(relay){
   assert.match(relay,/function floodWaitDelayMs\(error\)/);
   assert.match(relay,/embedded scanner paused for Telegram FloodWait/);
   assert.match(relay,/await waitWithSignal\(waitMs,signal\)/);
+  assert.match(relay,/sourceResolveRetryMs/);
+  assert.match(relay,/source unavailable at startup; isolated retry enabled/);
+  assert.match(relay,/source still unavailable; other APK sources continue/);
+  assert.doesNotMatch(relay,/required source unavailable:/);
+}
+if(standaloneRelay){
+  assert.match(standaloneRelay,/sourceResolveRetryMs/);
+  assert.match(standaloneRelay,/source unavailable at startup; isolated retry enabled/);
+  assert.match(standaloneRelay,/source still unavailable; other APK sources continue/);
+  assert.doesNotMatch(standaloneRelay,/required source unavailable:/);
 }
 console.log(JSON.stringify({ok:true,sessionRepair:true,independentWatcherSession:true,animeCadence:true,legacyDarkFeedDisabled:true}));
