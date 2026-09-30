@@ -1,0 +1,209 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Person",
+      "@id": "https://tresor-hontonnou.zone.id/#tresor",
+      "name": "Trésor HONTONNOU",
+      "alternateName": [
+        "Tresor562",
+        "Tresor Hontonnou"
+      ],
+      "url": "https://tresor-hontonnou.zone.id/",
+      "sameAs": [
+        "https://github.com/Tresor562",
+        "https://t.me/tresor20001"
+      ]
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://nex-telegrambots.vercel.app/ecosystem#nextech",
+      "name": "Nextech",
+      "alternateName": [
+        "Nexus Tech",
+        "Nextech Telegram Ecosystem"
+      ],
+      "url": "https://nex-telegrambots.vercel.app/ecosystem",
+      "sameAs": [
+        "https://github.com/Nexus-tech-01",
+        "https://t.me/thenexusorigin"
+      ],
+      "founder": {
+        "@id": "https://tresor-hontonnou.zone.id/#tresor"
+      }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://nex-telegrambots.vercel.app/bots/nexai#software",
+      "name": "NexAI",
+      "alternateName": [
+        "NexAi",
+        "Nex AI",
+        "NexAI Telegram",
+        "@NexAi01_bot"
+      ],
+      "url": "https://nex-telegrambots.vercel.app/bots/nexai",
+      "sameAs": [
+        "https://t.me/NexAi01_bot"
+      ],
+      "applicationCategory": "BotApplication",
+      "operatingSystem": "Telegram",
+      "creator": {
+        "@id": "https://tresor-hontonnou.zone.id/#tresor"
+      },
+      "publisher": {
+        "@id": "https://nex-telegrambots.vercel.app/ecosystem#nextech"
+      }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://nex-telegrambots.vercel.app/bots/stacy#software",
+      "name": "Stacy",
+      "alternateName": [
+        "Stacy AI",
+        "Stacy Telegram",
+        "@Stacytg_bot"
+      ],
+      "url": "https://nex-telegrambots.vercel.app/bots/stacy",
+      "sameAs": [
+        "https://t.me/Stacytg_bot"
+      ],
+      "applicationCategory": "BotApplication",
+      "operatingSystem": "Telegram",
+      "creator": {
+        "@id": "https://tresor-hontonnou.zone.id/#tresor"
+      },
+      "publisher": {
+        "@id": "https://nex-telegrambots.vercel.app/ecosystem#nextech"
+      }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://nex-telegrambots.vercel.app/bots/nexcanal-manager#software",
+      "name": "NexCanal Manager",
+      "alternateName": [
+        "NexCanal",
+        "Nex Canal Manager",
+        "@the_big_dipper_bot"
+      ],
+      "url": "https://nex-telegrambots.vercel.app/bots/nexcanal-manager",
+      "sameAs": [
+        "https://t.me/the_big_dipper_bot"
+      ],
+      "applicationCategory": "BotApplication",
+      "operatingSystem": "Telegram",
+      "creator": {
+        "@id": "https://tresor-hontonnou.zone.id/#tresor"
+      },
+      "publisher": {
+        "@id": "https://nex-telegrambots.vercel.app/ecosystem#nextech"
+      }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://nex-telegrambots.vercel.app/bots/nexdownloader#software",
+      "name": "NexDownloader",
+      "alternateName": [
+        "Nex Downloader",
+        "@TheNexDownloader_bot"
+      ],
+      "url": "https://nex-telegrambots.vercel.app/bots/nexdownloader",
+      "sameAs": [
+        "https://t.me/TheNexDownloader_bot"
+      ],
+      "applicationCategory": "MultimediaApplication",
+      "operatingSystem": "Telegram",
+      "creator": {
+        "@id": "https://tresor-hontonnou.zone.id/#tresor"
+      },
+      "publisher": {
+        "@id": "https://nex-telegrambots.vercel.app/ecosystem#nextech"
+      }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://nex-telegrambots.vercel.app/bots/nexgroup-manager#software",
+      "name": "NexGroup Manager",
+      "alternateName": [
+        "NexGroup",
+        "Nex Group Manager",
+        "@DarkNexus01_bot"
+      ],
+      "url": "https://nex-telegrambots.vercel.app/bots/nexgroup-manager",
+      "sameAs": [
+        "https://t.me/DarkNexus01_bot"
+      ],
+      "applicationCategory": "BotApplication",
+      "operatingSystem": "Telegram",
+      "creator": {
+        "@id": "https://tresor-hontonnou.zone.id/#tresor"
+      },
+      "publisher": {
+        "@id": "https://nex-telegrambots.vercel.app/ecosystem#nextech"
+      }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://nex-telegrambots.vercel.app/bots/nexstick#software",
+      "name": "NexStick",
+      "alternateName": [
+        "Nex Stick",
+        "@The_Nexus_techbot"
+      ],
+      "url": "https://nex-telegrambots.vercel.app/bots/nexstick",
+      "sameAs": [
+        "https://t.me/The_Nexus_techbot"
+      ],
+      "applicationCategory": "GraphicsApplication",
+      "operatingSystem": "Telegram",
+      "creator": {
+        "@id": "https://tresor-hontonnou.zone.id/#tresor"
+      },
+      "publisher": {
+        "@id": "https://nex-telegrambots.vercel.app/ecosystem#nextech"
+      }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://nex-telegrambots.vercel.app/bots/nexgame#software",
+      "name": "NexGame",
+      "alternateName": [
+        "Nex Game",
+        "@TheNexGame_bot"
+      ],
+      "url": "https://nex-telegrambots.vercel.app/bots/nexgame",
+      "sameAs": [
+        "https://t.me/TheNexGame_bot"
+      ],
+      "applicationCategory": "GameApplication",
+      "operatingSystem": "Telegram",
+      "creator": {
+        "@id": "https://tresor-hontonnou.zone.id/#tresor"
+      },
+      "publisher": {
+        "@id": "https://nex-telegrambots.vercel.app/ecosystem#nextech"
+      }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://nex-telegrambots.vercel.app/bots/nexwhisper#software",
+      "name": "NexWhisper",
+      "alternateName": [
+        "Nex Whisper",
+        "@NexWhisperBot"
+      ],
+      "url": "https://nex-telegrambots.vercel.app/bots/nexwhisper",
+      "sameAs": [
+        "https://t.me/NexWhisperBot"
+      ],
+      "applicationCategory": "CommunicationApplication",
+      "operatingSystem": "Telegram",
+      "creator": {
+        "@id": "https://tresor-hontonnou.zone.id/#tresor"
+      },
+      "publisher": {
+        "@id": "https://nex-telegrambots.vercel.app/ecosystem#nextech"
+      }
+    }
+  ]
+}
