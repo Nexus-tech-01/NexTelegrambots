@@ -3,6 +3,7 @@
 > Official machine-readable summary of the Telegram products created by Trésor HONTONNOU, also known as Tresor562.
 
 Canonical ecosystem page: https://nex-telegrambots.vercel.app/ecosystem
+Machine-readable entity graph: https://nex-telegrambots.vercel.app/entities.json
 Creator portfolio: https://tresor-hontonnou.zone.id/
 Creator GitHub: https://github.com/Tresor562
 Nextech GitHub organization: https://github.com/Nexus-tech-01
