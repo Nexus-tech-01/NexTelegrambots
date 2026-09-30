@@ -92,6 +92,8 @@ jobs:
               'sourceResolveRetryMs',
               'source unavailable at startup; isolated retry enabled',
               'source still unavailable; other APK sources continue',
+              'recoverMissedApks',
+              'APK recovery destination scan',
               "key:'liteapks'",
               "key:'imadeaux'",
               'tresor20009',
@@ -118,10 +120,10 @@ jobs:
               if 'required source unavailable:' in live:
                   raise RuntimeError('Live watcher still contains fatal cross-source coupling')
 
-              job('runtime.restart',{'target':'nexcanal','reason':'Targeted NexTech APK source isolation repair only'})
+              job('runtime.restart',{'target':'nexcanal','reason':'Targeted NexTech APK live recovery repair only'})
               time.sleep(12)
               logs=job('logs.tail',{'log':'launcher','bytes':180000}).get('content','')
-              signals=('scanner connected as @tresor20009','public publisher connected as @','watching')
+              signals=('scanner connected as @tresor20009','public publisher connected as @','recovery ','watching')
               absent=[x for x in signals if x not in logs]
               if absent:
                   raise RuntimeError('APK runtime verification missing: '+', '.join(absent))
