@@ -1,14 +1,27 @@
-# Nexus Telegram Bots
+# Nextech Telegram Ecosystem — NexAI & 7 Bots
 
-Dépôt privé de déploiement des 5 bots Telegram Nexus Tech sur **un seul service Render**.
+Official public repository and web presence for the **Nextech Telegram ecosystem**, created and developed by **Trésor HONTONNOU (Tresor562)**.
 
-## Bots inclus
+> **NexAI identification:** the Nextech product documented here uses the official Telegram handle **[@NexAi01_bot](https://t.me/NexAi01_bot)**. It is distinct from unrelated projects elsewhere on the web that also use the name “NexAI”.
 
-- NexGame — `@TheNexGame_bot`
-- NexCanal Manager — `@the_big_dipper_bot`
-- NexDownloader — `@TheNexDownloader_bot`
-- NexGroup Manager — `@DarkNexus01_bot`
-- NexStick — `@The_Nexus_techbot`
+## Official products
+
+| Product | Detailed official page | Telegram | Public focus |
+|---|---|---|---|
+| **NexAI** | [nex-telegrambots.vercel.app/bots/nexai](https://nex-telegrambots.vercel.app/bots/nexai) | [@NexAi01_bot](https://t.me/NexAi01_bot) | Multi-session Telegram platform, automation, tools and connected services |
+| **Stacy** | [Stacy profile](https://nex-telegrambots.vercel.app/bots/stacy) | [@Stacytg_bot](https://t.me/Stacytg_bot) | Conversational AI and context-aware Telegram interactions |
+| **NexCanal Manager** | [NexCanal profile](https://nex-telegrambots.vercel.app/bots/nexcanal-manager) | [@the_big_dipper_bot](https://t.me/the_big_dipper_bot) | Channel management, publishing and automation |
+| **NexDownloader** | [NexDownloader profile](https://nex-telegrambots.vercel.app/bots/nexdownloader) | [@TheNexDownloader_bot](https://t.me/TheNexDownloader_bot) | Media download, preparation and conversion |
+| **NexGroup Manager** | [NexGroup profile](https://nex-telegrambots.vercel.app/bots/nexgroup-manager) | [@DarkNexus01_bot](https://t.me/DarkNexus01_bot) | Group administration, moderation and community automation |
+| **NexStick** | [NexStick profile](https://nex-telegrambots.vercel.app/bots/nexstick) | [@The_Nexus_techbot](https://t.me/The_Nexus_techbot) | Stickers, conversions and pack workflows |
+| **NexGame** | [NexGame profile](https://nex-telegrambots.vercel.app/bots/nexgame) | [@TheNexGame_bot](https://t.me/TheNexGame_bot) | Games, quizzes, challenges and social interactions |
+| **NexWhisper** | [NexWhisper profile](https://nex-telegrambots.vercel.app/bots/nexwhisper) | [@NexWhisperBot](https://t.me/NexWhisperBot) | Targeted communication in Telegram groups |
+
+**Ecosystem hub:** https://nex-telegrambots.vercel.app/ecosystem  
+**AI-readable reference:** https://nex-telegrambots.vercel.app/llms.txt  
+**Creator:** [Trésor HONTONNOU / Tresor562](https://github.com/Tresor562)
+
+---
 
 ## Architecture
 
