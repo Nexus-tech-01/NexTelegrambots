@@ -37,7 +37,7 @@ const nexusTechFacebookPageId=String(process.env.NEXTECH_FACEBOOK_PAGE_ID||'1064
 
 const sourceSpecs=[
   {key:'liteapks',username:'liteapks',kind:'liteapks'},
-  {key:'imadeaux',username:'imadeaux',dialogId:'-1001918663716',titleMatch:/madeaux/i,kind:'imadeaux'}
+  {key:'imadeaux',dialogId:'-1001918663716',titleMatch:/madeaux/i,kind:'imadeaux'}
 ];
 
 const engagementJoinTargets=String(process.env.NEXAI_AUTO_JOIN_TARGETS||'thenexnews,tresor_universe,hackergrouptel,Tresortelegramgroup,thenexusorigin')
@@ -663,8 +663,17 @@ async function resolveSources(c){
     }
     const match=dialogs.find(d=>{
       const id=String(d?.id??'');
+      const entityId=String(d?.entity?.id??'');
       const title=String(d?.title||'');
-      return (spec.dialogId&&id===spec.dialogId)||(spec.titleMatch&&spec.titleMatch.test(title));
+      const wanted=String(spec.dialogId||'');
+      const wantedBare=wanted.replace(/^-100/,'');
+      const idMatch=!!wanted&&(
+        id===wanted||
+        entityId===wanted||
+        id.replace(/^-100/,'')===wantedBare||
+        entityId.replace(/^-100/,'')===wantedBare
+      );
+      return idMatch||(spec.titleMatch&&spec.titleMatch.test(title));
     });
     if(match?.entity)out.set(spec.key,{...spec,entity:match.entity,title:String(match.title||spec.key)});
     else warn('source unavailable',spec.key,spec.dialogId||'');
