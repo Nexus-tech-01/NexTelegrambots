@@ -48,6 +48,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const opTimeoutMs=Math.max(5000,Number(process.env.NEXCANAL__WATCHER_OP_TIMEOUT_MS||20000));
 const bootstrapLimit=Math.max(1,Math.min(maxFetch,Number(process.env.NEXCANAL__WATCHER_BOOTSTRAP_LIMIT||80)));
 const bootstrapHours=Math.max(1,Number(process.env.NEXCANAL__WATCHER_BOOTSTRAP_HOURS||48));
+const sourceResolveRetryMs=Math.max(30_000,Number(process.env.NEXCANAL__WATCHER_SOURCE_RESOLVE_RETRY_MS||60_000));
 function withTimeout(promise,ms=opTimeoutMs,label='operation'){
   let timer;
   const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(label+' timeout after '+ms+'ms')),ms);});
@@ -754,7 +755,7 @@ async function runWithClient(c,{ownsReader=false,signal=null,expectedUsername=ex
   log('scanner connected as',me?.username?'@'+me.username:String(me?.id||'unknown'));
   log('public publisher connected as',publisherMe?.username?'@'+publisherMe.username:String(publisherMe?.id||'NexCanal'));
   const sources=await resolveSources(c);
-  for(const spec of sourceSpecs)if(!sources.has(spec.key))throw new Error('required source unavailable: '+spec.key);
+  for(const spec of sourceSpecs)if(!sources.has(spec.key))warn('source unavailable at startup; isolated retry enabled',spec.key);
   const destination=await publisher.getEntity(dst);
   const nextechEntity=await c.getEntity('@'+dst);
   const st=await load();
@@ -774,6 +775,7 @@ async function runWithClient(c,{ownsReader=false,signal=null,expectedUsername=ex
   };
   void runEngagement(true);
   let nextEngagementAt=Date.now()+engagementPollMs;
+  let nextSourceResolveAt=Date.now()+sourceResolveRetryMs;
 
   const socialFeed=socialFeedEnabled?createSocialFeed({bot,log,warn}):null;
   if(socialFeed){
@@ -811,6 +813,12 @@ async function runWithClient(c,{ownsReader=false,signal=null,expectedUsername=ex
       if(!live)throw new Error('reader session disconnected');
     }
     try{
+      if(Date.now()>=nextSourceResolveAt){
+        nextSourceResolveAt=Date.now()+sourceResolveRetryMs;
+        const refreshed=await withTimeout(resolveSources(c),opTimeoutMs,'source re-resolution');
+        for(const [key,source] of refreshed)sources.set(key,source);
+        for(const spec of sourceSpecs)if(!sources.has(spec.key))warn('source still unavailable; other APK sources continue',spec.key);
+      }
       await withTimeout(discover(c,st,sources),opTimeoutMs,'source discovery');
       await withTimeout(pollNextechChannelMirror(c,nextechEntity,st),opTimeoutMs,'Nextech WhatsApp mirror');
       kickWorkers(c,publisher,destination,st,sources);

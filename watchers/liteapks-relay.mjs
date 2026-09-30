@@ -56,6 +56,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const opTimeoutMs=Math.max(5000,Number(process.env.NEXCANAL__WATCHER_OP_TIMEOUT_MS||20000));
 const bootstrapLimit=Math.max(1,Math.min(maxFetch,Number(process.env.NEXCANAL__WATCHER_BOOTSTRAP_LIMIT||80)));
 const bootstrapHours=Math.max(1,Number(process.env.NEXCANAL__WATCHER_BOOTSTRAP_HOURS||48));
+const sourceResolveRetryMs=Math.max(30_000,Number(process.env.NEXCANAL__WATCHER_SOURCE_RESOLVE_RETRY_MS||60_000));
 function withTimeout(promise,ms=opTimeoutMs,label='operation'){
   let timer;
   const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(label+' timeout after '+ms+'ms')),ms);});
@@ -1079,7 +1080,7 @@ async function run(session){
   log('scanner connected as',me?.username?'@'+me.username:String(me?.id||'unknown'));
   log('Bot API publisher ready as @'+dst+'; MTProto publisher will initialize only for large files');
   const sources=await resolveSources(c);
-  for(const spec of sourceSpecs)if(!sources.has(spec.key))throw new Error('required source unavailable: '+spec.key);
+  for(const spec of sourceSpecs)if(!sources.has(spec.key))warn('source unavailable at startup; isolated retry enabled',spec.key);
   const destination='@'+dst;
   const nextechEntity=await c.getEntity(destination);
   const st=await load();
@@ -1099,6 +1100,7 @@ async function run(session){
   };
   void runEngagement(true);
   let nextEngagementAt=Date.now()+engagementPollMs;
+  let nextSourceResolveAt=Date.now()+sourceResolveRetryMs;
   let nextHeartbeatAt=0;
 
   // Migrate the old LiteAPK cursor if this is the first v2 run.
@@ -1125,6 +1127,12 @@ async function run(session){
     const live=await sessionSecret();
     if(!live)throw new Error('reader session disconnected');
     try{
+      if(Date.now()>=nextSourceResolveAt){
+        nextSourceResolveAt=Date.now()+sourceResolveRetryMs;
+        const refreshed=await withTimeout(resolveSources(c),opTimeoutMs,'source re-resolution');
+        for(const [key,source] of refreshed)sources.set(key,source);
+        for(const spec of sourceSpecs)if(!sources.has(spec.key))warn('source still unavailable; other APK sources continue',spec.key);
+      }
       await withTimeout(discover(c,st,sources),opTimeoutMs,'source discovery');
       await withTimeout(pollNextechChannelMirror(c,nextechEntity,st),opTimeoutMs,'Nextech WhatsApp mirror');
       kickWorkers(c,publisher,destination,st,sources);
