@@ -38,6 +38,20 @@ const fileMessage=(name,caption='')=>({
   ),false);
 }
 
+// Direct publication fallback is deliberately narrow: it is allowed only when
+// NexCanal explicitly reports that the staged message cannot be copied.
+{
+  assert.equal(__test.isNexCanalCopyMissingError(
+    new Error('nexcanal_handoff_failed: Bad Request: message to copy not found')
+  ),true);
+  assert.equal(__test.isNexCanalCopyMissingError(
+    new Error('nexcanal_handoff_timeout')
+  ),false);
+  assert.equal(__test.isNexCanalCopyMissingError(
+    new Error('source_message_unavailable_for_runtime')
+  ),false);
+}
+
 // A dead source synopsis must be recycled into a synthetic synopsis instead of
 // blocking the active anime forever. Clean queued/synthetic synopses are untouched.
 {
