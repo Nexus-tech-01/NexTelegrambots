@@ -782,7 +782,24 @@ async function queueMessage(c,source,st,item){
   const ids=[Number(item.id),...(st.queue||[]).filter(x=>x.source===item.source).map(x=>Number(x.id))]
     .filter((id,index,array)=>id>0&&array.indexOf(id)===index)
     .slice(0,50);
-  const rows=await withTimeout(c.getMessages(source.entity,{ids}),Math.max(opTimeoutMs,60000),item.source+' queue batch fetch');
+  let rows;
+  try{
+    rows=await withTimeout(c.getMessages(source.entity,{ids}),Math.max(opTimeoutMs,60000),item.source+' queue batch fetch');
+  }catch(error){
+    if(!isTlDecodeError(error))throw error;
+    warn('queue batch decode failed; isolating requested message',wantedKey,String(error?.message||error));
+    try{
+      rows=await withTimeout(
+        c.getMessages(source.entity,{ids:[Number(item.id)]}),
+        Math.max(opTimeoutMs,60000),
+        item.source+' isolated queue fetch '+String(item.id)
+      );
+    }catch(isolatedError){
+      if(!isTlDecodeError(isolatedError))throw isolatedError;
+      warn('requested source message is undecodable; preserving item for retry',wantedKey,String(isolatedError?.message||isolatedError));
+      throw isolatedError;
+    }
+  }
   const returned=new Set();
   for(const row of rows||[]){
     const id=Number(row?.id||0);
@@ -790,7 +807,11 @@ async function queueMessage(c,source,st,item){
     returned.add(id);
     queueMessageCache.set(queueKey(item.source,id),row);
   }
-  for(const id of ids)if(!returned.has(id))queueMessageCache.set(queueKey(item.source,id),null);
+  // Only mark misses from a successful multi-message fetch. An isolated fetch
+  // must never poison unrelated queued IDs with null cache entries.
+  if(ids.length===Number(returned.size||0)||returned.size!==1){
+    for(const id of ids)if(!returned.has(id))queueMessageCache.set(queueKey(item.source,id),null);
+  }
   return queueMessageCache.get(wantedKey)||null;
 }
 
