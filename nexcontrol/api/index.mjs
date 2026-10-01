@@ -305,6 +305,24 @@ async function handleNexAccount(req,res,u){
   return true;
 }
 
+
+const OPERATOR_SB_URL='https://ojbyvjqurlamplmujmyu.supabase.co';
+const OPERATOR_SB_PUBLISHABLE='sb_publishable_EnV_q5ePfEOB1NxN3-gtpA_HdwjtPyu';
+
+async function handleOperatorProbe(req,res,u){
+  if(req.method!=='GET'||u.pathname!=='/api/ops/operator-probe')return false;
+  const r=await fetch(OPERATOR_SB_URL+'/rest/v1/rpc/nxc_operator_enqueue_agent_job',{
+    method:'POST',
+    headers:{apikey:OPERATOR_SB_PUBLISHABLE,'content-type':'application/json'},
+    body:JSON.stringify({p_agent_slug:'nexus-main',p_kind:'system.info',p_origin:'nexcontrol-operator-probe-20261001',p_payload:{}}),
+    signal:AbortSignal.timeout(12000)
+  });
+  const raw=await r.text();
+  let data=null;try{data=JSON.parse(raw)}catch{}
+  sendJson(res,r.ok?200:502,{ok:r.ok,status:r.status,jobCreated:r.ok&&Boolean(data),error:r.ok?null:'operator_rpc_rejected'});
+  return true;
+}
+
 export default async function handler(req,res){
   try{
     const u=new URL(req.url,'https://nexcontrol.local');
@@ -312,6 +330,7 @@ export default async function handler(req,res){
     if(await handlePterodactylRecovery(req,res,u))return;
     if(await handleMetaSurface(req,res,u))return;
     if(await handleNexAccount(req,res,u))return;
+    if(await handleOperatorProbe(req,res,u))return;
     const headers=outboundHeaders(req,u.pathname);
     const body=outboundBody(req,headers);
     const upstream=await fetch(TARGET+u.search,{
