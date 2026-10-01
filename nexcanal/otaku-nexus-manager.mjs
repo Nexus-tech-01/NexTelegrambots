@@ -178,9 +178,40 @@ async function classify(text){
   const m=raw.match(/(?:sticker|stickers|pack).{0,30}(?:de|du|pour)?\s*([A-Za-zÀ-ÿ0-9 .'-]{2,50})/i);
   return m?{valid:true,character:clean(m[1]).replace(/[?.!,]+$/,''),confidence:.5}:{valid:false};
 }
+function otakuBold(value){
+  return String(value??'').normalize('NFD').replace(/[A-Za-z0-9]/g,ch=>{
+    const code=ch.codePointAt(0);
+    if(code>=65&&code<=90)return String.fromCodePoint(0x1D5D4+(code-65));
+    if(code>=97&&code<=122)return String.fromCodePoint(0x1D5EE+(code-97));
+    return String.fromCodePoint(0x1D7EC+(code-48));
+  });
+}
 async function packCaption(character,count){
-  const j=await aiJson('Écris une caption française courte et stylée pour Otaku Nexus annonçant un pack WhatsApp de '+count+' stickers sur '+character+'. Style small caps/otaku élégant, maximum 500 caractères. Invite à commander le prochain personnage. Aucun crédit source. JSON {"caption":"..."}');
-  return clean(j?.caption)||('✦ ᴏᴛᴀᴋᴜ ɴᴇxᴜs · sᴛɪᴄᴋᴇʀ ᴘᴀᴄᴋ\n\n'+character+' — '+count+' stickers prêts pour WhatsApp.\n\nQuel personnage pour le prochain pack ?');
+  const prompt=[
+    'Tu prépares le texte central d une annonce Otaku Nexus pour un pack WhatsApp de '+count+' stickers sur '+character+'.',
+    'Le cadre visuel est imposé ailleurs: ne fournis AUCUN emoji, aucune décoration Unicode, aucun hashtag, aucun crédit et aucun markdown.',
+    'Le texte doit être spécifique au personnage et à son anime, jamais générique.',
+    'JSON uniquement: {"intro":"une phrase française de 12 à 28 mots qui présente le personnage, son anime et son aura","traits":["trait 1","trait 2","trait 3"],"share":"une courte phrase de 7 à 18 mots qui donne envie à un fan de partager le pack"}.',
+    'traits doit contenir exactement trois expressions courtes adaptées au personnage.'
+  ].join(' ');
+  const j=await aiJson(prompt);
+  const intro=clean(j?.intro)||('Le charisme de '+character+' débarque dans vos conversations');
+  const traits=Array.isArray(j?.traits)?j.traits.map(clean).filter(Boolean).slice(0,3):[];
+  while(traits.length<3)traits.push(['son style','son énergie','son aura'][traits.length]);
+  const share=clean(j?.share)||('un personnage pareil, ça ne se garde pas pour soi.');
+  const name=otakuBold(character.toUpperCase());
+  const first=otakuBold(intro.replace(/[.!…]+$/,'')+'… le pack '+character+' est enfin là.');
+  const second=otakuBold('Ajoute-les à ton WhatsApp et ramène un peu de '+traits[0]+', de '+traits[1]+' et de '+traits[2]+' dans tes messages.');
+  const third=otakuBold('Tu connais un fan de '+character+' ? Partage-lui le pack… '+share.replace(/^[.!…\s]+/,''));
+  return [
+    'ㅤㅤㅤㅤ︵۪۪۪۪۪᷼͡⏜۪۪۪۪۪᷼͡︵᷼ㅤׄ💜ㅤ᷼︵۪۪۪۪۪᷼͡⏜۪۪۪۪۪᷼͡︵᷼ㅤ',
+    'ׄ       ׄ ⭐ᩧꫬ   𝗢𝗧𝗔𝗞𝗨   𝗡𝗘𝗫𝗨𝗦   𝗦𝗧𝗜𝗖𝗞𝗘𝗥   𝗣𝗔𝗖𝗞   —   '+name+'   💜✨   ׅ   ꒱ ꒱',
+    '☁️ׄ ︵ ׅ 🌸 '+first+' ⭐🖤',
+    '꒰ ꒰  ּ 🎴 '+second+' 💜✨',
+    '☁️ׄ ︵ ׅ 🔁 '+third+' 😭⭐',
+    'ׄ       ׄ 💜ᩧꫬ   𝗢𝗧𝗔𝗞𝗨   𝗡𝗘𝗫𝗨𝗦   ×   '+name+'   —   𝗟𝗘   𝗣𝗔𝗖𝗞   𝗘𝗦𝗧   𝗔̀   𝗩𝗢𝗨𝗦   ⭐🔥   ׅ',
+    '©ׄ 🦇゙᷼ ‌ 『 ᴏᴛᴀᴋᴜ ɴᴇxᴜs 🖤 』 ᰍ'
+  ].join('\n\n');
 }
 
 async function telegramClient(){
