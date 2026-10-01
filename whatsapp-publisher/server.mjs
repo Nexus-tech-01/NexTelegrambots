@@ -791,7 +791,9 @@ async function otakuMediaSource(item={}){
   if(local){
     const st=fs.statSync(local);
     if(!st.isFile()||st.size<=0)throw new Error('Otaku media local invalide');
-    return {stream:fs.createReadStream(local)};
+    // Otaku sticker/image assets are deliberately small. A Buffer is the most
+    // compatible Baileys media input, especially for sticker messages.
+    return fs.readFileSync(local);
   }
   const url=String(item.url||'').trim();
   if(/^https?:\/\//i.test(url))return {url};
