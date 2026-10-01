@@ -1,6 +1,6 @@
 name: Ops Anime Diagnostic Once
 # diagnostic pass: inspect NexControl agents for duplicate anime runtime owners
-# diagnostic refresh: 2026-09-28 anime scheduler
+# diagnostic refresh: 2026-10-01 21:44 Africa/Porto-Novo - stalled since 08:00
 
 on:
   push:
