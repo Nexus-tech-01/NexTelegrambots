@@ -58,7 +58,7 @@ jobs:
               "kind==='pack'",
               "kind==='poll'",
               "kind==='quiz_results'",
-              "getAggregateVotesInPollMessage",
+              "aggregateOtakuVotes",
           ):
               if required not in publisher:
                   raise SystemExit('publisher missing '+required)
@@ -72,6 +72,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          exec > >(tee /tmp/otaku-deploy.log) 2>&1
           python3 - <<'PYDEPLOY'
           import os,json,time,base64,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib,traceback
           from pathlib import Path
@@ -159,9 +160,15 @@ jobs:
               wa_restarted=True
               time.sleep(7)
 
-              ready=job('http.check',{'url':'http://127.0.0.1:18787/readyz','timeoutMs':10000,'previewBytes':1000})
+              ready={}
+              hook={}
+              for attempt in range(12):
+                  ready=job('http.check',{'url':'http://127.0.0.1:18787/readyz','timeoutMs':10000,'previewBytes':1000})
+                  hook=job('http.check',{'url':'http://127.0.0.1:18787/otaku/status','timeoutMs':10000,'previewBytes':1000})
+                  if ready.get('ok') and hook.get('ok'):
+                      break
+                  time.sleep(3)
               if not ready.get('ok'): raise RuntimeError('WhatsApp publisher not ready after isolated restart: '+str(ready))
-              hook=job('http.check',{'url':'http://127.0.0.1:18787/otaku/status','timeoutMs':10000,'previewBytes':1000})
               if not hook.get('ok'): raise RuntimeError('Otaku publisher hook missing after deploy: '+str(hook))
 
               sup=job('runtime.exec',{'root':'nexcanal','command':'node','args':['otaku-nexus-manager.mjs','--restart-supervisor'],'timeoutMs':30000},timeout=60)
@@ -244,6 +251,17 @@ jobs:
               'validationOutcome':os.environ.get('VALIDATE_OUTCOME','unknown'),
               'deployOutcome':os.environ.get('DEPLOY_OUTCOME','unknown'),
           }
+          if d['workflow']['deployOutcome']!='success':
+              try:
+                  lines=Path('/tmp/otaku-deploy.log').read_text(errors='replace').splitlines()
+              except Exception:
+                  lines=[]
+              keep=[]
+              for line in lines:
+                  low=line.lower()
+                  if any(x in low for x in ('runtimeerror','error','failed','missing','unhealthy','not ready','not found','traceback')):
+                      keep.append(line[-500:])
+              d['failureSignals']=keep[-12:]
           d['recordedAt']=datetime.datetime.now(datetime.timezone.utc).isoformat()
           d['ok']=bool(
               d.get('ok') is True and
