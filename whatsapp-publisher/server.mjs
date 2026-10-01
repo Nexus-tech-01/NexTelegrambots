@@ -9,7 +9,6 @@ import makeWASocket, {
   Browsers,
   DisconnectReason,
   generateWAMessageFromContent,
-  getAggregateVotesInPollMessage,
   generateMessageIDV2,
   encodeNewsletterMessage,
   proto,
@@ -123,6 +122,31 @@ function persistOtakuPollSummary(){
     });
   }
   writeJson('otaku-polls.json',rows.slice(-250));
+}
+function aggregateOtakuVotes(record){
+  const options=Array.isArray(record?.options)?record.options:[];
+  const byHash=new Map(options.map(name=>[
+    crypto.createHash('sha256').update(Buffer.from(String(name))).digest('hex'),
+    String(name)
+  ]));
+  const votes={};
+  for(const update of record?.updates||[]){
+    const vote=update?.vote;
+    const voter=String(
+      update?.pollUpdateMessageKey?.participant||
+      update?.pollUpdateMessageKey?.remoteJid||
+      update?.pollUpdateMessageKey?.id||
+      ''
+    );
+    if(!voter||!Array.isArray(vote?.selectedOptions)||!vote.selectedOptions.length)continue;
+    const first=vote.selectedOptions[0];
+    const hex=Buffer.isBuffer(first)||first instanceof Uint8Array
+      ?Buffer.from(first).toString('hex')
+      :String(first);
+    const option=byHash.get(hex);
+    if(option)votes[voter]=option;
+  }
+  return votes;
 }
 
 const MENU_IMAGE_B64_PATH = path.join(DATA_DIR,'assets','nexai-menu.b64');
@@ -549,15 +573,7 @@ async function connectWhatsApp({freshPairing=false}={}){
       if(!record||!Array.isArray(pollUpdates)||!pollUpdates.length)continue;
       record.updates=[...(record.updates||[]),...pollUpdates].slice(-2000);
       try{
-        const aggregate=getAggregateVotesInPollMessage(
-          {message:record.message,pollUpdates:record.updates},
-          sock.user?.id
-        );
-        const votes={};
-        for(const option of aggregate||[]){
-          for(const voter of option?.voters||[])votes[String(voter)]=String(option?.name||'');
-        }
-        record.votes=votes;
+        record.votes=aggregateOtakuVotes(record);
         persistOtakuPollSummary();
       }catch(error){
         logger.warn({error:String(error?.message||error),poll:id},'Otaku poll aggregation failed');
@@ -838,7 +854,7 @@ async function runOtakuAction(raw={}){
         const message=sent?.message||{pollCreationMessage:{name:question,options:options.map(optionName=>({optionName}))}};
         otakuPollMessages.set(id,{message});
         otakuPollRecords.set(id,{
-          message,sessionId:String(raw.sessionId||''),question,
+          message,sessionId:String(raw.sessionId||''),question,options,
           correctAnswer:raw.quiz?String(raw.correctAnswer||''):null,
           quiz:Boolean(raw.quiz),updates:[],votes:{},createdAt:new Date().toISOString()
         });
