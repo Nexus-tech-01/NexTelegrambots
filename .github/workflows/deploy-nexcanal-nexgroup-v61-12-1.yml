@@ -4,9 +4,9 @@ on:
   push:
     branches: [main]
     paths:
-      - '.github/workflows/deploy-nexcanal-nexgroup-v61-12-1.yml'
       - '.deploy/v61121-relay.manifest.b64'
-      - 'nexcanal/**'
+      - 'nexcanal/social-feed.mjs'
+      - 'nexcanal/liteapks-relay.mjs'
       - 'whatsapp-publisher/**'
       - 'watchers/liteapks-relay.mjs'
 
@@ -160,14 +160,13 @@ jobs:
                   raise RuntimeError('WhatsApp bridge health failed after restart: '+str(wh))
               print('WHATSAPP_BRIDGE_OK',wh.get('status'),flush=True)
 
-              # Direct Telegram channel_post -> WhatsApp bridge.
-              # Avoid a second MTProto reader/session: NexCanal already receives
-              # channel_post updates through the Bot API.
+              # Shared Telegram channel_post -> WhatsApp bridge for Nextech/NexNews only.
+              # Dark Universe is intentionally handled by its isolated relay.
               hook_src=Path('nexcanal/nextech-whatsapp-channel-post.mjs')
               if not hook_src.exists():
                   raise RuntimeError('missing nexcanal/nextech-whatsapp-channel-post.mjs')
               hook_text=hook_src.read_text(encoding='utf-8')
-              for required in ('thenexusorigin','thenexnews','tresor_universe','mirrorNextechChannelPostToWhatsApp'):
+              for required in ('thenexusorigin','thenexnews','mirrorNextechChannelPostToWhatsApp'):
                   if required not in hook_text:
                       raise RuntimeError('WhatsApp channel_post helper missing '+required)
               wr_hook=job('fs.write',{'root':'nexcanal','path':'dist/src/telegram/nextech-whatsapp-channel-post.js','content':hook_text})
@@ -206,7 +205,7 @@ jobs:
               ck=job('check.run',{'check':'node-check','root':'nexcanal','file':'liteapks-relay.mjs','timeoutMs':60000})
               if not ck.get('ok'):
                   raise RuntimeError('node-check failed nexcanal/liteapks-relay.mjs: '+str(ck))
-              job('runtime.restart',{'target':'nexcanal','reason':'Deploy frequent visual Luxury/Otaku social feed + WhatsApp Otaku Nexus mirror'})
+              job('runtime.restart',{'target':'nexcanal','reason':'Deploy NexCanal social feed and shared Nextech/NexNews WhatsApp relay'})
               job('runtime.restart',{'target':'nexgroup','reason':'Deploy v61.12.1 NexNews + tresor_universe relay mapping'})
               time.sleep(12)
               try:
