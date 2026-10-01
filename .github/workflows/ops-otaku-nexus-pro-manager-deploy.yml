@@ -9,7 +9,7 @@ on:
       - 'whatsapp-publisher/server.mjs'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ops-otaku-nexus-pro-manager-deploy
@@ -172,6 +172,25 @@ jobs:
               supervisors=[p for p in items if 'otaku-nexus-manager.mjs' in str(p.get('cmdline','')) and '--supervise' in str(p.get('cmdline',''))]
               workers=[p for p in items if 'otaku-nexus-manager.mjs' in str(p.get('cmdline','')) and '--worker' in str(p.get('cmdline',''))]
               if not supervisors or not workers: raise RuntimeError('Otaku manager supervisor/worker missing')
+
+              # Persist only aggregate production evidence. No credentials,
+              # message bodies, JIDs, media paths or private identifiers.
+              report={
+                  'ok':True,
+                  'checkedAt':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),
+                  'whatsapp':{
+                      'ready':bool(ready.get('ok')),
+                      'otakuHook':bool(hook.get('ok')),
+                  },
+                  'manager':{
+                      'health':bool(health.get('ok')),
+                      'supervisorCount':len(supervisors),
+                      'workerCount':len(workers),
+                  }
+              }
+              Path('ops-results').mkdir(parents=True,exist_ok=True)
+              Path('ops-results/otaku-nexus-manager.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+              print('PRODUCTION_REPORT_WRITTEN',json.dumps(report,separators=(',',':')),flush=True)
               print('DEPLOYMENT_OK isolated Otaku Nexus pro manager',flush=True)
 
           except Exception:
@@ -197,3 +216,18 @@ jobs:
                   except Exception: pass
               raise
           PYDEPLOY
+
+
+      - name: Commit production verification report
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f ops-results/otaku-nexus-manager.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ops-results/otaku-nexus-manager.json
+          if ! git diff --cached --quiet; then
+            git commit -m "ops: record Otaku Nexus production verification"
+            git push origin HEAD:main
+          fi
