@@ -138,7 +138,14 @@ jobs:
 
               wa_text=Path('whatsapp-publisher/server.mjs').read_text(encoding='utf-8')
               search=job('fs.search',{'root':'nexus','path':'.','query':'Nex WhatsApp Publisher bridge ready','maxResults':40})
-              matches=[m for m in search.get('matches',[]) if str(m.get('path','')).endswith('server.mjs') and 'whatsapp' in str(m.get('path','')).lower()]
+              matches=list(search.get('matches',[]) or [])
+              def publisher_rank(m):
+                  p=str(m.get('path','')).lower()
+                  if p.endswith('wa-routing-server.mjs'): return (0,p)
+                  if p.endswith('whatsapp-publisher-hotfix.mjs'): return (1,p)
+                  if p.endswith('server.mjs') and 'whatsapp' in p: return (2,p)
+                  return (9,p)
+              matches=sorted((m for m in matches if publisher_rank(m)[0] < 9),key=publisher_rank)
               if not matches: raise RuntimeError('live WhatsApp publisher path not found')
               wa_path=str(matches[0]['path'])
               wrwa=job('fs.write',{'root':'nexus','path':wa_path,'content':wa_text})
