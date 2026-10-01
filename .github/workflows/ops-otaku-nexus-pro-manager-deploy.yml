@@ -1,0 +1,199 @@
+name: Ops Otaku Nexus Pro Manager Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-otaku-nexus-pro-manager-deploy.yml'
+      - 'nexcanal/otaku-nexus-manager.mjs'
+      - 'whatsapp-publisher/server.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-otaku-nexus-pro-manager-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NXC_BASE: https://nexcontrol-ochre.vercel.app
+      NXC_AGENT: nexus-main
+      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
+      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate isolated Otaku manager
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check nexcanal/otaku-nexus-manager.mjs
+          node --check whatsapp-publisher/server.mjs
+          python3 - <<'PY'
+          from pathlib import Path
+          manager=Path('nexcanal/otaku-nexus-manager.mjs').read_text()
+          publisher=Path('whatsapp-publisher/server.mjs').read_text()
+          for required in (
+              "const STICKER_SOURCES=['fr3dc','anime_stickerr','supremacy_sticks','Leonild']",
+              "OTAKU_MAX_STICKERS",
+              "15*60*60_000",
+              "runQuiz",
+              "runChoices",
+              "pinterestImages",
+              "telegramStickers",
+              "/var/lib/nex/state/internal-automation/otaku-nexus-manager",
+          ):
+              if required not in manager:
+                  raise SystemExit('manager missing '+required)
+          for required in (
+              "OTAKU_MANAGER_URL",
+              "withOtakuSendLock",
+              "runOtakuAction",
+              "kind==='pack'",
+              "kind==='poll'",
+              "kind==='quiz_results'",
+              "getAggregateVotesInPollMessage",
+          ):
+              if required not in publisher:
+                  raise SystemExit('publisher missing '+required)
+          print('OTAKU_MANAGER_ASSERTIONS_OK')
+          PY
+
+      - name: Deploy only Otaku Nexus manager and publisher hooks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYDEPLOY'
+          import os,json,time,base64,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib,traceback
+          from pathlib import Path
+          BASE=os.environ['NXC_BASE'].rstrip('/')
+          AGENT=os.environ['NXC_AGENT']
+          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
+          SECRET=os.environ.get('NXC_SESSION_SECRET','')
+          jar=http.cookiejar.CookieJar()
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          cookie=''
+          if SECRET:
+              exp=int(time.time()*1000)+20*60*1000
+              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
+              sig=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
+              cookie=payload+'.'+sig
+          elif ADMIN:
+              data=urllib.parse.urlencode({'password':ADMIN}).encode()
+              op.open(urllib.request.Request(BASE+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=45).read()
+          else:
+              raise RuntimeError('No NexControl credential in Actions secrets')
+
+          def http(method,path,data=None,timeout=60):
+              headers={'Accept':'application/json'}
+              if cookie: headers['Cookie']='nexcontrol_session='+cookie
+              body=None
+              if data is not None:
+                  body=json.dumps(data,separators=(',',':')).encode()
+                  headers['Content-Type']='application/json'
+              req=urllib.request.Request(BASE+path,data=body,headers=headers,method=method)
+              try:
+                  with op.open(req,timeout=timeout) as r:
+                      raw=r.read().decode('utf-8','replace')
+                      return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  raise RuntimeError(f'HTTP {e.code} {path}: '+e.read().decode('utf-8','replace')[:2000])
+
+          def job(kind,payload,timeout=180):
+              created=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload})
+              jid=created.get('jobId')
+              if not jid: raise RuntimeError(f'No jobId for {kind}: {created}')
+              end=time.time()+timeout
+              while time.time()<end:
+                  state=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid),timeout=45)
+                  status=state.get('status')
+                  if status=='succeeded': return state.get('result') or {}
+                  if status=='failed': raise RuntimeError(f'{kind} failed: {state.get("error")}')
+                  time.sleep(1)
+              raise TimeoutError(f'{kind} timeout: {jid}')
+
+          backups=[]
+          wa_restarted=False
+          manager_started=False
+          try:
+              pre=job('http.check',{'url':'http://127.0.0.1:18787/healthz','timeoutMs':10000,'previewBytes':900})
+              if not pre.get('ok'):
+                  raise RuntimeError('WhatsApp publisher unhealthy before Otaku deploy: '+str(pre))
+
+              manager_text=Path('nexcanal/otaku-nexus-manager.mjs').read_text(encoding='utf-8')
+              wr=job('fs.write',{'root':'nexcanal','path':'otaku-nexus-manager.mjs','content':manager_text})
+              backups.append(('nexcanal','otaku-nexus-manager.mjs',wr.get('backupId'),wr.get('created',False)))
+              ck=job('check.run',{'check':'node-check','root':'nexcanal','file':'otaku-nexus-manager.mjs','timeoutMs':60000})
+              if not ck.get('ok'): raise RuntimeError('node-check failed Otaku manager: '+str(ck))
+
+              wa_text=Path('whatsapp-publisher/server.mjs').read_text(encoding='utf-8')
+              search=job('fs.search',{'root':'nexus','path':'.','query':'Nex WhatsApp Publisher bridge ready','maxResults':40})
+              matches=[m for m in search.get('matches',[]) if str(m.get('path','')).endswith('server.mjs') and 'whatsapp' in str(m.get('path','')).lower()]
+              if not matches: raise RuntimeError('live WhatsApp publisher path not found')
+              wa_path=str(matches[0]['path'])
+              wrwa=job('fs.write',{'root':'nexus','path':wa_path,'content':wa_text})
+              backups.append(('nexus',wa_path,wrwa.get('backupId'),wrwa.get('created',False)))
+              ck=job('check.run',{'check':'node-check','root':'nexus','file':wa_path,'timeoutMs':60000})
+              if not ck.get('ok'): raise RuntimeError('node-check failed WhatsApp publisher: '+str(ck))
+
+              services=job('service.list',{'includeHealth':False})
+              wa_services=[s for s in services.get('items',[]) if 'whatsapp' in (str(s.get('name',''))+' '+str(s.get('unit',''))+' '+str(s.get('description',''))).lower()]
+              if wa_services:
+                  rr=job('service.action',{'name':wa_services[0]['name'],'action':'restart'})
+                  if not rr.get('ok'): raise RuntimeError('WhatsApp service restart failed: '+str(rr))
+              else:
+                  procs=job('process.list',{'limit':500})
+                  candidates=[p for p in procs.get('items',[]) if wa_path in str(p.get('cmdline','')) or ('whatsapp-publisher' in str(p.get('cmdline','')).lower() and 'server.mjs' in str(p.get('cmdline','')))]
+                  if not candidates: raise RuntimeError('WhatsApp publisher process not found')
+                  target=sorted(candidates,key=lambda x:int(x.get('pid',0)))[-1]
+                  job('runtime.signal',{'pid':int(target['pid']),'signal':'SIGTERM'})
+              wa_restarted=True
+              time.sleep(7)
+
+              ready=job('http.check',{'url':'http://127.0.0.1:18787/readyz','timeoutMs':10000,'previewBytes':1000})
+              if not ready.get('ok'): raise RuntimeError('WhatsApp publisher not ready after isolated restart: '+str(ready))
+              hook=job('http.check',{'url':'http://127.0.0.1:18787/otaku/status','timeoutMs':10000,'previewBytes':1000})
+              if not hook.get('ok'): raise RuntimeError('Otaku publisher hook missing after deploy: '+str(hook))
+
+              sup=job('runtime.exec',{'root':'nexcanal','command':'node','args':['otaku-nexus-manager.mjs','--restart-supervisor'],'timeoutMs':30000},timeout=60)
+              if sup.get('ok') is False: raise RuntimeError('Otaku manager supervisor start failed: '+str(sup))
+              manager_started=True
+              time.sleep(3)
+
+              health=job('http.check',{'url':'http://127.0.0.1:18812/healthz','timeoutMs':10000,'previewBytes':1200})
+              if not health.get('ok'): raise RuntimeError('Otaku manager health failed: '+str(health))
+
+              procs=job('process.list',{'limit':500})
+              items=procs.get('items',[])
+              supervisors=[p for p in items if 'otaku-nexus-manager.mjs' in str(p.get('cmdline','')) and '--supervise' in str(p.get('cmdline',''))]
+              workers=[p for p in items if 'otaku-nexus-manager.mjs' in str(p.get('cmdline','')) and '--worker' in str(p.get('cmdline',''))]
+              if not supervisors or not workers: raise RuntimeError('Otaku manager supervisor/worker missing')
+              print('DEPLOYMENT_OK isolated Otaku Nexus pro manager',flush=True)
+
+          except Exception:
+              traceback.print_exc()
+              if manager_started:
+                  try:
+                      procs=job('process.list',{'limit':500})
+                      for p in procs.get('items',[]):
+                          if 'otaku-nexus-manager.mjs' in str(p.get('cmdline','')):
+                              try: job('runtime.signal',{'pid':int(p.get('pid')),'signal':'SIGTERM'})
+                              except Exception: pass
+                  except Exception: pass
+              for root,path,bid,created in reversed(backups):
+                  try:
+                      if bid: job('fs.rollback',{'backupId':bid})
+                      elif created: job('fs.delete',{'root':root,'path':path,'allowDir':False})
+                  except Exception: pass
+              if wa_restarted:
+                  try:
+                      services=job('service.list',{'includeHealth':False})
+                      wa_services=[s for s in services.get('items',[]) if 'whatsapp' in (str(s.get('name',''))+' '+str(s.get('unit',''))+' '+str(s.get('description',''))).lower()]
+                      if wa_services: job('service.action',{'name':wa_services[0]['name'],'action':'restart'})
+                  except Exception: pass
+              raise
+          PYDEPLOY
