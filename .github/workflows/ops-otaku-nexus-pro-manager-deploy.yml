@@ -22,8 +22,8 @@ jobs:
     env:
       NXC_BASE: https://nexcontrol-ochre.vercel.app
       NXC_AGENT: nexus-main
-      NXC_ADMIN_PASSWORD: \${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
-      NXC_SESSION_SECRET: \${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
+      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
     steps:
       - uses: actions/checkout@v4
 
