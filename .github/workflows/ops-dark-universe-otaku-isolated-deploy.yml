@@ -10,7 +10,7 @@ on:
       - 'nexcanal/nextech-whatsapp-mirror.mjs'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ops-dark-universe-otaku-isolated-deploy
@@ -166,10 +166,23 @@ jobs:
               if 'tresor_universe' in shared_line:
                   raise RuntimeError('live shared relay still contains Dark Universe')
 
-              verify_dedicated=job('fs.read',{'root':'nexcanal','path':'dist/src/telegram/dark-universe-whatsapp-relay.js','startLine':1,'endLine':260}).get('content','')
+              verify_dedicated=job('fs.read',{'root':'nexcanal','path':'dist/src/telegram/dark-universe-whatsapp-relay.js','startLine':1,'endLine':900}).get('content','')
               for required in ("const SOURCE='tresor_universe';",'dark-universe-otaku','18787/publish','mirrorDarkUniverseChannelPostToWhatsApp'):
                   if required not in verify_dedicated:
                       raise RuntimeError('live isolated relay missing '+required)
+
+              # Start/restart the dedicated Dark Universe supervisor itself.
+              # This is a separate OS process from NexCanal; it owns its own worker,
+              # queue lock, heartbeat and crash-restart loop.
+              sup=job('runtime.exec',{
+                  'root':'nexcanal',
+                  'command':'node',
+                  'args':['dist/src/telegram/dark-universe-whatsapp-relay.js','--restart-supervisor'],
+                  'timeoutMs':30000
+              },timeout=60)
+              if sup.get('ok') is False:
+                  raise RuntimeError('Dark Universe supervisor failed to start: '+str(sup))
+              print('DARK_SUPERVISOR_RESTART',str(sup)[-1800:],flush=True)
 
               # Restart only NexCanal. No NexGroup/WhatsApp/Anime service restart.
               rr=job('runtime.restart',{'target':'nexcanal','reason':'Isolate Dark Universe Telegram -> Otaku Nexus WhatsApp relay'})
@@ -177,15 +190,129 @@ jobs:
               restarted=True
               time.sleep(8)
 
-              # Verify the downstream bridge remained healthy and NexCanal process returned.
-              wh2=job('http.check',{'url':'http://127.0.0.1:18787/healthz','timeoutMs':10000,'previewBytes':600})
+              # Verify the downstream bridge remained healthy and is actually ready
+              # for Otaku Nexus publishing.
+              wh2=job('http.check',{'url':'http://127.0.0.1:18787/healthz','timeoutMs':10000,'previewBytes':800})
               if not wh2.get('ok'):
                   raise RuntimeError('WhatsApp bridge regressed after NexCanal restart: '+str(wh2))
+              ready=job('http.check',{'url':'http://127.0.0.1:18787/readyz','timeoutMs':10000,'previewBytes':1200})
+              if not ready.get('ok'):
+                  raise RuntimeError('WhatsApp publisher is not ready for Otaku Nexus: '+str(ready))
+              newsletter=job('http.check',{'url':'http://127.0.0.1:18787/newsletterz','timeoutMs':15000,'previewBytes':1800})
+              if not newsletter.get('ok'):
+                  raise RuntimeError('Otaku newsletter cannot be read after deploy: '+str(newsletter))
+
               procs=job('process.list',{'limit':500})
-              nex=[p for p in procs.get('items',[]) if 'nexcanal' in str(p.get('cmdline','')).lower()]
+              items=procs.get('items',[])
+              nex=[p for p in items if 'nexcanal' in str(p.get('cmdline','')).lower()]
+              supervisors=[p for p in items if 'dark-universe-whatsapp-relay.js' in str(p.get('cmdline','')) and '--supervise' in str(p.get('cmdline',''))]
+              workers=[p for p in items if 'dark-universe-whatsapp-relay.js' in str(p.get('cmdline','')) and '--worker' in str(p.get('cmdline',''))]
               if not nex:
                   raise RuntimeError('NexCanal process not found after isolated restart')
-              print('NEXCANAL_PROCESS_OK',json.dumps(nex[-5:],ensure_ascii=False),flush=True)
+              if not supervisors or not workers:
+                  raise RuntimeError('Dedicated Dark Universe supervisor/worker process missing: supervisors=%d workers=%d' % (len(supervisors),len(workers)))
+
+              # Read only aggregate evidence from the server. Never export message
+              # bodies, credentials, JIDs or media paths into the public report.
+              status_js=r"""
+              import fs from 'node:fs';
+              const read=p=>{try{return JSON.parse(fs.readFileSync(p,'utf8'))}catch{return null}};
+              const stateDir='/var/lib/nex/state/internal-automation/dark-universe-otaku';
+              const dq=read(stateDir+'/queue.json')||[];
+              const health=read(stateDir+'/worker-health.json')||{};
+              const candidates=[
+                process.env.WA_PUBLISHER_DATA_DIR,
+                '/var/lib/nex/data/internal/whatsapp-publisher',
+                '/var/lib/nex/whatsapp-publisher'
+              ].filter(Boolean);
+              let publisherDir=null,pq=[],ph=[];
+              for(const dir of candidates){
+                const q=read(dir+'/queue.json'),h=read(dir+'/history.json');
+                if(Array.isArray(q)||Array.isArray(h)){publisherDir=dir;pq=Array.isArray(q)?q:[];ph=Array.isArray(h)?h:[];break;}
+              }
+              const oursJob=x=>{
+                const p=x?.pub||{};
+                return String(p?.source||'').replace(/^@/,'').toLowerCase()==='tresor_universe' ||
+                  String(p?.id||'').startsWith('dark-universe:');
+              };
+              const oursHistory=x=>String(x?.source||'').replace(/^@/,'').toLowerCase()==='tresor_universe' ||
+                String(x?.publicationId||'').startsWith('dark-universe:');
+              const doneIds=new Set(dq.filter(x=>x?.status==='done').map(x=>String(x?.sourceMessageId||'')));
+              const publisherOurs=pq.filter(oursJob);
+              const publishedOurs=publisherOurs.filter(x=>x?.status==='done');
+              const historyOurs=ph.filter(x=>x?.type==='published'&&oursHistory(x));
+              const correlated=publishedOurs.filter(x=>doneIds.has(String(x?.pub?.sourceMessageId||'')));
+              process.stdout.write(JSON.stringify({
+                workerHealth:{
+                  ok:health?.ok===true,
+                  pid:Number(health?.pid)||null,
+                  updatedAt:health?.updatedAt||null,
+                  pending:Number(health?.pending)||0
+                },
+                dedicated:{
+                  total:dq.length,
+                  pending:dq.filter(x=>x?.status==='pending').length,
+                  done:dq.filter(x=>x?.status==='done').length
+                },
+                publisher:{
+                  found:Boolean(publisherDir),
+                  totalForDarkUniverse:publisherOurs.length,
+                  doneForDarkUniverse:publishedOurs.length,
+                  publishedHistoryForDarkUniverse:historyOurs.length,
+                  correlatedDone:correlated.length
+                }
+              }));
+              """
+              live=job('runtime.exec',{
+                  'root':'nexcanal',
+                  'command':'node',
+                  'args':['--input-type=module','-e',status_js],
+                  'timeoutMs':30000
+              },timeout=60)
+              if live.get('ok') is False:
+                  raise RuntimeError('Unable to inspect isolated runtime state: '+str(live))
+              runtime=json.loads((live.get('stdout') or '{}').strip() or '{}')
+              health=runtime.get('workerHealth') or {}
+              if health.get('ok') is not True or not health.get('updatedAt'):
+                  raise RuntimeError('Dedicated worker heartbeat is not healthy: '+str(health))
+              try:
+                  heartbeat_age=max(0,time.time()-__import__('datetime').datetime.fromisoformat(str(health['updatedAt']).replace('Z','+00:00')).timestamp())
+              except Exception:
+                  heartbeat_age=999999
+              if heartbeat_age>45:
+                  raise RuntimeError('Dedicated worker heartbeat is stale: %.1fs' % heartbeat_age)
+
+              pub=runtime.get('publisher') or {}
+              real_publication_verified=bool(
+                  int(pub.get('correlatedDone') or 0)>0 or
+                  int(pub.get('doneForDarkUniverse') or 0)>0 or
+                  int(pub.get('publishedHistoryForDarkUniverse') or 0)>0
+              )
+              report={
+                  'ok':True,
+                  'checkedAt':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),
+                  'isolation':{
+                      'separateSupervisor':True,
+                      'separateWorker':True,
+                      'nexcanalProcessCount':len(nex),
+                      'supervisorProcessCount':len(supervisors),
+                      'workerProcessCount':len(workers)
+                  },
+                  'whatsapp':{
+                      'healthz':bool(wh2.get('ok')),
+                      'readyz':bool(ready.get('ok')),
+                      'newsletterReadable':bool(newsletter.get('ok'))
+                  },
+                  'runtime':runtime,
+                  'realPublicationVerified':real_publication_verified
+              }
+              Path('ops-results').mkdir(parents=True,exist_ok=True)
+              Path('ops-results/dark-universe-otaku.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+
+              print('NEXCANAL_PROCESS_OK count='+str(len(nex)),flush=True)
+              print('DARK_SUPERVISOR_OK supervisors='+str(len(supervisors))+' workers='+str(len(workers)),flush=True)
+              print('DARK_RUNTIME_EVIDENCE',json.dumps(runtime,separators=(',',':')),flush=True)
+              print('REAL_PUBLICATION_VERIFIED',str(real_publication_verified).lower(),flush=True)
               print('DEPLOYMENT_OK Dark Universe -> Otaku Nexus isolated automation',flush=True)
           except Exception:
               traceback.print_exc()
@@ -204,3 +331,17 @@ jobs:
                       print('rollback restart warning',restart_error,flush=True)
               raise
           PYDEPLOY
+
+      - name: Commit production verification report
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f ops-results/dark-universe-otaku.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ops-results/dark-universe-otaku.json
+          if ! git diff --cached --quiet; then
+            git commit -m "ops: record Dark Universe Otaku production verification"
+            git push origin HEAD:main
+          fi
