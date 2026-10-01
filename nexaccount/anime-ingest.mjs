@@ -2703,7 +2703,8 @@ async function purgePublishedEpisodeImageCards(runtime){
     {
       kind:'episode',
       status:'quarantine',
-      quarantineReason:'source_identity_mismatch'
+      quarantineReason:'source_identity_mismatch',
+      recoveredReason:{$ne:'multi_source_validation'}
     },
     {$set:{
       status:'queued',
