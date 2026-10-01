@@ -9,6 +9,7 @@ import makeWASocket, {
   Browsers,
   DisconnectReason,
   generateWAMessageFromContent,
+  getAggregateVotesInPollMessage,
   generateMessageIDV2,
   encodeNewsletterMessage,
   proto,
@@ -55,6 +56,75 @@ let processing = false;
 let lastPairRequestAt = 0;
 let pairingResetInProgress = false;
 let commandEngine = null;
+
+// Otaku Nexus pro manager: one shared serialization lane for every Otaku
+// newsletter update. Dark Universe relay and the autonomous manager remain
+// separate workers, but they cannot publish at the exact same time.
+const OTAKU_MANAGER_URL=String(process.env.OTAKU_MANAGER_URL||'http://127.0.0.1:18812').replace(/\/$/,'');
+const OTAKU_MIN_GAP_MS=Math.max(15000,Number(process.env.OTAKU_MIN_GAP_MS||120000));
+let otakuSendChain=Promise.resolve();
+let otakuLastSendAt=0;
+const otakuPollMessages=new Map();
+const otakuPollRecords=new Map();
+
+function otakuSleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function withOtakuSendLock(fn){
+  const task=otakuSendChain.then(async()=>{
+    const wait=Math.max(0,OTAKU_MIN_GAP_MS-(Date.now()-otakuLastSendAt));
+    if(wait)await otakuSleep(wait);
+    const out=await fn();
+    otakuLastSendAt=Date.now();
+    return out;
+  },async()=>{
+    const wait=Math.max(0,OTAKU_MIN_GAP_MS-(Date.now()-otakuLastSendAt));
+    if(wait)await otakuSleep(wait);
+    const out=await fn();
+    otakuLastSendAt=Date.now();
+    return out;
+  });
+  otakuSendChain=task.then(()=>undefined,()=>undefined);
+  return task;
+}
+function extractIncomingText(msg){
+  const m=msg?.message||{};
+  return String(
+    m.conversation||
+    m.extendedTextMessage?.text||
+    m.imageMessage?.caption||
+    m.videoMessage?.caption||
+    ''
+  ).trim();
+}
+async function forwardOtakuOrderCandidate(msg){
+  if(msg?.key?.fromMe)return;
+  const jid=String(msg?.key?.remoteJid||'');
+  if(!jid||jid.endsWith('@newsletter')||jid==='status@broadcast')return;
+  const text=extractIncomingText(msg);
+  if(!text)return;
+  const payload={
+    text,
+    chatId:jid,
+    senderId:String(msg?.key?.participant||jid),
+    fromGroup:jid.endsWith('@g.us'),
+    at:new Date().toISOString()
+  };
+  fetch(OTAKU_MANAGER_URL+'/incoming',{
+    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload),
+    signal:AbortSignal.timeout(5000)
+  }).catch(()=>{});
+}
+function persistOtakuPollSummary(){
+  const rows=[];
+  for(const [id,r] of otakuPollRecords){
+    rows.push({
+      id,sessionId:r.sessionId||null,question:r.question||'',
+      correctAnswer:r.correctAnswer||null,quiz:Boolean(r.quiz),
+      votes:r.votes||{},createdAt:r.createdAt||null
+    });
+  }
+  writeJson('otaku-polls.json',rows.slice(-250));
+}
+
 const MENU_IMAGE_B64_PATH = path.join(DATA_DIR,'assets','nexai-menu.b64');
 
 async function resetAuthForPairing(){
@@ -444,7 +514,11 @@ async function connectWhatsApp({freshPairing=false}={}){
     },
     generateHighQualityLinkPreview:true,
     keepAliveIntervalMs:30000,
-    retryRequestDelayMs:2000
+    retryRequestDelayMs:2000,
+    getMessage:async key=>{
+      const saved=otakuPollMessages.get(String(key?.id||''));
+      return saved?.message||proto.Message.fromObject({});
+    }
   });
   socket=sock;
 
@@ -460,6 +534,36 @@ async function connectWhatsApp({freshPairing=false}={}){
     }),
   });
   logger.info({commands:commandEngine?.commandCount||0},'EliteProTech command engine attached');
+
+  // Orders are only accepted by the manager while its order window is open.
+  // Forwarding candidates is harmless outside that window; the manager rejects
+  // them before AI classification or queue insertion.
+  sock.ev.on('messages.upsert',({messages})=>{
+    for(const msg of messages||[])forwardOtakuOrderCandidate(msg).catch(()=>{});
+  });
+  sock.ev.on('messages.update',updates=>{
+    for(const row of updates||[]){
+      const id=String(row?.key?.id||'');
+      const record=otakuPollRecords.get(id);
+      const pollUpdates=row?.update?.pollUpdates;
+      if(!record||!Array.isArray(pollUpdates)||!pollUpdates.length)continue;
+      record.updates=[...(record.updates||[]),...pollUpdates].slice(-2000);
+      try{
+        const aggregate=getAggregateVotesInPollMessage(
+          {message:record.message,pollUpdates:record.updates},
+          sock.user?.id
+        );
+        const votes={};
+        for(const option of aggregate||[]){
+          for(const voter of option?.voters||[])votes[String(voter)]=String(option?.name||'');
+        }
+        record.votes=votes;
+        persistOtakuPollSummary();
+      }catch(error){
+        logger.warn({error:String(error?.message||error),poll:id},'Otaku poll aggregation failed');
+      }
+    }
+  });
 
   sock.ev.on('connection.update',async u=>{
     if(generation!==socketGeneration)return;
@@ -658,6 +762,119 @@ async function sendNewsletterTextDirect(jid,text){
   return messageId;
 }
 
+function safeOtakuLocalPath(value=''){
+  const p=path.resolve(String(value||''));
+  if(
+    p.startsWith('/var/lib/nex/tmp/internal-automation/otaku-nexus-manager/')||
+    p.startsWith('/var/lib/nex/tmp/shared-whatsapp/')
+  )return p;
+  return '';
+}
+async function otakuMediaSource(item={}){
+  const local=safeOtakuLocalPath(item.localPath);
+  if(local){
+    const st=fs.statSync(local);
+    if(!st.isFile()||st.size<=0)throw new Error('Otaku media local invalide');
+    return {stream:fs.createReadStream(local)};
+  }
+  const url=String(item.url||'').trim();
+  if(/^https?:\/\//i.test(url))return {url};
+  throw new Error('Otaku media source absente');
+}
+function otakuRankText(sessionId){
+  const scores=new Map();
+  let questionCount=0;
+  for(const record of otakuPollRecords.values()){
+    if(record.sessionId!==sessionId||!record.quiz||!record.correctAnswer)continue;
+    questionCount++;
+    for(const [voter,answer] of Object.entries(record.votes||{})){
+      if(!scores.has(voter))scores.set(voter,0);
+      if(String(answer)===String(record.correctAnswer))scores.set(voter,scores.get(voter)+1);
+    }
+  }
+  const rows=[...scores.entries()].sort((a,b)=>b[1]-a[1]);
+  if(!rows.length){
+    return '✦ ʀᴇ́sᴜʟᴛᴀᴛs ᴅᴜ ǫᴜɪᴢ\n\nAucun vote individuel exploitable n’a été remonté par WhatsApp pour établir un classement fiable. Merci à tous ceux qui ont participé. 🔥';
+  }
+  const medals=['🥇','🥈','🥉'];
+  const body=rows.map(([v,s],i)=>(medals[i]||String(i+1)+'.')+' '+String(v).replace(/@.*/,'')+' — '+s+'/'+questionCount).join('\n');
+  return '✦ ᴄʟᴀssᴇᴍᴇɴᴛ ᴏᴛᴀᴋᴜ ɴᴇxᴜs\n\n'+body+'\n\nBien joué à tous. On remet ça bientôt. 🔥';
+}
+async function runOtakuAction(raw={}){
+  if(!socket||state.status!=='connected')throw new Error('WhatsApp non connecté');
+  const jid=state.otakuChannelJid||await resolveOtakuChannel();
+  if(!jid)throw new Error('Chaîne Otaku Nexus non résolue');
+  const kind=String(raw.kind||'').toLowerCase();
+
+  return withOtakuSendLock(async()=>{
+    if(kind==='text'){
+      const id=await sendNewsletterTextDirect(jid,String(raw.text||''));
+      return {ok:true,actionId:id};
+    }
+    if(kind==='image'){
+      const src=await otakuMediaSource(raw.image||{url:raw.imageUrl,localPath:raw.localPath});
+      const sent=await socket.sendMessage(jid,{image:src,caption:String(raw.text||raw.caption||'').slice(0,1024)});
+      return {ok:true,actionId:sent?.key?.id||null};
+    }
+    if(kind==='poll'){
+      const question=String(raw.question||'Question').slice(0,255);
+      const options=(Array.isArray(raw.options)?raw.options:[]).map(x=>String(x).slice(0,100)).filter(Boolean).slice(0,12);
+      if(options.length<2)throw new Error('Sondage Otaku: 2 options minimum');
+      const poll={
+        name:question,
+        values:options,
+        selectableCount:1,
+        ...(raw.quiz&&raw.correctAnswer?{correctAnswer:String(raw.correctAnswer),pollType:1}:{})
+      };
+      let sent;
+      try{sent=await socket.sendMessage(jid,{poll});}
+      catch(error){
+        // Some WhatsApp builds reject quiz-only fields. Fall back to a real
+        // poll while keeping the correct answer server-side for scoring.
+        sent=await socket.sendMessage(jid,{poll:{name:question,values:options,selectableCount:1}});
+      }
+      const id=String(sent?.key?.id||'');
+      if(id){
+        const message=sent?.message||{pollCreationMessage:{name:question,options:options.map(optionName=>({optionName}))}};
+        otakuPollMessages.set(id,{message});
+        otakuPollRecords.set(id,{
+          message,sessionId:String(raw.sessionId||''),question,
+          correctAnswer:raw.quiz?String(raw.correctAnswer||''):null,
+          quiz:Boolean(raw.quiz),updates:[],votes:{},createdAt:new Date().toISOString()
+        });
+        persistOtakuPollSummary();
+      }
+      return {ok:true,actionId:id};
+    }
+    if(kind==='pack'){
+      const stickers=(Array.isArray(raw.stickers)?raw.stickers:[]).slice(0,30);
+      if(!stickers.length)throw new Error('Pack Otaku vide');
+      if(raw.cover){
+        const cover=await otakuMediaSource(raw.cover);
+        await socket.sendMessage(jid,{image:cover,caption:String(raw.caption||'').slice(0,1024)});
+        await otakuSleep(1800);
+      }else if(raw.caption){
+        await sendNewsletterTextDirect(jid,String(raw.caption));
+        await otakuSleep(1800);
+      }
+      let sentCount=0;
+      for(const sticker of stickers){
+        const src=await otakuMediaSource(sticker);
+        await socket.sendMessage(jid,{sticker:src});
+        sentCount++;
+        await otakuSleep(1100);
+      }
+      return {ok:true,actionId:String(raw.id||''),sentCount};
+    }
+    if(kind==='quiz_results'){
+      const text=otakuRankText(String(raw.sessionId||''));
+      const id=await sendNewsletterTextDirect(jid,text);
+      return {ok:true,actionId:id};
+    }
+    throw new Error('Action Otaku inconnue: '+kind);
+  });
+}
+
 async function sendPublication(jid,destination,pub){
   if(!socket||state.status!=='connected') throw new Error('WhatsApp non connecté');
 
@@ -757,7 +974,11 @@ async function processQueue(){
           if(!resolved) throw new Error(lifestyle?'Chaîne WhatsApp Otaku non résolue':'Chaîne WhatsApp non résolue');
           job.jid=resolved;
         }
-        await promiseWithTimeout(sendPublication(job.jid,job.destination,job.pub),25000,'WhatsApp publication');
+        const sendJob=()=>sendPublication(job.jid,job.destination,job.pub);
+        const sendPromise=isOtakuSource(job.pub?.source)
+          ?withOtakuSendLock(sendJob)
+          :sendJob();
+        await promiseWithTimeout(sendPromise,120000,'WhatsApp publication');
         job.status='done'; job.completedAt=new Date().toISOString(); delete job.inFlightAt; state.lastPublishAt=job.completedAt;
         addHistory({type:'published',publicationId:job.pub.id,source:job.pub.source,destination:job.destination,attempts:job.attempts});
         // Otaku/Dark media staged by NexAnime has a single WhatsApp destination.
@@ -988,6 +1209,14 @@ const bridgeServer=http.createServer(async(req,res)=>{
       const q=await body(req);
       const out=plan(q);
       return json(res,202,{ok:true,duplicate:out.duplicate,route:out.route});
+    }
+    if(req.method==='POST'&&url.pathname==='/otaku/action'){
+      const q=await body(req);
+      const out=await runOtakuAction(q);
+      return json(res,200,out);
+    }
+    if(req.method==='GET'&&url.pathname==='/otaku/status'){
+      return json(res,200,{ok:true,polls:otakuPollRecords.size,lastSendAt:otakuLastSendAt,minGapMs:OTAKU_MIN_GAP_MS});
     }
     if(req.method==='POST'&&url.pathname==='/kickz'){
       const wasProcessing=processing;
