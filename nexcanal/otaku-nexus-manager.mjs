@@ -34,6 +34,9 @@ const MAX_STICKERS=Math.max(1,Math.min(30,Number(process.env.OTAKU_MAX_STICKERS|
 const MIN_STICKERS=Math.max(4,Math.min(MAX_STICKERS,Number(process.env.OTAKU_MIN_STICKERS||12)));
 const QUIZ_GAP=Math.max(60_000,Number(process.env.OTAKU_QUIZ_GAP_MS||3*60_000));
 const CHOICE_GAP=Math.max(5*60_000,Number(process.env.OTAKU_CHOICE_GAP_MS||15*60_000));
+const TELEGRAM_CHANNEL_URL=String(process.env.OTAKU_TELEGRAM_CHANNEL_URL||'https://t.me/theotaku_nexus').trim();
+const PROMO_MIN_GAP=Math.max(20_000,Number(process.env.OTAKU_PROMO_MIN_GAP_MS||35_000));
+const PROMO_MAX_GAP=Math.max(PROMO_MIN_GAP,Number(process.env.OTAKU_PROMO_MAX_GAP_MS||65_000));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 const STICKER_SOURCES=['fr3dc','anime_stickerr','supremacy_sticks','Leonild'];
@@ -248,6 +251,35 @@ async function pinterestStickers(character,dir,start,limit){
   }
   return out;
 }
+function isManagedTelegramGroup(entity){
+  const name=String(entity?.className||entity?.constructor?.name||'');
+  const isGroup=name==='Chat'||(name==='Channel'&&entity?.megagroup===true);
+  const managed=entity?.creator===true||Boolean(entity?.adminRights);
+  return isGroup&&managed;
+}
+async function promotePackToManagedGroups(character,cover,count){
+  const client=await telegramClient();
+  if(!client)return {sent:0,skipped:'no_user_session'};
+  let sent=0;
+  try{
+    const dialogs=await client.getDialogs({limit:500});
+    for(const dialog of dialogs||[]){
+      const entity=dialog?.entity;
+      if(!isManagedTelegramGroup(entity))continue;
+      const username=clean(entity?.username).replace(/^@/,'').toLowerCase();
+      if(username==='theotaku_nexus'||STICKER_SOURCES.map(x=>x.toLowerCase()).includes(username))continue;
+      try{
+        const caption='✦ ᴏᴛᴀᴋᴜ ɴᴇxᴜs\n\nNouveau pack '+character+' — '+count+' stickers.\n\nRejoins la chaîne pour les prochains packs : '+TELEGRAM_CHANNEL_URL;
+        await client.sendFile(entity,{file:cover,caption,buttons:[[{text:'Otaku Nexus',url:TELEGRAM_CHANNEL_URL}]]});
+        sent++;
+      }catch{}
+      const gap=PROMO_MIN_GAP+Math.floor(Math.random()*(PROMO_MAX_GAP-PROMO_MIN_GAP+1));
+      await sleep(gap);
+    }
+  }finally{await client.disconnect().catch(()=>{})}
+  return {sent};
+}
+
 async function buildPack(character){
   const dir=path.join(TMP_DIR,'pack-'+Date.now()+'-'+digest(character).slice(0,6));
   await fs.rm(dir,{recursive:true,force:true});await fs.mkdir(dir,{recursive:true});
@@ -276,7 +308,12 @@ async function publishPack(character,state,reason){
   state.recent.push(character);state.recent=state.recent.slice(-12);
   state.history.push({at:nowIso(),type:'pack',reason,character,count:pack.stickers.length});
   state.history=state.history.slice(-250);
-  await fs.rm(pack.dir,{recursive:true,force:true}).catch(()=>{});
+  // Promotion is intentionally asynchronous and limited to groups where the
+  // Telegram account is creator/admin. It never blocks WhatsApp pack delivery.
+  void promotePackToManagedGroups(character,pack.cover,pack.stickers.length)
+    .then(x=>{state.history.push({at:nowIso(),type:'promo',character,sent:Number(x?.sent||0)});state.history=state.history.slice(-250);return saveState(state)})
+    .catch(()=>{});
+  setTimeout(()=>fs.rm(pack.dir,{recursive:true,force:true}).catch(()=>{}),Math.max(2*60*60_000,PROMO_MAX_GAP*120)).unref?.();
   return pack.stickers.length;
 }
 async function openOrders(state){
