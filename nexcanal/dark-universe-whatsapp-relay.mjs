@@ -10,8 +10,14 @@ const RETRY_TICK_MS=Math.max(1000,Number(process.env.DARK_UNIVERSE_OTAKU_RETRY_T
 const MEDIA_RETENTION_MS=Math.max(60*60*1000,Number(process.env.DARK_UNIVERSE_OTAKU_MEDIA_RETENTION_MS||24*60*60*1000));
 const DONE_RETENTION_MS=Math.max(60*60*1000,Number(process.env.DARK_UNIVERSE_OTAKU_DONE_RETENTION_MS||7*24*60*60*1000));
 
-let processing=false;
+let operationChain=Promise.resolve();
 let writeChain=Promise.resolve();
+
+function serialized(fn){
+  const run=operationChain.then(fn,fn);
+  operationChain=run.then(()=>undefined,()=>undefined);
+  return run;
+}
 
 function log(...args){console.log('[DarkUniverse->OtakuWA]',...args)}
 function warn(...args){console.warn('[DarkUniverse->OtakuWA]',...args)}
@@ -81,12 +87,14 @@ async function media(api,msg){
 }
 function sameJob(job,messageId){return String(job?.sourceMessageId||'')===String(messageId)}
 async function enqueue(job){
-  const queue=await readQueue();
-  const existing=queue.find(x=>sameJob(x,job.sourceMessageId)&&['pending','done'].includes(String(x?.status||'')));
-  if(existing)return {...existing,duplicate:true};
-  queue.push(job);
-  await writeQueue(queue);
-  return job;
+  return serialized(async()=>{
+    const queue=await readQueue();
+    const existing=queue.find(x=>sameJob(x,job.sourceMessageId)&&['pending','done'].includes(String(x?.status||'')));
+    if(existing)return {...existing,duplicate:true};
+    queue.push(job);
+    await writeQueue(queue);
+    return job;
+  });
 }
 async function publish(job){
   const response=await fetch(BRIDGE_URL,{
@@ -129,9 +137,7 @@ async function cleanup(queue){
   return kept;
 }
 async function drain(){
-  if(processing)return;
-  processing=true;
-  try{
+  return serialized(async()=>{
     let queue=await readQueue();
     let changed=false;
     for(const job of queue){
@@ -154,7 +160,7 @@ async function drain(){
     }
     const compact=await cleanup(queue);
     if(changed||compact.length!==queue.length)await writeQueue(compact);
-  }finally{processing=false}
+  });
 }
 
 export async function mirrorDarkUniverseChannelPostToWhatsApp(api,update){
