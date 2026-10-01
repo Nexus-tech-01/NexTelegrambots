@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "recordedAt": "2026-10-01T18:50:36.713627+00:00",
+  "workflow": {
+    "deployOutcome": "failure",
+    "validationOutcome": "success"
+  }
+}
