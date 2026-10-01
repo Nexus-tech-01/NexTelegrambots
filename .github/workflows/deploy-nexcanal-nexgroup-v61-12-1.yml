@@ -7,7 +7,6 @@ on:
       - '.deploy/v61121-relay.manifest.b64'
       - 'nexcanal/social-feed.mjs'
       - 'nexcanal/liteapks-relay.mjs'
-      - 'whatsapp-publisher/**'
       - 'watchers/liteapks-relay.mjs'
 
 permissions:
