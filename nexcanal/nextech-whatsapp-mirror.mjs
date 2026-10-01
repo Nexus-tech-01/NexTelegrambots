@@ -3,10 +3,10 @@ import path from 'node:path';
 import { TelegramClient } from 'teleproto';
 import { StringSession } from 'teleproto/sessions/index.js';
 
-const DEFAULT_CHANNELS=['thenexusorigin','thenexnews','tresor_universe','theotaku_nexus'];
+const DEFAULT_CHANNELS=['thenexusorigin','thenexnews','theotaku_nexus'];
 const CHANNELS=[...new Set(
   String(process.env.NEX_WHATSAPP_MIRROR_CHANNELS||DEFAULT_CHANNELS.join(','))
-    .split(',').map(x=>x.trim().replace(/^@/,'').toLowerCase()).filter(Boolean)
+    .split(',').map(x=>x.trim().replace(/^@/,'').toLowerCase()).filter(x=>Boolean(x)&&x!=='tresor_universe')
 )];
 const API_ID=Number(process.env.NEXCANAL__WATCHER_API_ID||process.env.NEXGROUP__TELEGRAM_API_ID||0);
 const API_HASH=String(process.env.NEXCANAL__WATCHER_API_HASH||process.env.NEXGROUP__TELEGRAM_API_HASH||'').trim();
