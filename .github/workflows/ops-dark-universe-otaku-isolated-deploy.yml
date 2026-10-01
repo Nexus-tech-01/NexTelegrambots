@@ -1,0 +1,206 @@
+name: Ops Dark Universe Otaku Isolated Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-dark-universe-otaku-isolated-deploy.yml'
+      - 'nexcanal/dark-universe-whatsapp-relay.mjs'
+      - 'nexcanal/nextech-whatsapp-channel-post.mjs'
+      - 'nexcanal/nextech-whatsapp-mirror.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-dark-universe-otaku-isolated-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      NXC_BASE: https://nexcontrol-ochre.vercel.app
+      NXC_AGENT: nexus-main
+      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
+      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate isolated relay only
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check nexcanal/dark-universe-whatsapp-relay.mjs
+          node --check nexcanal/nextech-whatsapp-channel-post.mjs
+          node --check nexcanal/nextech-whatsapp-mirror.mjs
+          python3 - <<'PY'
+          from pathlib import Path
+          dedicated=Path('nexcanal/dark-universe-whatsapp-relay.mjs').read_text()
+          shared=Path('nexcanal/nextech-whatsapp-channel-post.mjs').read_text()
+          mtproto=Path('nexcanal/nextech-whatsapp-mirror.mjs').read_text()
+          required=[
+              "const SOURCE='tresor_universe';",
+              "/var/lib/nex/state/internal-automation/dark-universe-otaku",
+              "/var/lib/nex/tmp/internal-automation/dark-universe-otaku",
+              "http://127.0.0.1:18787/publish",
+              "mirrorDarkUniverseChannelPostToWhatsApp",
+          ]
+          for item in required:
+              if item not in dedicated:
+                  raise SystemExit('dedicated relay missing '+item)
+          source_line=next((x for x in shared.splitlines() if 'MIRRORED_SOURCES' in x),'')
+          if 'tresor_universe' in source_line:
+              raise SystemExit('Dark Universe still mixed into shared Bot API relay')
+          if "x!=='tresor_universe'" not in mtproto:
+              raise SystemExit('Dark Universe exclusion missing from shared MTProto mirror')
+          print('ISOLATION_ASSERTIONS_OK')
+          PY
+
+      - name: Deploy only Dark Universe to Otaku Nexus isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYDEPLOY'
+          import os,json,time,base64,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib,traceback
+          from pathlib import Path
+
+          BASE=os.environ['NXC_BASE'].rstrip('/')
+          AGENT=os.environ['NXC_AGENT']
+          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
+          SECRET=os.environ.get('NXC_SESSION_SECRET','')
+
+          jar=http.cookiejar.CookieJar()
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          cookie=''
+          if SECRET:
+              exp=int(time.time()*1000)+20*60*1000
+              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
+              sig=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
+              cookie=payload+'.'+sig
+          elif ADMIN:
+              data=urllib.parse.urlencode({'password':ADMIN}).encode()
+              op.open(urllib.request.Request(BASE+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=45).read()
+          else:
+              raise RuntimeError('No NexControl credential in Actions secrets')
+
+          def http(method,path,data=None,timeout=60):
+              headers={'Accept':'application/json'}
+              if cookie:
+                  headers['Cookie']='nexcontrol_session='+cookie
+              body=None
+              if data is not None:
+                  body=json.dumps(data,separators=(',',':')).encode()
+                  headers['Content-Type']='application/json'
+              req=urllib.request.Request(BASE+path,data=body,headers=headers,method=method)
+              try:
+                  with op.open(req,timeout=timeout) as r:
+                      raw=r.read().decode('utf-8','replace')
+                      return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  raise RuntimeError(f'HTTP {e.code} {path}: '+e.read().decode('utf-8','replace')[:2000])
+
+          def job(kind,payload,timeout=180):
+              j=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload})
+              jid=j.get('jobId')
+              if not jid:
+                  raise RuntimeError(f'No jobId for {kind}: {j}')
+              end=time.time()+timeout
+              while time.time()<end:
+                  x=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid),timeout=45)
+                  status=x.get('status')
+                  if status=='succeeded':
+                      return x.get('result') or {}
+                  if status=='failed':
+                      raise RuntimeError(f'{kind} failed: {x.get("error")}')
+                  time.sleep(1)
+              raise TimeoutError(f'{kind} timeout: {jid}')
+
+          backups=[]
+          restarted=False
+          try:
+              # Downstream availability check only. Do not restart or modify WhatsApp.
+              wh=job('http.check',{'url':'http://127.0.0.1:18787/healthz','timeoutMs':10000,'previewBytes':600})
+              if not wh.get('ok'):
+                  raise RuntimeError('WhatsApp bridge is not healthy; isolated deployment aborted before writes: '+str(wh))
+              print('WHATSAPP_BRIDGE_PRECHECK_OK',wh.get('status'),flush=True)
+
+              writes=[
+                  ('dist/src/telegram/dark-universe-whatsapp-relay.js',Path('nexcanal/dark-universe-whatsapp-relay.mjs').read_text(encoding='utf-8')),
+                  ('dist/src/telegram/nextech-whatsapp-channel-post.js',Path('nexcanal/nextech-whatsapp-channel-post.mjs').read_text(encoding='utf-8')),
+                  ('nextech-whatsapp-mirror.mjs',Path('nexcanal/nextech-whatsapp-mirror.mjs').read_text(encoding='utf-8')),
+              ]
+              for path,content in writes:
+                  wr=job('fs.write',{'root':'nexcanal','path':path,'content':content})
+                  backups.append((path,wr.get('backupId'),wr.get('created',False)))
+                  ck=job('check.run',{'check':'node-check','root':'nexcanal','file':path,'timeoutMs':60000})
+                  if not ck.get('ok'):
+                      raise RuntimeError('node-check failed '+path+': '+str(ck))
+
+              main_read=job('fs.read',{'root':'nexcanal','path':'dist/src/main.js','startLine':1,'endLine':1400})
+              main=main_read.get('content','')
+              if not main:
+                  raise RuntimeError('NexCanal dist/src/main.js unreadable')
+              import_line="import { mirrorDarkUniverseChannelPostToWhatsApp } from './telegram/dark-universe-whatsapp-relay.js';"
+              import_anchor="import { TelegramBotApi, TelegramApiError } from './telegram/api.js';"
+              hook_line="    if (update?.channel_post) mirrorDarkUniverseChannelPostToWhatsApp(api, update).catch((error) => console.warn('[DarkUniverse/OtakuWA] isolated relay failed', error instanceof Error ? error.message : String(error)));"
+              processor_anchor="    const update = u;"
+              if import_line not in main:
+                  if import_anchor not in main:
+                      raise RuntimeError('NexCanal import anchor missing')
+                  main=main.replace(import_anchor,import_anchor+'\n'+import_line,1)
+              if hook_line not in main:
+                  if processor_anchor not in main:
+                      raise RuntimeError('NexCanal update anchor missing')
+                  main=main.replace(processor_anchor,processor_anchor+'\n'+hook_line,1)
+
+              wr_main=job('fs.write',{'root':'nexcanal','path':'dist/src/main.js','content':main})
+              backups.append(('dist/src/main.js',wr_main.get('backupId'),wr_main.get('created',False)))
+              ck=job('check.run',{'check':'node-check','root':'nexcanal','file':'dist/src/main.js','timeoutMs':60000})
+              if not ck.get('ok'):
+                  raise RuntimeError('node-check failed NexCanal main: '+str(ck))
+
+              verify_shared=job('fs.read',{'root':'nexcanal','path':'dist/src/telegram/nextech-whatsapp-channel-post.js','startLine':1,'endLine':40}).get('content','')
+              shared_line=next((x for x in verify_shared.splitlines() if 'MIRRORED_SOURCES' in x),'')
+              if 'tresor_universe' in shared_line:
+                  raise RuntimeError('live shared relay still contains Dark Universe')
+
+              verify_dedicated=job('fs.read',{'root':'nexcanal','path':'dist/src/telegram/dark-universe-whatsapp-relay.js','startLine':1,'endLine':260}).get('content','')
+              for required in ("const SOURCE='tresor_universe';",'dark-universe-otaku','18787/publish','mirrorDarkUniverseChannelPostToWhatsApp'):
+                  if required not in verify_dedicated:
+                      raise RuntimeError('live isolated relay missing '+required)
+
+              # Restart only NexCanal. No NexGroup/WhatsApp/Anime service restart.
+              rr=job('runtime.restart',{'target':'nexcanal','reason':'Isolate Dark Universe Telegram -> Otaku Nexus WhatsApp relay'})
+              print('NEXCANAL_RESTART',json.dumps(rr,separators=(',',':')),flush=True)
+              restarted=True
+              time.sleep(8)
+
+              # Verify the downstream bridge remained healthy and NexCanal process returned.
+              wh2=job('http.check',{'url':'http://127.0.0.1:18787/healthz','timeoutMs':10000,'previewBytes':600})
+              if not wh2.get('ok'):
+                  raise RuntimeError('WhatsApp bridge regressed after NexCanal restart: '+str(wh2))
+              procs=job('process.list',{'limit':500})
+              nex=[p for p in procs.get('items',[]) if 'nexcanal' in str(p.get('cmdline','')).lower()]
+              if not nex:
+                  raise RuntimeError('NexCanal process not found after isolated restart')
+              print('NEXCANAL_PROCESS_OK',json.dumps(nex[-5:],ensure_ascii=False),flush=True)
+              print('DEPLOYMENT_OK Dark Universe -> Otaku Nexus isolated automation',flush=True)
+          except Exception:
+              traceback.print_exc()
+              for path,bid,created in reversed(backups):
+                  try:
+                      if bid:
+                          job('fs.rollback',{'backupId':bid})
+                      elif created:
+                          job('fs.delete',{'root':'nexcanal','path':path,'allowDir':False})
+                  except Exception as rollback_error:
+                      print('rollback warning',path,rollback_error,flush=True)
+              if restarted:
+                  try:
+                      job('runtime.restart',{'target':'nexcanal','reason':'Rollback Dark Universe/Otaku isolated relay'})
+                  except Exception as restart_error:
+                      print('rollback restart warning',restart_error,flush=True)
+              raise
+          PYDEPLOY
