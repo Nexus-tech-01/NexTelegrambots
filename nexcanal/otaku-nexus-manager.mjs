@@ -24,6 +24,8 @@ const OUT_LOG=path.join(LOG_DIR,'worker.log');
 const ERR_LOG=path.join(LOG_DIR,'worker.err.log');
 const PORT=Math.max(1024,Number(process.env.OTAKU_MANAGER_PORT||18812));
 const WA=String(process.env.OTAKU_MANAGER_WA_BRIDGE||'http://127.0.0.1:18787').replace(/\/$/,'');
+const AI_BRIDGE=String(process.env.OTAKU_AI_BRIDGE||'http://127.0.0.1:3220/v1/chat/completions').trim();
+const BOT_TOKEN=String(process.env.NEXCANAL__BOT_TOKEN||'').trim();
 const API_ID=Number(process.env.NEXCANAL__WATCHER_API_ID||process.env.NEXGROUP__TELEGRAM_API_ID||0);
 const API_HASH=String(process.env.NEXCANAL__WATCHER_API_HASH||process.env.NEXGROUP__TELEGRAM_API_HASH||'').trim();
 const USER_SESSION=String(process.env.NEXCANAL__WATCHER_SESSION||'').trim();
@@ -128,6 +130,25 @@ function parseJson(text){
   return JSON.parse(raw.slice(i,j+1));
 }
 async function aiJson(prompt){
+  // Prefer the local Nexus provider bridge. It owns the upstream credential,
+  // so this worker never needs to duplicate or expose an AI key.
+  try{
+    const r=await fetch(AI_BRIDGE,{
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({
+        model:'openrouter/free',
+        messages:[{role:'user',content:prompt}],
+        response_format:{type:'json_object'},
+        temperature:.5,max_tokens:700
+      }),
+      signal:AbortSignal.timeout(45000)
+    });
+    const j=await r.json().catch(()=>null);
+    if(r.ok){
+      const parsed=parseJson(clean(j?.choices?.[0]?.message?.content));
+      if(parsed&&typeof parsed==='object')return parsed;
+    }
+  }catch{}
   for(const p of providers()){
     try{
       if(p.kind==='gemini'){
@@ -170,6 +191,56 @@ async function telegramClient(){
   await c.connect();
   return c;
 }
+function stickerSetNames(message){
+  const out=new Set();
+  const add=value=>{
+    const text=String(value||'');
+    for(const m of text.matchAll(/https?:\/\/(?:t|telegram)\.me\/addstickers\/([A-Za-z0-9_]{2,128})/ig))out.add(m[1]);
+  };
+  add(message?.message);
+  const body=String(message?.message||'');
+  for(const e of Array.isArray(message?.entities)?message.entities:[]){
+    if(e?.url)add(e.url);
+    const offset=Math.max(0,Number(e?.offset)||0),length=Math.max(0,Number(e?.length)||0);
+    if(length)add(body.slice(offset,offset+length));
+  }
+  return [...out];
+}
+async function botApi(method,body={}){
+  if(!BOT_TOKEN)throw new Error('telegram_bot_token_missing');
+  const r=await fetch('https://api.telegram.org/bot'+BOT_TOKEN+'/'+method,{
+    method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify(body),signal:AbortSignal.timeout(30000)
+  });
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok||!j?.ok)throw new Error(method+': '+clean(j?.description||r.status));
+  return j.result;
+}
+async function stickerSetFiles(name,dir,start,limit){
+  if(limit<=0||!BOT_TOKEN)return [];
+  const set=await botApi('getStickerSet',{name});
+  const out=[];let n=start;
+  for(const sticker of Array.isArray(set?.stickers)?set.stickers:[]){
+    if(out.length>=limit)break;
+    try{
+      const meta=await botApi('getFile',{file_id:sticker.file_id});
+      if(!meta?.file_path)continue;
+      const r=await fetch('https://api.telegram.org/file/bot'+BOT_TOKEN+'/'+meta.file_path,{signal:AbortSignal.timeout(30000)});
+      if(!r.ok)continue;
+      const bytes=Buffer.from(await r.arrayBuffer());
+      if(bytes.length<300||bytes.length>10*1024*1024)continue;
+      const ext=String(meta.file_path).split('.').pop()?.toLowerCase()||'bin';
+      if(ext==='tgs')continue;
+      const raw=path.join(dir,'set-'+name+'-'+n+'.'+ext);
+      await fs.writeFile(raw,bytes);
+      const target=path.join(dir,'sticker-'+String(n++).padStart(2,'0')+'.webp');
+      await normalizeSticker(raw,target);
+      out.push({localPath:target,source:'telegram-pack:'+name});
+    }catch{}
+  }
+  return out;
+}
+
 function isSticker(m){
   const d=m?.document;if(!d)return false;
   const mime=clean(d.mimeType).toLowerCase();
@@ -194,8 +265,23 @@ async function telegramStickers(character,dir,limit){
       let entity;try{entity=await c.getEntity('@'+source)}catch{continue}
       let rows=[];try{rows=await c.getMessages(entity,{limit:180})}catch{continue}
       rows.sort((a,b)=>Number(clean(b?.message).toLowerCase().includes(character.toLowerCase()))-Number(clean(a?.message).toLowerCase().includes(character.toLowerCase())));
+      const usedSets=new Set();
       for(const m of rows){
         if(out.length>=limit)break;
+
+        // Source posts often hide an addstickers URL behind a word. Resolve
+        // those packs through the Telegram Bot API and convert their members.
+        for(const setName of stickerSetNames(m)){
+          if(out.length>=limit||usedSets.has(setName))break;
+          usedSets.add(setName);
+          try{
+            const rows=await stickerSetFiles(setName,dir,n,limit-out.length);
+            n+=rows.length;
+            out.push(...rows);
+          }catch{}
+        }
+        if(out.length>=limit)break;
+
         if(!isSticker(m))continue;
         const ext=clean(m.document?.mimeType).includes('webm')?'.webm':'.webp';
         const raw=path.join(dir,'tg-'+source+'-'+String(m.id)+ext);
