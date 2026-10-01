@@ -28,6 +28,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Validate isolated Otaku manager
+        id: validate
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -64,6 +66,9 @@ jobs:
           PY
 
       - name: Deploy only Otaku Nexus manager and publisher hooks
+        id: deploy
+        if: steps.validate.outcome == 'success'
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -218,8 +223,38 @@ jobs:
           PYDEPLOY
 
 
+      - name: Write verification outcome
+        if: always()
+        shell: bash
+        env:
+          VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p ops-results
+          python3 - <<'PY'
+          import json,os,datetime
+          from pathlib import Path
+          p=Path('ops-results/otaku-nexus-manager.json')
+          try:
+              d=json.loads(p.read_text()) if p.exists() else {}
+          except Exception:
+              d={}
+          d['workflow']={
+              'validationOutcome':os.environ.get('VALIDATE_OUTCOME','unknown'),
+              'deployOutcome':os.environ.get('DEPLOY_OUTCOME','unknown'),
+          }
+          d['recordedAt']=datetime.datetime.now(datetime.timezone.utc).isoformat()
+          d['ok']=bool(
+              d.get('ok') is True and
+              d['workflow']['validationOutcome']=='success' and
+              d['workflow']['deployOutcome']=='success'
+          )
+          p.write_text(json.dumps(d,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+          PY
+
       - name: Commit production verification report
-        if: success()
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -231,3 +266,10 @@ jobs:
             git commit -m "ops: record Otaku Nexus production verification"
             git push origin HEAD:main
           fi
+
+      - name: Fail workflow when verification failed
+        if: always() && (steps.validate.outcome != 'success' || steps.deploy.outcome != 'success')
+        shell: bash
+        run: |
+          echo "Otaku Nexus verification failed"
+          exit 1
