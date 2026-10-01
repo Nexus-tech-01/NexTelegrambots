@@ -1,4 +1,5 @@
 name: Ops Recover Anime Publishing 2026-09-29
+# targeted live recovery: 2026-09-29 14:25 +01
 
 on:
   push:
