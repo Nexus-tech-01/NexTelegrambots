@@ -29,3 +29,5 @@ jobs:
           print('OTAKU_COHERENCE_DEPLOY_OK')
           print(json.dumps(d,ensure_ascii=False,indent=2))
           PY
+
+# diagnostic-trigger-20261002-2035
