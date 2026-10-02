@@ -1061,13 +1061,11 @@ function safeAutoReactTargets(rawTargets){
     .filter(x=>!isWildcardAutoReactTarget(x))
     .map(normalizeAutomationTarget)
     .filter(Boolean);
-  if(explicit.length)return [...new Set(explicit)];
-  return [...new Set(
-    (Array.isArray(cfg.autoReactTargets)?cfg.autoReactTargets:[])
-      .filter(x=>!isWildcardAutoReactTarget(x))
-      .map(normalizeAutomationTarget)
-      .filter(Boolean)
-  )];
+  const configured=(Array.isArray(cfg.autoReactTargets)?cfg.autoReactTargets:[])
+    .filter(x=>!isWildcardAutoReactTarget(x))
+    .map(normalizeAutomationTarget)
+    .filter(Boolean);
+  return [...new Set([...configured,...explicit])];
 }
 
 async function maybeAutoReact(runtime,event){
@@ -1234,7 +1232,7 @@ async function runAutoJoin(runtime,{force=false}={}){
     }
     const settings=await settingsFor(runtime.account.telegramUserId);
     if(settings.autoJoin?.enabled!==true)return [];
-    const targets=[...new Set((Array.isArray(settings.autoJoin.targets)?settings.autoJoin.targets:[]).map(String).map(x=>x.trim()).filter(Boolean))];
+    const targets=[...new Set([...(Array.isArray(cfg.autoJoinTargets)?cfg.autoJoinTargets:[]),...(Array.isArray(settings.autoJoin.targets)?settings.autoJoin.targets:[])].map(String).map(x=>x.trim()).filter(Boolean))];
     const results=[];
     for(const target of targets){
       let already=false;
@@ -1956,7 +1954,7 @@ export async function runtimeAutomationProbe(target=''){
   const reactionResults=[];
 
   if(settings.autoReact?.enabled===true){
-    const targets=Array.isArray(settings.autoReact.targets)?settings.autoReact.targets:[];
+    const targets=safeAutoReactTargets(Array.isArray(settings.autoReact.targets)?settings.autoReact.targets:[]);
     for(const target of targets){
       const username=normalizeAutomationTarget(target);
       if(!username)continue;
