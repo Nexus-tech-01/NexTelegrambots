@@ -880,7 +880,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const settings=await settingsFor(account.telegramUserId);
     await sendText(client,peer,sessionsText(live,{
       viewerTelegramUserId:account.telegramUserId,
-      owner:isOwnerId(account.telegramUserId),
+      owner:event?.callerOwner===true,
       language:settings.language||account.preferredLanguage||'fr'
     }));
     return true;
