@@ -1,0 +1,22 @@
+name: NexGroup Dist Config Read
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-nexgroup-dist-config-read.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Read current dist config callbacks
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-v6111-deploy-gw" |
+          python3 -c 'import sys,json; print(json.dumps(json.load(sys.stdin),ensure_ascii=False,indent=2))'
