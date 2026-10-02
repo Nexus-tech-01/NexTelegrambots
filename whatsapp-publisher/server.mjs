@@ -2,6 +2,8 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import pino from 'pino';
 import { Boom } from '@hapi/boom';
 import { attachWhatsAppCommandEngine } from './command-engine.mjs';
@@ -16,6 +18,76 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   fetchLatestWaWebVersion,
 } from '@whiskeysockets/baileys';
+
+const PUBLISHER_SELF=fileURLToPath(import.meta.url);
+const PUBLISHER_SUPERVISOR_DIR=String(process.env.WA_PUBLISHER_SUPERVISOR_DIR||'/var/lib/nex/state/internal-automation/whatsapp-publisher-supervisor');
+const PUBLISHER_SUPERVISOR_PID=path.join(PUBLISHER_SUPERVISOR_DIR,'supervisor.pid');
+const PUBLISHER_SUPERVISOR_OUT=path.join(PUBLISHER_SUPERVISOR_DIR,'worker.log');
+const PUBLISHER_SUPERVISOR_ERR=path.join(PUBLISHER_SUPERVISOR_DIR,'worker.err.log');
+const PUBLISHER_MODE_SUPERVISE=process.argv.includes('--supervise');
+const PUBLISHER_MODE_RESTART=process.argv.includes('--restart-supervisor');
+const publisherSupervisorSleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+async function publisherPidAlive(pid){
+  try{if(!Number.isInteger(pid)||pid<=1)return false;process.kill(pid,0);return true}catch{return false}
+}
+async function stopPublisherPid(pid){
+  if(!(await publisherPidAlive(pid)))return;
+  try{process.kill(pid,'SIGTERM')}catch{}
+  for(let i=0;i<30;i++){if(!(await publisherPidAlive(pid)))return;await publisherSupervisorSleep(200)}
+  try{process.kill(pid,'SIGKILL')}catch{}
+}
+async function publisherSupervise(){
+  fs.mkdirSync(PUBLISHER_SUPERVISOR_DIR,{recursive:true});
+  let child=null,closing=false,backoff=2000;
+  const close=async()=>{
+    if(closing)return;closing=true;
+    if(child&&child.exitCode==null)try{child.kill('SIGTERM')}catch{}
+    try{fs.rmSync(PUBLISHER_SUPERVISOR_PID,{force:true})}catch{}
+    process.exit(0);
+  };
+  process.on('SIGTERM',()=>void close());
+  process.on('SIGINT',()=>void close());
+  while(!closing){
+    const out=fs.openSync(PUBLISHER_SUPERVISOR_OUT,'a');
+    const err=fs.openSync(PUBLISHER_SUPERVISOR_ERR,'a');
+    child=spawn(process.execPath,[PUBLISHER_SELF,'--worker'],{
+      cwd:path.dirname(PUBLISHER_SELF),env:process.env,stdio:['ignore',out,err]
+    });
+    await new Promise(resolve=>{child.once('error',resolve);child.once('exit',resolve)});
+    try{fs.closeSync(out)}catch{}try{fs.closeSync(err)}catch{}
+    child=null;
+    if(!closing){await publisherSupervisorSleep(backoff);backoff=Math.min(60000,backoff*2)}
+  }
+}
+async function ensurePublisherSupervisor(restart=false){
+  fs.mkdirSync(PUBLISHER_SUPERVISOR_DIR,{recursive:true});
+  let old=null;
+  try{old=Number(String(fs.readFileSync(PUBLISHER_SUPERVISOR_PID,'utf8')).trim())||null}catch{}
+  if(old&&await publisherPidAlive(old)){
+    if(!restart)return {ok:true,pid:old,alreadyRunning:true};
+    await stopPublisherPid(old);
+  }
+  const out=fs.openSync(PUBLISHER_SUPERVISOR_OUT,'a');
+  const err=fs.openSync(PUBLISHER_SUPERVISOR_ERR,'a');
+  const child=spawn(process.execPath,[PUBLISHER_SELF,'--supervise'],{
+    cwd:path.dirname(PUBLISHER_SELF),env:process.env,detached:true,stdio:['ignore',out,err]
+  });
+  child.unref();
+  try{fs.closeSync(out)}catch{}try{fs.closeSync(err)}catch{}
+  fs.writeFileSync(PUBLISHER_SUPERVISOR_PID,String(child.pid),{mode:0o600});
+  await publisherSupervisorSleep(700);
+  if(!(await publisherPidAlive(child.pid)))throw new Error('whatsapp_publisher_supervisor_failed');
+  return {ok:true,pid:child.pid,restarted:restart};
+}
+if(PUBLISHER_MODE_SUPERVISE){
+  await publisherSupervise();
+  process.exit(0);
+}
+if(PUBLISHER_MODE_RESTART){
+  console.log(JSON.stringify(await ensurePublisherSupervisor(true)));
+  process.exit(0);
+}
 
 const PORT = Number(process.env.WA_PUBLISHER_PORT || 8787);
 const BRIDGE_PORT = Number(process.env.WA_PUBLISHER_BRIDGE_PORT || 18787);
