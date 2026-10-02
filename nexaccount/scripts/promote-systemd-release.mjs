@@ -102,6 +102,11 @@ async function promote(label){
       return !parts.includes('.runtime')&&!parts.includes('.git');
     }
   });
+  // Agent-side fs.write intentionally creates files with restrictive modes (0600).
+  // Production runs as nex-public:nex, so make the copied release group-readable/traversable
+  // without making source files world-readable.
+  run('chgrp',['-R',String(process.env.NEXACCOUNT_SYSTEMD_GROUP||'nex'),destination],30000);
+  run('chmod',['-R','g+rX',destination],30000);
   await ensurePersistentToken(previous);
   const result=await atomicSwitch(destination);
   return {ok:true,mode:'promote',...result};
