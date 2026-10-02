@@ -49,7 +49,7 @@ export const cfg={
   maxRuntimesPerWorker:Math.max(1,Number(pick('NEXACCOUNT_MAX_RUNTIMES_PER_WORKER')||1000)),
   restoreConcurrency:Math.max(1,Math.min(50,Number(pick('NEXACCOUNT_RESTORE_CONCURRENCY')||10))),
   reconcileMs:Math.max(10000,Number(pick('NEXACCOUNT_RECONCILE_MS')||30000)),
-  commandPollMs:Math.max(3000,Number(pick('NEXACCOUNT_COMMAND_POLL_MS')||10000)),
+  commandPollMs:Math.max(3000,Number(pick('NEXACCOUNT_COMMAND_POLL_MS')||4000)),
   updateSyncMs:Math.max(5000,Number(pick('NEXACCOUNT_UPDATE_SYNC_MS')||20000)),
   controlKey:pick('NEXACCOUNT_CONTROL_KEY','NEXCONTROL_FLEET_KEY')||pick('NEXACCOUNT_SESSION_KEY','NEXCONTROL_SESSION_SECRET','SESSION_SECRET')
 };
