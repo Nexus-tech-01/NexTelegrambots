@@ -21,3 +21,5 @@ jobs:
           curl --fail-with-body --silent --show-error \
             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-once" |
           python3 -c 'import sys,json; d=json.load(sys.stdin); print(json.dumps(d,ensure_ascii=False,indent=2))'
+
+# retry-postgres-agent-bridge
