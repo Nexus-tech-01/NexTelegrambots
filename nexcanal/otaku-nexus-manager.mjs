@@ -361,6 +361,51 @@ async function telegramStickers(character,dir,limit){
   }finally{await c.disconnect().catch(()=>{})}
   return out;
 }
+async function publicStickerSetNames(query=''){
+  const names=[];
+  for(const source of [...STICKER_SOURCES].sort(()=>Math.random()-.5)){
+    try{
+      const url='https://t.me/s/'+encodeURIComponent(source)+(query?'?q='+encodeURIComponent(query):'');
+      const html=await fetchText(url,18_000);
+      const re=/https:\/\/t\.me\/addstickers\/([A-Za-z0-9_]{3,})/g;
+      let m;
+      while((m=re.exec(html))&&names.length<24){
+        if(!names.includes(m[1]))names.push(m[1]);
+      }
+    }catch{}
+    if(names.length>=24)break;
+  }
+  return names;
+}
+async function publicTelegramStickerPack(character,dir,limit){
+  const searched=await publicStickerSetNames(character);
+  const generic=searched.length>=4?[]:await publicStickerSetNames('');
+  const names=[...searched,...generic.filter(x=>!searched.includes(x))];
+  for(const setName of names.slice(0,16)){
+    try{
+      const data=await fetchJson('https://api.telegram.org/bot'+BOT_TOKEN+'/getStickerSet?name='+encodeURIComponent(setName),18_000);
+      if(!data?.ok||!Array.isArray(data?.result?.stickers))continue;
+      const out=[];let n=0;
+      for(const st of data.result.stickers){
+        if(out.length>=limit)break;
+        try{
+          const info=await fetchJson('https://api.telegram.org/bot'+BOT_TOKEN+'/getFile?file_id='+encodeURIComponent(st.file_id),18_000);
+          const filePath=clean(info?.result?.file_path);if(!filePath)continue;
+          const ext=path.extname(filePath)||'.webp';
+          const raw=path.join(dir,'public-'+String(n).padStart(2,'0')+ext);
+          await download('https://api.telegram.org/file/bot'+BOT_TOKEN+'/'+filePath,raw,25_000);
+          const sticker=path.join(dir,'public-sticker-'+String(n++).padStart(2,'0')+'.webp');
+          await normalizeSticker(raw,sticker);
+          out.push({localPath:sticker,source:'telegram-public:'+setName});
+        }catch{}
+      }
+      if(out.length>=MIN_STICKERS){
+        return {stickers:out.slice(0,limit),title:clean(data.result.title)||character,setName};
+      }
+    }catch{}
+  }
+  return {stickers:[],title:character,setName:''};
+}
 function pinterestUrls(html){
   const found=[];const seen=new Set();
   const patterns=[/https:\/\/i\.pinimg\.com\/[^"'<>\\\s]+/g,/https:\\\/\\\/i\.pinimg\.com\\\/[^"'<>\s]+/g];
@@ -433,43 +478,44 @@ async function promotePackToManagedGroups(character,cover,count){
 async function buildPack(character){
   const dir=path.join(TMP_DIR,'pack-'+Date.now()+'-'+digest(character).slice(0,6));
   await fs.rm(dir,{recursive:true,force:true});await fs.mkdir(dir,{recursive:true});
-  // Never reuse the live NexAccount user session by default: Telegram invalidates
-  // duplicated auth keys when the same StringSession is opened by another process.
-  // Pinterest is the safe primary source; the Telegram source is opt-in only when
-  // a dedicated, non-shared session has been provisioned for this worker.
-  let fromTelegram=[];
-  if(USE_SHARED_TELEGRAM_SESSION){
-    try{fromTelegram=await telegramStickers(character,dir,Math.min(20,MAX_STICKERS))}catch{}
+  // Primary path: scrape only public t.me preview pages for addstickers links,
+  // then use the bot API to fetch the real pack. No user StringSession is opened.
+  const publicPack=await publicTelegramStickerPack(character,dir,MAX_STICKERS);
+  let fromTelegram=[...(publicPack.stickers||[])];
+  if(fromTelegram.length<MIN_STICKERS&&USE_SHARED_TELEGRAM_SESSION){
+    try{fromTelegram.push(...await telegramStickers(character,dir,Math.min(20,MAX_STICKERS-fromTelegram.length)))}catch{}
   }
-  const fromPinterest=await pinterestStickers(character,dir,fromTelegram.length,MAX_STICKERS-fromTelegram.length);
+  const fromPinterest=fromTelegram.length>=MIN_STICKERS?[]:await pinterestStickers(character,dir,fromTelegram.length,MAX_STICKERS-fromTelegram.length);
   const stickers=[...fromTelegram,...fromPinterest].slice(0,MAX_STICKERS);
   if(stickers.length<MIN_STICKERS)throw new Error('not_enough_valid_stickers_'+stickers.length);
+  const title=clean(publicPack.title)||character;
   const cover=path.join(dir,'cover.jpg');
   await run('/usr/bin/ffmpeg',[
     '-hide_banner','-loglevel','error','-i',stickers[0].localPath,
     '-vf','scale=900:900:force_original_aspect_ratio=decrease,pad=900:900:(ow-iw)/2:(oh-ih)/2:color=black',
     '-q:v','2','-y',cover
   ],{timeout:30000,maxBuffer:1024*1024});
-  return {dir,stickers,cover};
+  return {dir,stickers,cover,title,setName:publicPack.setName||''};
 }
 async function publishPack(character,state,reason){
   const pack=await buildPack(character);
-  const caption=await packCaption(character,pack.stickers.length);
+  const packTitle=clean(pack.title)||character;
+  const caption=await packCaption(packTitle,pack.stickers.length);
   await action({
     kind:'pack',
-    id:'otaku-pack:'+Date.now()+':'+digest(character).slice(0,6),
-    character,caption,
+    id:'otaku-pack:'+Date.now()+':'+digest(packTitle).slice(0,6),
+    character:packTitle,caption,
     cover:{localPath:pack.cover,fileName:'cover.jpg'},
-    stickers:pack.stickers.map((x,i)=>({localPath:x.localPath,fileName:character.replace(/\s+/g,'-')+'-'+String(i+1)+'.webp'}))
+    stickers:pack.stickers.map((x,i)=>({localPath:x.localPath,fileName:packTitle.replace(/\s+/g,'-')+'-'+String(i+1)+'.webp'}))
   },10*60_000);
-  state.recent.push(character);state.recent=state.recent.slice(-12);
-  state.history.push({at:nowIso(),type:'pack',reason,character,count:pack.stickers.length});
+  state.recent.push(packTitle);state.recent=state.recent.slice(-12);
+  state.history.push({at:nowIso(),type:'pack',reason,character:packTitle,count:pack.stickers.length,setName:pack.setName||''});
   state.history=state.history.slice(-250);
   // Promotion is intentionally asynchronous and limited to groups where the
   // Telegram account is creator/admin. It never blocks WhatsApp pack delivery.
   if(PROMOTE_TELEGRAM_GROUPS){
-    void promotePackToManagedGroups(character,pack.cover,pack.stickers.length)
-      .then(x=>{state.history.push({at:nowIso(),type:'promo',character,sent:Number(x?.sent||0)});state.history=state.history.slice(-250);return saveState(state)})
+    void promotePackToManagedGroups(packTitle,pack.cover,pack.stickers.length)
+      .then(x=>{state.history.push({at:nowIso(),type:'promo',character:packTitle,sent:Number(x?.sent||0)});state.history=state.history.slice(-250);return saveState(state)})
       .catch(()=>{});
   }
   setTimeout(()=>fs.rm(pack.dir,{recursive:true,force:true}).catch(()=>{}),Math.max(2*60*60_000,PROMO_MAX_GAP*120)).unref?.();
