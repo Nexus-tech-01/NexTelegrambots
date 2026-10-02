@@ -39,12 +39,40 @@ const CHOICE_GAP=Math.max(5*60_000,Number(process.env.OTAKU_CHOICE_GAP_MS||15*60
 const TELEGRAM_CHANNEL_URL=String(process.env.OTAKU_TELEGRAM_CHANNEL_URL||'https://t.me/theotaku_nexus').trim();
 const PROMO_MIN_GAP=Math.max(20_000,Number(process.env.OTAKU_PROMO_MIN_GAP_MS||35_000));
 const PROMO_MAX_GAP=Math.max(PROMO_MIN_GAP,Number(process.env.OTAKU_PROMO_MAX_GAP_MS||65_000));
+const DAILY_MIN_GAP=Math.max(5*60_000,Number(process.env.OTAKU_DAILY_MIN_GAP_MS||20*60_000));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 const STICKER_SOURCES=['fr3dc','anime_stickerr','supremacy_sticks','Leonild'];
 const CHARACTERS=['Naruto Uzumaki','Sasuke Uchiha','Itachi Uchiha','Gojo Satoru','Sukuna','Monkey D. Luffy','Roronoa Zoro','Levi Ackerman','Eren Yeager','Tanjiro Kamado','Nezuko Kamado','Kakashi Hatake','Madara Uchiha','Obito Uchiha','Killua Zoldyck','Gon Freecss'];
 const DUELS=[['Naruto','Sasuke'],['Gojo','Sukuna'],['Luffy','Zoro'],['Itachi','Madara'],['Levi','Eren'],['Tanjiro','Rengoku'],['Killua','Gon'],['Kakashi','Obito'],['Goku','Vegeta'],['Light','L']];
 const LIFE=[['TikTok 📱','YouTube 🎬'],['Anime 🎌','Manga 📚'],['Nuit 🌙','Matin ☀️'],['Pouvoir ⚡','Intelligence 🧠'],['Voyage ✈️','Gaming 🎮']];
+const RECOMMENDATIONS=[
+  {title:'Frieren',query:'Frieren Beyond Journey End anime wallpaper',why:'fantasy calme, émotions fines et personnages qui prennent le temps d’exister'},
+  {title:'Vinland Saga',query:'Vinland Saga anime wallpaper',why:'une histoire de vengeance qui devient une vraie réflexion sur la force et la paix'},
+  {title:'Mob Psycho 100',query:'Mob Psycho 100 anime wallpaper',why:'animation folle, humour et développement personnel beaucoup plus profond qu’il n’y paraît'},
+  {title:'86 EIGHTY-SIX',query:'86 Eighty Six anime wallpaper',why:'guerre, tension, émotion et une réalisation qui sait frapper au bon moment'},
+  {title:'Violet Evergarden',query:'Violet Evergarden anime wallpaper',why:'une claque visuelle avec des épisodes capables de faire très mal sans forcer'},
+  {title:'Erased',query:'Erased Boku dake ga Inai Machi anime wallpaper',why:'mystère, voyage temporel et suspense compact qui se binge très bien'},
+  {title:'Cyberpunk Edgerunners',query:'Cyberpunk Edgerunners anime wallpaper',why:'court, brutal, stylé et émotionnellement dangereux'},
+  {title:'Monster',query:'Monster anime Johan Tenma wallpaper',why:'thriller psychologique lent mais redoutable si tu aimes les histoires qui te travaillent'},
+  {title:'Blue Lock',query:'Blue Lock anime wallpaper',why:'compétition, ego et énergie pure quand tu veux quelque chose de nerveux'},
+  {title:'Jujutsu Kaisen',query:'Jujutsu Kaisen anime wallpaper',why:'combats propres, cast mémorable et énergie sombre très facile à accrocher'}
+];
+const MYSTERIES=[
+  {name:'Itachi Uchiha',query:'Itachi Uchiha anime wallpaper',clues:['J’ai porté la haine de mon clan presque seul.','Mes yeux ont raconté une histoire que peu ont comprise.','Mon petit frère était au centre de presque tous mes choix.']},
+  {name:'Gojo Satoru',query:'Gojo Satoru anime wallpaper',clues:['On me présente souvent comme le plus fort.','Mes yeux sont aussi célèbres que mon sourire.','Une barrière invisible suffit parfois à arrêter ce qui veut me toucher.']},
+  {name:'Levi Ackerman',query:'Levi Ackerman anime wallpaper',clues:['Je ne suis pas grand, mais ça n’a jamais rassuré mes ennemis.','La propreté est presque une obsession.','Face aux Titans, ma vitesse parle avant moi.']},
+  {name:'Light Yagami',query:'Light Yagami Death Note wallpaper',clues:['J’ai trouvé un carnet qui a changé ma vision de la justice.','Je voulais créer un monde parfait selon mes propres règles.','Un détective à une seule lettre est devenu mon plus grand obstacle.']},
+  {name:'Roronoa Zoro',query:'Roronoa Zoro anime wallpaper',clues:['Je me perds même quand le chemin paraît évident.','Trois sabres me vont mieux qu’un.','Mon rêve passe par le sommet des épéistes.']}
+];
+const DAILY_SLOTS=[
+  {key:'morning',hour:7,minute:30,catchUpMinutes:90},
+  {key:'programme',hour:9,minute:30,catchUpMinutes:720},
+  {key:'recommendation',hour:12,minute:30,catchUpMinutes:600},
+  {key:'mystery',hour:15,minute:0,catchUpMinutes:180},
+  {key:'wallpaper',hour:18,minute:0,catchUpMinutes:180},
+  {key:'night',hour:22,minute:15,catchUpMinutes:120}
+];
 const QUIZ={
   easy:[
     ['Quel est le village de Naruto ?',['Konoha','Suna','Kiri','Iwa'],'Konoha'],
@@ -87,10 +115,13 @@ async function loadState(){
       recent:Array.isArray(x.recent)?x.recent.slice(-12):[],
       lastQuizDay:clean(x.lastQuizDay),
       lastChoiceDay:clean(x.lastChoiceDay),
+      dailyDone:x.dailyDone&&typeof x.dailyDone==='object'?x.dailyDone:{},
+      lastDailyPostAt:Number(x.lastDailyPostAt)||0,
+      choiceSession:x.choiceSession&&typeof x.choiceSession==='object'?x.choiceSession:null,
       history:Array.isArray(x.history)?x.history.slice(-250):[]
     };
   }catch{
-    return {nextPackAt:Date.now()+10*60_000,orderWindowUntil:0,autoPacks:0,queue:[],seen:[],recent:[],lastQuizDay:'',lastChoiceDay:'',history:[]};
+    return {nextPackAt:Date.now()+10*60_000,orderWindowUntil:0,autoPacks:0,queue:[],seen:[],recent:[],lastQuizDay:'',lastChoiceDay:'',dailyDone:{},lastDailyPostAt:0,choiceSession:null,history:[]};
   }
 }
 async function saveState(s){
@@ -463,18 +494,107 @@ async function runQuiz(state,slot){
   state.lastQuizDay=dayKey();
   state.history.push({at:nowIso(),type:'quiz',sessionId:id});
 }
-async function runChoices(state){
+async function startChoices(state){
   const id='choice-'+dayKey()+'-'+Date.now();
   await action({kind:'text',id:id+':intro',text:'✦ ᴏᴛᴀᴋᴜ ɴᴇxᴜs · ᴛᴜ ᴘʀᴇ́ғᴇ̀ʀᴇs ?\n\n15 choix. Un nouveau duel toutes les 15 minutes. 👀'});
-  for(let i=0;i<15;i++){
-    const pair=i%3===2?rand(LIFE):rand(DUELS);
-    if(i%3!==2)await imagePost(id+':img:'+i,pair[0]+' '+pair[1]+' anime wallpaper together','✦ '+pair[0]+'  VS  '+pair[1]);
-    await action({kind:'poll',id:id+':poll:'+i,question:'Tu préfères ?',options:pair,quiz:false});
-    if(i<14)await sleep(CHOICE_GAP);
+  state.choiceSession={id,index:0,nextAt:Date.now()+60_000,day:dayKey()};
+  state.history.push({at:nowIso(),type:'choice-marathon-start',id});
+}
+async function advanceChoices(state){
+  const s=state.choiceSession;
+  if(!s||Date.now()<Number(s.nextAt||0))return false;
+  const i=Number(s.index||0);
+  if(i>=15){
+    await action({kind:'text',id:s.id+':end',text:'✦ ғɪɴ ᴅᴜ ᴊᴇᴜ\n\n15 choix terminés. Quel duel tu veux revoir ?'});
+    state.lastChoiceDay=s.day||dayKey();
+    state.history.push({at:nowIso(),type:'choice-marathon-done',id:s.id});
+    state.choiceSession=null;
+    return true;
   }
-  await action({kind:'text',id:id+':end',text:'✦ ғɪɴ ᴅᴜ ᴊᴇᴜ\n\n15 choix terminés. Quel duel tu veux revoir ?'});
-  state.lastChoiceDay=dayKey();
-  state.history.push({at:nowIso(),type:'choice-marathon',id});
+  const pair=i%3===2?rand(LIFE):rand(DUELS);
+  if(i%3!==2)await imagePost(s.id+':img:'+i,pair[0]+' '+pair[1]+' anime wallpaper together','✦ '+pair[0]+'  VS  '+pair[1]);
+  await action({kind:'poll',id:s.id+':poll:'+i,question:'Tu préfères ?',options:pair,quiz:false});
+  s.index=i+1;
+  s.nextAt=Date.now()+CHOICE_GAP;
+  return true;
+}
+function slotStamp(slot,day=dayKey()){return day+':'+slot.key}
+function minutesNow(){const p=localParts();return p.h*60+p.min}
+function slotDue(slot,state){
+  const stamp=slotStamp(slot);
+  if(state.dailyDone?.[stamp])return false;
+  const now=minutesNow(),target=slot.hour*60+slot.minute,elapsed=now-target;
+  return elapsed>=0&&elapsed<=slot.catchUpMinutes;
+}
+function markDaily(state,slot,status='sent'){
+  const stamp=slotStamp(slot);
+  state.dailyDone={...(state.dailyDone||{}),[stamp]:{at:nowIso(),status}};
+  const keys=Object.keys(state.dailyDone).sort();
+  for(const k of keys.slice(0,Math.max(0,keys.length-24)))delete state.dailyDone[k];
+  state.lastDailyPostAt=Date.now();
+}
+function programmeText(){
+  const p=localParts();
+  const today=p.d%2===0?'Quiz Otaku':'Tu préfères + Quiz Otaku';
+  return [
+    '【🗞️】𝗣𝗥𝗢𝗚𝗥𝗔𝗠𝗠𝗘 𝗢𝗧𝗔𝗞𝗨 𝗡𝗘𝗫𝗨𝗦',
+    '',
+    '☁️ 07:30 · ᴍᴏʀɴɪɴɢ ᴠɪʙᴇ',
+    '🎴 09:30 · programme du jour',
+    '🍿 12:30 · recommandation anime',
+    '🧩 15:00 · personnage mystère',
+    '🖼️ 18:00 · wallpaper drop',
+    '🎮 '+today,
+    '💜 stickers · drop automatique + commandes communauté',
+    '🌙 22:15 · ɴɪɢʜᴛ ᴠɪʙᴇ',
+    '',
+    'Les horaires peuvent légèrement bouger si un jeu est déjà en cours.'
+  ].join('\n');
+}
+async function runDailySlot(state,slot){
+  if(slot.key==='morning'){
+    const texts=[
+      '☁️ׄ ︵ ׅ ɢᴏᴏᴅ ᴍᴏʀɴɪɴɢ ᴏᴛᴀᴋᴜѕ 𖹭\n\nEncore une journée à faire semblant d’être productif avant de rentrer regarder des animes 😭\n\nㅤㅤׄ 🌼 bonne journée la team.',
+      '𓂃 ࣪˖ ᴍᴏʀɴɪɴɢ ᴄʜᴇᴄᴋ ☀️\n\nObjectif du jour : survivre, manger, avancer un peu… et garder au moins un épisode pour ce soir. 😭'
+    ];
+    await action({kind:'text',id:'daily:'+slotStamp(slot),text:rand(texts)});
+  }else if(slot.key==='programme'){
+    await action({kind:'text',id:'daily:'+slotStamp(slot),text:programmeText()});
+  }else if(slot.key==='recommendation'){
+    const r=rand(RECOMMENDATIONS);
+    await imagePost('daily:'+slotStamp(slot),r.query,'𓂃 ࣪˖ 𝗥𝗘𝗖𝗢 𝗢𝗧𝗔𝗞𝗨 𖹭\n\nAujourd’hui : '+r.title+'\n\nPourquoi le tenter ? '+r.why+'.\n\nTu l’as déjà vu ou tu le mets dans ta liste ?');
+  }else if(slot.key==='mystery'){
+    const m=rand(MYSTERIES);
+    await imagePost('daily:'+slotStamp(slot),m.query+' silhouette dark','𖦹 𝐏𝐄𝐑𝐒𝐎𝐍𝐍𝐀𝐆𝐄 𝐌𝐘𝐒𝐓È𝐑𝐄\n\nLes vrais vont reconnaître avant le troisième indice 👀\n\nIndice 01 — '+m.clues[0]+'\nIndice 02 — '+m.clues[1]+'\nIndice 03 — '+m.clues[2]+'\n\nAlors… tu l’as reconnu ?');
+  }else if(slot.key==='wallpaper'){
+    const r=rand(RECOMMENDATIONS);
+    await imagePost('daily:'+slotStamp(slot),r.query+' 4k vertical phone wallpaper','☾ ׄ 𝗪𝗔𝗟𝗟𝗣𝗔𝗣𝗘𝗥 𝗗𝗥𝗢𝗣 𓏼\n\n'+r.title+' — save it si ça mérite ton écran. 🖤');
+  }else if(slot.key==='night'){
+    const texts=[
+      'ㅤ︵︵ ׄ 🌙 ׅ ︵︵\n\nׄ      ɴɪɢʜᴛ ᴠɪʙᴇѕ 𓏼\n\nLes écouteurs. Une OST. La lumière éteinte.\n\nEt soudain, la journée fait un peu moins de bruit.\n\nBonne nuit Otaku Nexus.',
+      '𓂃 ࣪˖ ɴɪɢʜᴛ ᴄʜᴇᴄᴋ 🌙\n\nDernière question avant de disparaître : quel anime pourrait te faire recommencer une saison entière ce soir ?'
+    ];
+    await action({kind:'text',id:'daily:'+slotStamp(slot),text:rand(texts)});
+  }
+  markDaily(state,slot);
+  state.history.push({at:nowIso(),type:'daily',slot:slot.key});
+  state.history=state.history.slice(-250);
+  return true;
+}
+async function maybeDaily(state){
+  if(Date.now()-Number(state.lastDailyPostAt||0)<DAILY_MIN_GAP)return false;
+  const due=DAILY_SLOTS.filter(slot=>slotDue(slot,state));
+  if(!due.length)return false;
+  // Programme and recommendation are the two editorial pillars the channel
+  // must catch up on after downtime; then continue with the most recent slot.
+  due.sort((a,b)=>{
+    const priority={programme:0,recommendation:1};
+    const pa=priority[a.key]??2,pb=priority[b.key]??2;
+    if(pa!==pb)return pa-pb;
+    return (b.hour*60+b.minute)-(a.hour*60+a.minute);
+  });
+  await runDailySlot(state,due[0]);
+  return true;
 }
 function autoCharacter(state){
   const recent=new Set(state.recent.slice(-8));
@@ -498,12 +618,14 @@ async function receiveOrder(state,payload){
 }
 async function tick(state){
   const p=localParts(),day=dayKey(),quizHour=p.d%2===0?10:19;
+  if(await advanceChoices(state)){await saveState(state);return}
+  if(state.lastChoiceDay!==day&&p.d%2===1&&p.h===16&&p.min<8&&!state.choiceSession){
+    await startChoices(state);await saveState(state);return;
+  }
   if(state.lastQuizDay!==day&&p.h===quizHour&&p.min<8){
     await runQuiz(state,String(quizHour));await saveState(state);return;
   }
-  if(state.lastChoiceDay!==day&&p.d%2===1&&p.h===16&&p.min<8){
-    await runChoices(state);await saveState(state);return;
-  }
+  if(await maybeDaily(state)){await saveState(state);return}
   if(Date.now()<state.nextPackAt)return;
   const job=state.queue.find(x=>x.status==='pending');
   const character=job?.character||autoCharacter(state);
@@ -531,7 +653,7 @@ async function serve(state){
       const u=new URL(req.url,'http://localhost');
       if(req.method==='GET'&&u.pathname==='/healthz'){
         res.writeHead(200,{'content-type':'application/json'});
-        return res.end(JSON.stringify({ok:true,pid:process.pid,nextPackAt:state.nextPackAt,orderWindowUntil:state.orderWindowUntil,pending:state.queue.filter(x=>x.status==='pending').length}));
+        return res.end(JSON.stringify({ok:true,pid:process.pid,nextPackAt:state.nextPackAt,orderWindowUntil:state.orderWindowUntil,pending:state.queue.filter(x=>x.status==='pending').length,lastDailyPostAt:state.lastDailyPostAt||0,choiceSession:state.choiceSession||null,dailyDone:Object.keys(state.dailyDone||{}).slice(-12)}));
       }
       if(req.method==='POST'&&u.pathname==='/incoming'){
         const chunks=[];for await(const c of req)chunks.push(c);
