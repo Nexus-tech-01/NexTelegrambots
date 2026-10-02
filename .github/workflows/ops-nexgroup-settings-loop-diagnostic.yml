@@ -23,3 +23,5 @@ jobs:
           python3 -c 'import sys,json; d=json.load(sys.stdin); print(json.dumps(d,ensure_ascii=False,indent=2))'
 
 # retry-postgres-agent-bridge
+
+# locate-live-nexgroup-process
