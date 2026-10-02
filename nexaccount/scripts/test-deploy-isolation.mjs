@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 const here=path.dirname(fileURLToPath(import.meta.url));
 const workflowPath=path.resolve(here,'../../.github/workflows/deploy-nexaccount.yml');
 const source=await fs.readFile(workflowPath,'utf8');
+const promoteSource=await fs.readFile(path.resolve(here,'promote-systemd-release.mjs'),'utf8');
 const failures=[];
 
 const triggerBlock=source.slice(source.indexOf('on:\n'),source.indexOf('\npermissions:'));
@@ -17,6 +18,8 @@ if(!source.includes('NEXANIME_RUNTIME_CONTRACT_OK'))failures.push('post-deploy N
 if(!source.includes('promote-systemd-release.mjs'))failures.push('canonical systemd release promotion is missing');
 if(source.includes('bootstrap.mjs'))failures.push('deploy workflow must not start an auxiliary NexAccount bootstrap runtime');
 if(!source.includes('PRODUCTION_ROLLBACK_OK'))failures.push('canonical production rollback protection is missing');
+if(!promoteSource.includes("run('chgrp',['-R',String(process.env.NEXACCOUNT_SYSTEMD_GROUP||'nex'),destination],30000)"))failures.push('promoted release must be assigned to the NexAccount systemd group');
+if(!promoteSource.includes("run('chmod',['-R','g+rX',destination],30000)"))failures.push('promoted release must be group-readable/traversable before systemd switch');
 
 if(failures.length){
   console.error('DEPLOY_ISOLATION_REGRESSION\n'+failures.join('\n'));
