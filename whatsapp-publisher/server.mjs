@@ -865,24 +865,24 @@ async function runOtakuAction(raw={}){
       return {ok:true,actionId:id};
     }
     if(kind==='pack'){
-      const stickers=(Array.isArray(raw.stickers)?raw.stickers:[]).slice(0,30);
-      if(!stickers.length)throw new Error('Pack Otaku vide');
+      if(!raw.pack)throw new Error('Pack Otaku sans fichier .wastickers');
+      const character=String(raw.character||'personnage').trim()||'personnage';
+      const count=Math.max(0,Number(raw.count||0));
       if(raw.cover){
         const cover=await otakuMediaSource(raw.cover);
         await socket.sendMessage(jid,{image:cover,caption:String(raw.caption||'').slice(0,1024)});
         await otakuSleep(1800);
-      }else if(raw.caption){
-        await sendNewsletterTextDirect(jid,String(raw.caption));
-        await otakuSleep(1800);
       }
-      let sentCount=0;
-      for(const sticker of stickers){
-        const src=await otakuMediaSource(sticker);
-        await socket.sendMessage(jid,{sticker:src});
-        sentCount++;
-        await otakuSleep(1100);
-      }
-      return {ok:true,actionId:String(raw.id||''),sentCount};
+      const src=await otakuMediaSource(raw.pack);
+      const fileName=String(raw.pack.fileName||character.replace(/\s+/g,'-')+'.wastickers').slice(0,120);
+      const mimetype=String(raw.pack.mimetype||'application/zip');
+      const sent=await socket.sendMessage(jid,{
+        document:src,
+        mimetype,
+        fileName,
+        caption:'📦 '+character+(count?' · '+count+' stickers':'')+'\n💜 Otaku Nexus · pack complet'
+      });
+      return {ok:true,actionId:sent?.key?.id||String(raw.id||''),sentCount:1};
     }
     if(kind==='quiz_results'){
       const text=otakuRankText(String(raw.sessionId||''));

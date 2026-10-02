@@ -35,6 +35,7 @@ jobs:
           set -euo pipefail
           node --check nexcanal/otaku-nexus-manager.mjs
           node --check whatsapp-publisher/server.mjs
+          node nexcanal/otaku-nexus-manager.contract.test.mjs
           python3 - <<'PY'
           from pathlib import Path
           manager=Path('nexcanal/otaku-nexus-manager.mjs').read_text()
@@ -52,6 +53,10 @@ jobs:
               "DAILY_SLOTS",
               "pinterestImages",
               "telegramStickers",
+              "packLooksCharacterSpecific",
+              "buildWastickersFile",
+              "otaku_image_required",
+              "✅ Déjà vu",
               "/var/lib/nex/state/internal-automation/otaku-nexus-manager",
           ):
               if required not in manager:
@@ -64,6 +69,8 @@ jobs:
               "kind==='poll'",
               "kind==='quiz_results'",
               "aggregateOtakuVotes",
+              "Pack Otaku sans fichier .wastickers",
+              "document:src",
           ):
               if required not in publisher:
                   raise SystemExit('publisher missing '+required)

@@ -94,6 +94,40 @@ const QUIZ={
 };
 
 const clean=v=>String(v??'').trim();
+function normalizeKey(value){
+  return clean(value).toLowerCase().normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9\u0400-\u04ff]+/g,' ')
+    .trim();
+}
+function isMixedPackMeta(value){
+  const raw=clean(value).toLowerCase();
+  const norm=normalizeKey(raw);
+  return /(?:смешан|микс|разн)/i.test(raw)||
+    /\b(?:mixed|mix pack|anime mix|random|assorted|various|multi character|multicharacter|crossover|all anime)\b/i.test(norm);
+}
+function characterTokens(character){
+  const norm=normalizeKey(character);
+  const stop=new Set(['anime','the','and','from','chan','kun','san']);
+  const strong=norm.split(/\s+/).filter(x=>x.length>=4&&!stop.has(x));
+  const compact=norm.replace(/\s+/g,'');
+  return [...new Set([compact,...strong].filter(x=>x.length>=4))];
+}
+function packLooksCharacterSpecific(character,{title='',setName=''}={}){
+  const raw=[title,setName].filter(Boolean).join(' ');
+  if(!raw||isMixedPackMeta(raw))return false;
+  const norm=normalizeKey(raw);
+  const compact=norm.replace(/\s+/g,'');
+  const tokens=characterTokens(character);
+  if(!tokens.length)return false;
+  return tokens.some(token=>compact.includes(token.replace(/\s+/g,''))||norm.split(/\s+/).includes(token));
+}
+function safePackFileBase(value){
+  return normalizeKey(value).replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'').slice(0,48)||'otaku-pack';
+}
+function unicodeUnderline(value){
+  return Array.from(String(value??'')).map(ch=>/\s/.test(ch)?ch:ch+'\u0332').join('');
+}
 const rand=a=>a[Math.floor(Math.random()*a.length)];
 const nowIso=()=>new Date().toISOString();
 const digest=v=>crypto.createHash('sha256').update(String(v)).digest('hex');
@@ -280,9 +314,10 @@ async function botApi(method,body={}){
   if(!r.ok||!j?.ok)throw new Error(method+': '+clean(j?.description||r.status));
   return j.result;
 }
-async function stickerSetFiles(name,dir,start,limit){
+async function stickerSetFiles(name,dir,start,limit,expectedCharacter=''){
   if(limit<=0||!BOT_TOKEN)return [];
   const set=await botApi('getStickerSet',{name});
+  if(expectedCharacter&&!packLooksCharacterSpecific(expectedCharacter,{title:clean(set?.title),setName:name}))return [];
   const out=[];let n=start;
   for(const sticker of Array.isArray(set?.stickers)?set.stickers:[]){
     if(out.length>=limit)break;
@@ -304,53 +339,123 @@ async function stickerSetFiles(name,dir,start,limit){
   }
   return out;
 }
-
 function isSticker(m){
   const d=m?.document;if(!d)return false;
   const mime=clean(d.mimeType).toLowerCase();
   return (d.attributes||[]).some(x=>/Sticker/i.test(String(x?.className||x?.constructor?.name||'')))||['image/webp','video/webm'].includes(mime);
 }
 async function normalizeSticker(input,out){
+  for(const quality of [64,52,40,30,22]){
+    await run('/usr/bin/ffmpeg',[
+      '-hide_banner','-loglevel','error','-i',input,
+      '-vf','scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba',
+      '-frames:v','1','-vcodec','libwebp','-lossless','0','-compression_level','6','-q:v',String(quality),'-an','-y',out
+    ],{timeout:45000,maxBuffer:1024*1024});
+    const st=await fs.stat(out);
+    if(st.isFile()&&st.size>=500&&st.size<=100*1024)return out;
+  }
+  throw new Error('invalid_sticker_whatsapp_size');
+}
+const CRC_TABLE=(()=>{
+  const table=new Uint32Array(256);
+  for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?0xedb88320^(c>>>1):c>>>1;table[n]=c>>>0}
+  return table;
+})();
+function crc32(buf){
+  let c=0xffffffff;
+  for(const b of buf)c=CRC_TABLE[(c^b)&0xff]^(c>>>8);
+  return (c^0xffffffff)>>>0;
+}
+function dosTimeDate(date=new Date()){
+  const year=Math.max(1980,date.getFullYear());
+  return {
+    time:(date.getHours()<<11)|(date.getMinutes()<<5)|(date.getSeconds()>>1),
+    day:((year-1980)<<9)|((date.getMonth()+1)<<5)|date.getDate()
+  };
+}
+function makeZip(files){
+  const locals=[],centrals=[];let offset=0;
+  for(const file of files){
+    const name=Buffer.from(file.name),data=Buffer.from(file.data);
+    const crc=crc32(data),stamp=dosTimeDate();
+    const local=Buffer.alloc(30+name.length);
+    local.writeUInt32LE(0x04034b50,0);local.writeUInt16LE(20,4);local.writeUInt16LE(0,6);local.writeUInt16LE(0,8);
+    local.writeUInt16LE(stamp.time,10);local.writeUInt16LE(stamp.day,12);local.writeUInt32LE(crc,14);
+    local.writeUInt32LE(data.length,18);local.writeUInt32LE(data.length,22);local.writeUInt16LE(name.length,26);local.writeUInt16LE(0,28);name.copy(local,30);
+    locals.push(local,data);
+    const central=Buffer.alloc(46+name.length);
+    central.writeUInt32LE(0x02014b50,0);central.writeUInt16LE(20,4);central.writeUInt16LE(20,6);central.writeUInt16LE(0,8);central.writeUInt16LE(0,10);
+    central.writeUInt16LE(stamp.time,12);central.writeUInt16LE(stamp.day,14);central.writeUInt32LE(crc,16);
+    central.writeUInt32LE(data.length,20);central.writeUInt32LE(data.length,24);central.writeUInt16LE(name.length,28);central.writeUInt16LE(0,30);
+    central.writeUInt16LE(0,32);central.writeUInt16LE(0,34);central.writeUInt16LE(0,36);central.writeUInt32LE(0,38);central.writeUInt32LE(offset,42);name.copy(central,46);
+    centrals.push(central);offset+=local.length+data.length;
+  }
+  const centralSize=centrals.reduce((n,b)=>n+b.length,0),end=Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50,0);end.writeUInt16LE(0,4);end.writeUInt16LE(0,6);
+  end.writeUInt16LE(files.length,8);end.writeUInt16LE(files.length,10);end.writeUInt32LE(centralSize,12);end.writeUInt32LE(offset,16);end.writeUInt16LE(0,20);
+  return Buffer.concat([...locals,...centrals,end]);
+}
+function isWebp(buffer){
+  const b=Buffer.from(buffer||[]);
+  return b.length>=12&&b.toString('ascii',0,4)==='RIFF'&&b.toString('ascii',8,12)==='WEBP';
+}
+async function buildWastickersFile(character,stickers,dir){
+  const rows=Array.isArray(stickers)?stickers.slice(0,30):[];
+  if(rows.length<3)throw new Error('wastickers_not_enough_stickers');
+  const tray=path.join(dir,'cover.png');
   await run('/usr/bin/ffmpeg',[
-    '-hide_banner','-loglevel','error','-i',input,
-    '-vf','scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000',
-    '-vcodec','libwebp','-lossless','0','-q:v','70','-preset','picture','-an','-y',out
-  ],{timeout:45000,maxBuffer:1024*1024});
-  const st=await fs.stat(out);
-  if(!st.isFile()||st.size<500||st.size>600*1024)throw new Error('invalid_sticker');
+    '-hide_banner','-loglevel','error','-i',rows[0].localPath,
+    '-vf','scale=96:96:force_original_aspect_ratio=decrease,pad=96:96:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba',
+    '-frames:v','1','-compression_level','9','-y',tray
+  ],{timeout:30000,maxBuffer:1024*1024});
+  const trayBytes=await fs.readFile(tray);
+  if(trayBytes.length>50*1024)throw new Error('wastickers_cover_too_large');
+  const files=[
+    {name:'title.txt',data:Buffer.from('Otaku Nexus · '+character,'utf8')},
+    {name:'author.txt',data:Buffer.from('Otaku Nexus','utf8')},
+    {name:'cover.png',data:trayBytes}
+  ];
+  for(let i=0;i<rows.length;i++){
+    const b=await fs.readFile(rows[i].localPath);
+    if(!isWebp(b)||b.length>100*1024)throw new Error('wastickers_invalid_sticker_'+(i+1));
+    files.push({name:'sticker_'+String(i+1).padStart(2,'0')+'.webp',data:b});
+  }
+  const out=path.join(dir,safePackFileBase(character)+'.wastickers');
+  await fs.writeFile(out,makeZip(files));
   return out;
 }
 async function telegramStickers(character,dir,limit){
   const c=await telegramClient();if(!c)return [];
   const out=[];let n=0;
+  const tokens=characterTokens(character);
   try{
     for(const source of STICKER_SOURCES){
       if(out.length>=limit)break;
       let entity;try{entity=await c.getEntity('@'+source)}catch{continue}
       let rows=[];try{rows=await c.getMessages(entity,{limit:180})}catch{continue}
-      rows.sort((a,b)=>Number(clean(b?.message).toLowerCase().includes(character.toLowerCase()))-Number(clean(a?.message).toLowerCase().includes(character.toLowerCase())));
+      rows.sort((a,b)=>Number(tokens.some(t=>normalizeKey(clean(b?.message)).includes(t)))-Number(tokens.some(t=>normalizeKey(clean(a?.message)).includes(t))));
       const usedSets=new Set();
-      for(const m of rows){
+      for(const message of rows){
         if(out.length>=limit)break;
+        const messageText=normalizeKey(clean(message?.message));
+        const messageHit=tokens.some(t=>messageText.includes(t));
 
-        // Source posts often hide an addstickers URL behind a word. Resolve
-        // those packs through the Telegram Bot API and convert their members.
-        for(const setName of stickerSetNames(m)){
+        for(const setName of stickerSetNames(message)){
           if(out.length>=limit||usedSets.has(setName))break;
           usedSets.add(setName);
           try{
-            const rows=await stickerSetFiles(setName,dir,n,limit-out.length);
-            n+=rows.length;
-            out.push(...rows);
+            const setRows=await stickerSetFiles(setName,dir,n,limit-out.length,character);
+            n+=setRows.length;
+            out.push(...setRows);
           }catch{}
         }
         if(out.length>=limit)break;
+        if(!messageHit||!isSticker(message))continue;
 
-        if(!isSticker(m))continue;
-        const ext=clean(m.document?.mimeType).includes('webm')?'.webm':'.webp';
-        const raw=path.join(dir,'tg-'+source+'-'+String(m.id)+ext);
+        const ext=clean(message.document?.mimeType).includes('webm')?'.webm':'.webp';
+        const raw=path.join(dir,'tg-'+source+'-'+String(message.id)+ext);
         try{
-          const dl=await c.downloadMedia(m.media,{outputFile:raw,workers:1});
+          const dl=await c.downloadMedia(message.media,{outputFile:raw,workers:1});
           const file=typeof dl==='string'&&dl?dl:raw;
           const sticker=path.join(dir,'sticker-'+String(n++).padStart(2,'0')+'.webp');
           await normalizeSticker(file,sticker);
@@ -383,20 +488,19 @@ async function publicStickerSetNames(query=''){
   return names;
 }
 async function publicTelegramStickerPack(character,dir,limit){
-  const searched=await publicStickerSetNames(character);
-  const generic=searched.length>=4?[]:await publicStickerSetNames('');
-  const names=[...searched,...generic.filter(x=>!searched.includes(x))];
-  for(const setName of names.slice(0,16)){
+  const names=await publicStickerSetNames(character);
+  for(const setName of names.slice(0,24)){
     try{
       const set=await botApi('getStickerSet',{name:setName});
       if(!Array.isArray(set?.stickers)||!set.stickers.length)continue;
-      const stickers=await stickerSetFiles(setName,dir,0,limit);
+      if(!packLooksCharacterSpecific(character,{title:clean(set.title),setName}))continue;
+      const stickers=await stickerSetFiles(setName,dir,0,limit,character);
       if(stickers.length>=MIN_STICKERS){
-        return {stickers,title:clean(set.title)||character,setName};
+        return {stickers,title:character,sourceTitle:clean(set.title),setName};
       }
     }catch{}
   }
-  return {stickers:[],title:character,setName:''};
+  return {stickers:[],title:character,sourceTitle:'',setName:''};
 }
 function pinterestUrls(html){
   const found=[];const seen=new Set();
@@ -468,46 +572,48 @@ async function promotePackToManagedGroups(character,cover,count){
 }
 
 async function buildPack(character){
-  const dir=path.join(TMP_DIR,'pack-'+Date.now()+'-'+digest(character).slice(0,6));
+  const canonical=clean(character);
+  if(!canonical)throw new Error('character_required');
+  const dir=path.join(TMP_DIR,'pack-'+Date.now()+'-'+digest(canonical).slice(0,6));
   await fs.rm(dir,{recursive:true,force:true});await fs.mkdir(dir,{recursive:true});
-  // Primary path: scrape only public t.me preview pages for addstickers links,
-  // then use the bot API to fetch the real pack. No user StringSession is opened.
-  const publicPack=await publicTelegramStickerPack(character,dir,MAX_STICKERS);
+
+  const publicPack=await publicTelegramStickerPack(canonical,dir,MAX_STICKERS);
   let fromTelegram=[...(publicPack.stickers||[])];
   if(fromTelegram.length<MIN_STICKERS&&USE_SHARED_TELEGRAM_SESSION){
-    try{fromTelegram.push(...await telegramStickers(character,dir,Math.min(20,MAX_STICKERS-fromTelegram.length)))}catch{}
+    try{fromTelegram.push(...await telegramStickers(canonical,dir,MAX_STICKERS-fromTelegram.length))}catch{}
   }
-  const fromPinterest=fromTelegram.length>=MIN_STICKERS?[]:await pinterestStickers(character,dir,fromTelegram.length,MAX_STICKERS-fromTelegram.length);
-  const stickers=[...fromTelegram,...fromPinterest].slice(0,MAX_STICKERS);
-  if(stickers.length<MIN_STICKERS)throw new Error('not_enough_valid_stickers_'+stickers.length);
-  const title=clean(publicPack.title)||character;
+  const stickers=fromTelegram.slice(0,MAX_STICKERS);
+  if(stickers.length<MIN_STICKERS)throw new Error('no_character_specific_pack_'+safePackFileBase(canonical)+'_'+stickers.length);
+
   const cover=path.join(dir,'cover.jpg');
   await run('/usr/bin/ffmpeg',[
     '-hide_banner','-loglevel','error','-i',stickers[0].localPath,
     '-vf','scale=900:900:force_original_aspect_ratio=decrease,pad=900:900:(ow-iw)/2:(oh-ih)/2:color=black',
-    '-q:v','2','-y',cover
+    '-frames:v','1','-q:v','2','-y',cover
   ],{timeout:30000,maxBuffer:1024*1024});
-  return {dir,stickers,cover,title,setName:publicPack.setName||''};
+  const packFile=await buildWastickersFile(canonical,stickers,dir);
+  return {dir,stickers,cover,packFile,title:canonical,setName:publicPack.setName||'',sourceTitle:publicPack.sourceTitle||''};
 }
 async function publishPack(character,state,reason){
-  const pack=await buildPack(character);
-  const packTitle=clean(pack.title)||character;
-  const caption=await packCaption(packTitle,pack.stickers.length);
+  const canonical=clean(character);
+  const pack=await buildPack(canonical);
+  const caption=await packCaption(canonical,pack.stickers.length);
   await action({
     kind:'pack',
-    id:'otaku-pack:'+Date.now()+':'+digest(packTitle).slice(0,6),
-    character:packTitle,caption,
+    id:'otaku-pack:'+Date.now()+':'+digest(canonical).slice(0,6),
+    character:canonical,
+    caption,
     cover:{localPath:pack.cover,fileName:'cover.jpg'},
-    stickers:pack.stickers.map((x,i)=>({localPath:x.localPath,fileName:packTitle.replace(/\s+/g,'-')+'-'+String(i+1)+'.webp'}))
+    pack:{localPath:pack.packFile,fileName:safePackFileBase(canonical)+'.wastickers',mimetype:'application/zip'},
+    count:pack.stickers.length
   },10*60_000);
-  state.recent.push(packTitle);state.recent=state.recent.slice(-12);
-  state.history.push({at:nowIso(),type:'pack',reason,character:packTitle,count:pack.stickers.length,setName:pack.setName||''});
+  state.recent.push(canonical);state.recent=state.recent.slice(-12);
+  state.history.push({at:nowIso(),type:'pack',reason,character:canonical,count:pack.stickers.length,setName:pack.setName||'',sourceTitle:pack.sourceTitle||''});
   state.history=state.history.slice(-250);
-  // Promotion is intentionally asynchronous and limited to groups where the
-  // Telegram account is creator/admin. It never blocks WhatsApp pack delivery.
+
   if(PROMOTE_TELEGRAM_GROUPS){
-    void promotePackToManagedGroups(packTitle,pack.cover,pack.stickers.length)
-      .then(x=>{state.history.push({at:nowIso(),type:'promo',character:packTitle,sent:Number(x?.sent||0)});state.history=state.history.slice(-250);return saveState(state)})
+    void promotePackToManagedGroups(canonical,pack.cover,pack.stickers.length)
+      .then(x=>{state.history.push({at:nowIso(),type:'promo',character:canonical,sent:Number(x?.sent||0)});state.history=state.history.slice(-250);return saveState(state)})
       .catch(()=>{});
   }
   setTimeout(()=>fs.rm(pack.dir,{recursive:true,force:true}).catch(()=>{}),Math.max(2*60*60_000,PROMO_MAX_GAP*120)).unref?.();
@@ -522,14 +628,28 @@ async function openOrders(state){
   state.autoPacks=0;
   state.history.push({at:nowIso(),type:'order-window',until:new Date(state.orderWindowUntil).toISOString()});
 }
-async function imagePost(id,query,text){
-  const urls=await pinterestImages(query,20);
-  if(!urls.length){await action({kind:'text',id,text});return}
-  await action({kind:'image',id,imageUrl:urls[0],text});
+async function jikanImage(kind,name){
+  const endpoint=kind==='character'?'characters':'anime';
+  const r=await fetch('https://api.jikan.moe/v4/'+endpoint+'?q='+encodeURIComponent(clean(name))+'&limit=1',{
+    headers:{'user-agent':'OtakuNexus/1.0'},signal:AbortSignal.timeout(15000)
+  }).catch(()=>null);
+  if(!r?.ok)return '';
+  const j=await r.json().catch(()=>null);
+  const row=Array.isArray(j?.data)?j.data[0]:null;
+  return clean(row?.images?.webp?.large_image_url||row?.images?.jpg?.large_image_url||row?.images?.webp?.image_url||row?.images?.jpg?.image_url);
+}
+async function imagePost(id,query,text,fallback=null){
+  let urls=[];
+  try{urls=await pinterestImages(query,20)}catch{}
+  let imageUrl=clean(urls[0]);
+  if(!imageUrl&&fallback?.name)imageUrl=await jikanImage(fallback.kind||'anime',fallback.name);
+  if(!imageUrl)throw new Error('otaku_image_required:'+id);
+  await action({kind:'image',id,imageUrl,text});
+  return imageUrl;
 }
 async function runQuiz(state,slot){
   const id='quiz-'+dayKey()+'-'+slot;
-  await imagePost(id+':intro','anime quiz characters collage wallpaper','✦ ᴏᴛᴀᴋᴜ ɴᴇxᴜs · ǫᴜɪᴢ\n\n3 blocs : facile → intermédiaire → difficile.\nChaque bonne réponse compte pour le classement final.\n\nDépart dans 5 minutes. 🔥');
+  await imagePost(id+':intro','anime quiz characters collage wallpaper','✦ ᴏᴛᴀᴋᴜ ɴᴇxᴜs · ǫᴜɪᴢ\n\n3 blocs : facile → intermédiaire → difficile.\nChaque bonne réponse compte pour le classement final.\n\nDépart dans 5 minutes. 🔥',{kind:'anime',name:'Jujutsu Kaisen'});
   await sleep(5*60_000);
   for(const level of ['easy','intermediate','hard']){
     await action({kind:'text',id:id+':'+level,text:'✦ '+(level==='easy'?'ɴɪᴠᴇᴀᴜ ғᴀᴄɪʟᴇ':level==='intermediate'?'ɴɪᴠᴇᴀᴜ ɪɴᴛᴇʀᴍᴇ́ᴅɪᴀɪʀᴇ':'ɴɪᴠᴇᴀᴜ ᴅɪғғɪᴄɪʟᴇ')});
@@ -561,7 +681,7 @@ async function advanceChoices(state){
     return true;
   }
   const pair=i%3===2?rand(LIFE):rand(DUELS);
-  if(i%3!==2)await imagePost(s.id+':img:'+i,pair[0]+' '+pair[1]+' anime wallpaper together','✦ '+pair[0]+'  VS  '+pair[1]);
+  if(i%3!==2)await imagePost(s.id+':img:'+i,pair[0]+' '+pair[1]+' anime wallpaper together','✦ '+pair[0]+'  VS  '+pair[1],{kind:'anime',name:pair[0]});
   await action({kind:'poll',id:s.id+':poll:'+i,question:'Tu préfères ?',options:pair,quiz:false});
   s.index=i+1;
   s.nextAt=Date.now()+CHOICE_GAP;
@@ -611,17 +731,53 @@ async function runDailySlot(state,slot){
     await action({kind:'text',id:'daily:'+slotStamp(slot),text:programmeText()});
   }else if(slot.key==='recommendation'){
     const r=rand(RECOMMENDATIONS);
-    await imagePost('daily:'+slotStamp(slot),r.query,'𓂃 ࣪˖ 𝗥𝗘𝗖𝗢 𝗢𝗧𝗔𝗞𝗨 𖹭\n\nAujourd’hui : '+r.title+'\n\nPourquoi le tenter ? '+r.why+'.\n\nTu l’as déjà vu ou tu le mets dans ta liste ?');
+    const id='daily:'+slotStamp(slot);
+    const text=[
+      'ㅤ︵۪۪۪۪۪᷼͡⏜۪۪۪۪۪᷼͡︵᷼ㅤׄ💜ㅤ᷼︵۪۪۪۪۪᷼͡⏜۪۪۪۪۪᷼͡︵᷼ㅤ',
+      '𓂃 ࣪˖ 🍿  𝗥𝗘𝗖𝗢  𝗢𝗧𝗔𝗞𝗨  𖹭',
+      '',
+      '✦ '+otakuBold(r.title.toUpperCase()),
+      '╰─ '+unicodeUnderline('À VOIR / À GARDER'),
+      '',
+      '💜 '+otakuBold('POURQUOI LE TENTER ?'),
+      '☁️ '+r.why+'.',
+      '',
+      '✨ Vote juste en dessous — pas de question laissée sans choix.'
+    ].join('\n');
+    await imagePost(id,r.query,text,{kind:'anime',name:r.title});
+    await action({kind:'poll',id:id+':poll',question:'💜 '+r.title+' — tu choisis quoi ?',options:['✅ Déjà vu','📌 Dans ma liste','👀 Pas encore'],quiz:false});
   }else if(slot.key==='mystery'){
     const m=rand(MYSTERIES);
-    await imagePost('daily:'+slotStamp(slot),m.query+' silhouette dark','𖦹 𝐏𝐄𝐑𝐒𝐎𝐍𝐍𝐀𝐆𝐄 𝐌𝐘𝐒𝐓È𝐑𝐄\n\nLes vrais vont reconnaître avant le troisième indice 👀\n\nIndice 01 — '+m.clues[0]+'\nIndice 02 — '+m.clues[1]+'\nIndice 03 — '+m.clues[2]+'\n\nAlors… tu l’as reconnu ?');
+    const id='daily:'+slotStamp(slot);
+    const wrong=MYSTERIES.filter(x=>x.name!==m.name).sort(()=>Math.random()-.5).slice(0,3).map(x=>x.name);
+    const options=[m.name,...wrong].sort(()=>Math.random()-.5);
+    const text=[
+      'ㅤ︵۪۪۪۪۪᷼͡⏜۪۪۪۪۪᷼͡︵᷼ㅤׄ🖤ㅤ᷼︵۪۪۪۪۪᷼͡⏜۪۪۪۪۪᷼͡︵᷼ㅤ',
+      '𖦹  𝐏𝐄𝐑𝐒𝐎𝐍𝐍𝐀𝐆𝐄  𝐌𝐘𝐒𝐓È𝐑𝐄  🧩',
+      '',
+      '☁️ '+otakuBold('INDICE 01')+' — '+m.clues[0],
+      '☁️ '+otakuBold('INDICE 02')+' — '+m.clues[1],
+      '☁️ '+otakuBold('INDICE 03')+' — '+m.clues[2],
+      '',
+      '💜 '+unicodeUnderline('TA RÉPONSE DANS LE SONDAGE')
+    ].join('\n');
+    await imagePost(id,m.query+' silhouette dark',text,{kind:'character',name:m.name});
+    await action({kind:'poll',id:id+':poll',question:'🧩 Qui se cache derrière les indices ?',options,quiz:true,correctAnswer:m.name,sessionId:id});
   }else if(slot.key==='wallpaper'){
     const r=rand(RECOMMENDATIONS);
-    await imagePost('daily:'+slotStamp(slot),r.query+' 4k vertical phone wallpaper','☾ ׄ 𝗪𝗔𝗟𝗟𝗣𝗔𝗣𝗘𝗥 𝗗𝗥𝗢𝗣 𓏼\n\n'+r.title+' — save it si ça mérite ton écran. 🖤');
+    const text=[
+      '☾ ׄ  𝗪𝗔𝗟𝗟𝗣𝗔𝗣𝗘𝗥  𝗗𝗥𝗢𝗣  𓏼',
+      '',
+      '💜 '+otakuBold(r.title.toUpperCase()),
+      '╰─ '+unicodeUnderline('SAVE IT • SET IT • KEEP THE VIBE'),
+      '',
+      '☁️ Un écran propre, une vibe anime, zéro post vide. 🖤✨'
+    ].join('\n');
+    await imagePost('daily:'+slotStamp(slot),r.query+' 4k vertical phone wallpaper',text,{kind:'anime',name:r.title});
   }else if(slot.key==='night'){
     const texts=[
       'ㅤ︵︵ ׄ 🌙 ׅ ︵︵\n\nׄ      ɴɪɢʜᴛ ᴠɪʙᴇѕ 𓏼\n\nLes écouteurs. Une OST. La lumière éteinte.\n\nEt soudain, la journée fait un peu moins de bruit.\n\nBonne nuit Otaku Nexus.',
-      '𓂃 ࣪˖ ɴɪɢʜᴛ ᴄʜᴇᴄᴋ 🌙\n\nDernière question avant de disparaître : quel anime pourrait te faire recommencer une saison entière ce soir ?'
+      '𓂃 ࣪˖ ɴɪɢʜᴛ ᴄʜᴇᴄᴋ 🌙\n\nPour ce soir : choisis l’anime que tu pourrais recommencer sans hésiter, lance l’OST et coupe le bruit. 🖤'
     ];
     await action({kind:'text',id:'daily:'+slotStamp(slot),text:rand(texts)});
   }
