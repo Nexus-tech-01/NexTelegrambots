@@ -14,9 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Inspect live /bots tree through existing VPS bridge
+      - name: Search live NexGroup source through temporary internal proxy
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=%2Fbots" |
-          python3 -c 'import sys,json; d=json.load(sys.stdin); print(json.dumps({"ok":d.get("ok"),"root":d.get("root"),"files":d.get("files"),"truncated":d.get("truncated"),"fileList":[x for x in d.get("fileList",[]) if "nexgroup" in str(x.get("path","")).lower()]},ensure_ascii=False,indent=2))'
+          curl --fail-with-body --silent --show-error \
+            "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-once" |
+          python3 -c 'import sys,json; d=json.load(sys.stdin); print(json.dumps(d,ensure_ascii=False,indent=2))'
