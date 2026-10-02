@@ -13,73 +13,10 @@ jobs:
   diagnose:
     runs-on: ubuntu-latest
     timeout-minutes: 8
-    env:
-      NXC_BASE: https://nexcontrol-ochre.vercel.app
-      NXC_AGENT: nexus-main
-      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
-      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
     steps:
-      - name: Inspect live NexGroup settings callbacks
+      - name: Inspect live /bots tree through existing VPS bridge
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import os,json,time,base64,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib
-          BASE=os.environ['NXC_BASE'].rstrip('/')
-          AGENT=os.environ['NXC_AGENT']
-          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
-          SECRET=os.environ.get('NXC_SESSION_SECRET','')
-          jar=http.cookiejar.CookieJar()
-          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-          cookie=''
-          if SECRET:
-              exp=int(time.time()*1000)+15*60*1000
-              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
-              sig=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
-              cookie=payload+'.'+sig
-          elif ADMIN:
-              data=urllib.parse.urlencode({'password':ADMIN}).encode()
-              op.open(urllib.request.Request(BASE+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=45).read()
-          else:
-              raise RuntimeError('No NexControl credential')
-          def http(method,path,data=None):
-              h={'Accept':'application/json'}
-              if cookie: h['Cookie']='nexcontrol_session='+cookie
-              body=None
-              if data is not None:
-                  body=json.dumps(data,separators=(',',':')).encode()
-                  h['Content-Type']='application/json'
-              req=urllib.request.Request(BASE+path,data=body,headers=h,method=method)
-              try:
-                  with op.open(req,timeout=45) as r:
-                      raw=r.read().decode('utf-8','replace')
-                      return json.loads(raw) if raw else {}
-              except urllib.error.HTTPError as e:
-                  raise RuntimeError(f'HTTP {e.code} {path}: '+e.read().decode('utf-8','replace')[:1500])
-          def job(kind,payload):
-              j=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload})
-              jid=j.get('jobId')
-              if not jid: raise RuntimeError(f'No jobId for {kind}: {j}')
-              end=time.time()+120
-              while time.time()<end:
-                  x=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid))
-                  if x.get('status')=='succeeded': return x.get('result') or {}
-                  if x.get('status')=='failed': raise RuntimeError(f'{kind} failed: {x.get("error")}')
-                  time.sleep(2)
-              raise TimeoutError(kind)
-          print('=== ROOT ===')
-          root=job('fs.list',{'root':'nexgroup','path':'.'})
-          for item in root.get('items',[]): print(item)
-          queries=['callback_query','settings','config','deleteMessage','delete_message','DELETE_WARN','moderation','entry:','groupId','chatId']
-          seen=set()
-          for q in queries:
-              print('\n=== SEARCH',q,'===')
-              r=job('fs.search',{'root':'nexgroup','path':'.','query':q,'maxResults':80})
-              for m in r.get('matches',[]):
-                  p=str(m.get('path',''))
-                  print(json.dumps(m,ensure_ascii=False))
-                  if p: seen.add(p)
-          print('\n=== CANDIDATE FILES ===')
-          for p in sorted(seen):
-              print(p)
-          PY
+          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=%2Fbots" |
+          python3 -c 'import sys,json; d=json.load(sys.stdin); print(json.dumps({"ok":d.get("ok"),"root":d.get("root"),"files":d.get("files"),"truncated":d.get("truncated"),"fileList":[x for x in d.get("fileList",[]) if "nexgroup" in str(x.get("path","")).lower()]},ensure_ascii=False,indent=2))'
