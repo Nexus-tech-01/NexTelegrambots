@@ -366,8 +366,13 @@ async function publicStickerSetNames(query=''){
   for(const source of [...STICKER_SOURCES].sort(()=>Math.random()-.5)){
     try{
       const url='https://t.me/s/'+encodeURIComponent(source)+(query?'?q='+encodeURIComponent(query):'');
-      const html=await fetchText(url,18_000);
-      const re=/https:\/\/t\.me\/addstickers\/([A-Za-z0-9_]{3,})/g;
+      const r=await fetch(url,{
+        headers:{'user-agent':'Mozilla/5.0 Chrome/136','accept-language':'en-US,en;q=0.9'},
+        signal:AbortSignal.timeout(18_000)
+      });
+      if(!r.ok)continue;
+      const html=await r.text();
+      const re=/(?:https?:\/\/)?t\.me\/addstickers\/([A-Za-z0-9_]{3,})/g;
       let m;
       while((m=re.exec(html))&&names.length<24){
         if(!names.includes(m[1]))names.push(m[1]);
@@ -383,24 +388,11 @@ async function publicTelegramStickerPack(character,dir,limit){
   const names=[...searched,...generic.filter(x=>!searched.includes(x))];
   for(const setName of names.slice(0,16)){
     try{
-      const data=await fetchJson('https://api.telegram.org/bot'+BOT_TOKEN+'/getStickerSet?name='+encodeURIComponent(setName),18_000);
-      if(!data?.ok||!Array.isArray(data?.result?.stickers))continue;
-      const out=[];let n=0;
-      for(const st of data.result.stickers){
-        if(out.length>=limit)break;
-        try{
-          const info=await fetchJson('https://api.telegram.org/bot'+BOT_TOKEN+'/getFile?file_id='+encodeURIComponent(st.file_id),18_000);
-          const filePath=clean(info?.result?.file_path);if(!filePath)continue;
-          const ext=path.extname(filePath)||'.webp';
-          const raw=path.join(dir,'public-'+String(n).padStart(2,'0')+ext);
-          await download('https://api.telegram.org/file/bot'+BOT_TOKEN+'/'+filePath,raw,25_000);
-          const sticker=path.join(dir,'public-sticker-'+String(n++).padStart(2,'0')+'.webp');
-          await normalizeSticker(raw,sticker);
-          out.push({localPath:sticker,source:'telegram-public:'+setName});
-        }catch{}
-      }
-      if(out.length>=MIN_STICKERS){
-        return {stickers:out.slice(0,limit),title:clean(data.result.title)||character,setName};
+      const set=await botApi('getStickerSet',{name:setName});
+      if(!Array.isArray(set?.stickers)||!set.stickers.length)continue;
+      const stickers=await stickerSetFiles(setName,dir,0,limit);
+      if(stickers.length>=MIN_STICKERS){
+        return {stickers,title:clean(set.title)||character,setName};
       }
     }catch{}
   }
