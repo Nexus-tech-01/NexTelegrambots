@@ -3,7 +3,7 @@ import { TelegramClient, Api } from 'teleproto';
 import { StringSession } from 'teleproto/sessions/index.js';
 import { NewMessage } from 'teleproto/events/index.js';
 import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
-import { cfg, isOwnerId } from './config.mjs';
+import { cfg, isOwnerId, isOwnerIdentity } from './config.mjs';
 import { commandMap } from './commands.mjs';
 import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, acquireSessionLease, claimCommandDelivery, disableAccount, enableAccount, listAccountsForWorker, markSessionRepairRequired, nexAiPremiumState, patchSettings, releaseRuntimeLease, releaseSessionLease, renewRuntimeLease, renewSessionLease, sessionFingerprint, settingsFor, sharedBotIdentity } from './store.mjs';
 import { listStyles } from './styles.mjs';
@@ -202,6 +202,17 @@ async function messageAuthorIsBot(client,message,eventSender=null){
   try{
     const entity=await client.getEntity(id);
     return entity?.bot===true;
+  }catch{return false}
+}
+
+async function messageAuthorIsOwner(client,message,eventSender=null){
+  const directId=String(eventSender?.id||eventSender?.userId||messageAuthorId(message)||'');
+  const directUsername=String(eventSender?.username||'');
+  if(isOwnerIdentity(directId,directUsername))return true;
+  if(!directId)return false;
+  try{
+    const entity=await client.getEntity(directId);
+    return isOwnerIdentity(entity?.id,entity?.username);
   }catch{return false}
 }
 
@@ -654,8 +665,9 @@ async function enforceCommandContext(runtime,event,cmd,displayName){
   const peer=event.message.peerId;
   const group=eventIsGroup(event);
   const selfAuthored=isSelfAuthoredMessage(event.message,account);
+  const ownerCaller=event?.callerOwner===true;
 
-  if(cmd.selfOnly&&!selfAuthored){
+  if(cmd.selfOnly&&!selfAuthored&&!ownerCaller){
     // Ignore silently: replying to foreign/bot traffic can create feedback loops.
     return false;
   }
@@ -703,13 +715,9 @@ async function handleCommand(runtime,event,parsed){
     if(custom){await sendText(client,peer,String(custom));return true}
     return false;
   }
-  if(cmd.ownerOnly){
-    // Public mode never delegates owner-only commands to another sender.
-    if(!isSelfAuthoredMessage(event.message,account))return true;
-    if(!isOwnerId(account.telegramUserId)){
-      await sendText(client,peer,'Commande réservée au propriétaire de NexAi.');
-      return true;
-    }
+  if(cmd.ownerOnly&&event?.callerOwner!==true){
+    await sendText(client,peer,'Commande réservée au propriétaire de NexAi.');
+    return true;
   }
   if(!(await enforceCommandContext(runtime,event,cmd,parsed.name)))return true;
 
@@ -1323,6 +1331,12 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
 
   const settings=await settingsFor(account.telegramUserId);
   const selfAuthored=isSelfAuthoredMessage(message,account);
+  const ownerCaller=event?.callerOwner===true||(
+    selfAuthored
+      ?isOwnerIdentity(account.telegramUserId,account.username)
+      :await messageAuthorIsOwner(client,message,event?.sender)
+  );
+  event.callerOwner=ownerCaller;
   const accessMode=settings.accessMode==='public'?'public':'private';
   const parsed=parseRuntimeCommand(textOf(message),settings,event);
   if(!parsed)return false;
@@ -1349,7 +1363,7 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
 
   // /pair, pair and its aliases must always be callable by a human user,
   // even when the connected NexAccount session is in private mode.
-  if(!selfAuthored&&accessMode!=='public'&&!universalPair)return false;
+  if(!selfAuthored&&accessMode!=='public'&&!universalPair&&!ownerCaller)return false;
 
   // Raw updates lack reliable sender metadata. Public human commands are
   // handled by NewMessage; raw is only a fallback for the connected account.
@@ -1430,7 +1444,9 @@ async function pollRecentCommands(runtime){
       // Old history must never be treated as a new command after reconnect.
       if(parsed.kind!=='prefix'&&(!stamp||now-stamp>45_000))return;
 
-      if(!selfAuthored&&accessMode!=='public'&&!isUniversalPairCommand(parsed))return;
+      const ownerCaller=!selfAuthored&&await messageAuthorIsOwner(client,message,null);
+      if(ownerCaller)pollEvent.callerOwner=true;
+      if(!selfAuthored&&accessMode!=='public'&&!isUniversalPairCommand(parsed)&&!ownerCaller)return;
       await maybeHandleSelfCommand(runtime,pollEvent,'poll');
     }
 

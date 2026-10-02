@@ -59,6 +59,13 @@ export function isOwnerId(id){
   return Boolean(cfg.ownerTelegramId)&&String(id)===String(cfg.ownerTelegramId);
 }
 
+export function isOwnerIdentity(id,username=''){
+  if(isOwnerId(id))return true;
+  const expected=String(cfg.creatorUsername||'').trim().replace(/^@/,'').toLowerCase();
+  const actual=String(username||'').trim().replace(/^@/,'').toLowerCase();
+  return Boolean(expected&&actual&&actual===expected);
+}
+
 export function assertCoreConfig(){
   const missing=[];
   if(!Number.isInteger(cfg.workerIndex)||cfg.workerIndex<0||cfg.workerIndex>=cfg.workerCount)missing.push('NEXACCOUNT_WORKER_INDEX must be < NEXACCOUNT_WORKER_COUNT');

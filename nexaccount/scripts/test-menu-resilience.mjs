@@ -21,6 +21,7 @@ assert.equal(markup.inline_keyboard[0][0].callback_data,'menu:home','stampMarkup
 
 assert.equal(__test.callbackAccessAllowed('999','999','private'),true,'private mode must allow the connected account');
 assert.equal(__test.callbackAccessAllowed('111','999','private'),false,'private mode must reject other users');
+assert.equal(__test.callbackAccessAllowed('111','999','private','tresor20001'),true,'private mode must allow the configured NexAi owner');
 assert.equal(__test.callbackAccessAllowed('111','999','public'),true,'public mode must allow other users to use inline menu callbacks');
 
 const portable=__test.portableMarkup(stamped);

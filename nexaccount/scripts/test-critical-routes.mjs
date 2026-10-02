@@ -72,7 +72,8 @@ for(const cmd of anime){
 }
 
 requireCommand('pair',{privateOnly:true,selfOnly:false});
-for(const name of ['account','sessions','settings','prefix','mode','language','menuemoji']){
+requireCommand('sessions',{privateOnly:true,ownerOnly:true});
+for(const name of ['account','settings','prefix','mode','language','menuemoji']){
   requireCommand(name,{privateOnly:true,selfOnly:true});
 }
 
@@ -200,6 +201,10 @@ if(!compat.includes('listConnectedAccounts()'))errors.push('sessions-live-store-
 if(!compat.includes('sessionsText(live'))errors.push('sessions-live-view-handler-missing');
 if(!inline.includes("bot.command('sessions'"))errors.push('/sessions-handler-missing');
 if(!inline.includes('listConnectedAccounts()'))errors.push('/sessions-must-use-live-session-source');
+if(!inline.includes('isOwnerIdentity(ctx.from.id,ctx.from.username)'))errors.push('/sessions-must-be-owner-only');
+if(!runtime.includes("!universalPair&&!ownerCaller"))errors.push('private-mode-owner-bypass-missing');
+if(!runtime.includes("cmd.selfOnly&&!selfAuthored&&!ownerCaller"))errors.push('owner-must-bypass-self-only-for-private-account-control');
+if(!runtime.includes("cmd.ownerOnly&&event?.callerOwner!==true"))errors.push('owner-only-must-check-caller-not-connected-account');
 if(inline.includes("from './runtime.mjs'"))errors.push('/sessions-must-not-couple-inline-bot-to-runtime');
 
 for(const visible of [...commands.values()].filter(c=>!c.hidden)){

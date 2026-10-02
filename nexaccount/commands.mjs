@@ -22,7 +22,7 @@ export const CORE_COMMANDS=[
   // ACCOUNT — deliberately private, like the owner/settings section of a WhatsApp bot.
   C('account','ACCOUNT',{...P,description:'Informations du compte connecté'}),
   C('pair','ACCOUNT',{privateOnly:true,selfOnly:false,description:'Connecter un compte Telegram'}),
-  C('sessions','ACCOUNT',{...P,description:'Sessions connectées'}),
+  C('sessions','ACCOUNT',{privateOnly:true,ownerOnly:true,description:'Sessions connectées · propriétaire uniquement'}),
   C('dashboard','ACCOUNT',{...P,description:'Tableau de bord'}),
   C('settings','ACCOUNT',{...P,description:'Réglages NexAi'}),
   C('stats','ACCOUNT',{...P,description:'Statistiques du compte'}),

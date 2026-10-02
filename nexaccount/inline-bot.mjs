@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { Bot, InputFile } from 'grammy';
-import { cfg, isOwnerId } from './config.mjs';
+import { cfg, isOwnerId, isOwnerIdentity } from './config.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { commandMap } from './commands.mjs';
 import { accountRecord, listConnectedAccounts, settingsFor, patchSettings, saveSharedBotIdentity, nexAiPremiumState, grantNexAiPremium, acquireServiceLease, renewServiceLease, releaseServiceLease } from './store.mjs';
@@ -201,8 +201,10 @@ function webPairActive(userId){
   return false;
 }
 
-function callbackAccessAllowed(clickerId,accountId,accessMode='private'){
-  return String(accessMode)==='public'||String(clickerId)===String(accountId);
+function callbackAccessAllowed(clickerId,accountId,accessMode='private',clickerUsername=''){
+  return String(accessMode)==='public'
+    ||String(clickerId)===String(accountId)
+    ||isOwnerIdentity(clickerId,clickerUsername);
 }
 
 function connectMarkup(lang){
@@ -754,17 +756,17 @@ export async function startInlineBot(){
 
   bot.command('sessions',async ctx=>{
     if(ctx.chat?.type!=='private')return;
-    const owner=isOwnerId(ctx.from.id);
-    const account=await accountRecord(ctx.from.id);
-    if(!owner&&(!account||account.enabled!==true)){
-      const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
-      return sendPairLink(ctx,lang);
-    }
+    const owner=isOwnerIdentity(ctx.from.id,ctx.from.username);
     const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
+    if(!owner){
+      return ctx.reply(lang==='en'
+        ?'This command is reserved for the NexAi owner.'
+        :'Cette commande est réservée au propriétaire de NexAi.');
+    }
     const live=await listConnectedAccounts();
     return ctx.reply(sessionsText(live,{
       viewerTelegramUserId:ctx.from.id,
-      owner,
+      owner:true,
       language:lang
     }));
   });
@@ -912,7 +914,7 @@ export async function startInlineBot(){
     const account=await accountRecord(accountId);
     if(!account||account.enabled!==true){await ctx.answerCallbackQuery({text:'Compte déconnecté.'});return}
     const settings=await settingsFor(accountId);
-    if(!callbackAccessAllowed(ctx.from.id,accountId,settings.accessMode)){
+    if(!callbackAccessAllowed(ctx.from.id,accountId,settings.accessMode,ctx.from.username)){
       await ctx.answerCallbackQuery({text:'Ce menu appartient au compte connecté.',show_alert:false});
       return;
     }
