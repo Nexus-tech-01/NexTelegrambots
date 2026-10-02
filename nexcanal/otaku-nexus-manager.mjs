@@ -39,6 +39,8 @@ const CHOICE_GAP=Math.max(5*60_000,Number(process.env.OTAKU_CHOICE_GAP_MS||15*60
 const TELEGRAM_CHANNEL_URL=String(process.env.OTAKU_TELEGRAM_CHANNEL_URL||'https://t.me/theotaku_nexus').trim();
 const PROMO_MIN_GAP=Math.max(20_000,Number(process.env.OTAKU_PROMO_MIN_GAP_MS||35_000));
 const PROMO_MAX_GAP=Math.max(PROMO_MIN_GAP,Number(process.env.OTAKU_PROMO_MAX_GAP_MS||65_000));
+const USE_SHARED_TELEGRAM_SESSION=/^(1|true|yes)$/i.test(String(process.env.OTAKU_SHARED_TELEGRAM_SOURCE_ENABLED||'0'));
+const PROMOTE_TELEGRAM_GROUPS=/^(1|true|yes)$/i.test(String(process.env.OTAKU_TELEGRAM_GROUP_PROMO_ENABLED||'0'));
 const DAILY_MIN_GAP=Math.max(5*60_000,Number(process.env.OTAKU_DAILY_MIN_GAP_MS||20*60_000));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
@@ -431,7 +433,14 @@ async function promotePackToManagedGroups(character,cover,count){
 async function buildPack(character){
   const dir=path.join(TMP_DIR,'pack-'+Date.now()+'-'+digest(character).slice(0,6));
   await fs.rm(dir,{recursive:true,force:true});await fs.mkdir(dir,{recursive:true});
-  const fromTelegram=await telegramStickers(character,dir,Math.min(20,MAX_STICKERS));
+  // Never reuse the live NexAccount user session by default: Telegram invalidates
+  // duplicated auth keys when the same StringSession is opened by another process.
+  // Pinterest is the safe primary source; the Telegram source is opt-in only when
+  // a dedicated, non-shared session has been provisioned for this worker.
+  let fromTelegram=[];
+  if(USE_SHARED_TELEGRAM_SESSION){
+    try{fromTelegram=await telegramStickers(character,dir,Math.min(20,MAX_STICKERS))}catch{}
+  }
   const fromPinterest=await pinterestStickers(character,dir,fromTelegram.length,MAX_STICKERS-fromTelegram.length);
   const stickers=[...fromTelegram,...fromPinterest].slice(0,MAX_STICKERS);
   if(stickers.length<MIN_STICKERS)throw new Error('not_enough_valid_stickers_'+stickers.length);
@@ -458,9 +467,11 @@ async function publishPack(character,state,reason){
   state.history=state.history.slice(-250);
   // Promotion is intentionally asynchronous and limited to groups where the
   // Telegram account is creator/admin. It never blocks WhatsApp pack delivery.
-  void promotePackToManagedGroups(character,pack.cover,pack.stickers.length)
-    .then(x=>{state.history.push({at:nowIso(),type:'promo',character,sent:Number(x?.sent||0)});state.history=state.history.slice(-250);return saveState(state)})
-    .catch(()=>{});
+  if(PROMOTE_TELEGRAM_GROUPS){
+    void promotePackToManagedGroups(character,pack.cover,pack.stickers.length)
+      .then(x=>{state.history.push({at:nowIso(),type:'promo',character,sent:Number(x?.sent||0)});state.history=state.history.slice(-250);return saveState(state)})
+      .catch(()=>{});
+  }
   setTimeout(()=>fs.rm(pack.dir,{recursive:true,force:true}).catch(()=>{}),Math.max(2*60*60_000,PROMO_MAX_GAP*120)).unref?.();
   return pack.stickers.length;
 }
