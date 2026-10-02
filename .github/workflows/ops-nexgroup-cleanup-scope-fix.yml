@@ -1,0 +1,29 @@
+name: NexGroup Cleanup Scope Fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-nexgroup-cleanup-scope-fix.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Apply live NexGroup cleanup group-scope fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-complete-utf8-61082" |
+          tee /tmp/result.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/result.json'))
+          if not d.get('ok'):
+              raise SystemExit(json.dumps(d,ensure_ascii=False))
+          print(json.dumps(d,ensure_ascii=False,indent=2))
+          PY
