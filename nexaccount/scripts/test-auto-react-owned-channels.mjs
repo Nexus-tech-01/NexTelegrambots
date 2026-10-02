@@ -12,7 +12,7 @@ const [config,store,runtime]=await Promise.all([
   read('runtime.mjs')
 ]);
 
-const required='thenexusorigin,thenexnews,tresor_universe,theotaku_nexus';
+const required='thenexusorigin,thenexnews,tresor_universe,theotaku_nexus,princessetyla34';
 
 if(!config.includes(required)){
   throw new Error('Auto-react owned-channel allowlist is missing from config');
@@ -25,6 +25,9 @@ if(store.includes("autoReact:{enabled:true,mode:'smart',targets:['*']")){
 }
 if(!runtime.includes('safeAutoReactTargets')){
   throw new Error('Runtime must enforce the owned-channel auto-react allowlist');
+}
+if(!runtime.includes('...configured,...explicit')){
+  throw new Error('Runtime must merge configured targets into existing account settings');
 }
 if(runtime.includes('wildcard&&isBroadcastChannel')){
   throw new Error('Runtime must never auto-react to arbitrary joined broadcast channels');

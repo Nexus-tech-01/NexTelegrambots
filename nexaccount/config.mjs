@@ -13,7 +13,7 @@ const pick=(...names)=>{
 
 const configuredWorkerCount=Math.max(1,Math.min(65536,Number(pick('NEXACCOUNT_WORKER_COUNT')||1)));
 const configuredWorkerIndex=Math.max(0,Number(pick('NEXACCOUNT_WORKER_INDEX')||0));
-const DEFAULT_OWNED_AUTO_REACT_TARGETS='thenexusorigin,thenexnews,tresor_universe,theotaku_nexus';
+const DEFAULT_OWNED_AUTO_REACT_TARGETS='thenexusorigin,thenexnews,tresor_universe,theotaku_nexus,princessetyla34';
 
 export const cfg={
   apiId:Number(pick('NEXACCOUNT_TELEGRAM_API_ID','TELEGRAM_API_ID')),
@@ -31,8 +31,8 @@ export const cfg={
   defaultStyle:Math.max(1,Number(pick('NEXAI_DEFAULT_STYLE')||1)),
   autoReact:pick('NEXAI_AUTO_REACT')!=='0',
   autoJoin:pick('NEXAI_AUTO_JOIN')!=='0',
-  autoJoinTargets:(pick('NEXAI_AUTO_JOIN_TARGETS')||'https://t.me/thenexnews,https://t.me/tresor_universe,https://t.me/hackergrouptel,https://t.me/Tresortelegramgroup,https://t.me/thenexusorigin').split(',').map(x=>x.trim()).filter(Boolean),
-  autoReactTargets:(pick('NEXAI_AUTO_REACT_TARGETS')||DEFAULT_OWNED_AUTO_REACT_TARGETS).split(',').map(x=>x.trim().replace(/^@/,'')).filter(Boolean),
+  autoJoinTargets:(pick('NEXAI_AUTO_JOIN_TARGETS')||'https://t.me/thenexnews,https://t.me/tresor_universe,https://t.me/hackergrouptel,https://t.me/Tresortelegramgroup,https://t.me/thenexusorigin,https://t.me/Princessetyla34').split(',').map(x=>x.trim()).filter(Boolean),
+  autoReactTargets:[...new Set([...DEFAULT_OWNED_AUTO_REACT_TARGETS.split(','),...pick('NEXAI_AUTO_REACT_TARGETS').split(',')].map(x=>x.trim().replace(/^@/,'').toLowerCase()).filter(Boolean))],
   ownerName:pick('NEXAI_OWNER_NAME','OWNER_NAME')||'Trésor',
   ownerTelegramId:pick('NEXAI_OWNER_TELEGRAM_ID','NEXUS_OWNER_TELEGRAM_ID'),
   creatorUsername:pick('NEXAI_CREATOR_USERNAME','NEXUS_CREATOR_USERNAME')||'tresor20001',
