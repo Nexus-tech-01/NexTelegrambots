@@ -1244,6 +1244,20 @@ async function runAutoJoin(runtime,{force=false}={}){
     const results=[];
     for(const target of targets){
       let already=false;
+
+      // Membership checks are much cheaper than repeatedly issuing JoinChannel.
+      // Rejoining every configured channel on each runtime restore can trigger
+      // Telegram FLOOD_WAIT and starve normal command traffic.
+      const membership=await verifyChannelMembership(runtime.client,target);
+      if(membership.ok===true&&membership.method==='participant'){
+        already=true;
+        const row=recordAutoJoin(runtime,{target,ok:true,already:true,error:''});
+        console.log('[NexAccount auto-follow]',String(runtime.account.telegramUserId),'ok',target,'already=true','participant');
+        results.push({...row,verification:'participant'});
+        await sleep(250);
+        continue;
+      }
+
       try{
         await joinTarget(runtime.client,target);
       }catch(error){
@@ -1254,6 +1268,11 @@ async function runAutoJoin(runtime,{force=false}={}){
           const row=recordAutoJoin(runtime,{target,ok:false,error:reason||'join_failed'});
           console.error('[NexAccount auto-follow]',String(runtime.account.telegramUserId),'failed',target,row.error);
           results.push(row);
+          const flood=reason.match(/FLOOD_WAIT_(\d+)/i);
+          if(flood){
+            runtime.autoJoinStats.blockedUntil=new Date(Date.now()+(Number(flood[1])+1)*1000);
+            break;
+          }
           await sleep(1800);
           continue;
         }
@@ -1408,6 +1427,7 @@ function messageTimestampMs(message){
 
 async function pollRecentCommands(runtime){
   if(runtime.pollingCommands)return;
+  if(runtime.commandPollBlockedUntil&&Date.now()<Number(runtime.commandPollBlockedUntil))return;
   runtime.pollingCommands=true;
   const {client,account}=runtime;
   try{
@@ -1463,7 +1483,7 @@ async function pollRecentCommands(runtime){
     // changed after our command and hid it from the top slot.
     // Inspect more dialog heads without issuing GetHistory for every chat.
     // A freshly sent command normally becomes the dialog's top message.
-    const dialogs=await client.getDialogs({limit:64});
+    const dialogs=await client.getDialogs({limit:32});
     let tailFetches=0;
     for(const dialog of dialogs){
       const top=dialog?.message;
@@ -1481,7 +1501,7 @@ async function pollRecentCommands(runtime){
       // Only a handful of recent chats need a history tail. Limiting these
       // calls prevents command polling itself from triggering GetHistory FloodWait
       // and starving the fallback that is supposed to recover missed updates.
-      if(!topIsOwnCommand&&topStamp&&now-topStamp<120000&&tailFetches<4){
+      if(!topIsOwnCommand&&topStamp&&now-topStamp<60000&&tailFetches<2){
         tailFetches++;
         try{
           const recent=await client.getMessages(dialog.inputEntity||dialog.entity||dialog,{limit:6});
@@ -1500,7 +1520,12 @@ async function pollRecentCommands(runtime){
       return;
     }
     runtime.commandPollFailures=(runtime.commandPollFailures||0)+1;
-    console.error('[NexAccount command-poll]',String(account.telegramUserId),'failed',runtime.commandPollFailures,String(error?.errorMessage||error?.message||error).slice(0,500));
+    const reason=telegramRuntimeErrorText(error);
+    const flood=reason.match(/FLOOD_WAIT_(\d+)/i);
+    if(flood){
+      runtime.commandPollBlockedUntil=Date.now()+(Number(flood[1])+1)*1000;
+    }
+    console.error('[NexAccount command-poll]',String(account.telegramUserId),'failed',runtime.commandPollFailures,reason.slice(0,500));
   }finally{
     runtime.pollingCommands=false;
   }
