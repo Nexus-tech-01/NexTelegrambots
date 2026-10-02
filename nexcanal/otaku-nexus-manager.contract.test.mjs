@@ -20,5 +20,7 @@ assert.ok(packBlock.includes('document:src'),'pack must be sent as one document'
 assert.ok(packBlock.includes('.wastickers'),'wastickers filename requirement missing');
 assert.ok(!packBlock.includes('{sticker:src}'),'individual sticker flood must stay disabled');
 assert.ok(!packBlock.includes('for(const sticker of stickers)'),'pack handler must not loop over individual stickers');
+assert.ok(publisher.includes('ensurePublisherSupervisor'),'WhatsApp publisher self-supervisor missing');
+assert.ok(publisher.includes("--restart-supervisor"),'WhatsApp publisher restart entrypoint missing');
 
 console.log('Otaku Nexus coherence contract: ok');
