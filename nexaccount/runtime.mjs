@@ -21,6 +21,7 @@ import { routeEngineCommand } from './core/engine-router.mjs';
 import { animeBeginRebuild, animeDedupePublishedEpisodeVariants, animeDiscoverNow, animeIngestStatus, animePublishNow, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 import { normalizeVideoNoteBuffer, sendTelegramMedia } from './media-send.mjs';
 import { deleteStoredReplyVideo, downloadReplyVideo, storeReplyVideo } from './reply-storage.mjs';
+import { ensureReplyHotCacheChannel, replyHotCachePeer } from './reply-hot-cache.mjs';
 import { ensureEmojiLibraryPalette, ensurePremiumEmojiPalette, sanitizeAnimatedEmojiText, sendBrandedText, syncOwnedCustomEmojiLibrary } from './response-ui.mjs';
 import { putInlineResponse } from './inline-response-store.mjs';
 import { resolveBotUsername } from './secrets.mjs';
@@ -907,7 +908,9 @@ async function loadMentionReplyHotMedia(runtime,configured){
   if(runtime.mentionVideoReplyHotMessageId===hotMessageId&&runtime.mentionVideoReplyTelegramMedia){
     return runtime.mentionVideoReplyTelegramMedia;
   }
-  const rows=await runtime.client.getMessages('me',{ids:[hotMessageId]});
+  const cachePeer=replyHotCachePeer(configured);
+  if(!cachePeer)return null;
+  const rows=await runtime.client.getMessages(cachePeer,{ids:[hotMessageId]});
   const source=Array.isArray(rows)?rows[0]:rows;
   const media=mentionReplyExistingMedia(source);
   if(!media)return null;
@@ -952,7 +955,8 @@ async function warmMentionVideoReply(runtime){
 
   let hotMedia=await loadMentionReplyHotMedia(runtime,configured).catch(()=>null);
   if(!hotMedia){
-    const prepared=await sendTelegramMedia(runtime.client,'me',buffer,{
+    const hotCache=await ensureReplyHotCacheChannel(runtime.client,configured);
+    const prepared=await sendTelegramMedia(runtime.client,hotCache.peer,buffer,{
       fileName:'nexai-reply-hot.mp4',
       mimeType:'video/mp4',
       kind:'video',
@@ -968,14 +972,20 @@ async function warmMentionVideoReply(runtime){
     hotMedia=mentionReplyExistingMedia(prepared);
     if(!hotMessageId||!hotMedia)throw new Error('préparation Telegram rapide impossible');
     const previousHotMessageId=Number(configured.hotMessageId||0);
-    const next={...configured,hotMessageId,hotPreparedAt:Date.now()};
+    const previousHotPeer=replyHotCachePeer(configured);
+    const next={
+      ...configured,
+      ...hotCache.ref,
+      hotMessageId,
+      hotPreparedAt:Date.now()
+    };
     await patchSettings(id,{mentionVideoReply:next});
     runtime.mentionVideoReplyCache=next;
     configured=next;
     runtime.mentionVideoReplyHotMessageId=hotMessageId;
     runtime.mentionVideoReplyTelegramMedia=hotMedia;
-    if(previousHotMessageId&&previousHotMessageId!==hotMessageId){
-      await runtime.client.deleteMessages('me',[previousHotMessageId],{revoke:true}).catch(()=>{});
+    if(previousHotPeer&&previousHotMessageId&&previousHotMessageId!==hotMessageId){
+      await runtime.client.deleteMessages(previousHotPeer,[previousHotMessageId],{revoke:true}).catch(()=>{});
     }
   }
   return configured;
