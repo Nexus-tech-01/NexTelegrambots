@@ -40,6 +40,7 @@ const PROMO_MAX_GAP=Math.max(PROMO_MIN_GAP,Number(process.env.OTAKU_PROMO_MAX_GA
 const USE_SHARED_TELEGRAM_SESSION=/^(1|true|yes)$/i.test(String(process.env.OTAKU_SHARED_TELEGRAM_SOURCE_ENABLED||'0'));
 const PROMOTE_TELEGRAM_GROUPS=/^(1|true|yes)$/i.test(String(process.env.OTAKU_TELEGRAM_GROUP_PROMO_ENABLED||'0'));
 const DAILY_MIN_GAP=Math.max(5*60_000,Number(process.env.OTAKU_DAILY_MIN_GAP_MS||20*60_000));
+const MYSTERY_REVEAL_DELAY=Math.max(5*60_000,Number(process.env.OTAKU_MYSTERY_REVEAL_DELAY_MS||30*60_000));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 const STICKER_SOURCES=['fr3dc','anime_stickerr','supremacy_sticks','Leonild'];
@@ -157,13 +158,16 @@ async function loadState(){
       recent:Array.isArray(x.recent)?x.recent.slice(-12):[],
       lastQuizDay:clean(x.lastQuizDay),
       lastChoiceDay:clean(x.lastChoiceDay),
+      mysteryInteractiveDay:clean(x.mysteryInteractiveDay),
+      mysteryRevealDay:clean(x.mysteryRevealDay),
       dailyDone:x.dailyDone&&typeof x.dailyDone==='object'?x.dailyDone:{},
       lastDailyPostAt:Number(x.lastDailyPostAt)||0,
       choiceSession:x.choiceSession&&typeof x.choiceSession==='object'?x.choiceSession:null,
+      mysterySession:x.mysterySession&&typeof x.mysterySession==='object'?x.mysterySession:null,
       history:Array.isArray(x.history)?x.history.slice(-250):[]
     };
   }catch{
-    return {nextPackAt:Date.now()+10*60_000,orderWindowUntil:0,autoPacks:0,queue:[],seen:[],recent:[],lastQuizDay:'',lastChoiceDay:'',dailyDone:{},lastDailyPostAt:0,choiceSession:null,history:[]};
+    return {nextPackAt:Date.now()+10*60_000,orderWindowUntil:0,autoPacks:0,queue:[],seen:[],recent:[],lastQuizDay:'',lastChoiceDay:'',mysteryInteractiveDay:'',mysteryRevealDay:'',dailyDone:{},lastDailyPostAt:0,choiceSession:null,mysterySession:null,history:[]};
   }
 }
 async function saveState(s){
@@ -748,6 +752,76 @@ async function advanceChoices(state){
   s.nextAt=Date.now()+CHOICE_GAP;
   return true;
 }
+
+function mysteryPayload(day=dayKey()){
+  const id='daily:'+day+':mystery';
+  const m=stablePick(MYSTERIES,id);
+  const wrong=stableShuffle(MYSTERIES.filter(x=>x.name!==m.name),id+':wrong').slice(0,3).map(x=>x.name);
+  const options=stableShuffle([m.name,...wrong],id+':options');
+  return {id,m,options};
+}
+async function startMysteryInteractions(state,day=dayKey()){
+  const {id,m,options}=mysteryPayload(day);
+  const response=await action({
+    kind:'question',
+    id:id+':response-session:v1',
+    text:'🧩 SESSION RÉPONSE — PERSONNAGE MYSTÈRE\n\nTu penses avoir trouvé ? Écris ta réponse ici, puis vote dans le sondage juste en dessous. 💜'
+  });
+  const poll=await action({
+    kind:'poll',
+    id:id+':poll:v3',
+    question:'🧩 Qui se cache derrière les indices ?',
+    options,
+    quiz:true,
+    correctAnswer:m.name,
+    sessionId:id
+  });
+  if(!poll?.actionId&&!poll?.duplicate)throw new Error('mystery_poll_not_confirmed');
+  state.mysteryInteractiveDay=day;
+  state.mysterySession={
+    id,
+    day,
+    answer:m.name,
+    revealAt:Date.now()+MYSTERY_REVEAL_DELAY,
+    responseActionId:response?.actionId||null,
+    pollActionId:poll?.actionId||null
+  };
+  state.history.push({at:nowIso(),type:'mystery-interactive-ready',id,pollActionId:poll?.actionId||null});
+  state.history=state.history.slice(-250);
+  return true;
+}
+async function recoverMysteryInteractions(state){
+  const day=dayKey();
+  if(state.mysteryInteractiveDay===day)return false;
+  const slot=DAILY_SLOTS.find(x=>x.key==='mystery');
+  if(!slot||!state.dailyDone?.[slotStamp(slot,day)])return false;
+  // Repairs posts produced by the older worker: the image/caption can already
+  // exist while the channel poll was silently accepted but never rendered.
+  await startMysteryInteractions(state,day);
+  return true;
+}
+async function advanceMystery(state){
+  const session=state.mysterySession;
+  if(!session||Date.now()<Number(session.revealAt||0))return false;
+  const answer=clean(session.answer);
+  const text=[
+    '𖦹  𝐑É𝐏𝐎𝐍𝐒𝐄 — 𝐏𝐄𝐑𝐒𝐎𝐍𝐍𝐀𝐆𝐄 𝐌𝐘𝐒𝐓È𝐑𝐄  🧩',
+    '',
+    '✅ '+otakuBold(answer.toUpperCase()),
+    '',
+    '💜 Bien joué à ceux qui l’avaient trouvé. Nouveau mystère au prochain rendez-vous.'
+  ].join('\n');
+  try{
+    await imagePost(session.id+':answer:image:v1',answer+' anime portrait wallpaper',text,{kind:'character',name:answer});
+  }catch{
+    await action({kind:'text',id:session.id+':answer:text:v1',text});
+  }
+  state.mysteryRevealDay=session.day||dayKey();
+  state.history.push({at:nowIso(),type:'mystery-reveal',id:session.id,answer});
+  state.history=state.history.slice(-250);
+  state.mysterySession=null;
+  return true;
+}
 function slotStamp(slot,day=dayKey()){return day+':'+slot.key}
 function minutesNow(){const p=localParts();return p.h*60+p.min}
 function timeWindowDue(hour,minute,catchUpMinutes){
@@ -812,10 +886,7 @@ async function runDailySlot(state,slot){
     try{await imagePost(id,r.query,text,{kind:'anime',name:r.title})}catch{}
     await action({kind:'poll',id:id+':poll',question:'💜 '+r.title+' — tu choisis quoi ?',options:['✅ Déjà vu','📌 Dans ma liste','👀 Pas encore'],quiz:false});
   }else if(slot.key==='mystery'){
-    const id='daily:'+slotStamp(slot);
-    const m=stablePick(MYSTERIES,id);
-    const wrong=stableShuffle(MYSTERIES.filter(x=>x.name!==m.name),id+':wrong').slice(0,3).map(x=>x.name);
-    const options=stableShuffle([m.name,...wrong],id+':options');
+    const {id,m}=mysteryPayload(dayKey());
     const text=[
       'ㅤ︵۪۪۪۪۪᷼͡⏜۪۪۪۪۪᷼͡︵᷼ㅤׄ🖤ㅤ᷼︵۪۪۪۪۪᷼͡⏜۪۪۪۪۪᷼͡︵᷼ㅤ',
       '𖦹  𝐏𝐄𝐑𝐒𝐎𝐍𝐍𝐀𝐆𝐄  𝐌𝐘𝐒𝐓È𝐑𝐄  🧩',
@@ -827,7 +898,9 @@ async function runDailySlot(state,slot){
       '💜 '+unicodeUnderline('TA RÉPONSE DANS LE SONDAGE')
     ].join('\n');
     try{await imagePost(id,m.query+' silhouette dark',text,{kind:'character',name:m.name})}catch{}
-    await action({kind:'poll',id:id+':poll',question:'🧩 Qui se cache derrière les indices ?',options,quiz:true,correctAnswer:m.name,sessionId:id});
+    // A mystery is complete only after BOTH interactive pieces have been
+    // confirmed by the publisher. This prevents an image-only half-post.
+    await startMysteryInteractions(state,dayKey());
   }else if(slot.key==='wallpaper'){
     const r=stablePick(RECOMMENDATIONS,'daily:'+slotStamp(slot));
     const text=[
@@ -888,6 +961,8 @@ async function receiveOrder(state,payload){
 }
 async function tick(state){
   const p=localParts(),day=dayKey(),quizHour=p.d%2===0?10:19;
+  if(await advanceMystery(state)){await saveState(state);return}
+  if(await recoverMysteryInteractions(state)){await saveState(state);return}
   if(await advanceChoices(state)){await saveState(state);return}
   // Interactive sessions must survive restarts and temporary downtime.
   // Catch up for hours instead of requiring the worker to be alive during
