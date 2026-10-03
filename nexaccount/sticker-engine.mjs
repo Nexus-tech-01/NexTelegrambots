@@ -392,7 +392,20 @@ function transformOpacity(value,fallback=0.18){
   let n=Number(String(value).replace('%','').trim());
   if(!Number.isFinite(n))return fallback;
   if(n>1)n/=100;
-  return Math.max(0.03,Math.min(0.85,n));
+  return Math.max(0.02,Math.min(0.90,n));
+}
+
+function transformNumber(value,fallback,min,max){
+  const n=Number(String(value??'').trim());
+  return Number.isFinite(n)?Math.max(min,Math.min(max,n)):fallback;
+}
+
+function transformFlag(args,key){
+  const wanted='--'+String(key||'').toLowerCase();
+  return (Array.isArray(args)?args:[]).some(x=>{
+    const v=String(x).toLowerCase();
+    return v===wanted||v===wanted+'=true'||v===wanted+'=1'||v===wanted+'=yes'||v===wanted+'=on';
+  });
 }
 
 async function runTransformPackJob({
@@ -785,13 +798,18 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
 
     if(name==='filitake'){
       if(!requestedTitle){
-        throw new Error('Utilise /filitake NomDuFiligrane en répondant à un sticker. Options : --color=#FFFFFF --opacity=18 --position=bottom.');
+        throw new Error('Utilise /filitake NomDuFiligrane en répondant à un sticker. Options : --color=#FFFFFF --opacity=12 --position=bottom --size=28 --rotation=-20 --repeat.');
       }
       title=requestedTitle;
       const color=transformArg(args,'color','#FFFFFF');
       const opacity=transformOpacity(transformArg(args,'opacity','18'),0.18);
       const position=transformArg(args,'position','bottom')||'bottom';
-      transform=raw=>addStickerWatermark(raw,{text:title,color,opacity,position});
+      const size=transformNumber(transformArg(args,'size','0'),0,0,96);
+      const rotationRaw=transformArg(args,'rotation','');
+      const rotation=rotationRaw===''?null:transformNumber(rotationRaw,0,-180,180);
+      const repeat=transformFlag(args,'repeat')||['repeat','tile','tiled'].includes(String(position).toLowerCase());
+      const outline=!transformFlag(args,'no-outline');
+      transform=raw=>addStickerWatermark(raw,{text:title,color,opacity,position,size,rotation,repeat,outline});
     }else if(name==='ultratake'||name==='delfilig'){
       title=requestedTitle||(sourceTitle+(name==='delfilig'?' Clean':' Ultra')).slice(0,64);
       const zone=transformArg(args,'zone','bottom')||'bottom';
@@ -836,11 +854,38 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
   const prepared=await prepareSticker(raw);
 
   if(name==='createpack'){
-    const title=clean(args.join(' '))||automaticPackTitle(account,sessionSettings);
+    const title=clean(transformTitleArgs(args))||automaticPackTitle(account,sessionSettings);
     const newName=packName(account.telegramUserId,title);
-    await createSet(account,title,newName,prepared,raw.sticker?.alt||'✨');
-    await rememberPack(account.telegramUserId,{name:newName,title,link:packLink(newName),count:1,updatedAt:Date.now()});
-    await say('Pack créé.\n'+packLink(newName));
+    const watermarkValue=transformArg(args,'watermark',transformArg(args,'filigrane',''));
+    const watermarkRequested=Boolean(watermarkValue)||transformFlag(args,'watermark')||transformFlag(args,'filigrane');
+    const roundRequested=transformFlag(args,'round')||transformFlag(args,'rond');
+    let finalSticker=prepared;
+
+    if(roundRequested)finalSticker=await roundSticker(raw);
+
+    if(watermarkRequested){
+      const text=watermarkValue||title;
+      const color=transformArg(args,'color','#FFFFFF');
+      const opacity=transformOpacity(transformArg(args,'opacity','12'),0.12);
+      const position=transformArg(args,'position','bottom')||'bottom';
+      const size=transformNumber(transformArg(args,'size','0'),0,0,96);
+      const rotationRaw=transformArg(args,'rotation','');
+      const rotation=rotationRaw===''?null:transformNumber(rotationRaw,0,-180,180);
+      const repeat=transformFlag(args,'repeat')||['repeat','tile','tiled'].includes(String(position).toLowerCase());
+      const outline=!transformFlag(args,'no-outline');
+      finalSticker=await addStickerWatermark(roundRequested?finalSticker:raw,{
+        text,color,opacity,position,size,rotation,repeat,outline
+      });
+    }
+
+    await createSet(account,title,newName,finalSticker,raw.sticker?.alt||'✨');
+    await rememberPack(account.telegramUserId,{
+      name:newName,title,link:packLink(newName),count:1,
+      watermark:watermarkRequested?true:false,
+      round:roundRequested?true:false,
+      updatedAt:Date.now()
+    });
+    await say('Pack créé.'+(watermarkRequested?' · Filigrane actif':'')+(roundRequested?' · Forme ronde':'')+'\n'+packLink(newName));
     return true;
   }
 
