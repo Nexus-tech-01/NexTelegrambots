@@ -12,19 +12,25 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Inspect live VPS bot tree
+      - name: Locate live NexStick runtime
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=%2Fbots"             -o /tmp/bots.json
-          python3 - <<'PY'
-          import json
-          d=json.load(open('/tmp/bots.json'))
-          print('ok=',d.get('ok'),'root=',d.get('root'),'files=',d.get('files'),'truncated=',d.get('truncated'))
+          for root in services ecosystem data pterodactyl nexus-bridge; do
+            echo "=== /$root ==="
+            curl --fail-with-body --silent --show-error               "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=%2F$root"               -o "/tmp/$root.json"
+            python3 - "$root" <<'PY'
+          import json,sys
+          root=sys.argv[1]
+          d=json.load(open('/tmp/'+root+'.json'))
+          print('ok=',d.get('ok'),'files=',d.get('files'),'truncated=',d.get('truncated'))
           for x in d.get('fileList') or []:
               p=str(x.get('path',''))
-              if 'nexstick' in p.lower() or 'sticker' in p.lower():
-                  print(json.dumps(x,ensure_ascii=False))
+              content=str(x.get('content') or '')
+              if any(k in (p+' '+content).lower() for k in ['nexstick','the_nexus_techbot','sticker-engine','sticker']):
+                  y={k:v for k,v in x.items() if k!='content'}
+                  print(json.dumps(y,ensure_ascii=False))
           PY
+          done
