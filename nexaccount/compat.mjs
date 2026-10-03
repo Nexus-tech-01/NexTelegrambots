@@ -10,7 +10,7 @@ import { canHandleDownloadCommand, handleDownloadCommand } from './dipper-fallba
 import { canHandleStickerCommand, handleStickerCommand } from './sticker-engine.mjs';
 import { canHandleAiCommand, handleAiCommand } from './ai-engine.mjs';
 import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
-import { sendTelegramMedia } from './media-send.mjs';
+import { normalizeVideoNoteBuffer, sendTelegramMedia } from './media-send.mjs';
 import { deleteStoredReplyVideo, storeReplyVideo } from './reply-storage.mjs';
 import { commandMap } from './commands.mjs';
 import { createProgress, syncOwnedCustomEmojiLibrary } from './response-ui.mjs';
@@ -1263,7 +1263,11 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       return true;
     }
     if(sub==='off'||sub==='0'||sub==='false'){
-      await patchSettings(account.telegramUserId,{mentionVideoReply:{...current,enabled:false}});
+      const next={...current,enabled:false};
+      await patchSettings(account.telegramUserId,{mentionVideoReply:next});
+      runtime.mentionVideoReplyCache=next;
+      runtime.mentionVideoReplyBuffer=null;
+      runtime.mentionVideoReplyBufferKey='';
       await sendText(client,peer,'Reply vidéo désactivé.');
       return true;
     }
@@ -1271,7 +1275,9 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       await sendText(client,peer,'Aucune vidéo configurée. Réponds à une vidéo avec /setreply.');
       return true;
     }
-    await patchSettings(account.telegramUserId,{mentionVideoReply:{...current,enabled:true}});
+    const next={...current,enabled:true};
+    await patchSettings(account.telegramUserId,{mentionVideoReply:next});
+    runtime.mentionVideoReplyCache=next;
     await sendText(client,peer,'Reply vidéo activé : le compte enverra la note vidéo quand il sera mentionné.');
     return true;
   }
@@ -1295,10 +1301,19 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       if(!buffer?.length)throw new Error('vidéo vide');
       if(buffer.length>20*1024*1024)throw new Error('vidéo > 20 Mo pour le coffre Telegram');
       const current=(await settingsFor(account.telegramUserId)).mentionVideoReply||{};
-      const storage=await storeReplyVideo(Buffer.from(buffer),{telegramUserId:account.telegramUserId});
-      await patchSettings(account.telegramUserId,{
-        mentionVideoReply:{enabled:true,storage,mime:'video/mp4',setAt:Date.now()}
-      });
+      const normalized=await normalizeVideoNoteBuffer(Buffer.from(buffer));
+      const storage=await storeReplyVideo(normalized.buffer,{telegramUserId:account.telegramUserId});
+      storage.normalized=true;
+      storage.videoNoteMeta={
+        width:normalized.width,
+        height:normalized.height,
+        duration:normalized.duration
+      };
+      const next={enabled:true,storage,mime:'video/mp4',setAt:Date.now()};
+      await patchSettings(account.telegramUserId,{mentionVideoReply:next});
+      runtime.mentionVideoReplyCache=next;
+      runtime.mentionVideoReplyBuffer=Buffer.from(normalized.buffer);
+      runtime.mentionVideoReplyBufferKey=String(storage.fileUniqueId||storage.fileId||'');
       if(current.storage?.fileId)await deleteStoredReplyVideo(current.storage).catch(()=>false);
       await sendText(client,peer,'Note vidéo enregistrée dans le coffre Telegram privé. Reply vidéo est activé pour les mentions de ce compte.');
     }catch(e){
