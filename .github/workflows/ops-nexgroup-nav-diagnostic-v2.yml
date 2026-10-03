@@ -1,0 +1,132 @@
+name: NexGroup Navigation Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-nexgroup-nav-diagnostic-v2.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ops-nexgroup-nav-diagnostic-v2
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      NXC_BASE: https://nexcontrol-ochre.vercel.app
+      NXC_AGENT: nexus-main
+      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
+      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Inspect NexGroup runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,json,time,base64,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib,re,pathlib
+          BASE=os.environ['NXC_BASE'].rstrip('/')
+          AGENT=os.environ['NXC_AGENT']
+          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
+          SECRET=os.environ.get('NXC_SESSION_SECRET','')
+          jar=http.cookiejar.CookieJar()
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          cookie=''
+          if SECRET:
+              exp=int(time.time()*1000)+20*60*1000
+              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
+              sig=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
+              cookie=payload+'.'+sig
+          elif ADMIN:
+              data=urllib.parse.urlencode({'password':ADMIN}).encode()
+              op.open(urllib.request.Request(BASE+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=45).read()
+          else:
+              raise RuntimeError('No NexControl credential in Actions secrets')
+
+          def http(method,path,data=None):
+              h={'Accept':'application/json'}
+              if cookie: h['Cookie']='nexcontrol_session='+cookie
+              body=None
+              if data is not None:
+                  body=json.dumps(data,separators=(',',':')).encode()
+                  h['Content-Type']='application/json'
+              req=urllib.request.Request(BASE+path,data=body,headers=h,method=method)
+              try:
+                  with op.open(req,timeout=45) as r:
+                      raw=r.read().decode('utf-8','replace')
+                      return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  raise RuntimeError(f'HTTP {e.code} {path}: '+e.read().decode('utf-8','replace')[:1500])
+
+          def job(kind,payload):
+              j=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload})
+              jid=j.get('jobId')
+              if not jid: raise RuntimeError(f'No jobId for {kind}: {j}')
+              end=time.time()+150
+              while time.time()<end:
+                  x=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid))
+                  st=x.get('status')
+                  if st=='succeeded': return x.get('result') or {}
+                  if st=='failed': raise RuntimeError(f'{kind} failed: {x.get("error")}')
+                  time.sleep(2)
+              raise TimeoutError(f'{kind} timed out: {jid}')
+
+          out={'generatedAt':int(time.time()),'root':'nexgroup','lists':{},'reads':{},'errors':{}}
+          paths=['.','dist','dist/domain','dist/src','dist/application','dist/bot','src','src/domain','src/application','domain']
+          for p in paths:
+              try:
+                  out['lists'][p]=job('fs.list',{'root':'nexgroup','path':p})
+              except Exception as e:
+                  out['errors']['list:'+p]=str(e)
+
+          try:
+              out['reads']['package.json']=job('fs.read',{'root':'nexgroup','path':'package.json','startLine':1,'endLine':260})
+          except Exception as e:
+              out['errors']['read:package.json']=str(e)
+
+          # Pull targeted source snippets when list responses reveal likely files.
+          candidates=[]
+          rx=re.compile(r'(menu|security|setting|callback|cleanup|anti.?spam|moder|dashboard|group)',re.I)
+          for base,res in out['lists'].items():
+              for it in (res.get('items') or []):
+                  if not isinstance(it,dict): continue
+                  name=str(it.get('name') or it.get('path') or '')
+                  typ=str(it.get('type') or '')
+                  is_file=bool(it.get('isFile') or it.get('is_file') or typ=='file')
+                  rel=str(it.get('path') or (base.rstrip('/')+'/'+name if base!='.' else name)).lstrip('./')
+                  if is_file and rx.search(rel) and re.search(r'\.(js|cjs|mjs|ts|json)$',rel,re.I):
+                      candidates.append(rel)
+          seen=[]
+          for rel in candidates:
+              if rel not in seen: seen.append(rel)
+          for rel in seen[:40]:
+              try:
+                  out['reads'][rel]=job('fs.read',{'root':'nexgroup','path':rel,'startLine':1,'endLine':800})
+              except Exception as e:
+                  out['errors']['read:'+rel]=str(e)
+
+          pathlib.Path('.ops-results').mkdir(exist_ok=True)
+          pathlib.Path('.ops-results/nexgroup-nav-diag.json').write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps({'ok':True,'lists':list(out['lists']),'reads':list(out['reads']),'errors':out['errors']},ensure_ascii=False,indent=2))
+          PY
+
+      - name: Commit diagnostic result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "NexGroup Ops"
+          git config user.email "actions@users.noreply.github.com"
+          git add .ops-results/nexgroup-nav-diag.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "ops: capture NexGroup navigation diagnostic"
+          git push
