@@ -54,10 +54,7 @@ jobs:
           import {addStickerWatermark,removeStickerWatermark,roundSticker} from './nexaccount/sticker-transform.mjs';
 
           const png=Buffer.from(
-            'iVBORw0KGgoAAAANSUhEUgAAAgAAAAIACAYAAAD0eNT6AAAACXBIWXMAAAsSAAALEgHS3X78AAAA' +
-            'B3RJTUUH6gMDAQEBtKx9WQAAAB1pVFh0Q29tbWVudAAAAAAAU2ltcGxlIHRlc3QgaW1hZ2XgYK8G' +
-            'AAAAPElEQVR42u3BAQ0AAADCoPdPbQ8HFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
-            'AAAAAAAAAAAAAAAAAAAAAHgG0AABkHE3YQAAAABJRU5ErkJggg==',
+            'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=',
             'base64'
           );
           const source={buffer:png,mime:'image/png'};
