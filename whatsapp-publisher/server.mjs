@@ -31,7 +31,8 @@ const PUBLISHER_MODE_RESTART=process.argv.includes('--restart-supervisor');
 const publisherSupervisorSleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 function ensureBaileysStickerPackMediaPatch(){
-  const target=path.join(path.dirname(PUBLISHER_SELF),'node_modules','@whiskeysockets','baileys','lib','Defaults','index.js');
+  const baileysEntry=fileURLToPath(import.meta.resolve('@whiskeysockets/baileys'));
+  const target=path.join(path.dirname(baileysEntry),'Defaults','index.js');
   if(!fs.existsSync(target))return {ok:false,reason:'defaults_missing',target};
   let src=fs.readFileSync(target,'utf8');
   const before=src;
