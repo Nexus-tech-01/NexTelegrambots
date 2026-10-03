@@ -213,13 +213,13 @@ function withOtakuSendLock(fn){
     const wait=Math.max(0,OTAKU_MIN_GAP_MS-(Date.now()-otakuLastSendAt));
     if(wait)await otakuSleep(wait);
     const out=await fn();
-    otakuLastSendAt=Date.now();
+    if(!out?.duplicate)otakuLastSendAt=Date.now();
     return out;
   },async()=>{
     const wait=Math.max(0,OTAKU_MIN_GAP_MS-(Date.now()-otakuLastSendAt));
     if(wait)await otakuSleep(wait);
     const out=await fn();
-    otakuLastSendAt=Date.now();
+    if(!out?.duplicate)otakuLastSendAt=Date.now();
     return out;
   });
   otakuSendChain=task.then(()=>undefined,()=>undefined);
