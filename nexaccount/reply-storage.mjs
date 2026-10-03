@@ -139,6 +139,42 @@ async function verifyStorageChannel(chatId){
   return chat;
 }
 
+export async function bindReplyStorageChannel(chatRef){
+  const raw=String(chatRef||'').trim();
+  if(!raw)throw new Error('Chaîne NexAI Storage manquante');
+  let lookup=raw;
+  const publicLink=raw.match(/^https?:\/\/t\.me\/([A-Za-z0-9_]{5,})\/?$/i);
+  if(publicLink)lookup='@'+publicLink[1];
+  if(!/^-?\d+$/.test(lookup)&&!/^@[A-Za-z0-9_]{5,}$/.test(lookup)){
+    throw new Error('Utilise l’identifiant numérique de la chaîne, son @username public, ou réponds à un message transféré de la chaîne');
+  }
+  const [chat,me]=await Promise.all([
+    verifyStorageChannel(lookup),
+    botApi('getMe')
+  ]);
+  const admins=await botApi('getChatAdministrators',{chat_id:String(chat.id)});
+  const own=Array.isArray(admins)&&admins.some(row=>
+    String(row?.user?.id||'')===String(me?.id||'')&&
+    ['administrator','creator'].includes(String(row?.status||''))
+  );
+  if(!own){
+    throw new Error('@NexAiStorage_bot est présent mais n’est pas administrateur de cette chaîne');
+  }
+  const row=await saveReplyStorageConfig({
+    chatId:String(chat.id),
+    title:String(chat.title||''),
+    botId:String(me?.id||''),
+    botUsername:String(me?.username||'')
+  });
+  return {
+    ok:true,
+    chatId:String(row.chatId),
+    title:String(row.title||''),
+    botId:String(row.botId||''),
+    botUsername:String(row.botUsername||'')
+  };
+}
+
 export async function resolveReplyStorageChannel({discover=true}={}){
   const override=await storageChatOverride();
   if(override.chatId){
