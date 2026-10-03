@@ -747,6 +747,13 @@ async function worker(){
       .then(()=>runTickGuarded(state))
       .catch(error=>writeHealth(state,{ok:false,error:clean(error?.message||error).slice(0,400)}).catch(()=>{}));
   });
+  process.on('SIGUSR2',()=>{
+    if(state.activeWishlist)return;
+    void openWishlist(state)
+      .then(()=>saveState(state))
+      .then(()=>writeHealth(state))
+      .catch(error=>writeHealth(state,{ok:false,error:clean(error?.message||error).slice(0,400)}).catch(()=>{}));
+  });
   for(;;){
     try{
       await runTickGuarded(state);
