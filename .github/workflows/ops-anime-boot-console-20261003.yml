@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Sync protected NexAnime runtime to nexus-main
+      - name: Promote protected NexAnime runtime on nexus-main
         shell: bash
         run: |
           set -euo pipefail
