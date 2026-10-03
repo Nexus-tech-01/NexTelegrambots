@@ -136,6 +136,10 @@ let commandEngine = null;
 // separate workers, but they cannot publish at the exact same time.
 const OTAKU_MANAGER_URL=String(process.env.OTAKU_MANAGER_URL||'http://127.0.0.1:18812').replace(/\/$/,'');
 const OTAKU_MIN_GAP_MS=Math.max(15000,Number(process.env.OTAKU_MIN_GAP_MS||120000));
+const OTAKU_RELAY_GAP_MS=Math.max(120000,Number(process.env.OTAKU_RELAY_GAP_MS||180000));
+const OTAKU_RELAY_DENY_KEYS=new Set(['lustdev','toolsbnn4d','devs101','nextech']);
+const OTAKU_RELAY_DENY_INVITE=String(process.env.OTAKU_RELAY_DENY_INVITE||'GsxCPLB9XyI9zT39c4T9K1');
+let otakuRelayBusy=false;
 let otakuSendChain=Promise.resolve();
 let otakuLastSendAt=0;
 const otakuPollMessages=new Map();
@@ -158,6 +162,68 @@ function withOtakuSendLock(fn){
   });
   otakuSendChain=task.then(()=>undefined,()=>undefined);
   return task;
+}
+
+function otakuRelayKey(v=''){return String(v||'').normalize('NFKC').replace(/[Øø]/g,'o').toLowerCase().replace(/[^a-z0-9]+/g,'')}
+function otakuRelayBare(v=''){return String(v||'').replace(/:\\d+@/,'@')}
+async function otakuRelayTargets(){
+  if(!socket||state.status!=='connected'||typeof socket.groupFetchAllParticipating!=='function')return [];
+  const all=await socket.groupFetchAllParticipating();
+  const deny=new Set((readJson('otaku-relay-deny.json',{})?.jids||[]).map(String));
+  for(const m of Object.values(all||{})){
+    const jid=String(m?.id||'');
+    if(jid.endsWith('@g.us')&&OTAKU_RELAY_DENY_KEYS.has(otakuRelayKey(m?.subject||'')))deny.add(jid);
+  }
+  if(typeof socket.groupGetInviteInfo==='function'){
+    try{const m=await socket.groupGetInviteInfo(OTAKU_RELAY_DENY_INVITE);const jid=String(m?.id||'');if(jid.endsWith('@g.us'))deny.add(jid)}catch{}
+  }
+  writeJson('otaku-relay-deny.json',{jids:[...deny],updatedAt:new Date().toISOString()});
+  const me=otakuRelayBare(socket.user?.id||'');
+  return Object.values(all||{}).filter(m=>{
+    const jid=String(m?.id||'');
+    if(!jid.endsWith('@g.us')||deny.has(jid)||OTAKU_RELAY_DENY_KEYS.has(otakuRelayKey(m?.subject||'')))return false;
+    if(!m?.announce)return true;
+    const p=(m?.participants||[]).find(x=>otakuRelayBare(x?.id||'')===me);
+    return p?.admin==='admin'||p?.admin==='superadmin';
+  }).map(m=>({jid:String(m.id),subject:String(m.subject||'Groupe WhatsApp')}));
+}
+async function queueOtakuRelay(raw={}){
+  const kind=String(raw.kind||'').toLowerCase();
+  if(!['text','image','pack'].includes(kind))return;
+  const id=String(raw.id||''); if(!id)return;
+  const q=readJson('otaku-relay-queue.json',[]);
+  if(q.some(x=>x.id===id&&['pending','done'].includes(x.status)))return;
+  const groups=await otakuRelayTargets(); if(!groups.length)return;
+  let media=null;
+  const src=kind==='pack'?raw.cover:(raw.image||{url:raw.imageUrl,localPath:raw.localPath});
+  if(src?.url)media={url:String(src.url)};
+  else if(src?.localPath&&fs.existsSync(src.localPath)){
+    const d='/var/lib/nex/tmp/shared-whatsapp/otaku-relay';fs.mkdirSync(d,{recursive:true});
+    const p=path.join(d,Date.now()+'-'+path.basename(src.localPath));fs.copyFileSync(src.localPath,p);media={localPath:p};
+  }
+  q.push({id,status:'pending',index:0,groups,text:String(raw.text||raw.caption||''),media,createdAt:Date.now(),nextAt:Date.now()+30000});
+  writeJson('otaku-relay-queue.json',q);
+}
+async function processOtakuRelay(){
+  if(otakuRelayBusy||!socket||state.status!=='connected')return;
+  otakuRelayBusy=true;
+  try{
+    const q=readJson('otaku-relay-queue.json',[]),job=q.find(x=>x.status==='pending'&&Number(x.nextAt||0)<=Date.now());
+    if(!job)return;
+    if(job.index>=job.groups.length){job.status='done';job.completedAt=Date.now();writeJson('otaku-relay-queue.json',q);return}
+    const g=job.groups[job.index],ctx=state.otakuChannelJid?{forwardingScore:1,isForwarded:true,forwardedNewsletterMessageInfo:{newsletterJid:state.otakuChannelJid,newsletterName:state.otakuChannelTitle||'Otaku Nexus'}}:{};
+    try{
+      if(job.media){const src=await otakuMediaSource(job.media);await socket.sendMessage(g.jid,{image:src,caption:(job.text+'\n\n'+OTAKU_CHANNEL_INVITE_URL).slice(0,1024),contextInfo:ctx})}
+      else await socket.sendMessage(g.jid,{text:(job.text||'Nouvelle publication Otaku Nexus')+'\n\n'+OTAKU_CHANNEL_INVITE_URL,contextInfo:ctx});
+      job.index++;job.nextAt=Date.now()+OTAKU_RELAY_GAP_MS;job.attempts=0;
+    }catch(e){
+      job.attempts=Number(job.attempts||0)+1;
+      if(job.attempts>=2){job.index++;job.attempts=0}
+      job.nextAt=Date.now()+Math.max(OTAKU_RELAY_GAP_MS,300000);
+      job.lastError=String(e?.message||e).slice(0,300);
+    }
+    writeJson('otaku-relay-queue.json',q);
+  }finally{otakuRelayBusy=false}
 }
 function extractIncomingText(msg){
   const m=msg?.message||{};
@@ -942,11 +1008,13 @@ async function runOtakuAction(raw={}){
   return withOtakuSendLock(async()=>{
     if(kind==='text'){
       const id=await sendNewsletterTextDirect(jid,String(raw.text||''));
+      queueOtakuRelay(raw).catch(()=>{});
       return {ok:true,actionId:id};
     }
     if(kind==='image'){
       const src=await otakuMediaSource(raw.image||{url:raw.imageUrl,localPath:raw.localPath});
       const sent=await socket.sendMessage(jid,{image:src,caption:String(raw.text||raw.caption||'').slice(0,1024)});
+      queueOtakuRelay(raw).catch(()=>{});
       return {ok:true,actionId:sent?.key?.id||null};
     }
     if(kind==='poll'){
@@ -997,6 +1065,7 @@ async function runOtakuAction(raw={}){
         fileName,
         caption:'📦 '+character+(count?' · '+count+' stickers':'')+'\n💜 Otaku Nexus · pack complet'
       });
+      queueOtakuRelay(raw).catch(()=>{});
       return {ok:true,actionId:sent?.key?.id||String(raw.id||''),sentCount:1};
     }
     if(kind==='quiz_results'){
@@ -1142,6 +1211,7 @@ async function processQueue(){
   }finally{processing=false;}
 }
 setInterval(()=>processQueue().catch(()=>{}),3000).unref();
+setInterval(()=>processOtakuRelay().catch(()=>{}),5000).unref();
 
 function plan(raw){
   const pub=normalizePublication(raw);
