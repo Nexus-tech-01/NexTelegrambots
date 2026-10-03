@@ -18,7 +18,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-v6111-deploy-gw" |
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-diag-live" |
           python3 -c 'import sys,json; print(json.dumps(json.load(sys.stdin),ensure_ascii=False,indent=2))'
 
 # nav-read-de1c6a7
@@ -36,3 +36,5 @@ jobs:
 # sec-search-53771ba
 
 # sec-search-v2-183b877
+
+# dedicated-navfix-inspect
