@@ -1309,11 +1309,29 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
         height:normalized.height,
         duration:normalized.duration
       };
-      const next={enabled:true,storage,mime:'video/mp4',setAt:Date.now()};
+      const prepared=await sendTelegramMedia(client,'me',normalized.buffer,{
+        fileName:'nexai-reply-hot.mp4',
+        mimeType:'video/mp4',
+        kind:'video',
+        videoNote:true,
+        preNormalizedVideoNoteMeta:storage.videoNoteMeta,
+        signature:false,
+        silent:true,
+        workers:8
+      });
+      const hotMessageId=Number(prepared?.id||0);
+      const hotMedia=prepared?.media?.document||prepared?.media||null;
+      if(!hotMessageId||!hotMedia)throw new Error('préparation Telegram rapide impossible');
+      const next={enabled:true,storage,mime:'video/mp4',hotMessageId,setAt:Date.now()};
       await patchSettings(account.telegramUserId,{mentionVideoReply:next});
       runtime.mentionVideoReplyCache=next;
+      runtime.mentionVideoReplyTelegramMedia=hotMedia;
+      runtime.mentionVideoReplyHotMessageId=hotMessageId;
       runtime.mentionVideoReplyBuffer=Buffer.from(normalized.buffer);
       runtime.mentionVideoReplyBufferKey=String(storage.fileUniqueId||storage.fileId||'');
+      if(current.hotMessageId&&Number(current.hotMessageId)!==hotMessageId){
+        await client.deleteMessages('me',[Number(current.hotMessageId)],{revoke:true}).catch(()=>{});
+      }
       if(current.storage?.fileId)await deleteStoredReplyVideo(current.storage).catch(()=>false);
       await sendText(client,peer,'Note vidéo enregistrée dans le coffre Telegram privé. Reply vidéo est activé pour les mentions de ce compte.');
     }catch(e){
