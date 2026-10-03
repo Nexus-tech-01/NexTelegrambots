@@ -47,4 +47,9 @@ for(const required of [
   "activeWishlist"
 ]) assert.ok(manager.includes(required),'manager missing '+required);
 
+assert.match(manager,/async function visuallyMatches\(character,filePath\)/);
+assert.match(manager,/Identifie indépendamment le personnage principal visible/);
+assert.match(manager,/if\(!\(await visuallyMatches\(character,target\)\)\)continue;/);
+assert.doesNotMatch(manager,/Do not make a whole valid Telegram pack depend on the external vision service/);
+
 console.log('STICK_GOOD_CONTRACT_OK');
