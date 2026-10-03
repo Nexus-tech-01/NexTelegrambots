@@ -1,3 +1,4 @@
+# deploy runtime sticker fallback 2026-10-03
 # sync ultratake+delfilig production v2
 # sync ultratake+delfilig 2026-10-03
 name: Ops NexAI Sticker Transforms Deploy Once
@@ -30,9 +31,12 @@ jobs:
           node --check nexaccount/commands.mjs
           node --check nexaccount/sticker-engine.mjs
           node --check nexaccount/sticker-transform.mjs
+          node --check nexaccount/runtime.mjs
           grep -F "C('ultratake'" nexaccount/commands.mjs
+          grep -F "C('delfilig'" nexaccount/commands.mjs
           grep -F "C('filitake'" nexaccount/commands.mjs
           grep -F "C('noteclone'" nexaccount/commands.mjs
+          grep -F "Sticker engine fallback" nexaccount/runtime.mjs
 
       - name: Deploy only sticker transform files to NexAI VPS
         shell: bash
