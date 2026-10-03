@@ -10,13 +10,13 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  diagnose:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify restored anime publisher and publish now
+      - name: Inspect Pterodactyl NexAccount launcher only
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once"
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-index-nexmeta-snips"
           echo
