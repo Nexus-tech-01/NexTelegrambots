@@ -8,45 +8,34 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   inspect:
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
-      - uses: actions/checkout@v4
-      - name: Recover NexStick from Render bundle
+      - name: Read live NexStick source securely
         shell: bash
+        env:
+          ENDPOINT: https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?mode=nexstick-source
         run: |
           set -euo pipefail
-          decode_parts() {
-            out="$1"; shift
-            : > "$out"
-            for f in "$@"; do
-              base64 -d "$f" >> "$out" 2>/dev/null || true
-            done
-          }
-          parts=(render-src.b64.part-00 render-src.b64.part-01 render-src.b64.part-02 render-src.b64.part-03 render-src.b64.part-04 render-src.b64.part-05 render-src.b64.part-06 render-src.b64.part-07 render-src.b64.part-08)
-          chosen=""
-          for n in 9 8 7; do
-            out="/tmp/render-$n.tar.xz"
-            decode_parts "$out" "${parts[@]:0:$n}"
-            if xz -t "$out" 2>/dev/null; then
-              echo "VALID_PART_COUNT=$n"
-              chosen="$out"
-              break
-            fi
-          done
-          test -n "$chosen"
-          mkdir -p /tmp/render
-          tar -xJf "$chosen" -C /tmp/render
-          echo "=== NEXSTICK PATHS ==="
-          find /tmp/render -type f | grep -Ei 'nexstick|stickerService|The_Nexus_techbot' | sort | head -300 || true
-          echo "=== NEXSTICK REFERENCES ==="
-          grep -RIn -E 'nexstick|The_Nexus_techbot' /tmp/render --exclude='*.map' 2>/dev/null | head -300 || true
-          svc="$(find /tmp/render -type f -path '*/bots/nexstick/src/services/stickerService.js' | head -1)"
-          if [ -n "$svc" ]; then
-            echo "=== stickerService.js ==="
-            cat "$svc"
-          fi
-# inspect Render NexStick permissive 2026-10-03T23:45+01:00
+          OIDC_JSON="$(curl --fail-with-body --silent --show-error             -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=nxc-nexstick-source-read")"
+          OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"$OIDC_JSON")"
+          curl --fail-with-body --silent --show-error             -H "Authorization: Bearer $OIDC_TOKEN"             "$ENDPOINT" -o /tmp/nexstick-source.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/nexstick-source.json'))
+          if d.get('ok') is not True:
+              raise SystemExit(str(d))
+          print('OK',d.get('ok'),'ROOT',d.get('root'),'FILES',d.get('files'),'VISITED',d.get('visited'))
+          for x in d.get('fileList') or []:
+              print('\n=== '+str(x.get('path'))+' ===')
+              if x.get('content') is not None:
+                  print(x['content'])
+              else:
+                  print('<binary or too large: '+str(x.get('size'))+' bytes>')
+          PY
+
+# nexstick-secure-source-read-20261003
