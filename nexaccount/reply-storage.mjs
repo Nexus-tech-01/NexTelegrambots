@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { replyStorageConfig, saveReplyStorageConfig } from './store.mjs';
 
 const DEFAULT_TOKEN_FILE='/var/lib/nex/runtime/public/nexaccount/nexai-storage-bot-token';
+const DEFAULT_CHAT_ID_FILE='/var/lib/nex/runtime/public/nexaccount/nexai-storage-chat-id';
 const MAX_REPLY_BYTES=20*1024*1024;
 
 async function storageToken(){
@@ -13,6 +14,17 @@ async function storageToken(){
     if(token)return token;
   }catch{}
   throw new Error('NexAI Storage bot non configuré');
+}
+
+async function storageChatOverride(){
+  const fromEnv=String(process.env.NEXAI_STORAGE_CHAT_ID||'').trim();
+  if(fromEnv)return {chatId:fromEnv,source:'env'};
+  const file=String(process.env.NEXAI_STORAGE_CHAT_ID_FILE||DEFAULT_CHAT_ID_FILE).trim();
+  try{
+    const chatId=String(await readFile(file,'utf8')).trim();
+    if(chatId)return {chatId,source:'file'};
+  }catch{}
+  return {chatId:'',source:''};
 }
 
 async function botApi(method,payload={},timeoutMs=30000){
@@ -49,10 +61,10 @@ async function verifyStorageChannel(chatId){
 }
 
 export async function resolveReplyStorageChannel({discover=true}={}){
-  const envChatId=String(process.env.NEXAI_STORAGE_CHAT_ID||'').trim();
-  if(envChatId){
-    const chat=await verifyStorageChannel(envChatId);
-    return {chatId:String(chat.id),title:String(chat.title||''),source:'env'};
+  const override=await storageChatOverride();
+  if(override.chatId){
+    const chat=await verifyStorageChannel(override.chatId);
+    return {chatId:String(chat.id),title:String(chat.title||''),source:override.source};
   }
 
   const saved=await replyStorageConfig();
