@@ -839,14 +839,14 @@ function promiseWithTimeout(promise,ms,label='operation'){
   return Promise.race([Promise.resolve(promise).finally(()=>clearTimeout(timer)),timeout]);
 }
 async function sendNewsletterTextDirect(jid,text){
-  const messageId=generateMessageIDV2(socket.user?.id);
-  const message={conversation:String(text||'Publication Nextech')};
-  const bytes=encodeNewsletterMessage(message);
-  await socket.sendNode({
-    tag:'message',
-    attrs:{to:jid,id:messageId,type:'text'},
-    content:[{tag:'plaintext',attrs:{},content:bytes}]
-  });
+  const value=String(text||'Publication Nextech').trim()||'Publication Nextech';
+  // Use Baileys' normal send path for newsletter text so a successful return
+  // corresponds to a real WhatsApp message object. The old raw sendNode path
+  // could return without producing a visible channel update.
+  const sent=await socket.sendMessage(jid,{text:value});
+  const messageId=String(sent?.key?.id||'');
+  if(!messageId)throw new Error('Newsletter text send returned no message id');
+  state.lastPublishAt=new Date().toISOString();
   return messageId;
 }
 
