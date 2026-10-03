@@ -16,20 +16,32 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Rehydrate canonical source archive
+      - name: Recover NexStick from legacy source archive
         shell: bash
         run: |
           set -euo pipefail
           rm -rf ops-results/nexstick-source /tmp/nexus-bots
           mkdir -p /tmp/nexus-bots ops-results/nexstick-source
-          : > /tmp/nexus-bots-src.tar.xz
-          for f in $(printf '%s\n' nexus-bots-src.tar.xz.b64.part-* | sort); do
-            base64 -d "$f" >> /tmp/nexus-bots-src.tar.xz
-          done
-          xz -t /tmp/nexus-bots-src.tar.xz
-          tar -xJf /tmp/nexus-bots-src.tar.xz -C /tmp/nexus-bots ./bots/nexstick
+          cat nexus-bots-src.tar.xz.b64.part-* | base64 --decode > /tmp/nexus-bots-src.tar.xz
+          set +e
+          xz -dc /tmp/nexus-bots-src.tar.xz > /tmp/nexus-bots-src.tar
+          xz_status=$?
+          set -e
+          echo "xz_status=$xz_status"
+          echo "partial_tar_bytes=$(wc -c < /tmp/nexus-bots-src.tar)"
+          grep -aob 'bots/nexstick/' /tmp/nexus-bots-src.tar | head -20 || true
+          set +e
+          tar -xf /tmp/nexus-bots-src.tar -C /tmp/nexus-bots ./bots/nexstick
+          tar_status=$?
+          set -e
+          echo "tar_status=$tar_status"
+          if [ ! -d /tmp/nexus-bots/bots/nexstick ]; then
+            echo "NexStick directory not recoverable from legacy archive"
+            exit 2
+          fi
           cp -a /tmp/nexus-bots/bots/nexstick/. ops-results/nexstick-source/
-          find ops-results/nexstick-source -maxdepth 4 -type f -print | sort > ops-results/nexstick-source-files.txt
+          find ops-results/nexstick-source -maxdepth 5 -type f -print | sort > ops-results/nexstick-source-files.txt
+          cat ops-results/nexstick-source-files.txt
       - name: Commit temporary inspection copy
         shell: bash
         run: |
@@ -38,5 +50,5 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           git add ops-results/nexstick-source ops-results/nexstick-source-files.txt
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m "ops: expose NexStick source for watermark patch [skip ci]"
+          git commit -m "ops: expose recovered NexStick source for watermark patch [skip ci]"
           git push origin HEAD:main
