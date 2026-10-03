@@ -1,4 +1,6 @@
-import { MongoClient } from 'mongodb';
+import { createRequire } from 'node:module';
+const requireFromNexAccount=createRequire(new URL('../../nexaccount/package.json',import.meta.url));
+const { MongoClient }=requireFromNexAccount('mongodb');
 
 const uri=String(process.env.MONGO_URI||process.env.MONGODB_URI||'').trim();
 const dbName=String(process.env.MONGODB_DB_NAME||'nexus_bots').trim()||'nexus_bots';
