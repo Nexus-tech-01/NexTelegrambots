@@ -8,46 +8,31 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 7
     steps:
-      - name: Read live NexStick and bridge source
+      - name: Locate live NexStick process
         shell: bash
-        env:
-          NEXSTICK_ENDPOINT: https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?mode=nexstick-source
-          BRIDGE_ENDPOINT: https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=%2Fnexus-bridge
         run: |
           set -euo pipefail
-          OIDC_JSON="$(curl --fail-with-body --silent --show-error             -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=nxc-nexstick-source-read")"
-          OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"$OIDC_JSON")"
-
-          curl --fail-with-body --silent --show-error             -H "Authorization: Bearer $OIDC_TOKEN"             "$NEXSTICK_ENDPOINT" -o /tmp/nexstick.json
-          curl --fail-with-body --silent --show-error             "$BRIDGE_ENDPOINT" -o /tmp/bridge.json
-
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-chatgpt-diag-once"             -o /tmp/procs.json
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"             -o /tmp/console.json
           python3 - <<'PY'
-          import json
-          n=json.load(open('/tmp/nexstick.json'))
-          print('NEXSTICK',n.get('ok'),n.get('root'),'FILES',n.get('files'),'VISITED',n.get('visited'))
-          for x in n.get('fileList') or []:
-              print('\n=== '+str(x.get('path'))+' ===')
-              if x.get('content') is not None: print(x['content'])
-
-          b=json.load(open('/tmp/bridge.json'))
-          print('\nBRIDGE',b.get('ok'),'FILES',b.get('files'))
-          wanted={
-            '/nexus-bridge/_shared.mjs',
-            '/nexus-bridge/receiver.mjs',
-            '/nexus-bridge/adapter-loader.mjs',
-            '/nexus-bridge/adapters/nexstick.mjs'
-          }
-          for x in b.get('fileList') or []:
-              if x.get('path') in wanted:
-                  print('\n=== '+x['path']+' ===')
-                  print(x.get('content') or '<no content>')
+          import json,re
+          p=json.load(open('/tmp/procs.json'))
+          print('=== PROCESS DIAG ===')
+          print(json.dumps(p,ensure_ascii=False,indent=2)[:90000])
+          c=json.load(open('/tmp/console.json'))
+          print('\n=== CONSOLE MATCHES ===')
+          lines=c.get('logs') or []
+          pat=re.compile(r'nexstick|the_nexus_techbot|sticker|nexus-bridge|adapter',re.I)
+          for line in lines:
+              if pat.search(str(line)):
+                  print(line)
+          print('\nSTATE',c.get('state'),'TOTAL_LOGS',len(lines))
           PY
 
-# nexstick-routing-read-20261003
+# nexstick-process-locate-20261003
