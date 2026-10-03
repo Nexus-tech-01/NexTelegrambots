@@ -1,0 +1,28 @@
+name: Ops APK dual-group live probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-apk-dualgroup-live-probe-20261003.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Live Pterodactyl paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1'
+          echo '=== ROOT ==='
+          curl --fail-with-body --silent --show-error --max-time 30 "$BASE/nxc-ptero-root-list-live"
+          for root in services scripts config bots shared ecosystem nexus-bridge; do
+            echo
+            echo "=== /$root ==="
+            curl --fail-with-body --silent --show-error --max-time 60               "$BASE/nxc-ptero-browser-files-probe?root=%2F$root"               | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({"ok":d.get("ok"),"root":d.get("root"),"named":d.get("named"),"top":d.get("top"),"files":len(d.get("fileList",[])),"sample":d.get("fileList",[])[:120],"truncated":d.get("truncated")},ensure_ascii=False))'
+          done
