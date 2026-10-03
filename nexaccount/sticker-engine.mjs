@@ -400,7 +400,7 @@ async function runTransformPackJob({
 }) {
   const {client,account}=runtime;
   let added=0,created=false;
-  const label=kind==='filitake'?'Filitake':(kind==='ultratake'||kind==='delfilig')?'Delfilig':'Noteclone';
+  const label=kind==='filitake'?'Filitake':kind==='delfilig'?'Delfilig':kind==='ultratake'?'Ultratake':'Noteclone';
   console.log('[NexAi sticker transform]',id,'started','kind='+kind,'account='+account.telegramUserId,'total='+docs.length,'pack='+newName);
   try{
     for(let i=0;i<docs.length;i++){
