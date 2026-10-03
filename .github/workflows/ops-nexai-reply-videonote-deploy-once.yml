@@ -1,4 +1,4 @@
-name: Ops NexAI Reply Video Note Agent Recovery Once
+name: Ops NexAI Reply Video Note Direct Deploy Once
 
 on:
   push:
@@ -10,22 +10,24 @@ permissions:
   contents: read
 
 jobs:
-  recover:
+  deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Restart VPS agent host through existing recovery relay
+      - name: Deploy NexAI reply video-note directly through Pterodactyl relay
         shell: bash
         run: |
           set -euo pipefail
-          body="$(curl --fail-with-body --silent --show-error --max-time 30 'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-chatgpt-recover-once')"
+          body="$(curl --fail-with-body --silent --show-error --max-time 120 'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-chatgpt-meta-once')"
           echo "$body"
           python3 - "$body" <<'PY'
           import json,sys
           d=json.loads(sys.argv[1])
           if d.get("ok") is not True:
-              raise SystemExit("VPS recovery did not report ok=true: "+str(d))
-          print("VPS_RECOVERY_TRIGGERED",d)
+              raise SystemExit("Direct VPS deploy failed: "+str(d))
+          if "commands.mjs" not in (d.get("written") or []) or "runtime.mjs" not in (d.get("written") or []):
+              raise SystemExit("Expected NexAI files not confirmed: "+str(d))
+          print("NEXAI_REPLY_VIDEONOTE_DEPLOYED",d)
           PY
 
-# nexai-reply-videonote-agent-recovery-20261003
+# nexai-reply-videonote-direct-ptero-20261003
