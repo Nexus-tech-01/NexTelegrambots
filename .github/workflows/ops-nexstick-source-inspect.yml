@@ -1,0 +1,35 @@
+name: NexStick source inspect
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-nexstick-source-inspect.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rehydrate production source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/nexstick-src
+          : > /tmp/nexus-bots.tar.xz
+          for f in $(printf '%s\n' render-src.b64.part-* | sort); do
+            base64 -d "$f" >> /tmp/nexus-bots.tar.xz
+          done
+          xz -t /tmp/nexus-bots.tar.xz
+          tar -xJf /tmp/nexus-bots.tar.xz -C /tmp/nexstick-src ./bots/nexstick
+          find /tmp/nexstick-src/bots/nexstick -maxdepth 3 -type f -print
+      - name: Upload NexStick source
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexstick-source
+          path: /tmp/nexstick-src/bots/nexstick
+          if-no-files-found: error
+          retention-days: 1
