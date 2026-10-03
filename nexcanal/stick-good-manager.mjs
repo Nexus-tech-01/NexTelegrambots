@@ -27,6 +27,7 @@ const STATE_DIR=String(process.env.STICK_GOOD_STATE_DIR||'/var/lib/nex/state/int
 const TMP_DIR=String(process.env.STICK_GOOD_TMP_DIR||'/var/lib/nex/tmp/internal-automation/stick-good');
 const STATE_FILE=path.join(STATE_DIR,'state.json');
 const HEALTH_FILE=path.join(STATE_DIR,'health.json');
+const WISHLIST_FALLBACK_FILE=path.join(STATE_DIR,'wishlist-last.jpg');
 const PID_FILE=path.join(STATE_DIR,'supervisor.pid');
 const LOG_DIR=path.join(STATE_DIR,'logs');
 const OUT_LOG=path.join(LOG_DIR,'worker.log');
@@ -558,29 +559,38 @@ async function publishPack(choice,state,reason){
     stickerFiles:pack.stickers.map((_,i)=>'sticker_'+String(i+1).padStart(2,'0')+'.webp'),
     count:pack.stickers.length
   });
+  await fs.mkdir(STATE_DIR,{recursive:true});
+  await fs.copyFile(pack.cover,WISHLIST_FALLBACK_FILE).catch(()=>{});
   state.recent.push(character);state.recent=state.recent.slice(-30);
   state.history.push({at:nowIso(),type:'pack',reason,character,medium:choice.medium||'unknown',count:pack.stickers.length,source:pack.source,setName:pack.setName||'',nativePack:out?.nativePack===true});
   state.history=state.history.slice(-500);
   setTimeout(()=>fs.rm(pack.dir,{recursive:true,force:true}).catch(()=>{}),4*60*60_000).unref?.();
-  return {count:pack.stickers.length,nativePack:out?.nativePack===true};
+  return {count:pack.stickers.length,nativePack:out?.nativePack===true,wishlistImageLocal:pack.cover};
 }
 
-async function wishlistImage(){
+async function wishlistImage(fallbackLocal=''){
+  for(const local of [fallbackLocal,WISHLIST_FALLBACK_FILE]){
+    try{
+      if(!local)continue;
+      const st=await fs.stat(local);
+      if(st.isFile()&&st.size>0)return {localPath:local};
+    }catch{}
+  }
   for(const q of ['kawaii anime stickers pastel square 1:1','cute anime sticker collage pink purple square','kawaii sticker aesthetic pfp 1:1']){
     try{
       const urls=await pinterestImages(q,30);
-      if(urls[0])return urls[0];
+      if(urls[0])return {url:urls[0]};
     }catch{}
   }
-  throw new Error('wishlist_kawaii_image_not_found');
+  throw new Error('wishlist_image_unavailable');
 }
-async function openWishlist(state){
-  const imageUrl=await wishlistImage();
+async function openWishlist(state,fallbackLocal=''){
+  const image=await wishlistImage(fallbackLocal);
   const out=await action({
     kind:'question',
     id:'stick-good-wishlist:'+Date.now(),
     text:wishlistText(),
-    image:{url:imageUrl}
+    image
   },120000);
   const questionId=clean(out?.actionId);
   if(!questionId)throw new Error('wishlist_question_missing_id');
@@ -652,7 +662,7 @@ async function tick(state){
     if(job){job.status='done';job.completedAt=nowIso();job.count=result.count;job.nativePack=result.nativePack}
     else if(!state.activeWishlist)state.autoPacks++;
     state.nextPackAt=Date.now()+PACK_INTERVAL;
-    if(!job&&!state.activeWishlist&&state.autoPacks>=AUTOS_BEFORE_WISHLIST)await openWishlist(state);
+    if(!job&&!state.activeWishlist&&state.autoPacks>=AUTOS_BEFORE_WISHLIST)await openWishlist(state,result?.wishlistImageLocal||'');
   }catch(error){
     const msg=clean(error?.message||error).slice(0,400);
     if(job){
