@@ -20,10 +20,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/nexus
-          : > /tmp/nexus.tar.xz
-          for f in $(printf '%s\n' render-src.b64.part-* | sort); do
-            base64 --ignore-garbage -d "$f" >> /tmp/nexus.tar.xz
-          done
+          python3 - <<'PY'
+import base64,glob
+with open('/tmp/nexus.tar.xz','wb') as out:
+    for name in sorted(glob.glob('render-src.b64.part-*')):
+        s=''.join(open(name,encoding='utf-8').read().split())
+        s += '='*((4-len(s)%4)%4)
+        out.write(base64.b64decode(s,validate=False))
+PY
           xz -t /tmp/nexus.tar.xz
           tar -xJf /tmp/nexus.tar.xz -C /tmp/nexus ./bots/nexstick
           echo "=== FILES ==="
