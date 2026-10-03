@@ -14,27 +14,35 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Map allowed Pterodactyl runtime paths
+      - name: Search backup and build roots for NexStick
         shell: bash
         run: |
           set -euo pipefail
           BASE="https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe"
-          for root in bots services config scripts ecosystem pterodactyl; do
-            curl --fail-with-body --silent --show-error "$BASE?root=%2F$root" -o "/tmp/$root.json"
+          declare -A roots=(
+            [nxc]="%2F.nexcontrol"
+            [build]="%2F.build"
+            [local]="%2F.local"
+            [data]="%2Fdata"
+            [assets]="%2Fassets"
+            [shared]="%2Fshared"
+            [connect]="%2Fnexai-connect-v2"
+          )
+          for key in "${!roots[@]}"; do
+            curl --fail-with-body --silent --show-error "$BASE?root=${roots[$key]}" -o "/tmp/$key.json"
           done
           python3 - <<'PY'
           import json,re
-          pat=re.compile(r'nexstick|stick|telegram|bot|launch|start|service|ecosystem|pm2|supervisor|package|docker|main|index',re.I)
-          for root in ['bots','services','config','scripts','ecosystem','pterodactyl']:
-              d=json.load(open('/tmp/'+root+'.json'))
-              print('\n=== /'+root+' === ok=',d.get('ok'),'files=',d.get('files'),'visited=',d.get('visited'),'truncated=',d.get('truncated'))
-              rows=[]
+          pat=re.compile(r'nexstick|the_nexus_techbot|sticker(service|bot)?|nexus.?techbot|backup|snapshot|restore',re.I)
+          for key in ['nxc','build','local','data','assets','shared','connect']:
+              d=json.load(open('/tmp/'+key+'.json'))
+              print('\n=== '+key+' === ok=',d.get('ok'),'files=',d.get('files'),'visited=',d.get('visited'),'truncated=',d.get('truncated'))
+              matches=[]
               for x in d.get('fileList') or []:
                   p=str(x.get('path') or '')
-                  if pat.search(p):
-                      rows.append((p,x.get('size')))
-              for p,s in rows[:1200]:
-                  print(p,'size='+str(s))
+                  if pat.search(p): matches.append((p,x.get('size'),x.get('modified_at')))
+              for row in matches[:1600]:
+                  print(*row)
           PY
 
-# nexstick-path-map-20261003
+# nexstick-backup-search-20261003
