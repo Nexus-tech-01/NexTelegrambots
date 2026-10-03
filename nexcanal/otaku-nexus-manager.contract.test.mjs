@@ -30,4 +30,14 @@ assert.ok(textSendBlock.includes("socket.sendMessage(jid,{text:value})"),'newsle
 assert.ok(textSendBlock.includes("Newsletter text send returned no message id"),'newsletter text must fail closed when no real message id is returned');
 assert.ok(!textSendBlock.includes('socket.sendNode('),'raw newsletter sendNode path must stay disabled');
 
+assert.ok(publisher.includes("const OTAKU_ACTION_LEDGER_FILE='otaku-action-ledger.json'"),'durable Otaku action ledger missing');
+assert.ok(publisher.includes('function reserveOtakuAction(raw={})'),'Otaku send reservation guard missing');
+assert.ok(publisher.includes("'Otaku duplicate publication blocked'"),'duplicate blocking log missing');
+assert.ok(publisher.includes('function loadOtakuDurableState()'),'Otaku durable state restore missing');
+assert.ok(publisher.includes('proto.Message.fromObject(row.message)'),'poll creation message restore missing');
+assert.ok(publisher.includes("options:Array.isArray(r.options)?r.options:[]"),'poll options persistence missing');
+assert.ok(publisher.includes("message:r.message||null"),'poll message persistence missing');
+assert.ok(publisher.includes("const votes={...(record?.votes||{})}"),'poll vote aggregation must preserve restored votes');
+assert.ok(publisher.includes('releaseOtakuAction(claim)'),'failed sends must release their dedup reservation');
+
 console.log('Otaku Nexus coherence contract: ok');
