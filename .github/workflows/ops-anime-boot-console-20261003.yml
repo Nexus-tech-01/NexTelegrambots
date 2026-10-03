@@ -1,4 +1,4 @@
-name: Ops Anime Boot Console 2026-10-03
+name: Ops NexAI Session Diagnostic 2026-10-03
 
 on:
   push:
@@ -12,11 +12,23 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Capture live Pterodactyl process logs
+      - name: Fleet process snapshot
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"
+          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-chatgpt-diag-once"
+          echo
+      - name: NexAccount session health
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-nexmeta-session-health-probe"
+          echo
+      - name: Pterodactyl residual runtime snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"
           echo
