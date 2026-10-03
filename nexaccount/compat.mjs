@@ -11,6 +11,7 @@ import { canHandleStickerCommand, handleStickerCommand } from './sticker-engine.
 import { canHandleAiCommand, handleAiCommand } from './ai-engine.mjs';
 import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
+import { deleteStoredReplyVideo, storeReplyVideo } from './reply-storage.mjs';
 import { commandMap } from './commands.mjs';
 import { createProgress, syncOwnedCustomEmojiLibrary } from './response-ui.mjs';
 
@@ -1255,7 +1256,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(name==='mention_reply'){
     const settings=await settingsFor(account.telegramUserId);
     const current=settings.mentionVideoReply||{};
-    const configured=Boolean(current.savedMessageId||current.url);
+    const configured=Boolean(current.storage?.fileId||current.savedMessageId||current.url);
     const sub=clean(args[0]).toLowerCase();
     if(sub==='status'){
       await sendText(client,peer,'Reply vidéo : '+(current.enabled?'ON':'OFF')+(configured?' · vidéo configurée':' · aucune vidéo configurée'));
@@ -1292,21 +1293,14 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     try{
       const buffer=await client.downloadMedia(reply);
       if(!buffer?.length)throw new Error('vidéo vide');
-      if(buffer.length>50*1024*1024)throw new Error('vidéo > 50 Mo');
-      const saved=await sendTelegramMedia(client,'me',Buffer.from(buffer),{
-        fileName:'nexai-reply.mp4',
-        mimeType:'video/mp4',
-        kind:'video',
-        videoNote:true,
-        signature:false,
-        silent:true
-      });
-      const savedMessageId=Number(saved?.id||0);
-      if(!savedMessageId)throw new Error('Telegram n’a pas confirmé la sauvegarde');
+      if(buffer.length>20*1024*1024)throw new Error('vidéo > 20 Mo pour le coffre Telegram');
+      const current=(await settingsFor(account.telegramUserId)).mentionVideoReply||{};
+      const storage=await storeReplyVideo(Buffer.from(buffer),{telegramUserId:account.telegramUserId});
       await patchSettings(account.telegramUserId,{
-        mentionVideoReply:{enabled:true,savedMessageId,mime:'video/mp4',setAt:Date.now()}
+        mentionVideoReply:{enabled:true,storage,mime:'video/mp4',setAt:Date.now()}
       });
-      await sendText(client,peer,'Note vidéo configurée dans Telegram. Reply vidéo est activé pour les mentions de ce compte.');
+      if(current.storage?.fileId)await deleteStoredReplyVideo(current.storage).catch(()=>false);
+      await sendText(client,peer,'Note vidéo enregistrée dans le coffre Telegram privé. Reply vidéo est activé pour les mentions de ce compte.');
     }catch(e){
       await sendText(client,peer,'Configuration de la note vidéo impossible : '+String(e.message||e));
     }
