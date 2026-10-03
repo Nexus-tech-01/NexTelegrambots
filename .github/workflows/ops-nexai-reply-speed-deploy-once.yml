@@ -1,5 +1,5 @@
 name: Ops NexAI Reply Speed Deploy Once
-# trigger zero-reupload fast path 2026-10-04
+# trigger zero-reupload private-cache path 2026-10-04-v2
 
 on:
   push:
@@ -70,3 +70,4 @@ jobs:
               raise SystemExit('NexAI health not confirmed: '+str(health))
           print('NEXAI_REPLY_SPEED_PRODUCTION_OK')
           PY
+# production trigger private archived cache v2
