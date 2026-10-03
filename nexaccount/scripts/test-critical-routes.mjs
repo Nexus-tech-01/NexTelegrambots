@@ -130,7 +130,12 @@ if(!runtime.includes('downloadReplyVideo'))errors.push('mention-reply-private-va
 if(!replyStorageSource.includes("sendDocument"))errors.push('reply-storage-telegram-upload-missing');
 if(!replyStorageSource.includes("getFile"))errors.push('reply-storage-telegram-download-missing');
 if(!replyStorageSource.includes("nexai-storage-bot-token"))errors.push('reply-storage-external-secret-file-missing');
-if(compat.includes("sendTelegramMedia(client,'me',Buffer.from(buffer)"))errors.push('mention-reply-must-not-use-saved-messages');
+const mentionReplySetStart=compat.indexOf("if(name==='mention_reply_set')");
+const mentionReplySetEnd=compat.indexOf("if(name==='reponseauto')",mentionReplySetStart);
+const mentionReplySetSource=mentionReplySetStart>=0&&mentionReplySetEnd>mentionReplySetStart
+  ?compat.slice(mentionReplySetStart,mentionReplySetEnd)
+  :'';
+if(mentionReplySetSource.includes("sendTelegramMedia(client,'me'"))errors.push('mention-reply-must-not-use-saved-messages');
 if(!storeSource.includes('export async function listConnectedAccounts'))errors.push('live-session-store-query-missing');
 if(!storeSource.includes("find({expiresAt:{$gt:now}}"))errors.push('live-session-store-must-require-unexpired-runtime-lease');
 if(!storeSource.includes("sessionRepairRequired:{$ne:true}"))errors.push('live-session-store-must-exclude-repair-required-sessions');
