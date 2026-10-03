@@ -63,38 +63,77 @@ function fitFontSize(ctx,text,maxWidth,max=44,min=18){
   return size;
 }
 
-function watermarkOverlayPng(text,{color='#FFFFFF',opacity=0.18,position='bottom'}={}){
+function contrastColor(hex='#FFFFFF'){
+  const h=normalizeColor(hex).slice(1);
+  const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);
+  return (0.299*r+0.587*g+0.114*b)>150?'#000000':'#FFFFFF';
+}
+
+function watermarkOverlayPng(text,{
+  color='#FFFFFF',opacity=0.18,position='bottom',size=0,rotation=null,repeat=false,outline=true
+}={}){
   const canvas=createCanvas(512,512);
   const ctx=canvas.getContext('2d');
   const label=String(text||'NexAi').trim().slice(0,80)||'NexAi';
-  const alpha=clamp(opacity,0.03,0.85);
+  const alpha=clamp(opacity,0.02,0.90);
   const fill=normalizeColor(color);
+  const stroke=contrastColor(fill);
+  const pos=String(position||'bottom').trim().toLowerCase();
+  const tiled=repeat===true||['repeat','tile','tiled'].includes(pos);
+  const requestedSize=clamp(size,0,96);
+  const requestedRotation=Number(rotation);
+  const hasRotation=Number.isFinite(requestedRotation);
   ctx.clearRect(0,0,512,512);
-  ctx.fillStyle=fill;
-  ctx.globalAlpha=alpha;
   ctx.textAlign='center';
   ctx.textBaseline='middle';
 
-  if(String(position).toLowerCase()==='diagonal'){
-    const size=fitFontSize(ctx,label,410,42,18);
-    ctx.font='700 '+size+'px sans-serif';
+  const draw=(x,y,fontSize,angle=0)=>{
     ctx.save();
-    ctx.translate(256,256);
-    ctx.rotate(-Math.PI/7);
+    ctx.translate(x,y);
+    if(angle)ctx.rotate(angle);
+    ctx.font='700 '+fontSize+'px sans-serif';
+    ctx.lineWidth=Math.max(1,Math.round(fontSize/15));
+    if(outline!==false){
+      ctx.strokeStyle=stroke;
+      ctx.globalAlpha=Math.min(0.35,Math.max(0.025,alpha*0.70));
+      ctx.strokeText(label,0,0);
+    }
+    ctx.fillStyle=fill;
+    ctx.globalAlpha=alpha;
     ctx.fillText(label,0,0);
     ctx.restore();
-  }else{
-    const pos=String(position).toLowerCase();
-    const y=pos==='top'?58:pos==='center'?256:454;
-    const size=fitFontSize(ctx,label,430,pos==='center'?44:34,16);
-    ctx.font='700 '+size+'px sans-serif';
-    ctx.lineWidth=Math.max(1,Math.round(size/16));
-    ctx.strokeStyle='#000000';
-    ctx.globalAlpha=alpha*0.42;
-    ctx.strokeText(label,256,y);
-    ctx.globalAlpha=alpha;
-    ctx.fillText(label,256,y);
+  };
+
+  if(tiled){
+    const fontSize=requestedSize||fitFontSize(ctx,label,180,26,12);
+    const angle=(hasRotation?requestedRotation:-24)*Math.PI/180;
+    const xStep=Math.max(150,Math.min(260,ctx.measureText(label).width+70));
+    const yStep=Math.max(105,Math.round(fontSize*3.7));
+    for(let y=-50;y<570;y+=yStep){
+      const offset=(Math.floor((y+50)/yStep)%2)?xStep/2:0;
+      for(let x=-80+offset;x<610;x+=xStep)draw(x,y,fontSize,angle);
+    }
+    return canvas.toBuffer('image/png');
   }
+
+  if(pos==='diagonal'){
+    const fontSize=requestedSize||fitFontSize(ctx,label,410,42,18);
+    const angle=(hasRotation?requestedRotation:-26)*Math.PI/180;
+    draw(256,256,fontSize,angle);
+    return canvas.toBuffer('image/png');
+  }
+
+  const positions={
+    top:[256,58],center:[256,256],bottom:[256,454],
+    'top-left':[132,62],'top-right':[380,62],
+    'bottom-left':[132,450],'bottom-right':[380,450]
+  };
+  const [x,y]=positions[pos]||positions.bottom;
+  const maxWidth=(pos.includes('left')||pos.includes('right'))?220:430;
+  const maxSize=pos==='center'?44:34;
+  const fontSize=requestedSize||fitFontSize(ctx,label,maxWidth,maxSize,14);
+  const angle=(hasRotation?requestedRotation:0)*Math.PI/180;
+  draw(x,y,fontSize,angle);
   return canvas.toBuffer('image/png');
 }
 
@@ -206,9 +245,10 @@ async function transformWithOverlay(source,overlayBuffer){
 }
 
 export async function addStickerWatermark(source,{
-  text='NexAi',color='#FFFFFF',opacity=0.18,position='bottom'
+  text='NexAi',color='#FFFFFF',opacity=0.18,position='bottom',
+  size=0,rotation=null,repeat=false,outline=true
 }={}){
-  const overlay=watermarkOverlayPng(text,{color,opacity,position});
+  const overlay=watermarkOverlayPng(text,{color,opacity,position,size,rotation,repeat,outline});
   return transformWithOverlay(source,overlay);
 }
 
