@@ -15,14 +15,19 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Read NexStick canonical source
+      - name: Recover NexStick from canonical bundle
         shell: bash
         run: |
-          set -euo pipefail
+          set -u
           mkdir -p /tmp/nexus
           cat $(printf '%s\n' nexus-bots-src.tar.xz.b64.part-* | sort) | base64 -d > /tmp/nexus-bots.tar.xz
-          xz -t /tmp/nexus-bots.tar.xz
-          tar -xJf /tmp/nexus-bots.tar.xz -C /tmp/nexus ./bots/nexstick
-          find /tmp/nexus/bots/nexstick -maxdepth 5 -type f -print | sort
+          xz -dc --single-stream /tmp/nexus-bots.tar.xz > /tmp/nexus-bots.tar
+          rc=$?
+          echo "xz_exit=$rc tar_bytes=$(wc -c </tmp/nexus-bots.tar)"
+          echo "=== NEXSTICK TAR ENTRIES ==="
+          tar -tf /tmp/nexus-bots.tar 2>/dev/null | grep 'bots/nexstick' | head -200 || true
+          tar -xf /tmp/nexus-bots.tar -C /tmp/nexus ./bots/nexstick 2>/dev/null || true
+          echo "=== RECOVERED FILES ==="
+          find /tmp/nexus/bots/nexstick -maxdepth 5 -type f -print 2>/dev/null | sort || true
           echo "=== stickerService.js ==="
-          cat /tmp/nexus/bots/nexstick/src/services/stickerService.js
+          cat /tmp/nexus/bots/nexstick/src/services/stickerService.js 2>/dev/null || true
