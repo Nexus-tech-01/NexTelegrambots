@@ -1001,7 +1001,7 @@ async function serve(state){
       const u=new URL(req.url,'http://localhost');
       if(req.method==='GET'&&u.pathname==='/healthz'){
         res.writeHead(200,{'content-type':'application/json'});
-        return res.end(JSON.stringify({ok:true,pid:process.pid,nextPackAt:state.nextPackAt,orderWindowUntil:state.orderWindowUntil,pending:state.queue.filter(x=>x.status==='pending').length,lastDailyPostAt:state.lastDailyPostAt||0,choiceSession:state.choiceSession||null,dailyDone:Object.keys(state.dailyDone||{}).slice(-12)}));
+        return res.end(JSON.stringify({ok:true,pid:process.pid,nextPackAt:state.nextPackAt,orderWindowUntil:state.orderWindowUntil,pending:state.queue.filter(x=>x.status==='pending').length,lastDailyPostAt:state.lastDailyPostAt||0,choiceSession:state.choiceSession||null,mysteryInteractiveDay:state.mysteryInteractiveDay||'',mysteryRevealDay:state.mysteryRevealDay||'',mysterySession:state.mysterySession||null,dailyDone:Object.keys(state.dailyDone||{}).slice(-12)}));
       }
       if(req.method==='POST'&&u.pathname==='/incoming'){
         const chunks=[];for await(const c of req)chunks.push(c);
