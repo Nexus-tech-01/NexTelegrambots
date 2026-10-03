@@ -1,0 +1,93 @@
+name: Deploy NexStick
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "bots/nexstick/**"
+      - ".github/workflows/ops-nexstick-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shared runtime dependencies
+        working-directory: nexaccount
+        run: npm install --no-audit --no-fund
+
+      - name: Test NexStick transforms
+        working-directory: bots/nexstick
+        run: npm run check
+
+      - name: Deploy NexStick to Pterodactyl
+        shell: bash
+        env:
+          ENDPOINT: https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-old-prod-recovery-relay
+        run: |
+          set -euo pipefail
+          OIDC_JSON="$(curl --fail-with-body --silent --show-error             -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=nxc-nexstick-deploy")"
+          OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"$OIDC_JSON")"
+          curl --fail-with-body --silent --show-error             -H "Authorization: Bearer $OIDC_TOKEN"             -H "Content-Type: application/json"             -d "{\"sha\":\"${GITHUB_SHA}\"}"             "$ENDPOINT" | tee /tmp/deploy.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/deploy.json'))
+          if d.get('ok') is not True:
+              raise SystemExit(d)
+          if d.get('steps',{}).get('serverRunning') is not True:
+              raise SystemExit('server did not return to running state')
+          if len(d.get('files') or []) < 8:
+              raise SystemExit('incomplete NexStick deployment')
+          print('DEPLOY_OK',d.get('sha'),len(d.get('files') or []))
+          PY
+
+      - name: Verify live NexStick source
+        shell: bash
+        env:
+          PROBE: https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?mode=nexstick-source
+        run: |
+          set -euo pipefail
+          OIDC_JSON="$(curl --fail-with-body --silent --show-error             -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=nxc-nexstick-source-read")"
+          OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"$OIDC_JSON")"
+          curl --fail-with-body --silent --show-error             -H "Authorization: Bearer $OIDC_TOKEN"             "$PROBE" -o /tmp/live.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/live.json'))
+          files=d.get('fileList') or []
+          paths={x.get('path'):x for x in files}
+          idx=paths.get('/bots/nexstick/index.js',{})
+          code=idx.get('content') or ''
+          required=['previewTransform','filitake','delfilig','noteclone','clonePack']
+          missing=[x for x in required if x not in code]
+          if d.get('ok') is not True or missing:
+              raise SystemExit({'ok':d.get('ok'),'missing':missing,'files':len(files)})
+          print('LIVE_SOURCE_OK',len(files))
+          PY
+
+      - name: Read NexStick startup evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 8
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"             -o /tmp/console.json || true
+          python3 - <<'PY'
+          import json,re
+          try:d=json.load(open('/tmp/console.json'))
+          except Exception:
+              print('Console evidence unavailable; deployment/source verification already passed.')
+              raise SystemExit(0)
+          lines=[str(x) for x in (d.get('logs') or [])]
+          m=[x for x in lines if re.search(r'nexstick|The_Nexus_techbot',x,re.I)]
+          print('NEXSTICK_CONSOLE_MATCHES',len(m))
+          for x in m[-30:]: print(x)
+          bad=[x for x in m if re.search(r'fatal|cannot find|module not found|BOT_TOKEN absent|syntaxerror',x,re.I)]
+          if bad:
+              raise SystemExit('NexStick startup error: '+bad[-1])
+          PY
