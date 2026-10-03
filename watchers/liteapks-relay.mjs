@@ -21,7 +21,7 @@ const publisherSessionFile=process.env.NEX_LITEAPKS_PUBLISHER_SESSION_FILE||'/va
 const poll=Math.max(1500,Number(process.env.NEXCANAL__WATCHER_POLL_MS||2500));
 // Scan continuously, but pace public posts by logical publication batch.
 // A descriptor (image/caption) and its matching APK belong to the same batch.
-const publicationGapMs=Math.max(60*1000,Number(process.env.NEXCANAL__WATCHER_PUBLICATION_GAP_MS||2*60*60*1000));
+const publicationGapMs=2*60*60*1000; // Fixed policy: one unrelated APK publication batch every 2 hours.
 const linkedBatchWindowMs=Math.max(60*1000,Number(process.env.NEXCANAL__WATCHER_LINK_WINDOW_MS||30*60*1000));
 const botLimit=49*1024*1024;
 const whatsappDirectFileLimit=19*1024*1024;
