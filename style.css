@@ -158,6 +158,9 @@ input:focus{border-color:rgba(76,194,255,.55);background:rgba(9,15,22,.68);box-s
 .micro-info svg{width:13px;height:13px}
 .micro-info b{font-size:10px;font-weight:750}
 .micro-info .green{width:6px;height:6px;border-radius:50%;background:var(--green)}
+.micro-info .red{width:6px;height:6px;border-radius:50%;background:var(--red)}
+.micro-info .checking{width:6px;height:6px;border-radius:50%;background:var(--blue);animation:pulseDot 1s ease-in-out infinite}
+@keyframes pulseDot{50%{opacity:.35}}
 
 @media(max-width:640px){
   .topbar{height:68px;padding:0 15px}
