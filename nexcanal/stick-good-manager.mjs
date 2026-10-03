@@ -731,6 +731,12 @@ async function worker(){
   await fs.mkdir(LOG_DIR,{recursive:true});
   const state=await loadState();
   await serve(state);
+  process.on('SIGUSR1',()=>{
+    state.nextPackAt=Date.now();
+    void saveState(state)
+      .then(()=>runTickGuarded(state))
+      .catch(error=>writeHealth(state,{ok:false,error:clean(error?.message||error).slice(0,400)}).catch(()=>{}));
+  });
   for(;;){
     try{
       await runTickGuarded(state);
