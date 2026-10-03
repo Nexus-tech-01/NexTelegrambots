@@ -1,4 +1,4 @@
-name: Ops NexAI Reply Video Note Deploy Once
+name: Ops NexAI Reply Video Note Agent Recovery Once
 
 on:
   push:
@@ -10,192 +10,22 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
+  recover:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      NXC_BASE: https://nexcontrol-ochre.vercel.app
-      NXC_AGENT: nexus-main
-      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
-      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Validate NexAI reply video-note patch
-        run: |
-          set -euo pipefail
-          node --check nexaccount/commands.mjs
-          node --check nexaccount/compat.mjs
-          node --check nexaccount/media-send.mjs
-          node --check nexaccount/runtime.mjs
-          grep -F "C('reply','ACCOUNT'" nexaccount/commands.mjs
-          grep -F "C('setreply','ACCOUNT'" nexaccount/commands.mjs
-          grep -F "name==='mention_reply'" nexaccount/compat.mjs
-          grep -F "name==='mention_reply_set'" nexaccount/compat.mjs
-          grep -F "async function maybeMentionVideoReply" nexaccount/runtime.mjs
-          grep -F "videoNote:true" nexaccount/runtime.mjs
-
-      - name: Deploy reply video-note to VPS and verify
+      - name: Restart VPS agent host through existing recovery relay
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import os,json,time,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib,base64
-          from pathlib import Path
-
-          BASE=os.environ['NXC_BASE'].rstrip('/')
-          AGENT=os.environ['NXC_AGENT']
-          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
-          SECRET=os.environ.get('NXC_SESSION_SECRET','')
-
-          jar=http.cookiejar.CookieJar()
-          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-          cookie=''
-          if SECRET:
-              exp=int(time.time()*1000)+30*60*1000
-              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
-              sig=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
-              cookie=payload+'.'+sig
-          elif ADMIN:
-              data=urllib.parse.urlencode({'password':ADMIN}).encode()
-              op.open(urllib.request.Request(BASE+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=45).read()
-          else:
-              raise RuntimeError('No NexControl credential in Actions secrets')
-
-          def http(method,path,data=None,timeout=60):
-              headers={'Accept':'application/json'}
-              if cookie: headers['Cookie']='nexcontrol_session='+cookie
-              body=None
-              if data is not None:
-                  body=json.dumps(data,separators=(',',':')).encode()
-                  headers['Content-Type']='application/json'
-              req=urllib.request.Request(BASE+path,data=body,headers=headers,method=method)
-              try:
-                  with op.open(req,timeout=timeout) as r:
-                      raw=r.read().decode('utf-8','replace')
-                      return json.loads(raw) if raw else {}
-              except urllib.error.HTTPError as e:
-                  raise RuntimeError(f'HTTP {e.code} {path}: '+e.read().decode('utf-8','replace')[:2000])
-
-          def job(kind,payload,timeout=180):
-              j=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload})
-              jid=j.get('jobId')
-              if not jid: raise RuntimeError(f'No jobId for {kind}: {j}')
-              end=time.time()+timeout
-              while time.time()<end:
-                  x=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid),timeout=45)
-                  st=x.get('status')
-                  if st=='succeeded': return x.get('result') or {}
-                  if st=='failed': raise RuntimeError(f'{kind} failed: {x.get("error")}')
-                  time.sleep(1)
-              raise TimeoutError(f'{kind} timeout: {jid}')
-
-          files=['commands.mjs','compat.mjs','media-send.mjs','runtime.mjs']
-          backups=[]
-          try:
-              for rel in files:
-                  src=Path('nexaccount')/rel
-                  result=job('fs.write',{
-                      'root':'nexus',
-                      'path':'bots/nexaccount/'+rel,
-                      'content':src.read_text(encoding='utf-8')
-                  })
-                  backups.append((rel,result.get('backupId'),result.get('created',False)))
-
-              for rel in files:
-                  ck=job('check.run',{
-                      'check':'node-check',
-                      'root':'nexus',
-                      'file':'bots/nexaccount/'+rel,
-                      'timeoutMs':60000
-                  })
-                  if not ck.get('ok'):
-                      raise RuntimeError('node-check failed '+rel+': '+str(ck))
-
-              verify=job('runtime.exec',{
-                  'root':'nexus',
-                  'command':'grep',
-                  'args':['-nE',"C\\('reply'|C\\('setreply'|mention_reply|mention_reply_set|maybeMentionVideoReply|videoNote:true",'bots/nexaccount/commands.mjs','bots/nexaccount/compat.mjs','bots/nexaccount/runtime.mjs'],
-                  'timeoutMs':15000
-              },timeout=30)
-              verify_text=(verify.get('stdout') or '').strip()
-              print('REPLY_DEPLOY_VERIFY',verify_text)
-              required=("C('reply'","C('setreply'","mention_reply","mention_reply_set","maybeMentionVideoReply","videoNote:true")
-              if not all(x in verify_text for x in required):
-                  raise RuntimeError('deployed reply markers not verified')
-
-              boot=job('runtime.exec',{
-                  'root':'nexus',
-                  'command':'node',
-                  'args':['bots/nexaccount/bootstrap.mjs','--restart','--production'],
-                  'timeoutMs':60000
-              },timeout=90)
-              if boot.get('ok') is False:
-                  raise RuntimeError('bootstrap failed: '+str(boot)[-4000:])
-
-              health=job('runtime.exec',{
-                  'root':'nexus',
-                  'command':'node',
-                  'args':['bots/nexaccount/cli.mjs','health'],
-                  'timeoutMs':30000
-              },timeout=60)
-              health_text=(health.get('stdout') or '').strip()
-              print('NEXACCOUNT_HEALTH',health_text[-5000:])
-              health_json=json.loads(health_text or '{}')
-              if health_json.get('ok') is not True or health_json.get('pairingOnly') is True:
-                  raise RuntimeError('NexAccount health regression: '+str(health_json))
-
-              accounts=job('runtime.exec',{
-                  'root':'nexus',
-                  'command':'node',
-                  'args':['bots/nexaccount/cli.mjs','accounts'],
-                  'timeoutMs':30000
-              },timeout=60)
-              accounts_text=(accounts.get('stdout') or '').strip()
-              print('NEXACCOUNT_ACCOUNTS',accounts_text[-7000:])
-              account_json=json.loads(accounts_text or '{}')
-              active=[x for x in (account_json.get('runtimes') or []) if x.get('connected') is True]
-              if not active:
-                  raise RuntimeError('no connected NexAccount runtime after deployment')
-
-              anime=job('runtime.exec',{
-                  'root':'nexus',
-                  'command':'node',
-                  'args':['bots/nexaccount/cli.mjs','anime-status'],
-                  'timeoutMs':30000
-              },timeout=60)
-              anime_text=(anime.get('stdout') or '').strip()
-              print('NEXANIME_STATUS',anime_text[-5000:])
-              anime_json=json.loads(anime_text or '{}')
-              if anime_json.get('ok') is not True or anime_json.get('enabled') is not True:
-                  raise RuntimeError('NexAnime regression: '+str(anime_json))
-              if str(anime_json.get('destination') or '').lower()!='@theotaku_nexus':
-                  raise RuntimeError('NexAnime destination regression: '+str(anime_json.get('destination')))
-              if float(anime_json.get('interSeriesMinutes') or 0)!=15:
-                  raise RuntimeError('NexAnime cadence regression: '+str(anime_json.get('interSeriesMinutes')))
-
-              print('DEPLOYMENT_OK NexAI reply/setreply video-note active on VPS')
-          except Exception:
-              for rel,bid,created in reversed(backups):
-                  try:
-                      if bid: job('fs.rollback',{'backupId':bid})
-                      elif created: job('fs.delete',{'root':'nexus','path':'bots/nexaccount/'+rel,'allowDir':False})
-                  except Exception as e:
-                      print('rollback warning',rel,e)
-              try:
-                  job('runtime.exec',{
-                      'root':'nexus',
-                      'command':'node',
-                      'args':['bots/nexaccount/bootstrap.mjs','--restart','--production'],
-                      'timeoutMs':60000
-                  },timeout=90)
-              except Exception as e:
-                  print('rollback restart warning',e)
-              raise
+          body="$(curl --fail-with-body --silent --show-error --max-time 30 'https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-chatgpt-recover-once')"
+          echo "$body"
+          python3 - "$body" <<'PY'
+          import json,sys
+          d=json.loads(sys.argv[1])
+          if d.get("ok") is not True:
+              raise SystemExit("VPS recovery did not report ok=true: "+str(d))
+          print("VPS_RECOVERY_TRIGGERED",d)
           PY
 
-# nexai-reply-videonote-deploy-20261003
+# nexai-reply-videonote-agent-recovery-20261003
