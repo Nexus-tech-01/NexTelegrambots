@@ -12,17 +12,17 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
-      - name: Start server and capture live boot console
+      - name: Restore canonical MAIN_FILE and start Pterodactyl
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-chatgpt-console-once"
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-mainfile-repair"
           echo
-      - name: Verify runtime state after boot attempt
+      - name: Verify server state and anime runtime
         shell: bash
         run: |
-          sleep 8
+          sleep 20
           curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-diag"
           echo
