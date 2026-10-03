@@ -32,3 +32,4 @@ jobs:
                   print('\n=== '+x['path']+' ===')
                   print(x.get('content') or '<no content>')
           PY
+# inspect refresh 2026-10-03T23:20+01:00
