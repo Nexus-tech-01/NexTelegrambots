@@ -1,0 +1,24 @@
+name: NexStick CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "bots/nexstick/**"
+      - ".github/workflows/ops-nexstick-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shared runtime dependencies
+        working-directory: nexaccount
+        run: npm install --no-audit --no-fund
+      - name: Check NexStick
+        working-directory: bots/nexstick
+        run: npm run check
