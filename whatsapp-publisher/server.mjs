@@ -95,6 +95,7 @@ const HOST = process.env.WA_PUBLISHER_HOST || '127.0.0.1';
 const DATA_DIR = process.env.WA_PUBLISHER_DATA_DIR || '/var/lib/nex/data/internal/whatsapp-publisher';
 const AUTH_DIR = path.join(DATA_DIR, 'wa-auth');
 const GROUP_JID = process.env.WHATSAPP_GROUP_JID || '120363426961054070@g.us';
+const SECONDARY_APK_GROUP_INVITE_URL = process.env.WHATSAPP_SECONDARY_APK_GROUP_INVITE_URL || 'https://chat.whatsapp.com/GsxCPLB9XyI9zT39c4T9K1';
 const CHANNEL_INVITE_URL = process.env.WHATSAPP_CHANNEL_INVITE_URL || 'https://whatsapp.com/channel/0029VbDkWGYHltYHGr1HHQ07';
 const OTAKU_CHANNEL_INVITE_URL = process.env.OTAKU_WHATSAPP_CHANNEL_INVITE_URL || 'https://whatsapp.com/channel/0029VbCKhnq7j6gEhuUKMP1V';
 const PRESENTATION_NEWSLETTER_JID = process.env.PRESENTATION_NEWSLETTER_JID || '120363411005383995@newsletter';
@@ -118,6 +119,8 @@ const state = {
   channelTitle: null,
   otakuChannelJid: null,
   otakuChannelTitle: null,
+  secondaryApkGroupJid: null,
+  secondaryApkGroupTitle: null,
   lastPublishAt: null,
 };
 let socket = null;
@@ -351,6 +354,7 @@ function groupActionButtons(pub){
   return out.filter(b=>b?.text&&/^https?:\/\//i.test(String(b?.url||''))).slice(0,10);
 }
 function inviteCode(url=''){ const m=String(url).match(/whatsapp\.com\/channel\/([A-Za-z0-9_-]+)/i); return m?.[1] || String(url).trim(); }
+function groupInviteCode(url=''){ const m=String(url).match(/chat\.whatsapp\.com\/([A-Za-z0-9_-]+)/i); return m?.[1] || String(url).trim(); }
 function ext(name=''){ return path.extname(String(name).split('?')[0].toLowerCase()).replace('.',''); }
 function documentBlocked(item){ const e=ext(item?.fileName||''); const mime=String(item?.mimetype||'').toLowerCase(); return BLOCKED_DOC_EXT.has(e)||mime==='application/vnd.android.package-archive'; }
 function isOtakuSource(source=''){ const s=sourceName(source); return s==='tresor_universe'; }
@@ -489,6 +493,7 @@ function enqueue(destination,jid,pub){
   const q=readJson('queue.json',[]);
   const matches=q.filter(x=>
     String(x?.destination||'')===String(destination) &&
+    String(x?.jid||'')===String(jid) &&
     ['pending','done'].includes(String(x?.status||'')) &&
     samePublication(x?.pub,pub)
   );
@@ -563,6 +568,44 @@ async function resolveOtakuChannel(){
     jidKey:'otakuChannelJid',
     titleKey:'otakuChannelTitle',
   });
+}
+
+async function resolveSecondaryApkGroup(){
+  if(!socket||state.status!=='connected') return null;
+  const expectedInvite=String(SECONDARY_APK_GROUP_INVITE_URL||'').trim();
+  const persisted=readJson('secondary-apk-group.json',{});
+  if(
+    persisted?.jid?.endsWith('@g.us') &&
+    String(persisted?.invite||'').trim()===expectedInvite
+  ){
+    state.secondaryApkGroupJid=persisted.jid;
+    state.secondaryApkGroupTitle=persisted.title||null;
+    return persisted.jid;
+  }
+  const code=groupInviteCode(expectedInvite);
+  if(!code) return null;
+
+  let meta=await socket.groupGetInviteInfo(code);
+  let jid=String(meta?.id||'');
+  if(!jid.endsWith('@g.us')) throw new Error('JID du groupe APK secondaire introuvable');
+
+  try{
+    await socket.groupMetadata(jid);
+  }catch{
+    const joined=String(await socket.groupAcceptInvite(code)||'');
+    if(joined.endsWith('@g.us')) jid=joined;
+    meta=await socket.groupMetadata(jid);
+  }
+
+  state.secondaryApkGroupJid=jid;
+  state.secondaryApkGroupTitle=meta?.subject||meta?.name||null;
+  writeJson('secondary-apk-group.json',{
+    jid,
+    title:state.secondaryApkGroupTitle,
+    invite:expectedInvite,
+    resolvedAt:new Date().toISOString()
+  });
+  return jid;
 }
 
 async function connectWhatsApp({freshPairing=false}={}){
@@ -1064,6 +1107,11 @@ async function processQueue(){
           if(!resolved) throw new Error(lifestyle?'Chaîne WhatsApp Otaku non résolue':'Chaîne WhatsApp non résolue');
           job.jid=resolved;
         }
+        if(job.destination==='group'&&job.jid==='__SECONDARY_APK_GROUP__'){
+          const resolved=await promiseWithTimeout(resolveSecondaryApkGroup(),15000,'resolve secondary APK group');
+          if(!resolved) throw new Error('Groupe WhatsApp APK secondaire non résolu');
+          job.jid=resolved;
+        }
         const sendJob=()=>sendPublication(job.jid,job.destination,job.pub);
         const sendPromise=isOtakuSource(job.pub?.source)
           ?withOtakuSendLock(sendJob)
@@ -1103,6 +1151,7 @@ function plan(raw){
   if(dedupeSeen(pub)) return {duplicate:true,pub,route:routePublication(pub)};
   const route=routePublication(pub);
   if(route.group) enqueue('group',GROUP_JID,pub);
+  if(route.channelBlocked&&SECONDARY_APK_GROUP_INVITE_URL) enqueue('group','__SECONDARY_APK_GROUP__',pub);
   if(route.channel){
     const lifestyle=isOtakuSource(pub.source);
     enqueue('channel',lifestyle?(state.otakuChannelJid||'__OTAKU_CHANNEL__'):(state.channelJid||'__CHANNEL__'),pub);
