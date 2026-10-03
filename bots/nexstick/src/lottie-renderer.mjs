@@ -5,6 +5,8 @@ import crypto from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { createRequire } from 'node:module';
+const requireFromNexAccount=createRequire(new URL('../../nexaccount/package.json',import.meta.url));
 
 const exec=promisify(execFile);
 const FFMPEG=process.env.FFMPEG_PATH||'ffmpeg';
@@ -61,7 +63,7 @@ async function encodeAnimatedWebp(frameDir,fps,output){
 
 export async function renderTgsToAnimatedWebp(buffer,{size=512,targetFps=15,maxSeconds=6}={}){
   const decoded=decodeTgs(buffer);
-  const { createCanvas, LottieAnimation }=await import('@napi-rs/canvas');
+  const { createCanvas, LottieAnimation }=requireFromNexAccount('@napi-rs/canvas');
   const animation=LottieAnimation.loadFromData(decoded.json,{});
   if(!animation)throw new Error('rendu Lottie indisponible');
 
