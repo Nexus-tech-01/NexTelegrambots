@@ -30,7 +30,12 @@ jobs:
           node --check nexaccount/config.mjs
           node --check nexaccount/store.mjs
           node --check nexaccount/runtime.mjs
+          node --check nexaccount/daemon.mjs
+          node --check nexaccount/cli.mjs
+          node nexaccount/scripts/test-auto-react-owned-channels.mjs
           grep -F "DEFAULT_OWNED_AUTO_REACT_TARGETS='thenexusorigin,thenexnews,tresor_universe,theotaku_nexus,princessetyla34,nextech_nexai'" nexaccount/config.mjs
+          grep -F "managedAutoJoinTargets:['https://t.me/Nextech_NexAi']" nexaccount/config.mjs
+          grep -F "managedAutoReactTargets:['nextech_nexai']" nexaccount/config.mjs
           ! grep -F "autoReactTargets:(pick('NEXAI_AUTO_REACT_TARGETS')||'*')" nexaccount/config.mjs
           ! grep -F "targets:['*']" nexaccount/store.mjs
           grep -F "function safeAutoReactTargets" nexaccount/runtime.mjs
@@ -90,7 +95,7 @@ jobs:
                   time.sleep(1)
               raise TimeoutError(f'{kind} timeout: {jid}')
 
-          files=['config.mjs','store.mjs','runtime.mjs']
+          files=['config.mjs','store.mjs','runtime.mjs','daemon.mjs','cli.mjs']
           backups=[]
           try:
               for rel in files:
@@ -149,19 +154,36 @@ jobs:
               if float(anime_json.get('interSeriesMinutes') or 0)!=15:
                   raise RuntimeError('NexAnime cadence regression: '+str(anime_json.get('interSeriesMinutes')))
 
+              auto_join=job('runtime.exec',{
+                  'root':'nexus',
+                  'command':'node',
+                  'args':['bots/nexaccount/cli.mjs','auto-join-all'],
+                  'timeoutMs':300000
+              },timeout=330)
+              auto_join_text=(auto_join.get('stdout') or '').strip()
+              print('NEXACCOUNT_AUTO_JOIN_ALL',auto_join_text[-12000:])
+              auto_join_json=json.loads(auto_join_text or '{}')
+              if auto_join_json.get('ok') is not True:
+                  raise RuntimeError('Nextech_NexAi managed auto-join failed: '+str(auto_join_json))
+              if int(auto_join_json.get('count') or 0)<1:
+                  raise RuntimeError('No active NexAccount runtime joined Nextech_NexAi')
+              for row in auto_join_json.get('accounts') or []:
+                  if row.get('ok') is not True:
+                      raise RuntimeError('Managed auto-join account failure: '+str(row))
+
               verify=job('runtime.exec',{
                   'root':'nexus',
                   'command':'grep',
-                  'args':['-nE',"DEFAULT_OWNED_AUTO_REACT_TARGETS|safeAutoReactTargets|targets:\[\.\.\.cfg\.autoReactTargets\]",'bots/nexaccount/config.mjs','bots/nexaccount/store.mjs','bots/nexaccount/runtime.mjs'],
+                  'args':['-nE',"DEFAULT_OWNED_AUTO_REACT_TARGETS|managedAutoJoinTargets|managedAutoReactTargets|runtimeAutoJoinAll|targets:\[\.\.\.cfg\.autoReactTargets\]",'bots/nexaccount/config.mjs','bots/nexaccount/store.mjs','bots/nexaccount/runtime.mjs'],
                   'timeoutMs':15000
               },timeout=30)
               verify_text=(verify.get('stdout') or '').strip()
               print('AUTO_REACT_DEPLOY_VERIFY',verify_text)
-              required=('DEFAULT_OWNED_AUTO_REACT_TARGETS','safeAutoReactTargets','targets:[...cfg.autoReactTargets]')
+              required=('DEFAULT_OWNED_AUTO_REACT_TARGETS','managedAutoJoinTargets','managedAutoReactTargets','runtimeAutoJoinAll','targets:[...cfg.autoReactTargets]')
               if not all(x in verify_text for x in required):
                   raise RuntimeError('deployed auto-react guard not verified')
 
-              print('DEPLOYMENT_OK auto-join/auto-react allowlist includes Nextech_NexAi')
+              print('DEPLOYMENT_OK Nextech_NexAi joined by all active NexAccount sessions and auto-react is managed')
           except Exception:
               for rel,bid,created in reversed(backups):
                   try:
@@ -181,4 +203,4 @@ jobs:
               raise
           PY
 
-# auto-react-owned-channels-deploy-20261003-nextech-nexai
+# auto-react-owned-channels-deploy-20261003-force-nextech-nexai-all
