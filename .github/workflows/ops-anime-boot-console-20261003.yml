@@ -10,13 +10,13 @@ permissions:
   contents: read
 
 jobs:
-  diagnose:
+  deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Queue direct nexus-main anime verification
+      - name: Sync protected NexAnime runtime to nexus-main
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-import-once"
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-native-list"
           echo
