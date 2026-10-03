@@ -33,6 +33,8 @@ export const CORE_COMMANDS=[
   C('device','ACCOUNT',{...P,description:'Informations de la session'}),
   C('autoreact','ACCOUNT',{...P,description:'Activer/désactiver les réactions automatiques',handler:'reflexe_systeme'}),
   C('autoreply','ACCOUNT',{...P,description:'Configurer la réponse automatique',handler:'reponseauto'}),
+  C('reply','ACCOUNT',{selfOnly:true,description:'Activer la note vidéo envoyée quand le compte est mentionné',handler:'mention_reply'}),
+  C('setreply','ACCOUNT',{selfOnly:true,description:'Configurer la note vidéo de réponse en répondant à une vidéo',handler:'mention_reply_set'}),
   C('aimode','ACCOUNT',{...P,description:'Mode conversation IA naturel',handler:'dark'}),
   C('presence','ACCOUNT',{...P,description:'Présence du compte'}),
   C('autotyping','ACCOUNT',{...P,description:'Indicateur de saisie automatique'}),
