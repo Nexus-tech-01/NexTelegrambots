@@ -12,7 +12,7 @@ const [config,store,runtime]=await Promise.all([
   read('runtime.mjs')
 ]);
 
-const required='thenexusorigin,thenexnews,tresor_universe,theotaku_nexus,princessetyla34';
+const required='thenexusorigin,thenexnews,tresor_universe,theotaku_nexus,princessetyla34,nextech_nexai';
 
 if(!config.includes(required)){
   throw new Error('Auto-react owned-channel allowlist is missing from config');
