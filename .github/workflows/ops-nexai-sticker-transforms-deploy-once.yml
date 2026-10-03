@@ -39,8 +39,8 @@ jobs:
         run: |
           set -euo pipefail
           OIDC_JSON="$(curl --fail-with-body --silent --show-error \
-            -H "Authorization: Bearer \${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "\${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=nxc-nexai-sticker-transforms-deploy")"
+            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=nxc-nexai-sticker-transforms-deploy")"
           OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"$OIDC_JSON")"
           test -n "$OIDC_TOKEN"
 
@@ -48,7 +48,7 @@ jobs:
             -X POST "$DEPLOY_ENDPOINT" \
             -H "Authorization: Bearer $OIDC_TOKEN" \
             -H "Content-Type: application/json" \
-            --data "{\"sha\":\"\${GITHUB_SHA}\"}" \
+            --data "{\"sha\":\"${GITHUB_SHA}\"}" \
             | tee /tmp/nexai-sticker-deploy.json
 
           python3 - <<'PY'
