@@ -23,7 +23,7 @@ jobs:
             out="$1"; shift
             : > "$out"
             for f in "$@"; do
-              base64 -d "$f" >> "$out"
+              base64 -d "$f" >> "$out" 2>/dev/null || true
             done
           }
           parts=(render-src.b64.part-00 render-src.b64.part-01 render-src.b64.part-02 render-src.b64.part-03 render-src.b64.part-04 render-src.b64.part-05 render-src.b64.part-06 render-src.b64.part-07 render-src.b64.part-08)
@@ -49,4 +49,4 @@ jobs:
             echo "=== stickerService.js ==="
             cat "$svc"
           fi
-# inspect Render NexStick 2026-10-03T23:41+01:00
+# inspect Render NexStick permissive 2026-10-03T23:45+01:00
