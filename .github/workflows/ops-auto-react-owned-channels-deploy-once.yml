@@ -30,7 +30,7 @@ jobs:
           node --check nexaccount/config.mjs
           node --check nexaccount/store.mjs
           node --check nexaccount/runtime.mjs
-          grep -F "DEFAULT_OWNED_AUTO_REACT_TARGETS='thenexusorigin,thenexnews,tresor_universe,theotaku_nexus,princessetyla34'" nexaccount/config.mjs
+          grep -F "DEFAULT_OWNED_AUTO_REACT_TARGETS='thenexusorigin,thenexnews,tresor_universe,theotaku_nexus,princessetyla34,nextech_nexai'" nexaccount/config.mjs
           ! grep -F "autoReactTargets:(pick('NEXAI_AUTO_REACT_TARGETS')||'*')" nexaccount/config.mjs
           ! grep -F "targets:['*']" nexaccount/store.mjs
           grep -F "function safeAutoReactTargets" nexaccount/runtime.mjs
@@ -161,7 +161,7 @@ jobs:
               if not all(x in verify_text for x in required):
                   raise RuntimeError('deployed auto-react guard not verified')
 
-              print('DEPLOYMENT_OK auto-react allowlist includes Princessetyla34')
+              print('DEPLOYMENT_OK auto-join/auto-react allowlist includes Nextech_NexAi')
           except Exception:
               for rel,bid,created in reversed(backups):
                   try:
@@ -181,4 +181,4 @@ jobs:
               raise
           PY
 
-# auto-react-owned-channels-deploy-20261002-princessetyla34
+# auto-react-owned-channels-deploy-20261003-nextech-nexai
