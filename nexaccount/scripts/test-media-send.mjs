@@ -102,6 +102,9 @@ const fakeVideoClient={
     roundVideoNoteSeen=video?.roundMessage===true;
     assert.equal(audio,undefined,'round video note must not carry a voice-note audio attribute');
     assert.equal(video?.w,video?.h,'round video note metadata must be square');
+    assert.equal(video?.w,640,'round video note metadata width must match transcoded media');
+    assert.equal(video?.h,640,'round video note metadata height must match transcoded media');
+    assert.ok(Number(video?.duration)>0,'round video note metadata duration must be positive');
     return {ok:true};
   }
 };
