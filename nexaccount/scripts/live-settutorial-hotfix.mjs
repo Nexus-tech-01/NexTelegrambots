@@ -71,7 +71,7 @@ replaceOnce(liveCb,srcCbPrefix,'callback_tutorial');
 fs.mkdirSync(runtimeDir,{recursive:true});
 const backup=runtimeDir+'/inline-bot.before-settutorial-'+Date.now()+'.mjs';
 fs.copyFileSync(p,backup);
-const tmp=p+'.tmp-'+Date.now();
+const tmp=p+'.tmp-'+Date.now()+'.mjs';
 fs.writeFileSync(tmp,live);
 
 const chk=spawnSync(process.execPath,['--check',tmp],{encoding:'utf8'});
