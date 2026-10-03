@@ -643,6 +643,14 @@ async function tick(state){
   await saveState(state);
 }
 
+let tickRunning=false;
+async function runTick(state){
+  if(tickRunning)return {started:false,reason:'already_running'};
+  tickRunning=true;
+  try{await tick(state);return {started:true}}
+  finally{tickRunning=false}
+}
+
 async function serve(state){
   const http=await import('node:http');
   const server=http.createServer(async(req,res)=>{
@@ -670,8 +678,9 @@ async function serve(state){
       if(req.method==='POST'&&u.pathname==='/kick'){
         state.nextPackAt=Date.now();
         await saveState(state);
+        runTick(state).catch(error=>writeHealth(state,{ok:false,error:clean(error?.message||error).slice(0,400)}).catch(()=>{}));
         res.writeHead(202,{'content-type':'application/json'});
-        return res.end(JSON.stringify({ok:true}));
+        return res.end(JSON.stringify({ok:true,started:true}));
       }
       res.writeHead(404);res.end();
     }catch(error){
@@ -687,7 +696,7 @@ async function worker(){
   await serve(state);
   for(;;){
     try{
-      await tick(state);
+      await runTick(state);
       await writeHealth(state);
     }catch(error){
       await writeHealth(state,{ok:false,error:clean(error?.message||error).slice(0,400)}).catch(()=>{});
