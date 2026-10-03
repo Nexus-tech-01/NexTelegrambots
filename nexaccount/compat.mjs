@@ -1255,9 +1255,10 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(name==='mention_reply'){
     const settings=await settingsFor(account.telegramUserId);
     const current=settings.mentionVideoReply||{};
+    const configured=Boolean(current.savedMessageId||current.url);
     const sub=clean(args[0]).toLowerCase();
     if(sub==='status'){
-      await sendText(client,peer,'Reply vidéo : '+(current.enabled?'ON':'OFF')+(current.url?' · vidéo configurée':' · aucune vidéo configurée'));
+      await sendText(client,peer,'Reply vidéo : '+(current.enabled?'ON':'OFF')+(configured?' · vidéo configurée':' · aucune vidéo configurée'));
       return true;
     }
     if(sub==='off'||sub==='0'||sub==='false'){
@@ -1265,7 +1266,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       await sendText(client,peer,'Reply vidéo désactivé.');
       return true;
     }
-    if(!current.url){
+    if(!configured){
       await sendText(client,peer,'Aucune vidéo configurée. Réponds à une vidéo avec /setreply.');
       return true;
     }
@@ -1292,11 +1293,20 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       const buffer=await client.downloadMedia(reply);
       if(!buffer?.length)throw new Error('vidéo vide');
       if(buffer.length>50*1024*1024)throw new Error('vidéo > 50 Mo');
-      const url=await uploadCatbox(Buffer.from(buffer),'nexai-reply-'+Date.now()+'.mp4');
-      await patchSettings(account.telegramUserId,{
-        mentionVideoReply:{enabled:true,url,mime:'video/mp4',setAt:Date.now()}
+      const saved=await sendTelegramMedia(client,'me',Buffer.from(buffer),{
+        fileName:'nexai-reply.mp4',
+        mimeType:'video/mp4',
+        kind:'video',
+        videoNote:true,
+        signature:false,
+        silent:true
       });
-      await sendText(client,peer,'Note vidéo configurée. Reply vidéo est activé pour les mentions de ce compte.');
+      const savedMessageId=Number(saved?.id||0);
+      if(!savedMessageId)throw new Error('Telegram n’a pas confirmé la sauvegarde');
+      await patchSettings(account.telegramUserId,{
+        mentionVideoReply:{enabled:true,savedMessageId,mime:'video/mp4',setAt:Date.now()}
+      });
+      await sendText(client,peer,'Note vidéo configurée dans Telegram. Reply vidéo est activé pour les mentions de ce compte.');
     }catch(e){
       await sendText(client,peer,'Configuration de la note vidéo impossible : '+String(e.message||e));
     }
@@ -1308,7 +1318,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const sub=clean(args[0]).toLowerCase();
     if(sub==='status'){
       const a=settings.autoReply||{};
-      await sendText(client,peer,'Auto-réponse : '+(a.enabled?'ON':'OFF')+(a.url?'\nMédia : configuré':'')+'\nDélai : '+Number(a.delayMs||0)/1000+' s');
+      await sendText(client,peer,'Auto-réponse : '+(a.enabled?'ON':'OFF')+((a.savedMessageId||a.url)?'\nMédia : configuré':'')+'\nDélai : '+Number(a.delayMs||0)/1000+' s');
       return true;
     }
     if(sub==='off'||sub==='reset'){
@@ -1327,9 +1337,17 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       if(buffer.length>20*1024*1024)throw new Error('média > 20 Mo');
       const mime=String(reply?.document?.mimeType||reply?.media?.document?.mimeType||'application/octet-stream');
       const ext=mime.includes('video')?'mp4':mime.includes('audio')?'mp3':mime.includes('image')?'jpg':'bin';
-      const url=await uploadCatbox(Buffer.from(buffer),'nexai-autoreply-'+Date.now()+'.'+ext);
+      const saved=await sendTelegramMedia(client,'me',Buffer.from(buffer),{
+        fileName:'nexai-autoreply.'+ext,
+        mimeType:mime,
+        kind:'auto',
+        signature:false,
+        silent:true
+      });
+      const savedMessageId=Number(saved?.id||0);
+      if(!savedMessageId)throw new Error('Telegram n’a pas confirmé la sauvegarde');
       const delayMs=Math.max(0,Math.min(30,Number(args[0])||0))*1000;
-      await patchSettings(account.telegramUserId,{autoReply:{enabled:true,url,mime,delayMs,setAt:Date.now()}});
+      await patchSettings(account.telegramUserId,{autoReply:{enabled:true,savedMessageId,mime,delayMs,setAt:Date.now()}});
       await sendText(client,peer,'Auto-réponse média activée pour les mentions du compte.');
     }catch(e){await sendText(client,peer,'Configuration auto-réponse impossible : '+String(e.message||e))}
     return true;
