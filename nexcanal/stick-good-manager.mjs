@@ -41,6 +41,7 @@ const MAX_STICKERS=30;
 const MIN_PACK_STICKERS=Math.max(8,Math.min(MAX_STICKERS,Number(process.env.STICK_GOOD_MIN_PACK_STICKERS||12)));
 const MIN_TELEGRAM_STICKERS=Math.max(5,Math.min(30,Number(process.env.STICK_GOOD_MIN_TELEGRAM_STICKERS||12)));
 const FIRST_RUN_DELAY=Math.max(0,Number(process.env.STICK_GOOD_FIRST_RUN_DELAY_MS||0));
+const TICK_TIMEOUT=Math.max(5*60_000,Number(process.env.STICK_GOOD_TICK_TIMEOUT_MS||20*60_000));
 const ENABLED=!/^(0|false|no)$/i.test(String(process.env.STICK_GOOD_ENABLED||'1'));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
@@ -641,7 +642,6 @@ async function tick(state){
   }
 
   const job=state.queue.find(x=>x.status==='pending');
-  if(!job&&state.activeWishlist)return;
 
   const choice=job?{
     character:job.character,franchise:job.franchise||'',medium:job.medium||'unknown',mood:job.mood||rand(STICK_GOOD_MOODS)
@@ -650,9 +650,9 @@ async function tick(state){
   try{
     const result=await publishPack(choice,state,job?'wishlist':'auto');
     if(job){job.status='done';job.completedAt=nowIso();job.count=result.count;job.nativePack=result.nativePack}
-    else state.autoPacks++;
+    else if(!state.activeWishlist)state.autoPacks++;
     state.nextPackAt=Date.now()+PACK_INTERVAL;
-    if(!job&&state.autoPacks>=AUTOS_BEFORE_WISHLIST)await openWishlist(state);
+    if(!job&&!state.activeWishlist&&state.autoPacks>=AUTOS_BEFORE_WISHLIST)await openWishlist(state);
   }catch(error){
     const msg=clean(error?.message||error).slice(0,400);
     if(job){
@@ -672,6 +672,20 @@ async function runTick(state){
   tickRunning=true;
   try{await tick(state);return {started:true}}
   finally{tickRunning=false}
+}
+async function runTickGuarded(state){
+  let timer=null;
+  try{
+    return await Promise.race([
+      runTick(state),
+      new Promise((_,reject)=>{
+        timer=setTimeout(()=>reject(new Error('stick_good_tick_timeout')),TICK_TIMEOUT);
+        timer.unref?.();
+      })
+    ]);
+  }finally{
+    if(timer)clearTimeout(timer);
+  }
 }
 
 async function serve(state){
@@ -719,10 +733,12 @@ async function worker(){
   await serve(state);
   for(;;){
     try{
-      await runTick(state);
+      await runTickGuarded(state);
       await writeHealth(state);
     }catch(error){
-      await writeHealth(state,{ok:false,error:clean(error?.message||error).slice(0,400)}).catch(()=>{});
+      const msg=clean(error?.message||error).slice(0,400);
+      await writeHealth(state,{ok:false,error:msg}).catch(()=>{});
+      if(msg==='stick_good_tick_timeout')process.exit(70);
     }
     await sleep(60_000);
   }
