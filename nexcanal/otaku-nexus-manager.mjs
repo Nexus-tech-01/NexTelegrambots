@@ -649,6 +649,25 @@ async function openOrders(state){
   state.autoPacks=0;
   state.history.push({at:nowIso(),type:'order-window',until:new Date(state.orderWindowUntil).toISOString()});
 }
+async function anilistImage(kind,name){
+  try{
+    const isCharacter=kind==='character';
+    const query=isCharacter
+      ?'query($search:String){Character(search:$search){image{large medium}}}'
+      :'query($search:String){Media(search:$search,type:ANIME){bannerImage coverImage{extraLarge large}}}';
+    const r=await fetch('https://graphql.anilist.co',{
+      method:'POST',
+      headers:{'content-type':'application/json','user-agent':'OtakuNexus/1.0'},
+      body:JSON.stringify({query,variables:{search:clean(name)}}),
+      signal:AbortSignal.timeout(15000)
+    }).catch(()=>null);
+    if(!r?.ok)return '';
+    const j=await r.json().catch(()=>null);
+    return clean(isCharacter
+      ?(j?.data?.Character?.image?.large||j?.data?.Character?.image?.medium)
+      :(j?.data?.Media?.bannerImage||j?.data?.Media?.coverImage?.extraLarge||j?.data?.Media?.coverImage?.large));
+  }catch{return ''}
+}
 async function jikanImage(kind,name){
   const endpoint=kind==='character'?'characters':'anime';
   const r=await fetch('https://api.jikan.moe/v4/'+endpoint+'?q='+encodeURIComponent(clean(name))+'&limit=1',{
@@ -664,6 +683,8 @@ async function imagePost(id,query,text,fallback=null){
   try{urls=await pinterestImages(query,20)}catch{}
   const candidates=[...new Set(urls.map(clean).filter(Boolean))].slice(0,10);
   if(fallback?.name){
+    const ani=await anilistImage(fallback.kind||'anime',fallback.name);
+    if(ani&&!candidates.includes(ani))candidates.push(ani);
     const fb=await jikanImage(fallback.kind||'anime',fallback.name);
     if(fb&&!candidates.includes(fb))candidates.push(fb);
   }
@@ -681,7 +702,12 @@ async function imagePost(id,query,text,fallback=null){
 }
 async function runQuiz(state,slot){
   const id='quiz-'+dayKey()+'-'+slot;
-  await imagePost(id+':intro','anime quiz characters collage wallpaper','✦ ᴏᴛᴀᴋᴜ ɴᴇxᴜs · ǫᴜɪᴢ\n\n3 blocs : facile → intermédiaire → difficile.\nChaque bonne réponse compte pour le classement final.\n\nDépart dans 5 minutes. 🔥',{kind:'anime',name:'Jujutsu Kaisen'});
+  const intro='✦ ᴏᴛᴀᴋᴜ ɴᴇxᴜs · ǫᴜɪᴢ\n\n3 blocs : facile → intermédiaire → difficile.\nChaque bonne réponse compte pour le classement final.\n\nDépart dans 5 minutes. 🔥';
+  try{
+    await imagePost(id+':intro','anime quiz characters collage wallpaper',intro,{kind:'anime',name:'Jujutsu Kaisen'});
+  }catch{
+    await action({kind:'text',id:id+':intro:text',text:intro});
+  }
   await sleep(5*60_000);
   for(const level of ['easy','intermediate','hard']){
     await action({kind:'text',id:id+':'+level,text:'✦ '+(level==='easy'?'ɴɪᴠᴇᴀᴜ ғᴀᴄɪʟᴇ':level==='intermediate'?'ɴɪᴠᴇᴀᴜ ɪɴᴛᴇʀᴍᴇ́ᴅɪᴀɪʀᴇ':'ɴɪᴠᴇᴀᴜ ᴅɪғғɪᴄɪʟᴇ')});
@@ -714,7 +740,9 @@ async function advanceChoices(state){
   }
   const pool=i%3===2?LIFE:DUELS;
   const pair=stablePick(pool,s.id+':pair:'+i);
-  if(i%3!==2)await imagePost(s.id+':img:'+i,pair[0]+' '+pair[1]+' anime wallpaper together','✦ '+pair[0]+'  VS  '+pair[1],{kind:'anime',name:pair[0]});
+  if(i%3!==2){
+    try{await imagePost(s.id+':img:'+i,pair[0]+' '+pair[1]+' anime wallpaper together','✦ '+pair[0]+'  VS  '+pair[1],{kind:'anime',name:pair[0]})}catch{}
+  }
   await action({kind:'poll',id:s.id+':poll:'+i,question:'Tu préfères ?',options:pair,quiz:false});
   s.index=i+1;
   s.nextAt=Date.now()+CHOICE_GAP;
@@ -781,7 +809,7 @@ async function runDailySlot(state,slot){
       '',
       '✨ Vote juste en dessous — pas de question laissée sans choix.'
     ].join('\n');
-    await imagePost(id,r.query,text,{kind:'anime',name:r.title});
+    try{await imagePost(id,r.query,text,{kind:'anime',name:r.title})}catch{}
     await action({kind:'poll',id:id+':poll',question:'💜 '+r.title+' — tu choisis quoi ?',options:['✅ Déjà vu','📌 Dans ma liste','👀 Pas encore'],quiz:false});
   }else if(slot.key==='mystery'){
     const id='daily:'+slotStamp(slot);
@@ -798,7 +826,7 @@ async function runDailySlot(state,slot){
       '',
       '💜 '+unicodeUnderline('TA RÉPONSE DANS LE SONDAGE')
     ].join('\n');
-    await imagePost(id,m.query+' silhouette dark',text,{kind:'character',name:m.name});
+    try{await imagePost(id,m.query+' silhouette dark',text,{kind:'character',name:m.name})}catch{}
     await action({kind:'poll',id:id+':poll',question:'🧩 Qui se cache derrière les indices ?',options,quiz:true,correctAnswer:m.name,sessionId:id});
   }else if(slot.key==='wallpaper'){
     const r=stablePick(RECOMMENDATIONS,'daily:'+slotStamp(slot));
