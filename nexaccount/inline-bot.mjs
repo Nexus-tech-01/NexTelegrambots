@@ -829,6 +829,7 @@ function telegramCommandMenu(){
     {command:'menu',description:'Ouvrir le menu principal'},
     {command:'help',description:'Afficher l’aide'},
     {command:'pair',description:'Connecter un compte Telegram'},
+    {command:'settutorial',description:'Définir la vidéo tutoriel (owner)'},
     {command:'premium',description:'NexAI Premium / Telegram Premium'},
     {command:'language',description:'Changer la langue'},
     {command:'creator',description:'Afficher le créateur'}
@@ -1025,34 +1026,58 @@ export async function startInlineBot(){
     }
   });
 
-  bot.command('settutorial',async ctx=>{
-    if(ctx.chat?.type!=='private')return;
+  async function handleSetTutorial(ctx){
+    if(ctx.chat?.type!=='private')return false;
     if(!isOwnerIdentity(ctx.from.id,ctx.from.username)){
-      return ctx.reply('Cette commande est réservée au propriétaire de NexAi.');
+      await ctx.reply('Cette commande est réservée au propriétaire de NexAi.');
+      return true;
     }
 
     const replied=ctx.message?.reply_to_message;
-    const video=replied?.video;
-    if(!video?.file_id){
-      return ctx.reply('Réponds à la vidéo du tutoriel avec /settutorial. Envoie-la comme vidéo Telegram en qualité élevée, pas comme document.');
+    const media=replied?.video||replied?.document;
+    const mime=String(media?.mime_type||'').toLowerCase();
+    const isVideo=Boolean(replied?.video)||mime.startsWith('video/');
+    if(!media?.file_id||!isVideo){
+      await ctx.reply('Réponds à la vidéo du tutoriel avec /settutorial. La vidéo MP4 peut être envoyée comme vidéo ou comme fichier.');
+      return true;
     }
 
-    const size=Number(video.file_size||0);
+    const size=Number(media.file_size||0);
     if(size>TELEGRAM_BOT_VIDEO_LIMIT){
-      return ctx.reply('La vidéo dépasse 50 Mo. Telegram Bot API ne peut pas la renvoyer telle quelle.');
+      await ctx.reply('La vidéo dépasse 50 Mo. Telegram Bot API ne peut pas la renvoyer telle quelle.');
+      return true;
     }
 
     try{
+      let canonicalVideo=media;
+      let normalizedMessage=null;
+
+      // If Telegram classified the MP4 as a document, normalize it once into a
+      // real Telegram video so the persistent file_id can be reused by sendVideo.
+      if(!replied?.video){
+        if(size>TELEGRAM_BOT_DOWNLOAD_LIMIT){
+          await ctx.reply('Cette vidéo a été envoyée comme fichier et dépasse 20 Mo. Renvoie-la comme vidéo Telegram puis réponds avec /settutorial.');
+          return true;
+        }
+        const buffer=await downloadMainBotFile(media.file_id);
+        normalizedMessage=await ctx.api.sendVideo(ctx.chat.id,new InputFile(buffer,'nexai-connection-tutorial-hq.mp4'),{
+          caption:'NexAI · Tutoriel connexion · HQ',
+          supports_streaming:true,
+          disable_notification:true
+        });
+        canonicalVideo=normalizedMessage?.video||canonicalVideo;
+      }
+
       const previous=await tutorialVideoConfig().catch(()=>({}));
-      const archive=await archiveTutorialVideo(ctx,replied,video);
+      const archive=await archiveTutorialVideo(ctx,normalizedMessage||replied,canonicalVideo);
       const saved=await saveTutorialVideoConfig({
-        fileId:String(video.file_id),
-        fileUniqueId:String(video.file_unique_id||''),
-        size,
-        width:Number(video.width||0),
-        height:Number(video.height||0),
-        duration:Number(video.duration||0),
-        mimeType:String(video.mime_type||'video/mp4'),
+        fileId:String(canonicalVideo.file_id),
+        fileUniqueId:String(canonicalVideo.file_unique_id||''),
+        size:Number(canonicalVideo.file_size||size||0),
+        width:Number(canonicalVideo.width||0),
+        height:Number(canonicalVideo.height||0),
+        duration:Number(canonicalVideo.duration||0),
+        mimeType:String(canonicalVideo.mime_type||mime||'video/mp4'),
         storageChatId:archive.storageChatId,
         storageMessageId:archive.storageMessageId,
         archived:archive.archived,
@@ -1071,18 +1096,26 @@ export async function startInlineBot(){
         await ctx.api.deleteMessage(previous.storageChatId,previous.storageMessageId).catch(()=>{});
       }
 
-      return ctx.reply(
+      if(normalizedMessage?.message_id){
+        await ctx.api.deleteMessage(ctx.chat.id,normalizedMessage.message_id).catch(()=>{});
+      }
+
+      await ctx.reply(
         'Tutoriel NexAI enregistré ✅\n'+
         'Qualité : conservée via le fichier Telegram, sans réencodage à chaque envoi.\n'+
-        'Taille : '+(size?Math.round(size/1024/1024*10)/10+' Mo':'Telegram')+'\n'+
-        'Stockage : '+(archive.archived?'NexAI Storage + file_id Telegram persistant':'file_id Telegram persistant')+'\n'+
-        'Mode : '+String(archive.storageProvider||'telegram-file-id')+'\n\n'+
+        'Taille : '+(saved.size?Math.round(saved.size/1024/1024*10)/10+' Mo':'Telegram')+'\n'+
+        'Stockage : '+(archive.archived?'NexAI Storage + file_id Telegram persistant':'file_id Telegram persistant')+'\n\n'+
         'Le bouton « 🎬 Voir le tuto » enverra maintenant cette vidéo.'
       );
+      return true;
     }catch(error){
-      return ctx.reply('Enregistrement du tutoriel impossible : '+String(error?.description||error?.message||error).slice(0,400));
+      console.error('[NexAI settutorial]',String(error?.description||error?.message||error).slice(0,700));
+      await ctx.reply('Enregistrement du tutoriel impossible : '+String(error?.description||error?.message||error).slice(0,400));
+      return true;
     }
-  });
+  }
+
+  bot.command('settutorial',ctx=>handleSetTutorial(ctx));
 
   bot.command('tutorialstatus',async ctx=>{
     if(ctx.chat?.type!=='private')return;
@@ -1157,6 +1190,10 @@ export async function startInlineBot(){
   bot.on('message:text',async ctx=>{
     if(ctx.chat?.type!=='private')return;
     const text=String(ctx.message.text||'').trim();
+    if(/^\/?settutorial(?:@[A-Za-z0-9_]+)?$/i.test(text)){
+      await handleSetTutorial(ctx);
+      return;
+    }
     if(text.startsWith('/'))return;
 
     // The presentation bot also accepts native commands without a prefix.
