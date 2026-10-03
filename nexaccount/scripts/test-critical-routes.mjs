@@ -130,6 +130,13 @@ if(!runtime.includes('downloadReplyVideo'))errors.push('mention-reply-private-va
 if(!replyStorageSource.includes("sendDocument"))errors.push('reply-storage-telegram-upload-missing');
 if(!replyStorageSource.includes("getFile"))errors.push('reply-storage-telegram-download-missing');
 if(!replyStorageSource.includes("nexai-storage-bot-token"))errors.push('reply-storage-external-secret-file-missing');
+if(!replyStorageSource.includes('encryptStorageToken'))errors.push('reply-storage-token-encryption-missing');
+if(!replyStorageSource.includes("STORAGE_TOKEN_RECORD_ID='nexai_reply_storage_bot_token'"))errors.push('reply-storage-durable-token-record-missing');
+if(!replyStorageSource.includes('saveReplyStorageBotToken'))errors.push('reply-storage-owner-token-save-missing');
+if(!inline.includes("bot.command('setstoragetoken'"))errors.push('/setstoragetoken-handler-missing');
+if(!inline.includes("bot.command('storagestatus'"))errors.push('/storagestatus-handler-missing');
+if(!inline.includes('saveReplyStorageBotToken(token)'))errors.push('/setstoragetoken-persist-route-missing');
+if(!inline.includes('isOwnerIdentity(ctx.from.id,ctx.from.username)'))errors.push('/storage-setup-owner-guard-missing');
 const mentionReplySetStart=compat.indexOf("if(name==='mention_reply_set')");
 const mentionReplySetEnd=compat.indexOf("if(name==='reponseauto')",mentionReplySetStart);
 const mentionReplySetSource=mentionReplySetStart>=0&&mentionReplySetEnd>mentionReplySetStart
