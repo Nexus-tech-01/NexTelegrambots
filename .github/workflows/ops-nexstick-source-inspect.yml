@@ -14,22 +14,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - name: Recover NexStick from canonical bundle
+      - name: Read live NexStick bridge files
         shell: bash
         run: |
-          set -u
-          mkdir -p /tmp/nexus
-          cat $(printf '%s\n' nexus-bots-src.tar.xz.b64.part-* | sort) | base64 -d > /tmp/nexus-bots.tar.xz
-          set +e
-          xz -dc --single-stream /tmp/nexus-bots.tar.xz > /tmp/nexus-bots.tar
-          rc=$?
-          set -e
-          echo "xz_exit=$rc tar_bytes=$(wc -c </tmp/nexus-bots.tar)"
-          echo "=== NEXSTICK TAR ENTRIES ==="
-          tar -tf /tmp/nexus-bots.tar 2>/dev/null | grep 'bots/nexstick' | head -200 || true
-          tar -xf /tmp/nexus-bots.tar -C /tmp/nexus ./bots/nexstick 2>/dev/null || true
-          echo "=== RECOVERED FILES ==="
-          find /tmp/nexus/bots/nexstick -maxdepth 5 -type f -print 2>/dev/null | sort || true
-          echo "=== stickerService.js ==="
-          cat /tmp/nexus/bots/nexstick/src/services/stickerService.js 2>/dev/null || true
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=%2Fnexus-bridge"             -o /tmp/bridge.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/bridge.json'))
+          wanted={
+            '/nexus-bridge/adapters/nexstick.mjs',
+            '/nexus-bridge/adapter-loader.mjs',
+            '/nexus-bridge/pterodactyl-runtime.mjs'
+          }
+          for x in d.get('fileList') or []:
+              if x.get('path') in wanted:
+                  print('\n=== '+x['path']+' ===')
+                  print(x.get('content') or '<no content>')
+          PY
