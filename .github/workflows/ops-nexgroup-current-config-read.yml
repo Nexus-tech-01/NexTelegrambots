@@ -60,3 +60,5 @@ jobs:
 # scoped-nav-restart
 
 # supervisor-diag
+
+# targeted-systemd-restart
