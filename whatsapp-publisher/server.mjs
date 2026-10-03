@@ -13,6 +13,8 @@ import makeWASocket, {
   generateWAMessageFromContent,
   generateMessageIDV2,
   encodeNewsletterMessage,
+  encryptedStream,
+  prepareWAMessageMedia,
   proto,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
@@ -98,6 +100,7 @@ const GROUP_JID = process.env.WHATSAPP_GROUP_JID || '120363426961054070@g.us';
 const SECONDARY_APK_GROUP_INVITE_URL = process.env.WHATSAPP_SECONDARY_APK_GROUP_INVITE_URL || 'https://chat.whatsapp.com/GsxCPLB9XyI9zT39c4T9K1';
 const CHANNEL_INVITE_URL = process.env.WHATSAPP_CHANNEL_INVITE_URL || 'https://whatsapp.com/channel/0029VbDkWGYHltYHGr1HHQ07';
 const OTAKU_CHANNEL_INVITE_URL = process.env.OTAKU_WHATSAPP_CHANNEL_INVITE_URL || 'https://whatsapp.com/channel/0029VbCKhnq7j6gEhuUKMP1V';
+const STICK_GOOD_CHANNEL_INVITE_URL = process.env.STICK_GOOD_WHATSAPP_CHANNEL_INVITE_URL || 'https://whatsapp.com/channel/0029VbC3Uo00LKZNYkEQ9m03';
 const PRESENTATION_NEWSLETTER_JID = process.env.PRESENTATION_NEWSLETTER_JID || '120363411005383995@newsletter';
 const WEBHOOK_TOKEN = process.env.NEX_WHATSAPP_PUBLISHER_TOKEN || process.env.NEXCANAL__WEBHOOK_SECRET || '';
 const DASHBOARD_PASSWORD = process.env.NEX_WHATSAPP_DASHBOARD_PASSWORD || '';
@@ -119,6 +122,8 @@ const state = {
   channelTitle: null,
   otakuChannelJid: null,
   otakuChannelTitle: null,
+  stickGoodChannelJid: null,
+  stickGoodChannelTitle: null,
   secondaryApkGroupJid: null,
   secondaryApkGroupTitle: null,
   lastPublishAt: null,
@@ -135,6 +140,8 @@ let commandEngine = null;
 // newsletter update. Dark Universe relay and the autonomous manager remain
 // separate workers, but they cannot publish at the exact same time.
 const OTAKU_MANAGER_URL=String(process.env.OTAKU_MANAGER_URL||'http://127.0.0.1:18812').replace(/\/$/,'');
+const STICK_GOOD_MANAGER_URL=String(process.env.STICK_GOOD_MANAGER_URL||'http://127.0.0.1:18815').replace(/\/$/,'');
+const STICK_GOOD_MIN_GAP_MS=Math.max(1200,Number(process.env.STICK_GOOD_MIN_GAP_MS||3500));
 const OTAKU_MIN_GAP_MS=Math.max(15000,Number(process.env.OTAKU_MIN_GAP_MS||120000));
 const OTAKU_RELAY_GAP_MS=Math.max(120000,Number(process.env.OTAKU_RELAY_GAP_MS||180000));
 const OTAKU_RELAY_DENY_KEYS=new Set(['lustdev','toolsbnn4d','devs101','nextech']);
@@ -144,6 +151,22 @@ let otakuSendChain=Promise.resolve();
 let otakuLastSendAt=0;
 const otakuPollMessages=new Map();
 const otakuPollRecords=new Map();
+let stickGoodSendChain=Promise.resolve();
+let stickGoodLastSendAt=0;
+
+function stickGoodSleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function withStickGoodSendLock(fn){
+  const lane=async()=>{
+    const wait=Math.max(0,STICK_GOOD_MIN_GAP_MS-(Date.now()-stickGoodLastSendAt));
+    if(wait)await stickGoodSleep(wait);
+    const out=await fn();
+    stickGoodLastSendAt=Date.now();
+    return out;
+  };
+  const task=stickGoodSendChain.then(lane,lane);
+  stickGoodSendChain=task.then(()=>undefined,()=>undefined);
+  return task;
+}
 
 function otakuSleep(ms){return new Promise(r=>setTimeout(r,ms));}
 function withOtakuSendLock(fn){
@@ -234,6 +257,23 @@ function extractIncomingText(msg){
     m.videoMessage?.caption||
     ''
   ).trim();
+}
+async function forwardStickGoodQuestionResponse(msg){
+  if(msg?.key?.fromMe)return;
+  const qr=msg?.message?.questionResponseMessage;
+  const text=String(qr?.text||'').trim();
+  const questionId=String(qr?.key?.id||'').trim();
+  if(!text||!questionId)return;
+  const payload={
+    text,questionId,
+    chatId:String(msg?.key?.remoteJid||''),
+    senderId:String(msg?.key?.participant||msg?.participant||msg?.key?.remoteJid||''),
+    at:new Date().toISOString()
+  };
+  fetch(STICK_GOOD_MANAGER_URL+'/question-response',{
+    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload),
+    signal:AbortSignal.timeout(5000)
+  }).catch(()=>{});
 }
 async function forwardOtakuOrderCandidate(msg){
   if(msg?.key?.fromMe)return;
@@ -635,6 +675,14 @@ async function resolveOtakuChannel(){
     titleKey:'otakuChannelTitle',
   });
 }
+async function resolveStickGoodChannel(){
+  return resolveNewsletter({
+    inviteUrl:STICK_GOOD_CHANNEL_INVITE_URL,
+    cacheFile:'stick-good-channel.json',
+    jidKey:'stickGoodChannelJid',
+    titleKey:'stickGoodChannelTitle',
+  });
+}
 
 async function resolveSecondaryApkGroup(){
   if(!socket||state.status!=='connected') return null;
@@ -744,7 +792,10 @@ async function connectWhatsApp({freshPairing=false}={}){
   // Forwarding candidates is harmless outside that window; the manager rejects
   // them before AI classification or queue insertion.
   sock.ev.on('messages.upsert',({messages})=>{
-    for(const msg of messages||[])forwardOtakuOrderCandidate(msg).catch(()=>{});
+    for(const msg of messages||[]){
+      forwardStickGoodQuestionResponse(msg).catch(()=>{});
+      forwardOtakuOrderCandidate(msg).catch(()=>{});
+    }
   });
   sock.ev.on('messages.update',updates=>{
     for(const row of updates||[]){
@@ -778,6 +829,7 @@ async function connectWhatsApp({freshPairing=false}={}){
       state.qr=null;
       try{await resolveChannel();}catch(e){state.lastError=`channel: ${e?.message||e}`;}
       try{await resolveOtakuChannel();}catch(e){state.lastError=`otaku-channel: ${e?.message||e}`;}
+      try{await resolveStickGoodChannel();}catch(e){state.lastError=`stick-good-channel: ${e?.message||e}`;}
       processQueue().catch(()=>{});
     }
 
@@ -980,6 +1032,137 @@ async function otakuMediaSource(item={}){
   if(/^https?:\/\//i.test(url))return {url};
   throw new Error('Otaku media source absente');
 }
+function safeStickGoodLocalPath(value=''){
+  const p=path.resolve(String(value||''));
+  if(p.startsWith('/var/lib/nex/tmp/internal-automation/stick-good/'))return p;
+  return '';
+}
+async function stickGoodMediaSource(item={}){
+  const local=safeStickGoodLocalPath(item.localPath);
+  if(local){
+    const st=fs.statSync(local);
+    if(!st.isFile()||st.size<=0)throw new Error('Stick Good media local invalide');
+    return fs.readFileSync(local);
+  }
+  const url=String(item.url||'').trim();
+  if(/^https?:\/\//i.test(url))return {url};
+  throw new Error('Stick Good media source absente');
+}
+async function sendStickGoodQuestion(jid,raw={}){
+  const text=String(raw.text||'Quel personnage veux-tu pour le prochain pack ?').slice(0,1024);
+  let inner;
+  if(raw.image){
+    const src=await stickGoodMediaSource(raw.image);
+    const prepared=await prepareWAMessageMedia(
+      {image:src,caption:text},
+      {upload:socket.waUploadToServer,mediaUploadTimeoutMs:120000,logger,jid}
+    );
+    if(!prepared?.imageMessage)throw new Error('Stick Good question image preparation failed');
+    prepared.imageMessage.caption=text;
+    prepared.imageMessage.contextInfo={...(prepared.imageMessage.contextInfo||{}),isQuestion:true};
+    inner={imageMessage:prepared.imageMessage};
+  }else{
+    inner={extendedTextMessage:proto.Message.ExtendedTextMessage.create({text,contextInfo:{isQuestion:true}})};
+  }
+  const content=proto.Message.fromObject({
+    questionMessage:proto.Message.FutureProofMessage.create({message:inner})
+  });
+  const generated=generateWAMessageFromContent(jid,content,{userJid:socket.user?.id});
+  await socket.relayMessage(jid,generated.message,{messageId:generated.key.id});
+  return String(generated.key.id||'');
+}
+async function prepareStickGoodPackCard(jid,raw={}){
+  if(!raw.pack)throw new Error('Stick Good pack file missing');
+  const packLocal=safeStickGoodLocalPath(raw.pack.localPath);
+  if(!packLocal)throw new Error('Stick Good pack local path invalid');
+  const packBytes=fs.readFileSync(packLocal);
+  if(!packBytes.length)throw new Error('Stick Good pack empty');
+  const coverBytes=raw.cover?await stickGoodMediaSource(raw.cover):null;
+  if(!Buffer.isBuffer(coverBytes))throw new Error('Stick Good cover local required');
+  const encrypted=await encryptedStream(packBytes,'sticker-pack',{logger});
+  let uploaded;
+  try{
+    uploaded=await socket.waUploadToServer(encrypted.encFilePath,{
+      fileEncSha256B64:encrypted.fileEncSha256.toString('base64'),
+      mediaType:'sticker-pack',timeoutMs:120000
+    });
+  }finally{
+    try{fs.unlinkSync(encrypted.encFilePath)}catch{}
+    try{if(encrypted.originalFilePath)fs.unlinkSync(encrypted.originalFilePath)}catch{}
+  }
+  const cover=await prepareWAMessageMedia(
+    {image:coverBytes},
+    {upload:socket.waUploadToServer,mediaUploadTimeoutMs:120000,logger}
+  );
+  const ci=cover?.imageMessage;
+  if(!ci?.directPath)throw new Error('Stick Good pack thumbnail upload failed');
+  const stickerPackId='StickGood_'+crypto.randomBytes(10).toString('hex');
+  const stickerFiles=(Array.isArray(raw.stickerFiles)?raw.stickerFiles:[])
+    .map(x=>String(x||'').trim()).filter(Boolean).slice(0,30);
+  if(stickerFiles.length<3)throw new Error('Stick Good sticker metadata incomplete');
+  const message=proto.Message.fromObject({
+    messageContextInfo:{messageSecret:crypto.randomBytes(32)},
+    stickerPackMessage:{
+      stickerPackId,
+      name:String(raw.packName||raw.character||'Stick Good').slice(0,120),
+      publisher:String(raw.publisher||'Trésor').slice(0,80),
+      packDescription:'Stick Good · '+String(raw.character||'').slice(0,80),
+      stickers:stickerFiles.map(fileName=>({
+        fileName,isAnimated:false,isLottie:false,mimetype:'image/webp',emojis:[],accessibilityLabel:String(raw.character||'')
+      })),
+      fileLength:encrypted.fileLength,
+      fileSha256:encrypted.fileSha256,
+      fileEncSha256:encrypted.fileEncSha256,
+      mediaKey:encrypted.mediaKey,
+      directPath:uploaded?.directPath,
+      mediaKeyTimestamp:Math.floor(Date.now()/1000),
+      trayIconFileName:stickerPackId+'.jpg',
+      thumbnailDirectPath:ci.directPath,
+      thumbnailSha256:ci.fileSha256,
+      thumbnailEncSha256:ci.fileEncSha256,
+      thumbnailHeight:ci.height,
+      thumbnailWidth:ci.width,
+      imageDataHash:crypto.createHash('sha256').update(coverBytes).digest('base64'),
+      stickerPackSize:encrypted.fileLength,
+      stickerPackOrigin:proto.Message.StickerPackMessage.StickerPackOrigin.USER_CREATED
+    }
+  });
+  return generateWAMessageFromContent(jid,message,{userJid:socket.user?.id});
+}
+async function runStickGoodAction(raw={}){
+  if(!socket||state.status!=='connected')throw new Error('WhatsApp non connecté');
+  const jid=state.stickGoodChannelJid||await resolveStickGoodChannel();
+  if(!jid)throw new Error('Chaîne Stick Good non résolue');
+  const kind=String(raw.kind||'').toLowerCase();
+  return withStickGoodSendLock(async()=>{
+    if(kind==='question'){
+      const actionId=await sendStickGoodQuestion(jid,raw);
+      if(!actionId)throw new Error('Stick Good question returned no id');
+      return {ok:true,actionId};
+    }
+    if(kind==='pack'){
+      const character=String(raw.character||'personnage').trim()||'personnage';
+      const previews=(Array.isArray(raw.previews)?raw.previews:[]).slice(0,8);
+      if(previews.length<5)throw new Error('Stick Good requires 5-8 preview stickers');
+      // Prepare and upload the native card first. If that fails, publish nothing partial.
+      const card=await prepareStickGoodPackCard(jid,raw);
+      if(raw.cover){
+        const cover=await stickGoodMediaSource(raw.cover);
+        await socket.sendMessage(jid,{image:cover,caption:String(raw.caption||'').slice(0,1024)});
+        await stickGoodSleep(1500);
+      }
+      for(const item of previews){
+        const sticker=await stickGoodMediaSource(item);
+        await socket.sendMessage(jid,{sticker});
+        await stickGoodSleep(650);
+      }
+      await socket.relayMessage(jid,card.message,{messageId:card.key.id});
+      return {ok:true,actionId:String(card.key.id||raw.id||''),sentCount:previews.length+2,nativePack:true,character};
+    }
+    throw new Error('Action Stick Good inconnue: '+kind);
+  });
+}
+
 function otakuRankText(sessionId){
   const scores=new Map();
   let questionCount=0;
@@ -1400,7 +1583,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='POST'&&url.pathname==='/api/resolve-channel'){ const jid=await resolveChannel(); return json(res,200,{ok:true,jid,title:state.channelTitle}); }
     if(req.method==='POST'&&url.pathname==='/api/resolve-otaku-channel'){ const jid=await resolveOtakuChannel(); return json(res,200,{ok:true,jid,title:state.otakuChannelTitle}); }
     if(req.method==='POST'&&url.pathname==='/api/reset'){
-      await resetAuthForPairing(); state.channelJid=null;state.channelTitle=null;state.otakuChannelJid=null;state.otakuChannelTitle=null;fs.rmSync(f('channel.json'),{force:true});fs.rmSync(f('otaku-channel.json'),{force:true}); await connectWhatsApp(); return json(res,200,{ok:true});
+      await resetAuthForPairing(); state.channelJid=null;state.channelTitle=null;state.otakuChannelJid=null;state.otakuChannelTitle=null;state.stickGoodChannelJid=null;state.stickGoodChannelTitle=null;fs.rmSync(f('channel.json'),{force:true});fs.rmSync(f('otaku-channel.json'),{force:true});fs.rmSync(f('stick-good-channel.json'),{force:true}); await connectWhatsApp(); return json(res,200,{ok:true});
     }
     return json(res,404,{error:'not_found'});
   }catch(e){ logger.error({err:e},'request failed'); return json(res,500,{error:String(e?.message||e)}); }
@@ -1426,6 +1609,16 @@ const bridgeServer=http.createServer(async(req,res)=>{
     }
     if(req.method==='GET'&&url.pathname==='/otaku/status'){
       return json(res,200,{ok:true,polls:otakuPollRecords.size,lastSendAt:otakuLastSendAt,minGapMs:OTAKU_MIN_GAP_MS});
+    }
+    if(req.method==='POST'&&url.pathname==='/stick-good/action'){
+      const q=await body(req);
+      const out=await runStickGoodAction(q);
+      return json(res,200,out);
+    }
+    if(req.method==='GET'&&url.pathname==='/stick-good/status'){
+      let jid=state.stickGoodChannelJid;
+      if(!jid&&state.status==='connected')try{jid=await resolveStickGoodChannel()}catch{}
+      return json(res,200,{ok:true,connected:state.status==='connected',channelResolved:Boolean(jid),lastSendAt:stickGoodLastSendAt,minGapMs:STICK_GOOD_MIN_GAP_MS});
     }
     if(req.method==='POST'&&url.pathname==='/kickz'){
       const wasProcessing=processing;
