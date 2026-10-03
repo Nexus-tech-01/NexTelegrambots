@@ -1,0 +1,16 @@
+name: Ops Anime Root Probe 2026-10-03
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/ops-anime-root-probe-20261003.yml']
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Root files
+        run: |
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-startfiles-read?dir=%2F"
+          echo
