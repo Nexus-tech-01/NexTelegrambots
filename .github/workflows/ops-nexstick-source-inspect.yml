@@ -14,23 +14,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Read live NexStick bridge files
+      - uses: actions/checkout@v4
+      - name: Read bundled NexStick service
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=%2Fnexus-bridge"             -o /tmp/bridge.json
-          python3 - <<'PY'
-          import json
-          d=json.load(open('/tmp/bridge.json'))
-          wanted={
-            '/nexus-bridge/adapters/nexstick.mjs',
-            '/nexus-bridge/adapter-loader.mjs',
-            '/nexus-bridge/pterodactyl-runtime.mjs'
-          }
-          for x in d.get('fileList') or []:
-              if x.get('path') in wanted:
-                  print('\n=== '+x['path']+' ===')
-                  print(x.get('content') or '<no content>')
-          PY
-
-# trigger-watermark-final
+          mkdir -p /tmp/nexus
+          : > /tmp/nexus.tar.xz
+          for f in $(printf '%s\n' render-src.b64.part-* | sort); do
+            base64 -d "$f" >> /tmp/nexus.tar.xz
+          done
+          xz -t /tmp/nexus.tar.xz
+          tar -xJf /tmp/nexus.tar.xz -C /tmp/nexus ./bots/nexstick
+          echo "=== FILES ==="
+          find /tmp/nexus/bots/nexstick -maxdepth 5 -type f -print | sort
+          echo "=== stickerService.js ==="
+          cat /tmp/nexus/bots/nexstick/src/services/stickerService.js
