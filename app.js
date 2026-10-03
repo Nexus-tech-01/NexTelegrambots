@@ -122,7 +122,8 @@ function pemToBuffer(pem){
   const raw=atob(b64);
   return Uint8Array.from(raw,c=>c.charCodeAt(0)).buffer;
 }
-async function getPublicKey(){
+async function getPublicKey(force=false){
+  if(force)publicKey=null;
   if(publicKey)return publicKey;
   const r=await fetch(API+'?api=pair-key',{cache:'no-store'});
   const data=await r.json().catch(()=>({}));
@@ -130,7 +131,7 @@ async function getPublicKey(){
   publicKey=await crypto.subtle.importKey('spki',pemToBuffer(data.publicKey),{name:'RSA-OAEP',hash:'SHA-256'},false,['encrypt']);
   return publicKey;
 }
-async function secure(payload){
+async function secure(payload,retryFreshKey=true){
   const key=await getPublicKey();
   const clear=new TextEncoder().encode(JSON.stringify(payload));
   const encrypted=await crypto.subtle.encrypt({name:'RSA-OAEP'},key,clear);
@@ -143,7 +144,14 @@ async function secure(payload){
     body:JSON.stringify({envelope}),cache:'no-store'
   });
   const data=await r.json().catch(()=>({}));
-  if(!r.ok)throw Object.assign(new Error(data.error||'pairing_failed'),{data});
+  if(!r.ok){
+    const code=String(data?.error||'').toLowerCase();
+    if(retryFreshKey&&(code.includes('pairing_service_failed')||code.includes('pairing_gateway_error')||code.includes('pairing_key'))){
+      await getPublicKey(true);
+      return secure(payload,false);
+    }
+    throw Object.assign(new Error(data.error||'pairing_failed'),{data});
+  }
   return data;
 }
 async function api(path,options={}){
