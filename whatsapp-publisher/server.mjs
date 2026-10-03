@@ -1826,7 +1826,7 @@ const bridgeServer=http.createServer(async(req,res)=>{
       return json(res,200,out);
     }
     if(req.method==='GET'&&url.pathname==='/otaku/status'){
-      return json(res,200,{ok:true,polls:otakuPollRecords.size,lastSendAt:otakuLastSendAt,minGapMs:OTAKU_MIN_GAP_MS});
+      return json(res,200,{ok:true,polls:otakuPollRecords.size,lastSendAt:otakuLastSendAt,minGapMs:OTAKU_MIN_GAP_MS,interactiveGapMs:OTAKU_INTERACTIVE_GAP_MS,nativeQuestion:true,pollVersion:3});
     }
     if(req.method==='POST'&&url.pathname==='/stick-good/action'){
       const q=await body(req);
