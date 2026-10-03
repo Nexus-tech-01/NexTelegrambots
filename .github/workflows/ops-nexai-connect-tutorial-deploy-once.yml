@@ -1,3 +1,4 @@
+# deploy tutorial storage bot fallback 2026-10-03
 # deploy HQ tutorial video 2026-10-03
 name: Ops NexAI Connection Tutorial Deploy Once
 
@@ -27,10 +28,13 @@ jobs:
         run: |
           set -euo pipefail
           node --check nexaccount/inline-bot.mjs
+          node --check nexaccount/reply-storage.mjs
           grep -F "CONNECT_TUTORIAL_CALLBACK" nexaccount/inline-bot.mjs
           grep -F "connect:tutorial" nexaccount/inline-bot.mjs
           grep -F "🎬 Voir le tuto" nexaccount/inline-bot.mjs
           grep -F "sendConnectTutorial" nexaccount/inline-bot.mjs
+          grep -F "storeReplyVideo" nexaccount/inline-bot.mjs
+          grep -F "filenamePrefix" nexaccount/reply-storage.mjs
 
       - name: Deploy connection tutorial to NexAI VPS
         shell: bash
