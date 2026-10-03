@@ -18,7 +18,7 @@ assert.ok(manager.includes("import('teleproto')"),'teleproto fallback loader mis
 assert.ok(manager.includes('function timeWindowDue('),'interactive session catch-up window missing');
 assert.ok(manager.includes('timeWindowDue(16,0,4*60)'),'choice-session restart catch-up missing');
 assert.ok(manager.includes('timeWindowDue(quizHour,0,3*60)'),'quiz-session restart catch-up missing');
-assert.ok(manager.includes("out?.dedupReason==='media'"),'fresh image duplicate retry missing');
+assert.ok(manager.includes("if(out?.dedupReason!=='media')return imageUrl;"),'fresh image duplicate retry missing');
 assert.ok(manager.includes('async function anilistImage('),'AniList image fallback missing');
 assert.ok(manager.includes("fetch('https://graphql.anilist.co'"),'AniList endpoint missing');
 assert.ok(manager.includes("try{await imagePost(id,r.query,text"),'recommendation poll must survive image failure');
