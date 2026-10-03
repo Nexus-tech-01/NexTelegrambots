@@ -15,6 +15,9 @@ assert.ok(manager.includes('function stablePick('),'deterministic retry selectio
 assert.ok(manager.includes('function timeWindowDue('),'interactive session catch-up window missing');
 assert.ok(manager.includes('timeWindowDue(16,0,4*60)'),'choice-session restart catch-up missing');
 assert.ok(manager.includes('timeWindowDue(quizHour,0,3*60)'),'quiz-session restart catch-up missing');
+assert.ok(manager.includes("out?.dedupReason==='media'"),'fresh image duplicate retry missing');
+assert.ok(manager.includes("const id='choice-'+dayKey();"),'choice session id must be restart-stable');
+assert.ok(manager.includes("stablePick(pool,s.id+':pair:'+i)"),'choice pair must be retry-stable');
 
 const packStart=publisher.indexOf("if(kind==='pack')");
 const packEnd=publisher.indexOf("if(kind==='quiz_results')",packStart);
