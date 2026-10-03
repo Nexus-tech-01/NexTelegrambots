@@ -1,0 +1,32 @@
+name: Ops Anime Start Server 2026-10-03
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-anime-start-server-20261003.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Start Pterodactyl server if offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== START ==='
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-restart-once"
+          echo
+      - name: Allow services to boot
+        run: sleep 18
+      - name: Verify NexAccount and NexAnime
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== DIAG ==='
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-diag"
+          echo
