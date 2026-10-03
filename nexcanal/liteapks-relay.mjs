@@ -17,6 +17,10 @@ const stateFile=process.env.NEXCANAL__WATCHER_STATE_FILE||'/home/container/.nexc
 const mediaTmpDir=process.env.NEXCANAL__WATCHER_MEDIA_TMP||'/home/container/.nexcontrol/nexcanal-media';
 const watcherIdentityFile=process.env.NEXCANAL__WATCHER_ID_FILE||'/home/container/.nexcontrol/nexcanal-watcher-id.txt';
 const poll=Math.max(1500,Number(process.env.NEXCANAL__WATCHER_POLL_MS||2500));
+// Public policy: one unrelated APK publication batch every two hours.
+// A descriptor and the APK it describes are one logical batch, so the APK companion may follow immediately.
+const publicationGapMs=2*60*60*1000;
+const linkedBatchWindowMs=30*60*1000;
 const botLimit=49*1024*1024;
 const smallDownloadTimeoutMs=Math.max(180000,Number(process.env.NEXCANAL__WATCHER_SMALL_DOWNLOAD_TIMEOUT_MS||300000));
 const largeDownloadTimeoutMs=Math.max(300000,Number(process.env.NEXCANAL__WATCHER_LARGE_DOWNLOAD_TIMEOUT_MS||900000));
@@ -784,6 +788,36 @@ function pruneDescriptors(ss){
   ss.descriptors=(ss.descriptors||[]).filter(d=>Number(d.at||0)>=cutoff).slice(-40);
 }
 
+function publicationState(st){
+  st.publication=st.publication||{};
+  st.publication.lastBatchAt=Number(st.publication.lastBatchAt||0);
+  st.publication.openBatch=st.publication.openBatch||null;
+  return st.publication;
+}
+function nextPublicationAt(st){
+  return Number(publicationState(st).lastBatchAt||0)+publicationGapMs;
+}
+function isOpenBatchCompanion(st,item,linked){
+  const ps=publicationState(st);
+  const open=ps.openBatch;
+  if(!open||!linked)return false;
+  if(Date.now()-Number(open.startedAt||0)>linkedBatchWindowMs){
+    ps.openBatch=null;
+    return false;
+  }
+  return item.source===open.source && Number(linked.id)===Number(open.descriptorId);
+}
+function markBatchStart(st,{source,descriptorId=null}={}){
+  const ps=publicationState(st);
+  ps.lastBatchAt=Date.now();
+  ps.openBatch=descriptorId
+    ? {source,descriptorId:Number(descriptorId),startedAt:Date.now()}
+    : null;
+}
+function closeOpenBatch(st){
+  publicationState(st).openBatch=null;
+}
+
 async function processItem(c,publisher,destination,st,sources,item){
   const normalized=normalizeQueueItem(item);
   if(!normalized)throw new Error('invalid canonical queue event');
@@ -797,12 +831,21 @@ async function processItem(c,publisher,destination,st,sources,item){
   if(m?.noforwards||source.entity?.noforwards)return {done:true,reason:'protected'};
   if(isApk(m)){
     const linked=bestDescriptor(ss,m);
+    const companion=isOpenBatchCompanion(st,item,linked);
+    if(!companion){
+      const nextAt=nextPublicationAt(st);
+      if(Date.now()<nextAt)return {done:false,deferUntil:nextAt,reason:'publication-gap'};
+    }
     await postApk(c,publisher,destination,m,source.kind,!!linked);
     if(linked)linked.used=true;
     pruneDescriptors(ss);
+    if(companion)closeOpenBatch(st);
+    else markBatchStart(st,{source:item.source});
     return {done:true,reason:linked?'apk-linked':'apk-standalone'};
   }
   if(isDescriptor(m)){
+    const nextAt=nextPublicationAt(st);
+    if(Date.now()<nextAt)return {done:false,deferUntil:nextAt,reason:'publication-gap'};
     await postDescriptor(c,m,source.kind);
     ss.descriptors.push({
       id:Number(m.id),
@@ -812,6 +855,7 @@ async function processItem(c,publisher,destination,st,sources,item){
       used:false
     });
     pruneDescriptors(ss);
+    markBatchStart(st,{source:item.source,descriptorId:Number(m.id)});
     return {done:true,reason:'descriptor'};
   }
   return {done:true,reason:'ignored'};
@@ -820,11 +864,18 @@ async function processItem(c,publisher,destination,st,sources,item){
 
 const processing=new Set();
 const processingSources=new Set();
-const workerLimit=Math.max(1,Math.min(4,Number(process.env.NEXCANAL__WATCHER_WORKERS||3)));
+const workerLimit=1; // Serialize public APK batches so two sources cannot claim the same 2-hour slot.
 
 async function handleQueueItem(c,publisher,destination,st,sources,item){
   try{
     const result=await processItem(c,publisher,destination,st,sources,item);
+    if(result?.done===false&&Number(result.deferUntil||0)>Date.now()){
+      item.nextRetryAt=Number(result.deferUntil);
+      item.lastError='';
+      await save(st);
+      log('deferred',item.key,result.reason,'until',new Date(item.nextRetryAt).toISOString());
+      return;
+    }
     markEventCompleted(st,item,{now:Date.now()});
     await save(st);
     log('processed',item.key,result.reason,'queue',st.queue.length,'active',processing.size);
