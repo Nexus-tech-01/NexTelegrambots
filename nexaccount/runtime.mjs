@@ -3,6 +3,7 @@ import { TelegramClient, Api } from 'teleproto';
 import { StringSession } from 'teleproto/sessions/index.js';
 import { NewMessage } from 'teleproto/events/index.js';
 import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
+import { returnBigInt } from 'teleproto/Helpers.js';
 import { cfg, isOwnerId, isOwnerIdentity } from './config.mjs';
 import { commandMap } from './commands.mjs';
 import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, acquireSessionLease, claimCommandDelivery, disableAccount, enableAccount, listAccountsForWorker, markSessionRepairRequired, nexAiPremiumState, patchSettings, releaseRuntimeLease, releaseSessionLease, renewRuntimeLease, renewSessionLease, sessionFingerprint, settingsFor, sharedBotIdentity } from './store.mjs';
@@ -21,12 +22,59 @@ import { routeEngineCommand } from './core/engine-router.mjs';
 import { animeBeginRebuild, animeDedupePublishedEpisodeVariants, animeDiscoverNow, animeIngestStatus, animePublishNow, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 import { normalizeVideoNoteBuffer, sendTelegramMedia } from './media-send.mjs';
 import { deleteStoredReplyVideo, downloadReplyVideo, storeReplyVideo } from './reply-storage.mjs';
-import { ensureReplyHotCacheChannel, replyHotCachePeer } from './reply-hot-cache.mjs';
 import { ensureEmojiLibraryPalette, ensurePremiumEmojiPalette, sanitizeAnimatedEmojiText, sendBrandedText, syncOwnedCustomEmojiLibrary } from './response-ui.mjs';
 import { putInlineResponse } from './inline-response-store.mjs';
 import { resolveBotUsername } from './secrets.mjs';
 import { ensureNexAiBotPresentation } from './bot-factory.mjs';
 import { handlePremiumPowerEvent, startPremiumPowers } from './premium-engine.mjs';
+
+function replyHotCachePeer(configured={}){
+  const channelId=String(configured?.hotCacheChannelId||'').trim();
+  const accessHash=String(configured?.hotCacheAccessHash||'').trim();
+  if(!channelId||!accessHash)return null;
+  return new Api.InputChannel({
+    channelId:returnBigInt(channelId),
+    accessHash:returnBigInt(accessHash)
+  });
+}
+
+async function ensureReplyHotCacheChannel(client,configured={}){
+  const existing=replyHotCachePeer(configured);
+  if(existing){
+    try{
+      await client.invoke(new Api.channels.GetChannels({id:[existing]}));
+      return {
+        peer:existing,
+        ref:{
+          hotCacheChannelId:String(configured.hotCacheChannelId),
+          hotCacheAccessHash:String(configured.hotCacheAccessHash)
+        }
+      };
+    }catch{}
+  }
+
+  const created=await client.invoke(new Api.channels.CreateChannel({
+    title:'NexAI · Internal Cache',
+    about:'Private NexAI media cache for instant automatic video-note replies.',
+    broadcast:true
+  }));
+  const chat=(created?.chats||[]).find(row=>row?.id!=null&&row?.accessHash!=null);
+  if(!chat)throw new Error('canal cache NexAI impossible à créer');
+  const peer=getInputChannel(chat);
+  try{
+    const inputPeer=new Api.InputPeerChannel({channelId:chat.id,accessHash:chat.accessHash});
+    await client.invoke(new Api.folders.EditPeerFolders({
+      folderPeers:[new Api.InputFolderPeer({peer:inputPeer,folderId:1})]
+    }));
+  }catch{}
+  return {
+    peer,
+    ref:{
+      hotCacheChannelId:String(chat.id),
+      hotCacheAccessHash:String(chat.accessHash)
+    }
+  };
+}
 
 const commands=commandMap();
 const runtimes=new Map();
