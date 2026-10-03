@@ -1,0 +1,15 @@
+{
+  "name": "nexstick",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node index.js",
+    "check": "node --check index.js && node --check src/sticker-transform.mjs && node --check src/lottie-renderer.mjs && node --check src/services/stickerService.js && node test/smoke.mjs"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "1.0.9",
+    "mongodb": "6.9.0"
+  }
+}
