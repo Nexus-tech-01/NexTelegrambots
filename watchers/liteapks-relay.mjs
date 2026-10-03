@@ -21,7 +21,8 @@ const publisherSessionFile=process.env.NEX_LITEAPKS_PUBLISHER_SESSION_FILE||'/va
 const poll=Math.max(1500,Number(process.env.NEXCANAL__WATCHER_POLL_MS||2500));
 // Scan continuously, but pace public posts by logical publication batch.
 // A descriptor (image/caption) and its matching APK belong to the same batch.
-const publicationGapMs=2*60*60*1000; // Fixed policy: one unrelated APK publication batch every 2 hours.
+const publicationGapMs=2*60*60*1000;
+const publicationBatchSize=5; // Five APKs per public batch, then wait two hours before the next batch.
 const linkedBatchWindowMs=Math.max(60*1000,Number(process.env.NEXCANAL__WATCHER_LINK_WINDOW_MS||30*60*1000));
 const botLimit=49*1024*1024;
 const whatsappDirectFileLimit=19*1024*1024;
@@ -755,31 +756,64 @@ function isQueued(st,sourceKey,id){const k=queueKey(sourceKey,id);return st.queu
 
 function publicationState(st){
   st.publication=st.publication||{};
-  st.publication.lastBatchAt=Number(st.publication.lastBatchAt||0);
-  const open=st.publication.openBatch;
-  if(open&&Number(open.expiresAt||0)<=Date.now())st.publication.openBatch=null;
-  return st.publication;
+  const ps=st.publication;
+  ps.lastBatchAt=Number(ps.lastBatchAt||0);
+  ps.batchStartedAt=Number(ps.batchStartedAt||0);
+  ps.apkCount=Math.max(0,Number(ps.apkCount||0));
+  const open=ps.openBatch;
+  if(open&&Number(open.expiresAt||0)<=Date.now())ps.openBatch=null;
+  if(!ps.batchStartedAt&&ps.lastBatchAt){
+    ps.batchStartedAt=ps.lastBatchAt;
+    ps.apkCount=publicationBatchSize;
+  }
+  return ps;
+}
+function refreshPublicationBatch(st,now=Date.now()){
+  const ps=publicationState(st);
+  if(ps.batchStartedAt&&now>=ps.batchStartedAt+publicationGapMs){
+    ps.batchStartedAt=0;
+    ps.apkCount=0;
+    ps.openBatch=null;
+  }
+  return ps;
 }
 function nextPublicationAt(st){
-  return Number(publicationState(st).lastBatchAt||0)+publicationGapMs;
+  const ps=refreshPublicationBatch(st);
+  if(!ps.batchStartedAt||ps.apkCount<publicationBatchSize)return 0;
+  return ps.batchStartedAt+publicationGapMs;
+}
+function ensureBatchStarted(st){
+  const ps=refreshPublicationBatch(st);
+  if(!ps.batchStartedAt){
+    ps.batchStartedAt=Date.now();
+    ps.lastBatchAt=ps.batchStartedAt;
+    ps.apkCount=0;
+  }
+  return ps;
 }
 function isOpenBatchCompanion(st,item,descriptor){
-  const open=publicationState(st).openBatch;
+  const open=refreshPublicationBatch(st).openBatch;
   if(!open||!descriptor)return false;
   return open.source===item.source
     && Number(open.descriptorId)===Number(descriptor.id)
     && Number(open.expiresAt||0)>Date.now();
 }
-function markBatchStart(st,{source,descriptorId=null}={}){
-  const ps=publicationState(st);
+function markDescriptorStart(st,{source,descriptorId}={}){
+  const ps=ensureBatchStarted(st);
   const now=Date.now();
-  ps.lastBatchAt=now;
   ps.openBatch=descriptorId?{
     source,
     descriptorId:Number(descriptorId),
     startedAt:now,
     expiresAt:now+linkedBatchWindowMs
   }:null;
+}
+function markApkPublished(st){
+  const ps=ensureBatchStarted(st);
+  ps.apkCount=Math.min(publicationBatchSize,Number(ps.apkCount||0)+1);
+  ps.lastBatchAt=ps.batchStartedAt;
+  if(ps.apkCount>=publicationBatchSize)ps.openBatch=null;
+  return ps.apkCount;
 }
 function closeOpenBatch(st){
   publicationState(st).openBatch=null;
@@ -963,10 +997,10 @@ async function processItem(c,publisher,destination,st,sources,item){
     if(linked)linked.used=true;
     pruneDescriptors(ss);
 
-    if(companion)closeOpenBatch(st);
-    else markBatchStart(st,{source:item.source});
+    closeOpenBatch(st);
+    const apkCount=markApkPublished(st);
 
-    return {done:true,reason:linked?'apk-linked':'apk-standalone'};
+    return {done:true,reason:(linked?'apk-linked':'apk-standalone')+' batch '+apkCount+'/'+publicationBatchSize};
   }
 
   if(isDescriptor(m)){
@@ -983,8 +1017,8 @@ async function processItem(c,publisher,destination,st,sources,item){
       used:false
     });
     pruneDescriptors(ss);
-    markBatchStart(st,{source:item.source,descriptorId:Number(m.id)});
-    return {done:true,reason:'descriptor-batch-start'};
+    markDescriptorStart(st,{source:item.source,descriptorId:Number(m.id)});
+    return {done:true,reason:'descriptor-batch '+publicationState(st).apkCount+'/'+publicationBatchSize};
   }
 
   return {done:true,reason:'ignored'};
