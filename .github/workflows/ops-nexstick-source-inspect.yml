@@ -7,48 +7,24 @@ on:
       - ".github/workflows/ops-nexstick-source-inspect.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  extract:
+  inspect:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Recover NexStick from legacy source archive
+      - name: Inspect live VPS bot tree
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf ops-results/nexstick-source /tmp/nexus-bots
-          mkdir -p /tmp/nexus-bots ops-results/nexstick-source
-          cat nexus-bots-src.tar.xz.b64.part-* | base64 --decode > /tmp/nexus-bots-src.tar.xz
-          set +e
-          xz -dc /tmp/nexus-bots-src.tar.xz > /tmp/nexus-bots-src.tar
-          xz_status=$?
-          set -e
-          echo "xz_status=$xz_status"
-          echo "partial_tar_bytes=$(wc -c < /tmp/nexus-bots-src.tar)"
-          grep -aob 'bots/nexstick/' /tmp/nexus-bots-src.tar | head -20 || true
-          set +e
-          tar -xf /tmp/nexus-bots-src.tar -C /tmp/nexus-bots ./bots/nexstick
-          tar_status=$?
-          set -e
-          echo "tar_status=$tar_status"
-          if [ ! -d /tmp/nexus-bots/bots/nexstick ]; then
-            echo "NexStick directory not recoverable from legacy archive"
-            exit 2
-          fi
-          cp -a /tmp/nexus-bots/bots/nexstick/. ops-results/nexstick-source/
-          find ops-results/nexstick-source -maxdepth 5 -type f -print | sort > ops-results/nexstick-source-files.txt
-          cat ops-results/nexstick-source-files.txt
-      - name: Commit temporary inspection copy
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "nextech-ops"
-          git config user.email "actions@users.noreply.github.com"
-          git add ops-results/nexstick-source ops-results/nexstick-source-files.txt
-          if git diff --cached --quiet; then exit 0; fi
-          git commit -m "ops: expose recovered NexStick source for watermark patch [skip ci]"
-          git push origin HEAD:main
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=%2Fbots"             -o /tmp/bots.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/bots.json'))
+          print('ok=',d.get('ok'),'root=',d.get('root'),'files=',d.get('files'),'truncated=',d.get('truncated'))
+          for x in d.get('fileList') or []:
+              p=str(x.get('path',''))
+              if 'nexstick' in p.lower() or 'sticker' in p.lower():
+                  print(json.dumps(x,ensure_ascii=False))
+          PY
