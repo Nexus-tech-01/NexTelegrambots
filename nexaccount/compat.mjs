@@ -1252,6 +1252,57 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return true;
   }
 
+  if(name==='mention_reply'){
+    const settings=await settingsFor(account.telegramUserId);
+    const current=settings.mentionVideoReply||{};
+    const sub=clean(args[0]).toLowerCase();
+    if(sub==='status'){
+      await sendText(client,peer,'Reply vidéo : '+(current.enabled?'ON':'OFF')+(current.url?' · vidéo configurée':' · aucune vidéo configurée'));
+      return true;
+    }
+    if(sub==='off'||sub==='0'||sub==='false'){
+      await patchSettings(account.telegramUserId,{mentionVideoReply:{...current,enabled:false}});
+      await sendText(client,peer,'Reply vidéo désactivé.');
+      return true;
+    }
+    if(!current.url){
+      await sendText(client,peer,'Aucune vidéo configurée. Réponds à une vidéo avec /setreply.');
+      return true;
+    }
+    await patchSettings(account.telegramUserId,{mentionVideoReply:{...current,enabled:true}});
+    await sendText(client,peer,'Reply vidéo activé : le compte enverra la note vidéo quand il sera mentionné.');
+    return true;
+  }
+
+  if(name==='mention_reply_set'){
+    const reply=await repliedMessage(client,peer,event.message);
+    const document=reply?.document||reply?.media?.document;
+    const mime=String(document?.mimeType||'').toLowerCase();
+    const attrs=Array.isArray(document?.attributes)?document.attributes:[];
+    const isVideo=mime.startsWith('video/')||attrs.some(a=>/DocumentAttributeVideo/i.test(String(a?.className||a?.constructor?.name||'')));
+    if(!reply?.media||!isVideo){
+      await sendText(client,peer,'Réponds à une vidéo avec /setreply.');
+      return true;
+    }
+    if(mime&&mime!=='video/mp4'){
+      await sendText(client,peer,'La vidéo doit être en MP4 pour être envoyée comme note vidéo Telegram.');
+      return true;
+    }
+    try{
+      const buffer=await client.downloadMedia(reply);
+      if(!buffer?.length)throw new Error('vidéo vide');
+      if(buffer.length>50*1024*1024)throw new Error('vidéo > 50 Mo');
+      const url=await uploadCatbox(Buffer.from(buffer),'nexai-reply-'+Date.now()+'.mp4');
+      await patchSettings(account.telegramUserId,{
+        mentionVideoReply:{enabled:true,url,mime:'video/mp4',setAt:Date.now()}
+      });
+      await sendText(client,peer,'Note vidéo configurée. Reply vidéo est activé pour les mentions de ce compte.');
+    }catch(e){
+      await sendText(client,peer,'Configuration de la note vidéo impossible : '+String(e.message||e));
+    }
+    return true;
+  }
+
   if(name==='reponseauto'){
     const settings=await settingsFor(account.telegramUserId);
     const sub=clean(args[0]).toLowerCase();
