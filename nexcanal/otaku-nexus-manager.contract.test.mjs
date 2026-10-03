@@ -19,6 +19,10 @@ assert.ok(manager.includes('function timeWindowDue('),'interactive session catch
 assert.ok(manager.includes('timeWindowDue(16,0,4*60)'),'choice-session restart catch-up missing');
 assert.ok(manager.includes('timeWindowDue(quizHour,0,3*60)'),'quiz-session restart catch-up missing');
 assert.ok(manager.includes("out?.dedupReason==='media'"),'fresh image duplicate retry missing');
+assert.ok(manager.includes('async function anilistImage('),'AniList image fallback missing');
+assert.ok(manager.includes("fetch('https://graphql.anilist.co'"),'AniList endpoint missing');
+assert.ok(manager.includes("try{await imagePost(id,r.query,text"),'recommendation poll must survive image failure');
+assert.ok(manager.includes("try{await imagePost(id,m.query+' silhouette dark'"),'mystery poll must survive image failure');
 assert.ok(manager.includes("const id='choice-'+dayKey();"),'choice session id must be restart-stable');
 assert.ok(manager.includes("stablePick(pool,s.id+':pair:'+i)"),'choice pair must be retry-stable');
 
