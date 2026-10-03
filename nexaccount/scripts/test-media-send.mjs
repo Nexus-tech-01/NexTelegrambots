@@ -86,4 +86,21 @@ await sendTelegramMedia(fakeClient,'peer',png,{fileName:'photo.jpg',mimeType:'im
 assert.equal(afterSendCalled,true,'media afterSend CTA hook must run after a successful upload');
 await assert.rejects(access(usedPath));
 
+let videoNoteSeen=false;
+const fakeVideoClient={
+  async sendFile(peer,options){
+    assert.equal(peer,'peer');
+    videoNoteSeen=options.videoNote===true;
+    return {ok:true};
+  }
+};
+await sendTelegramMedia(fakeVideoClient,'peer',mp4Header,{
+  fileName:'reply.mp4',
+  mimeType:'video/mp4',
+  kind:'video',
+  videoNote:true,
+  signature:false
+});
+assert.equal(videoNoteSeen,true,'videoNote option must reach Telegram sendFile');
+
 console.log('media-send regression tests: ok');

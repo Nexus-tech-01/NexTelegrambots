@@ -76,6 +76,8 @@ requireCommand('sessions',{privateOnly:true,ownerOnly:true});
 for(const name of ['account','settings','prefix','mode','language','menuemoji']){
   requireCommand(name,{privateOnly:true,selfOnly:true});
 }
+requireCommand('reply',{category:'ACCOUNT',selfOnly:true,handler:'mention_reply'});
+requireCommand('setreply',{category:'ACCOUNT',selfOnly:true,handler:'mention_reply_set'});
 
 for(const name of ['promote','demote','kick','ban','unban','mute','unmute','warn','tagall','mediatag','slowmode']){
   requireCommand(name,{engine:'group',groupOnly:true,adminOnly:true});
@@ -118,6 +120,10 @@ for(const marker of [
   if(!runtime.includes(marker))errors.push('runtime-marker:'+marker);
 }
 if(!compat.includes("name==='menuemoji'"))errors.push('menuemoji-session-handler-missing');
+if(!compat.includes("name==='mention_reply'"))errors.push('mention-reply-handler-missing');
+if(!compat.includes("name==='mention_reply_set'"))errors.push('setreply-handler-missing');
+if(!runtime.includes('maybeMentionVideoReply'))errors.push('mention-video-reply-runtime-missing');
+if(!runtime.includes('videoNote:true'))errors.push('mention-video-reply-not-sent-as-video-note');
 if(!storeSource.includes('export async function listConnectedAccounts'))errors.push('live-session-store-query-missing');
 if(!storeSource.includes("find({expiresAt:{$gt:now}}"))errors.push('live-session-store-must-require-unexpired-runtime-lease');
 if(!storeSource.includes("sessionRepairRequired:{$ne:true}"))errors.push('live-session-store-must-exclude-repair-required-sessions');
