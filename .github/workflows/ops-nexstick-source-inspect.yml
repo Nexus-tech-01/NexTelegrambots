@@ -20,10 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/nexus
-          : > /tmp/nexus-bots.tar.xz
-          for f in $(printf '%s\n' nexus-bots-src.tar.xz.b64.part-* | sort); do
-            base64 -d "$f" >> /tmp/nexus-bots.tar.xz
-          done
+          cat $(printf '%s\n' nexus-bots-src.tar.xz.b64.part-* | sort) | base64 -d > /tmp/nexus-bots.tar.xz
           xz -t /tmp/nexus-bots.tar.xz
           tar -xJf /tmp/nexus-bots.tar.xz -C /tmp/nexus ./bots/nexstick
           find /tmp/nexus/bots/nexstick -maxdepth 5 -type f -print | sort
