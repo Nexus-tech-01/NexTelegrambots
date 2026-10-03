@@ -1083,7 +1083,6 @@ async function maybeAutoReact(runtime,event){
   const settings=await settingsFor(account.telegramUserId);
   if(autoFeaturesMuted(settings,event))return null;
   const cfgReact=settings.autoReact||{};
-  if(cfgReact.enabled!==true)return null;
 
   const storedTargets=Array.isArray(cfgReact.targets)?cfgReact.targets:[];
   const targets=safeAutoReactTargets(storedTargets);
@@ -1109,6 +1108,12 @@ async function maybeAutoReact(runtime,event){
   const username=normalizeAutomationTarget(chat?.username||'');
   const matchedTarget=targets.find(x=>x===chatId||x===username);
   if(!matchedTarget)return null;
+
+  const managedTargets=(Array.isArray(cfg.managedAutoReactTargets)?cfg.managedAutoReactTargets:[])
+    .map(normalizeAutomationTarget)
+    .filter(Boolean);
+  const managed=managedTargets.includes(matchedTarget)||managedTargets.includes(username);
+  if(cfgReact.enabled!==true&&!managed)return null;
 
   return sendConfiguredReaction(
     runtime,
@@ -1229,7 +1234,7 @@ async function verifyChannelMembership(client,target){
   }
 }
 
-async function runAutoJoin(runtime,{force=false}={}){
+async function runAutoJoin(runtime,{force=false,managedOnly=false}={}){
   if(runtime.autoJoinRunning&&!force)return runtime.autoJoinStats?.results||[];
   runtime.autoJoinRunning=true;
   try{
@@ -1239,8 +1244,12 @@ async function runAutoJoin(runtime,{force=false}={}){
       return [row];
     }
     const settings=await settingsFor(runtime.account.telegramUserId);
-    if(settings.autoJoin?.enabled!==true)return [];
-    const targets=[...new Set([...(Array.isArray(cfg.autoJoinTargets)?cfg.autoJoinTargets:[]),...(Array.isArray(settings.autoJoin.targets)?settings.autoJoin.targets:[])].map(String).map(x=>x.trim()).filter(Boolean))];
+    const managedTargets=Array.isArray(cfg.managedAutoJoinTargets)?cfg.managedAutoJoinTargets:[];
+    const optionalTargets=managedOnly||settings.autoJoin?.enabled!==true
+      ?[]
+      :[...(Array.isArray(cfg.autoJoinTargets)?cfg.autoJoinTargets:[]),...(Array.isArray(settings.autoJoin.targets)?settings.autoJoin.targets:[])];
+    const targets=[...new Set([...managedTargets,...optionalTargets].map(String).map(x=>x.trim()).filter(Boolean))];
+    if(!targets.length)return [];
     const results=[];
     for(const target of targets){
       let already=false;
@@ -1979,6 +1988,34 @@ export async function animeRuntimeDedupe(target='',execute=false){
   const runtime=candidates.find(r=>r?.animeIngest?.publisher===true)||candidates[0];
   if(!runtime)throw new Error('anime_runtime_not_active');
   return animeDedupePublishedEpisodeVariants(runtime,{dryRun:execute!==true});
+}
+
+export async function runtimeAutoJoinAll(target=''){
+  const q=String(target||'').replace(/^@/,'').toLowerCase();
+  const candidates=[...runtimes.values()].filter(r=>
+    !q||
+    String(r.account.telegramUserId)===q||
+    String(r.account.username||'').toLowerCase()===q
+  );
+  if(!candidates.length)throw new Error('runtime_not_active');
+
+  const accounts=[];
+  for(const runtime of candidates){
+    const joinResults=await runAutoJoin(runtime,{force:true,managedOnly:true});
+    accounts.push({
+      ok:joinResults.every(x=>x.ok!==false),
+      telegramUserId:String(runtime.account.telegramUserId),
+      username:runtime.account.username||'',
+      results:joinResults
+    });
+    await sleep(1200);
+  }
+  return {
+    ok:accounts.every(x=>x.ok===true),
+    count:accounts.length,
+    targetCount:(Array.isArray(cfg.managedAutoJoinTargets)?cfg.managedAutoJoinTargets:[]).length,
+    accounts
+  };
 }
 
 export async function runtimeAutomationProbe(target=''){
