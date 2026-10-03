@@ -22,5 +22,12 @@ assert.ok(!packBlock.includes('{sticker:src}'),'individual sticker flood must st
 assert.ok(!packBlock.includes('for(const sticker of stickers)'),'pack handler must not loop over individual stickers');
 assert.ok(publisher.includes('ensurePublisherSupervisor'),'WhatsApp publisher self-supervisor missing');
 assert.ok(publisher.includes("--restart-supervisor"),'WhatsApp publisher restart entrypoint missing');
+const textSendStart=publisher.indexOf('async function sendNewsletterTextDirect');
+const textSendEnd=publisher.indexOf('function safeOtakuLocalPath',textSendStart);
+assert.ok(textSendStart>=0&&textSendEnd>textSendStart,'newsletter text sender missing');
+const textSendBlock=publisher.slice(textSendStart,textSendEnd);
+assert.ok(textSendBlock.includes("socket.sendMessage(jid,{text:value})"),'newsletter text must use the standard WhatsApp send path');
+assert.ok(textSendBlock.includes("Newsletter text send returned no message id"),'newsletter text must fail closed when no real message id is returned');
+assert.ok(!textSendBlock.includes('socket.sendNode('),'raw newsletter sendNode path must stay disabled');
 
 console.log('Otaku Nexus coherence contract: ok');
