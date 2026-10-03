@@ -32,3 +32,5 @@ jobs:
                   print('\n=== '+x['path']+' ===')
                   print(x.get('content') or '<no content>')
           PY
+
+# trigger-watermark-final
