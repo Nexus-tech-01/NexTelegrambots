@@ -154,6 +154,7 @@ const otakuPollRecords=new Map();
 const OTAKU_ACTION_LEDGER_FILE='otaku-action-ledger.json';
 const OTAKU_ACTION_ID_TTL_MS=Math.max(24*60*60_000,Number(process.env.OTAKU_ACTION_ID_TTL_MS||14*24*60*60_000));
 const OTAKU_CONTENT_DEDUP_TTL_MS=Math.max(10*60_000,Number(process.env.OTAKU_CONTENT_DEDUP_TTL_MS||12*60*60_000));
+const OTAKU_MEDIA_DEDUP_TTL_MS=Math.max(60*60_000,Number(process.env.OTAKU_MEDIA_DEDUP_TTL_MS||7*24*60*60_000));
 const OTAKU_ACTION_LEDGER_MAX=Math.max(100,Math.min(5000,Number(process.env.OTAKU_ACTION_LEDGER_MAX||1200)));
 let otakuActionLedger=[];
 let stickGoodSendChain=Promise.resolve();
@@ -301,10 +302,12 @@ async function forwardOtakuOrderCandidate(msg){
 function persistOtakuPollSummary(){
   const rows=[];
   for(const [id,r] of otakuPollRecords){
+    let messageB64=null;
+    try{if(r.message)messageB64=Buffer.from(proto.Message.encode(r.message).finish()).toString('base64')}catch{}
     rows.push({
-      id,sessionId:r.sessionId||null,question:r.question||'',
+      id,logicalId:r.logicalId||null,sessionId:r.sessionId||null,question:r.question||'',
       options:Array.isArray(r.options)?r.options:[],
-      message:r.message||null,
+      messageB64,
       correctAnswer:r.correctAnswer||null,quiz:Boolean(r.quiz),
       votes:r.votes||{},createdAt:r.createdAt||null
     });
@@ -393,6 +396,22 @@ function otakuStable(value){
   if(typeof value==='string')return value.trim().replace(/\s+/g,' ');
   return value;
 }
+function otakuActionMediaFingerprint(raw={}){
+  const kind=String(raw.kind||'').toLowerCase();
+  const src=kind==='pack'?raw.cover:(raw.image||{url:raw.imageUrl,localPath:raw.localPath,fileName:raw.fileName});
+  if(!src)return '';
+  const url=String(src.url||'').trim();
+  if(url){
+    const normalized=url.replace(/[?#].*$/,'').trim().toLowerCase();
+    return normalized?crypto.createHash('sha256').update('url:'+normalized).digest('hex'):'';
+  }
+  const localPath=String(src.localPath||'').trim();
+  if(localPath&&fs.existsSync(localPath)){
+    try{return crypto.createHash('sha256').update(fs.readFileSync(localPath)).digest('hex')}catch{}
+  }
+  const fileName=String(src.fileName||'').trim().toLowerCase();
+  return fileName?crypto.createHash('sha256').update('file:'+fileName).digest('hex'):'';
+}
 function otakuActionFingerprint(raw={}){
   const kind=String(raw.kind||'').toLowerCase();
   const src=kind==='pack'?raw.cover:(raw.image||{url:raw.imageUrl,fileName:raw.fileName});
@@ -424,14 +443,17 @@ function reserveOtakuAction(raw={}){
   pruneOtakuActionLedger(now);
   const id=String(raw.id||'').trim();
   const fingerprint=otakuActionFingerprint(raw);
+  const mediaFingerprint=otakuActionMediaFingerprint(raw);
   const sameId=id?otakuActionLedger.find(row=>row.id===id&&now-Number(row.at||0)<=OTAKU_ACTION_ID_TTL_MS):null;
-  if(sameId)return {duplicate:true,id,fingerprint,actionId:sameId.actionId||null,reason:'id'};
+  if(sameId)return {duplicate:true,id,fingerprint,mediaFingerprint,actionId:sameId.actionId||null,reason:'id'};
   const sameContent=otakuActionLedger.find(row=>row.fingerprint===fingerprint&&now-Number(row.at||0)<=OTAKU_CONTENT_DEDUP_TTL_MS);
-  if(sameContent)return {duplicate:true,id,fingerprint,actionId:sameContent.actionId||null,reason:'content'};
+  if(sameContent)return {duplicate:true,id,fingerprint,mediaFingerprint,actionId:sameContent.actionId||null,reason:'content'};
+  const sameMedia=mediaFingerprint?otakuActionLedger.find(row=>row.mediaFingerprint===mediaFingerprint&&now-Number(row.at||0)<=OTAKU_MEDIA_DEDUP_TTL_MS):null;
+  if(sameMedia)return {duplicate:true,id,fingerprint,mediaFingerprint,actionId:sameMedia.actionId||null,reason:'media'};
   const token=crypto.randomUUID();
-  otakuActionLedger.push({token,id,fingerprint,status:'pending',at:now,actionId:null});
+  otakuActionLedger.push({token,id,fingerprint,mediaFingerprint,status:'pending',at:now,actionId:null});
   persistOtakuActionLedger();
-  return {duplicate:false,token,id,fingerprint};
+  return {duplicate:false,token,id,fingerprint,mediaFingerprint};
 }
 function completeOtakuAction(claim,actionId=null){
   if(!claim?.token)return;
@@ -454,12 +476,15 @@ function loadOtakuDurableState(){
     const id=String(row?.id||'').trim();
     if(!id)continue;
     let message=null;
-    if(row?.message){
+    if(row?.messageB64){
+      try{message=proto.Message.decode(Buffer.from(String(row.messageB64),'base64'))}catch{}
+    }else if(row?.message){
       try{message=proto.Message.fromObject(row.message)}catch{message=row.message}
     }
     if(message)otakuPollMessages.set(id,{message});
     otakuPollRecords.set(id,{
       message,
+      logicalId:String(row?.logicalId||''),
       sessionId:String(row?.sessionId||''),
       question:String(row?.question||''),
       options:Array.isArray(row?.options)?row.options.map(String):[],
@@ -1334,7 +1359,7 @@ async function runOtakuAction(raw={}){
         const message=sent?.message||{pollCreationMessage:{name:question,options:options.map(optionName=>({optionName}))}};
         otakuPollMessages.set(id,{message});
         otakuPollRecords.set(id,{
-          message,sessionId:String(raw.sessionId||''),question,options,
+          message,logicalId:String(raw.id||''),sessionId:String(raw.sessionId||''),question,options,
           correctAnswer:raw.quiz?String(raw.correctAnswer||''):null,
           quiz:Boolean(raw.quiz),updates:[],votes:{},createdAt:new Date().toISOString()
         });
