@@ -22,7 +22,7 @@ jobs:
           mkdir -p /tmp/nexus
           : > /tmp/nexus.tar.xz
           for f in $(printf '%s\n' render-src.b64.part-* | sort); do
-            base64 -d "$f" >> /tmp/nexus.tar.xz
+            base64 --ignore-garbage -d "$f" >> /tmp/nexus.tar.xz
           done
           xz -t /tmp/nexus.tar.xz
           tar -xJf /tmp/nexus.tar.xz -C /tmp/nexus ./bots/nexstick
