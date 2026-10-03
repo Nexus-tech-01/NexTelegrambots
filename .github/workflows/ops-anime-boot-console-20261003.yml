@@ -12,23 +12,17 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 8
     steps:
-      - name: Safely prune caches and stale temporary media
+      - name: Capture live Pterodactyl console after recovery
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-safe-cache-clean-once"
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"
           echo
-      - name: Restore canonical startup and start server
+      - name: Verify running state
         shell: bash
         run: |
-          set -euo pipefail
-          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-mainfile-repair"
-          echo
-      - name: Verify Pterodactyl and NexAnime runtime
-        shell: bash
-        run: |
-          sleep 25
+          sleep 8
           curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-diag"
           echo
