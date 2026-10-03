@@ -208,15 +208,56 @@ function callbackAccessAllowed(clickerId,accountId,accessMode='private',clickerU
     ||isOwnerIdentity(clickerId,clickerUsername);
 }
 
+const CONNECT_TUTORIAL_CALLBACK='connect:tutorial';
+
 function connectMarkup(lang){
   return {
-    inline_keyboard:[[
-      {
+    inline_keyboard:[
+      [{
         text:lang==='en'?'Open Mini App':'Ouvrir la Mini App',
         web_app:{url:'https://nex-telegrambots.vercel.app/'}
-      }
-    ]]
+      }],
+      [{
+        text:lang==='en'?'🎬 View tutorial':'🎬 Voir le tuto',
+        callback_data:CONNECT_TUTORIAL_CALLBACK
+      }]
+    ]
   };
+}
+
+async function sendConnectTutorial(ctx,lang){
+  const t=lang==='en'
+    ? [
+        '🎬 NEXAI · CONNECTION TUTORIAL',
+        '',
+        '1. Tap “Open Mini App”.',
+        '2. Choose “By phone number”.',
+        '3. Enter your Telegram number with the country code, then tap “Receive code”.',
+        '4. Open the message sent by Telegram and copy the login code.',
+        '5. Return to the NexAI Mini App and enter that code there.',
+        '6. If 2FA is enabled, enter your Telegram 2FA password only inside the Mini App.',
+        '7. Wait for “Account connected”. NexAI will then activate the session.',
+        '',
+        'Never send your login code or 2FA password in the bot chat.'
+      ].join('\n')
+    : [
+        '🎬 NEXAI · TUTO CONNEXION',
+        '',
+        '1. Appuie sur « Ouvrir la Mini App ».',
+        '2. Choisis « Par numéro ».',
+        '3. Entre ton numéro Telegram avec l’indicatif du pays, puis appuie sur « Recevoir le code ».',
+        '4. Ouvre le message envoyé par Telegram et copie le code de connexion.',
+        '5. Reviens dans la Mini App NexAI et saisis ce code.',
+        '6. Si la 2FA est activée, entre ton mot de passe Telegram uniquement dans la Mini App.',
+        '7. Attends « Compte connecté ». NexAI activera ensuite la session.',
+        '',
+        'N’envoie jamais ton code de connexion ou ton mot de passe 2FA dans le chat du bot.'
+      ].join('\n');
+  return ctx.reply(t,{
+    entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}],
+    reply_markup:connectMarkup(lang),
+    link_preview_options:{is_disabled:true}
+  });
 }
 
 async function sendPairLink(ctx,lang){
@@ -984,8 +1025,15 @@ export async function startInlineBot(){
 
   bot.on('callback_query:data',async ctx=>{
     const raw=String(ctx.callbackQuery.data||'');
-    const cut=raw.lastIndexOf('|');
     console.log('[NexAI callback] received',raw.slice(0,120),'from='+String(ctx.from?.id||''),'inline='+String(!!ctx.callbackQuery.inline_message_id));
+    if(raw===CONNECT_TUTORIAL_CALLBACK){
+      const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
+      await ctx.answerCallbackQuery().catch(()=>{});
+      await sendConnectTutorial(ctx,lang);
+      await recordEvent(ctx.from,'callback',{source:'nexai',command:'connect:tutorial',chatType:ctx.chat?.type||'private'}).catch(()=>{});
+      return;
+    }
+    const cut=raw.lastIndexOf('|');
     if(cut<0){await ctx.answerCallbackQuery();return}
     const action=raw.slice(0,cut),accountId=raw.slice(cut+1);
     if(action==='premium:buy'){
