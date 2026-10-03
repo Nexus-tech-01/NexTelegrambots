@@ -14,9 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Inspect Pterodactyl NexAccount launcher only
+      - name: Capture live Pterodactyl process logs
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-index-nexmeta-snips"
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"
           echo
