@@ -131,6 +131,14 @@ function unicodeUnderline(value){
 const rand=a=>a[Math.floor(Math.random()*a.length)];
 const nowIso=()=>new Date().toISOString();
 const digest=v=>crypto.createHash('sha256').update(String(v)).digest('hex');
+function stablePick(list,key){
+  if(!Array.isArray(list)||!list.length)return null;
+  const n=parseInt(digest(key).slice(0,8),16);
+  return list[n%list.length];
+}
+function stableShuffle(list,key){
+  return [...list].sort((a,b)=>digest(key+'|'+String(a)).localeCompare(digest(key+'|'+String(b))));
+}
 
 function localParts(){
   const p=new Intl.DateTimeFormat('en-GB',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date());
@@ -689,6 +697,10 @@ async function advanceChoices(state){
 }
 function slotStamp(slot,day=dayKey()){return day+':'+slot.key}
 function minutesNow(){const p=localParts();return p.h*60+p.min}
+function timeWindowDue(hour,minute,catchUpMinutes){
+  const elapsed=minutesNow()-(hour*60+minute);
+  return elapsed>=0&&elapsed<=catchUpMinutes;
+}
 function slotDue(slot,state){
   const stamp=slotStamp(slot);
   if(state.dailyDone?.[stamp])return false;
@@ -730,8 +742,8 @@ async function runDailySlot(state,slot){
   }else if(slot.key==='programme'){
     await action({kind:'text',id:'daily:'+slotStamp(slot),text:programmeText()});
   }else if(slot.key==='recommendation'){
-    const r=rand(RECOMMENDATIONS);
     const id='daily:'+slotStamp(slot);
+    const r=stablePick(RECOMMENDATIONS,id);
     const text=[
       'ㅤ︵۪۪۪۪۪᷼͡⏜۪۪۪۪۪᷼͡︵᷼ㅤׄ💜ㅤ᷼︵۪۪۪۪۪᷼͡⏜۪۪۪۪۪᷼͡︵᷼ㅤ',
       '𓂃 ࣪˖ 🍿  𝗥𝗘𝗖𝗢  𝗢𝗧𝗔𝗞𝗨  𖹭',
@@ -747,10 +759,10 @@ async function runDailySlot(state,slot){
     await imagePost(id,r.query,text,{kind:'anime',name:r.title});
     await action({kind:'poll',id:id+':poll',question:'💜 '+r.title+' — tu choisis quoi ?',options:['✅ Déjà vu','📌 Dans ma liste','👀 Pas encore'],quiz:false});
   }else if(slot.key==='mystery'){
-    const m=rand(MYSTERIES);
     const id='daily:'+slotStamp(slot);
-    const wrong=MYSTERIES.filter(x=>x.name!==m.name).sort(()=>Math.random()-.5).slice(0,3).map(x=>x.name);
-    const options=[m.name,...wrong].sort(()=>Math.random()-.5);
+    const m=stablePick(MYSTERIES,id);
+    const wrong=stableShuffle(MYSTERIES.filter(x=>x.name!==m.name),id+':wrong').slice(0,3).map(x=>x.name);
+    const options=stableShuffle([m.name,...wrong],id+':options');
     const text=[
       'ㅤ︵۪۪۪۪۪᷼͡⏜۪۪۪۪۪᷼͡︵᷼ㅤׄ🖤ㅤ᷼︵۪۪۪۪۪᷼͡⏜۪۪۪۪۪᷼͡︵᷼ㅤ',
       '𖦹  𝐏𝐄𝐑𝐒𝐎𝐍𝐍𝐀𝐆𝐄  𝐌𝐘𝐒𝐓È𝐑𝐄  🧩',
@@ -764,7 +776,7 @@ async function runDailySlot(state,slot){
     await imagePost(id,m.query+' silhouette dark',text,{kind:'character',name:m.name});
     await action({kind:'poll',id:id+':poll',question:'🧩 Qui se cache derrière les indices ?',options,quiz:true,correctAnswer:m.name,sessionId:id});
   }else if(slot.key==='wallpaper'){
-    const r=rand(RECOMMENDATIONS);
+    const r=stablePick(RECOMMENDATIONS,'daily:'+slotStamp(slot));
     const text=[
       '☾ ׄ  𝗪𝗔𝗟𝗟𝗣𝗔𝗣𝗘𝗥  𝗗𝗥𝗢𝗣  𓏼',
       '',
@@ -824,10 +836,13 @@ async function receiveOrder(state,payload){
 async function tick(state){
   const p=localParts(),day=dayKey(),quizHour=p.d%2===0?10:19;
   if(await advanceChoices(state)){await saveState(state);return}
-  if(state.lastChoiceDay!==day&&p.d%2===1&&p.h===16&&p.min<8&&!state.choiceSession){
+  // Interactive sessions must survive restarts and temporary downtime.
+  // Catch up for hours instead of requiring the worker to be alive during
+  // the first eight minutes of one exact clock hour.
+  if(state.lastChoiceDay!==day&&p.d%2===1&&timeWindowDue(16,0,4*60)&&!state.choiceSession){
     await startChoices(state);await saveState(state);return;
   }
-  if(state.lastQuizDay!==day&&p.h===quizHour&&p.min<8){
+  if(state.lastQuizDay!==day&&timeWindowDue(quizHour,0,3*60)){
     await runQuiz(state,String(quizHour));await saveState(state);return;
   }
   if(await maybeDaily(state)){await saveState(state);return}
