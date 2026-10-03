@@ -20,6 +20,7 @@ import { createRuntimeContext, clearRuntimeTimers } from './core/runtime-context
 import { routeEngineCommand } from './core/engine-router.mjs';
 import { animeBeginRebuild, animeDedupePublishedEpisodeVariants, animeDiscoverNow, animeIngestStatus, animePublishNow, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
+import { downloadReplyVideo } from './reply-storage.mjs';
 import { ensureEmojiLibraryPalette, ensurePremiumEmojiPalette, sanitizeAnimatedEmojiText, sendBrandedText, syncOwnedCustomEmojiLibrary } from './response-ui.mjs';
 import { putInlineResponse } from './inline-response-store.mjs';
 import { resolveBotUsername } from './secrets.mjs';
@@ -890,13 +891,15 @@ async function maybeMentionVideoReply(runtime,event){
   const settings=await settingsFor(account.telegramUserId);
   const configured=settings.mentionVideoReply||{};
   const message=event?.message;
-  if(configured.enabled!==true||!(configured.savedMessageId||configured.url)||!message?.peerId||autoFeaturesMuted(settings,event))return false;
+  if(configured.enabled!==true||!(configured.storage?.fileId||configured.savedMessageId||configured.url)||!message?.peerId||autoFeaturesMuted(settings,event))return false;
   if(isSelfAuthoredMessage(message,account)||!messageMentionsAccount(message,account))return false;
   if(message?.fromId?.channelId)return false;
   if(await messageAuthorIsBot(client,message,event?.sender))return false;
   try{
     let buffer=null;
-    if(configured.savedMessageId){
+    if(configured.storage?.fileId){
+      buffer=await downloadReplyVideo(configured.storage);
+    }else if(configured.savedMessageId){
       const rows=await client.getMessages('me',{ids:[Number(configured.savedMessageId)]});
       const source=Array.isArray(rows)?rows[0]:rows;
       if(!source?.media)throw new Error('note vidéo Telegram introuvable');
