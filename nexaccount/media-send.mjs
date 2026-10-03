@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { getAttributes } from 'teleproto/Utils.js';
 import { brandedText } from './response-ui.mjs';
 
@@ -23,6 +24,43 @@ const EXT_BY_MIME={
   'application/json':'.json','text/vcard':'.vcf','image/svg+xml':'.svg'
 };
 const MEDIA_KINDS=new Set(['image','video','audio']);
+const FFMPEG=String(process.env.FFMPEG_PATH||'ffmpeg');
+
+function runFfmpeg(args,timeout=120000){
+  return new Promise((resolve,reject)=>{
+    execFile(FFMPEG,['-hide_banner','-loglevel','error','-y',...args],{
+      timeout,
+      maxBuffer:8*1024*1024
+    },(error,stdout,stderr)=>{
+      if(error)return reject(new Error(String(stderr||error.message||error).trim().slice(0,1200)));
+      resolve({stdout,stderr});
+    });
+  });
+}
+
+async function normalizeVideoNoteFile(inputPath,outputPath){
+  // Telegram clients reliably render round video notes only when the actual
+  // encoded video is square. Do not lie in metadata about a 16:9 source:
+  // crop it physically to a centered square and encode a canonical MP4.
+  await runFfmpeg([
+    '-i',inputPath,
+    '-map','0:v:0',
+    '-map','0:a?',
+    '-t','59',
+    '-vf','scale=640:640:force_original_aspect_ratio=increase,crop=640:640',
+    '-r','30',
+    '-c:v','libx264',
+    '-preset','veryfast',
+    '-crf','23',
+    '-pix_fmt','yuv420p',
+    '-c:a','aac',
+    '-b:a','96k',
+    '-ac','1',
+    '-movflags','+faststart',
+    outputPath
+  ]);
+  return outputPath;
+}
 
 function cleanMime(value){
   return String(value||'').split(';')[0].trim().toLowerCase();
@@ -197,15 +235,24 @@ export async function sendTelegramMedia(client,peer,data,{
 
   try{
     const isVideoNote=videoNote===true&&media.kind==='video';
+    let telegramFilePath=filePath;
+    let telegramFileName=media.fileName;
     let telegramAttributes;
+    if(isVideoNote){
+      telegramFileName='nexai-video-note.mp4';
+      telegramFilePath=await normalizeVideoNoteFile(
+        filePath,
+        path.join(dir,telegramFileName)
+      );
+    }
     if(isVideoNote){
       // Teleproto 1.229 adds a DocumentAttributeAudio(voice=true) whenever
       // videoNote=true. That can make Telegram normalize the upload as a
       // regular video. Build the video-note attributes ourselves instead:
       // keep the detected video metadata, force roundMessage, and do not add
       // the spurious voice-note audio attribute.
-      const generated=getAttributes(filePath,{
-        mimeType:media.mimeType,
+      const generated=getAttributes(telegramFilePath,{
+        mimeType:'video/mp4',
         forceDocument:false,
         voiceNote:false,
         videoNote:false,
@@ -236,8 +283,8 @@ export async function sendTelegramMedia(client,peer,data,{
       ...branded.entities
     ];
     const sent=await client.sendFile(peer,{
-      file:filePath,
-      fileName:media.fileName,
+      file:telegramFilePath,
+      fileName:telegramFileName,
       caption:branded.text,
       forceDocument:media.kind==='document',
       supportsStreaming:media.kind==='video'&&(media.mimeType==='video/mp4'||media.mimeType==='video/quicktime'),
