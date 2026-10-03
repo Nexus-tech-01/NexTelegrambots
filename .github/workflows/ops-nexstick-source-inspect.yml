@@ -12,21 +12,41 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
-      - name: List live NexStick files
+      - uses: actions/checkout@v4
+      - name: Recover NexStick from Render bundle
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error \
-            "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=%2Fapp%2Fbots%2Fnexstick" \
-            -o /tmp/nexstick.json
-          python3 - <<'PY'
-          import json
-          d=json.load(open('/tmp/nexstick.json'))
-          for x in d.get('fileList') or []:
-              p=x.get('path') or ''
-              if p:
-                  print(p)
-          PY
-# inspect NexStick tree /app 2026-10-03T23:35+01:00
+          decode_parts() {
+            out="$1"; shift
+            : > "$out"
+            for f in "$@"; do
+              base64 -d "$f" >> "$out"
+            done
+          }
+          parts=(render-src.b64.part-00 render-src.b64.part-01 render-src.b64.part-02 render-src.b64.part-03 render-src.b64.part-04 render-src.b64.part-05 render-src.b64.part-06 render-src.b64.part-07 render-src.b64.part-08)
+          chosen=""
+          for n in 9 8 7; do
+            out="/tmp/render-$n.tar.xz"
+            decode_parts "$out" "${parts[@]:0:$n}"
+            if xz -t "$out" 2>/dev/null; then
+              echo "VALID_PART_COUNT=$n"
+              chosen="$out"
+              break
+            fi
+          done
+          test -n "$chosen"
+          mkdir -p /tmp/render
+          tar -xJf "$chosen" -C /tmp/render
+          echo "=== NEXSTICK PATHS ==="
+          find /tmp/render -type f | grep -Ei 'nexstick|stickerService|The_Nexus_techbot' | sort | head -300 || true
+          echo "=== NEXSTICK REFERENCES ==="
+          grep -RIn -E 'nexstick|The_Nexus_techbot' /tmp/render --exclude='*.map' 2>/dev/null | head -300 || true
+          svc="$(find /tmp/render -type f -path '*/bots/nexstick/src/services/stickerService.js' | head -1)"
+          if [ -n "$svc" ]; then
+            echo "=== stickerService.js ==="
+            cat "$svc"
+          fi
+# inspect Render NexStick 2026-10-03T23:41+01:00
