@@ -8,28 +8,27 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   inspect:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Read live NexStick source
+      - name: Locate live NexStick
         shell: bash
-        env:
-          ENDPOINT: https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?mode=nexstick-source
         run: |
           set -euo pipefail
-          OIDC_JSON="$(curl --fail-with-body --silent --show-error             -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=nxc-nexstick-source-read")"
-          OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"$OIDC_JSON")"
-          curl --fail-with-body --silent --show-error             -H "Authorization: Bearer $OIDC_TOKEN"             "$ENDPOINT" -o /tmp/nexstick-source.json
+          for root in bots services ecosystem nexus-bridge; do
+            url="https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=%2F$root"
+            curl --fail-with-body --silent --show-error "$url" -o "/tmp/$root.json"
+          done
           python3 - <<'PY'
           import json
-          d=json.load(open('/tmp/nexstick-source.json'))
-          print('OK',d.get('ok'),'FILES',d.get('files'))
-          for x in d.get('fileList') or []:
-              if x.get('content') is not None:
-                  print('\n=== '+x['path']+' ===')
-                  print(x['content'])
+          for root in ('bots','services','ecosystem','nexus-bridge'):
+              d=json.load(open('/tmp/'+root+'.json'))
+              print('\n###',root,'ok=',d.get('ok'),'files=',d.get('files'))
+              for x in d.get('fileList') or []:
+                  p=str(x.get('path') or '')
+                  if 'nexstick' in p.lower() or 'sticker' in p.lower():
+                      print(p, x.get('size'))
           PY
