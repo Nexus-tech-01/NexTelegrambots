@@ -13,7 +13,7 @@ import { ownerPanelText, usersText, countriesText, languagesText, userText, botS
 import { handleCompatCommand } from './compat.mjs';
 import { menuModel, stylesModel } from './menu.mjs';
 import { aiProviderStatus, generateAiReply } from './ai-engine.mjs';
-import { stickerEngineDiagnostic } from './sticker-engine.mjs';
+import { stickerEngineDiagnostic, canHandleStickerCommand } from './sticker-engine.mjs';
 import { parseCommand, textOf } from './core/command-parser.mjs';
 import { createCommandDeduper } from './core/command-deduper.mjs';
 import { createRuntimeContext, clearRuntimeTimers } from './core/runtime-context.mjs';
@@ -169,7 +169,7 @@ function commandChatId(event){
 function isKnownRuntimeCommand(name,settings,event){
   const key=String(name||'').toLowerCase();
   if(!key)return false;
-  if(key==='menu'||key==='style'||/^style\d+$/i.test(key)||commands.has(key))return true;
+  if(key==='menu'||key==='style'||/^style\d+$/i.test(key)||commands.has(key)||canHandleStickerCommand(key))return true;
   const custom=settings?.groupPolicies?.[commandChatId(event)]?.customCommands;
   return Boolean(custom&&Object.prototype.hasOwnProperty.call(custom,key));
 }
@@ -708,7 +708,13 @@ async function handleCommand(runtime,event,parsed){
   if(parsed.name==='style')return handleStyle(runtime,peer,parsed.args);
   if(parsed.name==='menu')return sendMenu(runtime,peer);
 
-  const cmd=commands.get(parsed.name);
+  let cmd=commands.get(parsed.name);
+  // Sticker commands are also owned by sticker-engine. If the registry and runtime
+  // ever drift during a rolling deploy, route a known sticker command directly
+  // instead of incorrectly replying "Commande inconnue".
+  if(!cmd&&canHandleStickerCommand(parsed.name)){
+    cmd={name:String(parsed.name||'').toLowerCase(),engine:'sticker',selfOnly:true,description:'Sticker engine fallback'};
+  }
   if(!cmd){
     const settings=await settingsFor(account.telegramUserId);
     const chatId=String(event.chatId||event.message?.chatId||event.message?.peerId?.channelId||event.message?.peerId?.chatId||'global');
