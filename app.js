@@ -10,6 +10,7 @@ let qrTimer=null;
 let publicKey=null;
 let busy=false;
 let lastQr='';
+let gatewayState='checking';
 
 const i18n={
   fr:{
@@ -25,7 +26,7 @@ const i18n={
     openTelegram:'Ouvrir dans Telegram',cancel:'Annuler',qr2faTitle:'2FA requis',
     qr2faText:'Telegram exige une vérification supplémentaire. Utilise l’option « Par numéro » pour terminer la connexion avec le mot de passe 2FA.',
     usePhone:'Utiliser le numéro',successTitle:'Compte connecté',successText:'La session Telegram est maintenant active dans NexAI.',
-    another:'Connecter un autre compte',gatewayOnline:'Passerelle active',encrypted:'Code et 2FA chiffrés',multi:'Multi-session',
+    another:'Connecter un autre compte',gatewayOnline:'Passerelle active',gatewayOffline:'Passerelle indisponible',gatewayChecking:'Vérification passerelle…',encrypted:'Code et 2FA chiffrés',multi:'Multi-session',
     sending:'Demande du code à Telegram…',codeSent:'Code envoyé. Vérifie Telegram.',codeViaApp:'Code envoyé dans ton application Telegram.',
     verifying:'Vérification…',connecting:'Connexion…',creatingQr:'Création du QR…',waitingQr:'En attente de validation dans Telegram…',
     menuOpen:'Ouvrir le menu',menuClose:'Fermer le menu'
@@ -43,7 +44,7 @@ const i18n={
     openTelegram:'Open in Telegram',cancel:'Cancel',qr2faTitle:'2FA required',
     qr2faText:'Telegram requires an additional verification step. Use the phone-number option to finish with your 2FA password.',
     usePhone:'Use phone number',successTitle:'Account connected',successText:'The Telegram session is now active in NexAI.',
-    another:'Connect another account',gatewayOnline:'Gateway online',encrypted:'Code and 2FA encrypted',multi:'Multi-session',
+    another:'Connect another account',gatewayOnline:'Gateway online',gatewayOffline:'Gateway unavailable',gatewayChecking:'Checking gateway…',encrypted:'Code and 2FA encrypted',multi:'Multi-session',
     sending:'Requesting a code from Telegram…',codeSent:'Code sent. Check Telegram.',codeViaApp:'Code sent inside your Telegram app.',
     verifying:'Verifying…',connecting:'Connecting…',creatingQr:'Creating QR…',waitingQr:'Waiting for approval in Telegram…',
     menuOpen:'Open menu',menuClose:'Close menu'
@@ -58,6 +59,7 @@ function tr(){
     if(i18n[lang][key])el.textContent=i18n[lang][key];
   });
   if($('menuToggle'))$('menuToggle').setAttribute('aria-label',document.body.classList.contains('menu-open')?i18n[lang].menuClose:i18n[lang].menuOpen);
+  renderGatewayState();
 }
 function status(id,text,type='info'){
   const el=$(id);
@@ -116,6 +118,20 @@ function setMethod(method){
     methodAnimation=incoming;
     incoming.onfinish=()=>{area.style.opacity='';area.style.transform=''};
   };
+}
+function renderGatewayState(){
+  const label=document.querySelector('[data-i18n="gatewayOnline"]');
+  if(!label)return;
+  const key=gatewayState==='online'?'gatewayOnline':gatewayState==='offline'?'gatewayOffline':'gatewayChecking';
+  label.textContent=i18n[lang][key];
+  const dot=label.parentElement?.querySelector('i');
+  if(dot)dot.className=gatewayState==='online'?'green':gatewayState==='offline'?'red':'checking';
+}
+async function probeGateway(){
+  gatewayState='checking';renderGatewayState();
+  try{await getPublicKey(true);gatewayState='online'}
+  catch{gatewayState='offline'}
+  renderGatewayState();
 }
 function pemToBuffer(pem){
   const b64=String(pem).replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\s/g,'');
@@ -357,4 +373,4 @@ $('codeInput').addEventListener('input',()=>{
   const el=$('codeInput');el.classList.remove('code-pulse');void el.offsetWidth;el.classList.add('code-pulse');
 });
 window.addEventListener('pagehide',stopQrPoll);
-tr();startup();
+tr();startup();probeGateway();
