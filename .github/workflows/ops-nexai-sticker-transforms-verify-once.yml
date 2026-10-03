@@ -1,0 +1,85 @@
+name: Ops NexAI Sticker Transforms Verify Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-nexai-sticker-transforms-verify-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install transform runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg
+          npm install --prefix nexaccount --ignore-scripts
+
+      - name: Syntax and registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check nexaccount/sticker-transform.mjs
+          node --check nexaccount/sticker-engine.mjs
+          node --check nexaccount/commands.mjs
+          node --input-type=module - <<'NODE'
+          import {commandMap} from './nexaccount/commands.mjs';
+          import {canHandleStickerCommand} from './nexaccount/sticker-engine.mjs';
+          const map=commandMap();
+          for(const name of ['ultratake','filitake','noteclone']){
+            if(!map.has(name))throw new Error('registry missing '+name);
+            if(!canHandleStickerCommand(name))throw new Error('engine routing missing '+name);
+          }
+          console.log('NEXAI_STICKER_COMMANDS_OK');
+          NODE
+
+      - name: Execute real static sticker transforms
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import {addStickerWatermark,removeStickerWatermark,roundSticker} from './nexaccount/sticker-transform.mjs';
+
+          const png=Buffer.from(
+            'iVBORw0KGgoAAAANSUhEUgAAAgAAAAIACAYAAAD0eNT6AAAACXBIWXMAAAsSAAALEgHS3X78AAAA' +
+            'B3RJTUUH6gMDAQEBtKx9WQAAAB1pVFh0Q29tbWVudAAAAAAAU2ltcGxlIHRlc3QgaW1hZ2XgYK8G' +
+            'AAAAPElEQVR42u3BAQ0AAADCoPdPbQ8HFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+            'AAAAAAAAAAAAAAAAAAAAAHgG0AABkHE3YQAAAABJRU5ErkJggg==',
+            'base64'
+          );
+          const source={buffer:png,mime:'image/png'};
+          const watermarked=await addStickerWatermark(source,{
+            text:'Nextech',color:'#7C3AED',opacity:0.18,position:'bottom'
+          });
+          if(watermarked.format!=='static'||!watermarked.buffer?.length)throw new Error('filitake transform failed');
+
+          const cleaned=await removeStickerWatermark({
+            buffer:watermarked.buffer,mime:watermarked.mime
+          },{zone:'bottom'});
+          if(cleaned.format!=='static'||!cleaned.buffer?.length)throw new Error('ultratake transform failed');
+
+          const rounded=await roundSticker(source);
+          if(rounded.format!=='static'||!rounded.buffer?.length)throw new Error('noteclone transform failed');
+
+          for(const [name,item] of Object.entries({watermarked,cleaned,rounded})){
+            const b=Buffer.from(item.buffer);
+            if(b.toString('ascii',0,4)!=='RIFF'||b.toString('ascii',8,12)!=='WEBP'){
+              throw new Error(name+' output is not WEBP');
+            }
+            console.log(name,item.format,item.buffer.length);
+          }
+          console.log('NEXAI_STICKER_TRANSFORMS_OK');
+          NODE
