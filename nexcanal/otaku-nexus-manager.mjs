@@ -649,11 +649,22 @@ async function jikanImage(kind,name){
 async function imagePost(id,query,text,fallback=null){
   let urls=[];
   try{urls=await pinterestImages(query,20)}catch{}
-  let imageUrl=clean(urls[0]);
-  if(!imageUrl&&fallback?.name)imageUrl=await jikanImage(fallback.kind||'anime',fallback.name);
-  if(!imageUrl)throw new Error('otaku_image_required:'+id);
-  await action({kind:'image',id,imageUrl,text});
-  return imageUrl;
+  const candidates=[...new Set(urls.map(clean).filter(Boolean))].slice(0,10);
+  if(fallback?.name){
+    const fb=await jikanImage(fallback.kind||'anime',fallback.name);
+    if(fb&&!candidates.includes(fb))candidates.push(fb);
+  }
+  if(!candidates.length)throw new Error('otaku_image_required:'+id);
+  for(const imageUrl of candidates){
+    const out=await action({kind:'image',id,imageUrl,text});
+    if(!out?.duplicate)return imageUrl;
+    // Same logical id means this exact slot was already published: do not
+    // replace it with another image and accidentally create a second post.
+    if(out?.dedupReason==='id'||out?.dedupReason==='content')return imageUrl;
+    // Exact media duplicate from an older publication: try the next candidate.
+    if(out?.dedupReason!=='media')return imageUrl;
+  }
+  throw new Error('otaku_fresh_image_required:'+id);
 }
 async function runQuiz(state,slot){
   const id='quiz-'+dayKey()+'-'+slot;
@@ -672,7 +683,7 @@ async function runQuiz(state,slot){
   state.history.push({at:nowIso(),type:'quiz',sessionId:id});
 }
 async function startChoices(state){
-  const id='choice-'+dayKey()+'-'+Date.now();
+  const id='choice-'+dayKey();
   await action({kind:'text',id:id+':intro',text:'✦ ᴏᴛᴀᴋᴜ ɴᴇxᴜs · ᴛᴜ ᴘʀᴇ́ғᴇ̀ʀᴇs ?\n\n15 choix. Un nouveau duel toutes les 15 minutes. 👀'});
   state.choiceSession={id,index:0,nextAt:Date.now()+60_000,day:dayKey()};
   state.history.push({at:nowIso(),type:'choice-marathon-start',id});
@@ -688,7 +699,8 @@ async function advanceChoices(state){
     state.choiceSession=null;
     return true;
   }
-  const pair=i%3===2?rand(LIFE):rand(DUELS);
+  const pool=i%3===2?LIFE:DUELS;
+  const pair=stablePick(pool,s.id+':pair:'+i);
   if(i%3!==2)await imagePost(s.id+':img:'+i,pair[0]+' '+pair[1]+' anime wallpaper together','✦ '+pair[0]+'  VS  '+pair[1],{kind:'anime',name:pair[0]});
   await action({kind:'poll',id:s.id+':poll:'+i,question:'Tu préfères ?',options:pair,quiz:false});
   s.index=i+1;
