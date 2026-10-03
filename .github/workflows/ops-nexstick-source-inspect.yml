@@ -14,16 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Inspect NexStick launcher definition
+      - name: Inspect NexControl backup format
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-index-nexmeta-snips"             -o /tmp/snips.json
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-index-nexmeta-snips?mode=backup-worker"             -o /tmp/snips.json
           python3 - <<'PY'
           import json
           d=json.load(open('/tmp/snips.json'))
-          keep={k:v for k,v in d.items() if k in ['childDefs','nexstick','NEXSTICK','stickerService.js','bots/nexstick']}
-          print(json.dumps(keep,ensure_ascii=False,indent=2)[:180000])
+          print(json.dumps(d,ensure_ascii=False,indent=2)[:180000])
           PY
 
-# nexstick-childdef-inspect-20261003
+# nexstick-backup-format-inspect-20261003
