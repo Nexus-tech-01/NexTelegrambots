@@ -3,7 +3,7 @@ import { Bot, InputFile } from 'grammy';
 import { cfg, isOwnerId, isOwnerIdentity } from './config.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { commandMap } from './commands.mjs';
-import { accountRecord, listConnectedAccounts, settingsFor, patchSettings, saveSharedBotIdentity, nexAiPremiumState, grantNexAiPremium, acquireServiceLease, renewServiceLease, releaseServiceLease } from './store.mjs';
+import { db, accountRecord, listConnectedAccounts, settingsFor, patchSettings, saveSharedBotIdentity, nexAiPremiumState, grantNexAiPremium, acquireServiceLease, renewServiceLease, releaseServiceLease } from './store.mjs';
 import { menuModel, stylesModel } from './menu.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { getInlineResponse } from './inline-response-store.mjs';
@@ -12,7 +12,7 @@ import { ownerPanelText, usersText, countriesText, languagesText, userText, botS
 import { listStyles, toSmallCaps } from './styles.mjs';
 import { animatedCustomEmojiEntitySpecs, animatedCustomEmojiEntitySpecsFromLibrary, ensureEmojiLibraryPalette, sanitizeAnimatedEmojiText } from './response-ui.mjs';
 import { sessionsText } from './session-view.mjs';
-import { bindReplyStorageChannel, replyStorageStatus, saveReplyStorageBotToken } from './reply-storage.mjs';
+import { bindReplyStorageChannel, resolveReplyStorageChannel, replyStorageStatus, saveReplyStorageBotToken } from './reply-storage.mjs';
 
 const commands=commandMap();
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
@@ -209,6 +209,76 @@ function callbackAccessAllowed(clickerId,accountId,accessMode='private',clickerU
 }
 
 const CONNECT_TUTORIAL_CALLBACK='connect:tutorial';
+const CONNECT_TUTORIAL_RECORD_ID='nexai_connection_tutorial';
+const TELEGRAM_BOT_VIDEO_LIMIT=50*1024*1024;
+
+async function tutorialVideoConfig(){
+  const d=await db();
+  const row=await d.collection('nexaccount_system').findOne({_id:CONNECT_TUTORIAL_RECORD_ID});
+  return {
+    fileId:String(row?.fileId||''),
+    fileUniqueId:String(row?.fileUniqueId||''),
+    size:Number(row?.size||0),
+    width:Number(row?.width||0),
+    height:Number(row?.height||0),
+    duration:Number(row?.duration||0),
+    mimeType:String(row?.mimeType||'video/mp4'),
+    storageChatId:String(row?.storageChatId||''),
+    storageMessageId:Number(row?.storageMessageId||0),
+    archived:row?.archived===true,
+    setBy:String(row?.setBy||''),
+    updatedAt:row?.updatedAt||null
+  };
+}
+
+async function saveTutorialVideoConfig(value={}){
+  const d=await db(),now=new Date();
+  const clean={
+    fileId:String(value.fileId||''),
+    fileUniqueId:String(value.fileUniqueId||''),
+    size:Number(value.size||0),
+    width:Number(value.width||0),
+    height:Number(value.height||0),
+    duration:Number(value.duration||0),
+    mimeType:String(value.mimeType||'video/mp4'),
+    storageChatId:String(value.storageChatId||''),
+    storageMessageId:Number(value.storageMessageId||0),
+    archived:value.archived===true,
+    setBy:String(value.setBy||''),
+    updatedAt:now
+  };
+  if(!clean.fileId)throw new Error('tutorial_file_id_missing');
+  await d.collection('nexaccount_system').updateOne(
+    {_id:CONNECT_TUTORIAL_RECORD_ID},
+    {$set:clean,$setOnInsert:{createdAt:now}},
+    {upsert:true}
+  );
+  return clean;
+}
+
+async function archiveTutorialVideo(ctx,message){
+  try{
+    const storage=await resolveReplyStorageChannel({discover:true});
+    const copied=await ctx.api.copyMessage(
+      storage.chatId,
+      ctx.chat.id,
+      Number(message.message_id),
+      {
+        caption:'NexAI · Tutoriel connexion · HQ',
+        disable_notification:true,
+        protect_content:true
+      }
+    );
+    return {
+      archived:true,
+      storageChatId:String(storage.chatId||''),
+      storageMessageId:Number(copied?.message_id||0)
+    };
+  }catch(error){
+    console.warn('[NexAI tutorial archive]',String(error?.description||error?.message||error).slice(0,400));
+    return {archived:false,storageChatId:'',storageMessageId:0};
+  }
+}
 
 function connectMarkup(lang){
   return {
@@ -226,6 +296,22 @@ function connectMarkup(lang){
 }
 
 async function sendConnectTutorial(ctx,lang){
+  const tutorial=await tutorialVideoConfig().catch(()=>({fileId:''}));
+  if(tutorial.fileId){
+    const caption=lang==='en'
+      ? '🎬 NexAI · Connection tutorial\n\nFollow the video, then tap “Open Mini App”.'
+      : '🎬 NexAI · Tutoriel de connexion\n\nSuis la vidéo, puis appuie sur « Ouvrir la Mini App ».';
+    try{
+      return await ctx.replyWithVideo(tutorial.fileId,{
+        caption,
+        supports_streaming:true,
+        reply_markup:connectMarkup(lang)
+      });
+    }catch(error){
+      console.error('[NexAI tutorial send]',String(error?.description||error?.message||error).slice(0,500));
+    }
+  }
+
   const t=lang==='en'
     ? [
         '🎬 NEXAI · CONNECTION TUTORIAL',
@@ -897,6 +983,77 @@ export async function startInlineBot(){
     }catch(error){
       return ctx.reply('Liaison NexAI Storage impossible : '+String(error?.message||error).slice(0,350));
     }
+  });
+
+  bot.command('settutorial',async ctx=>{
+    if(ctx.chat?.type!=='private')return;
+    if(!isOwnerIdentity(ctx.from.id,ctx.from.username)){
+      return ctx.reply('Cette commande est réservée au propriétaire de NexAi.');
+    }
+
+    const replied=ctx.message?.reply_to_message;
+    const video=replied?.video;
+    if(!video?.file_id){
+      return ctx.reply('Réponds à la vidéo du tutoriel avec /settutorial. Envoie-la comme vidéo Telegram en qualité élevée, pas comme document.');
+    }
+
+    const size=Number(video.file_size||0);
+    if(size>TELEGRAM_BOT_VIDEO_LIMIT){
+      return ctx.reply('La vidéo dépasse 50 Mo. Telegram Bot API ne peut pas la renvoyer telle quelle.');
+    }
+
+    try{
+      const previous=await tutorialVideoConfig().catch(()=>({}));
+      const archive=await archiveTutorialVideo(ctx,replied);
+      const saved=await saveTutorialVideoConfig({
+        fileId:String(video.file_id),
+        fileUniqueId:String(video.file_unique_id||''),
+        size,
+        width:Number(video.width||0),
+        height:Number(video.height||0),
+        duration:Number(video.duration||0),
+        mimeType:String(video.mime_type||'video/mp4'),
+        storageChatId:archive.storageChatId,
+        storageMessageId:archive.storageMessageId,
+        archived:archive.archived,
+        setBy:String(ctx.from.id)
+      });
+
+      if(
+        previous.archived===true&&
+        previous.storageChatId&&
+        previous.storageMessageId&&
+        (
+          previous.storageChatId!==saved.storageChatId||
+          previous.storageMessageId!==saved.storageMessageId
+        )
+      ){
+        await ctx.api.deleteMessage(previous.storageChatId,previous.storageMessageId).catch(()=>{});
+      }
+
+      return ctx.reply(
+        'Tutoriel NexAI enregistré ✅\n'+
+        'Qualité : conservée via le fichier Telegram, sans réencodage à chaque envoi.\n'+
+        'Taille : '+(size?Math.round(size/1024/1024*10)/10+' Mo':'Telegram')+'\n'+
+        'Stockage : '+(archive.archived?'NexAI Storage + file_id Telegram persistant':'file_id Telegram persistant')+'\n\n'+
+        'Le bouton « 🎬 Voir le tuto » enverra maintenant cette vidéo.'
+      );
+    }catch(error){
+      return ctx.reply('Enregistrement du tutoriel impossible : '+String(error?.description||error?.message||error).slice(0,400));
+    }
+  });
+
+  bot.command('tutorialstatus',async ctx=>{
+    if(ctx.chat?.type!=='private')return;
+    if(!isOwnerIdentity(ctx.from.id,ctx.from.username)){
+      return ctx.reply('Cette commande est réservée au propriétaire de NexAi.');
+    }
+    const t=await tutorialVideoConfig();
+    return ctx.reply(
+      t.fileId
+        ? 'Tutoriel NexAI ✅\nVidéo configurée · '+(t.size?Math.round(t.size/1024/1024*10)/10+' Mo · ':'')+(t.archived?'archivée dans NexAI Storage':'stockée par file_id Telegram')
+        : 'Tutoriel NexAI : aucune vidéo configurée. Réponds à une vidéo avec /settutorial.'
+    );
   });
 
   bot.command('pair',async ctx=>{
