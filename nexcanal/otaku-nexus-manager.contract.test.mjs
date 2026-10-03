@@ -49,6 +49,7 @@ assert.ok(publisher.includes("options:Array.isArray(r.options)?r.options:[]"),'p
 assert.ok(publisher.includes('messageB64'),'poll message binary persistence missing');
 assert.ok(publisher.includes('function otakuActionMediaFingerprint('),'exact media fingerprint dedup missing');
 assert.ok(publisher.includes("reason:'media'"),'duplicate media blocking path missing');
+assert.ok(publisher.includes("if(!out?.duplicate)otakuLastSendAt=Date.now()"),'blocked duplicate must not consume send gap');
 assert.ok(publisher.includes("const votes={...(record?.votes||{})}"),'poll vote aggregation must preserve restored votes');
 assert.ok(publisher.includes('releaseOtakuAction(claim)'),'failed sends must release their dedup reservation');
 
