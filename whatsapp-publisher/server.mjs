@@ -73,7 +73,7 @@ async function stopPublisherPid(pid){
 async function publisherSupervise(){
   fs.mkdirSync(PUBLISHER_SUPERVISOR_DIR,{recursive:true});
   const mediaPatch=ensureBaileysStickerPackMediaPatch();
-  logger.info({mediaPatch},'Baileys Stick Good media map ready');
+  console.log('[StickGood] Baileys media map ready',JSON.stringify(mediaPatch));
   let child=null,closing=false,backoff=2000;
   const close=async()=>{
     if(closing)return;closing=true;
