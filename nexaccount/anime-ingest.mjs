@@ -1387,13 +1387,13 @@ export async function handleAnimeIngestEvent(runtime,event){
   return true;
 }
 
-async function resolveSource(runtime,item){
+async function resolveSource(runtime,item,{maxSources=Infinity}={}){
   const sources=Array.isArray(item.sources)?item.sources:[];
   const accountId=String(runtime.account.telegramUserId);
   const ordered=[
     ...sources.filter(s=>String(s.accountId)===accountId),
     ...sources.filter(s=>String(s.accountId)!==accountId)
-  ];
+  ].slice(0,maxSources);
   let lastIdentityError=null;
   for(const source of ordered){
     const sourceIdentity=norm([source?.channelTitle,source?.channelUsername].filter(Boolean).join(' '));
@@ -2223,14 +2223,20 @@ async function preflightSeriesBeforeSynopsis(runtime,d,seriesKey){
 
   const variants=await d.collection('nexanime_queue').find(
     {seriesKey,status:'queued',kind:'episode',season,episode:1}
-  ).limit(50).toArray();
+  ).limit(2).toArray();
   variants.sort((a,b)=>episodeVariantScore(b)-episodeVariantScore(a)||new Date(a.createdAt||0)-new Date(b.createdAt||0));
 
   let lastError='';
   let sawTransient=false;
+  const preflightDeadline=Date.now()+20_000;
   for(const item of variants){
+    if(Date.now()>=preflightDeadline){
+      sawTransient=true;
+      lastError='preflight_time_budget_exceeded';
+      break;
+    }
     try{
-      const resolved=await resolveSource(runtime,item);
+      const resolved=await resolveSource(runtime,item,{maxSources:2});
       if(resolved)return {ok:true,season,episode:1,dedupeKey:item.dedupeKey};
       sawTransient=true;
     }catch(error){
@@ -2309,7 +2315,7 @@ async function parkSeriesBeforeSynopsis(d,seriesKey,probe={}){
 
 async function choosePreflightReadySeries(runtime,d){
   const excluded=[];
-  const maxAttempts=25;
+  const maxAttempts=2;
   for(let attempt=0;attempt<maxAttempts;attempt++){
     const seriesKey=await chooseActiveSeries(d,{excludeSeriesKeys:excluded});
     if(!seriesKey)return '';
@@ -2329,8 +2335,8 @@ async function claimNext(runtime){
   const accountId=String(runtime.account.telegramUserId);
   const allowAny=isPublisherRuntime(runtime);
   // Skip every temporarily unrunnable series inside the same publish tick.
-  // Persisted blocks plus local exclusions prevent incomplete historical
-  // series from alternating forever and starving valid anime.
+  // Keeping exclusions local to this scan prevents two dead first episodes
+  // from alternating forever through the single legacy blockedSeriesKey slot.
   const seriesKey=await choosePreflightReadySeries(runtime,d);
   if(!seriesKey)return null;
 
