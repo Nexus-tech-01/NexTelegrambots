@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { Api } from 'teleproto';
 import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
+import { returnBigInt } from 'teleproto/Helpers.js';
 import { cfg, isOwnerId } from './config.mjs';
 import { customEmojiLibraryStats, listConnectedAccounts, patchSettings, settingsFor } from './store.mjs';
 import { sessionsText } from './session-view.mjs';
@@ -12,9 +13,56 @@ import { canHandleAiCommand, handleAiCommand } from './ai-engine.mjs';
 import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
 import { normalizeVideoNoteBuffer, sendTelegramMedia } from './media-send.mjs';
 import { deleteStoredReplyVideo, storeReplyVideo } from './reply-storage.mjs';
-import { ensureReplyHotCacheChannel, replyHotCachePeer } from './reply-hot-cache.mjs';
 import { commandMap } from './commands.mjs';
 import { createProgress, syncOwnedCustomEmojiLibrary } from './response-ui.mjs';
+
+function replyHotCachePeer(configured={}){
+  const channelId=String(configured?.hotCacheChannelId||'').trim();
+  const accessHash=String(configured?.hotCacheAccessHash||'').trim();
+  if(!channelId||!accessHash)return null;
+  return new Api.InputChannel({
+    channelId:returnBigInt(channelId),
+    accessHash:returnBigInt(accessHash)
+  });
+}
+
+async function ensureReplyHotCacheChannel(client,configured={}){
+  const existing=replyHotCachePeer(configured);
+  if(existing){
+    try{
+      await client.invoke(new Api.channels.GetChannels({id:[existing]}));
+      return {
+        peer:existing,
+        ref:{
+          hotCacheChannelId:String(configured.hotCacheChannelId),
+          hotCacheAccessHash:String(configured.hotCacheAccessHash)
+        }
+      };
+    }catch{}
+  }
+
+  const created=await client.invoke(new Api.channels.CreateChannel({
+    title:'NexAI · Internal Cache',
+    about:'Private NexAI media cache for instant automatic video-note replies.',
+    broadcast:true
+  }));
+  const chat=(created?.chats||[]).find(row=>row?.id!=null&&row?.accessHash!=null);
+  if(!chat)throw new Error('canal cache NexAI impossible à créer');
+  const peer=getInputChannel(chat);
+  try{
+    const inputPeer=new Api.InputPeerChannel({channelId:chat.id,accessHash:chat.accessHash});
+    await client.invoke(new Api.folders.EditPeerFolders({
+      folderPeers:[new Api.InputFolderPeer({peer:inputPeer,folderId:1})]
+    }));
+  }catch{}
+  return {
+    peer,
+    ref:{
+      hotCacheChannelId:String(chat.id),
+      hotCacheAccessHash:String(chat.accessHash)
+    }
+  };
+}
 
 const DL_MAP={
   cobalt:'facebook',facebook:'facebook',
