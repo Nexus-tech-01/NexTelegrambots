@@ -5,8 +5,6 @@ import crypto from 'node:crypto';
 import {execFile,spawn} from 'node:child_process';
 import {promisify} from 'node:util';
 import {fileURLToPath} from 'node:url';
-import {TelegramClient} from 'teleproto';
-import {StringSession} from 'teleproto/sessions/index.js';
 
 const run=promisify(execFile);
 const SELF=fileURLToPath(import.meta.url);
@@ -289,11 +287,26 @@ async function packCaption(character,count){
   ].join('\n\n');
 }
 
+let teleprotoModulesPromise=null;
+async function optionalTeleproto(){
+  if(!teleprotoModulesPromise){
+    teleprotoModulesPromise=Promise.all([
+      import('teleproto'),
+      import('teleproto/sessions/index.js')
+    ]).then(([core,sessions])=>({
+      TelegramClient:core.TelegramClient,
+      StringSession:sessions.StringSession
+    })).catch(()=>null);
+  }
+  return teleprotoModulesPromise;
+}
 async function telegramClient(){
   let session=USER_SESSION;
   if(!session)try{session=clean(await fs.readFile(SESSION_FILE,'utf8'))}catch{}
   if(!session||!API_ID||!API_HASH)return null;
-  const c=new TelegramClient(new StringSession(session),API_ID,API_HASH,{connectionRetries:8,autoReconnect:true,floodSleepThreshold:60});
+  const modules=await optionalTeleproto();
+  if(!modules?.TelegramClient||!modules?.StringSession)return null;
+  const c=new modules.TelegramClient(new modules.StringSession(session),API_ID,API_HASH,{connectionRetries:8,autoReconnect:true,floodSleepThreshold:60});
   await c.connect();
   return c;
 }
