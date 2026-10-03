@@ -491,6 +491,37 @@ export async function saveSharedBotIdentity({username,telegramBotId=''}={}){
   return {username:clean,telegramBotId:String(telegramBotId||''),updatedAt:now};
 }
 
+export async function replyStorageConfig(){
+  const d=await db();
+  const row=await d.collection('nexaccount_system').findOne({_id:'nexai_reply_storage'});
+  return {
+    chatId:String(row?.chatId||''),
+    title:String(row?.title||''),
+    botId:String(row?.botId||''),
+    botUsername:String(row?.botUsername||'').trim().replace(/^@/,''),
+    updatedAt:row?.updatedAt||null
+  };
+}
+
+export async function saveReplyStorageConfig({chatId,title='',botId='',botUsername=''}={}){
+  const id=String(chatId||'').trim();
+  if(!/^-?\d+$/.test(id))throw new Error('Invalid NexAI Storage chat id');
+  const d=await db(),now=new Date();
+  const clean={
+    chatId:id,
+    title:String(title||'').slice(0,240),
+    botId:String(botId||''),
+    botUsername:String(botUsername||'').trim().replace(/^@/,'').slice(0,64),
+    updatedAt:now
+  };
+  await d.collection('nexaccount_system').updateOne(
+    {_id:'nexai_reply_storage'},
+    {$set:clean,$setOnInsert:{createdAt:now}},
+    {upsert:true}
+  );
+  return clean;
+}
+
 export async function accountRecord(telegramUserId){
   const d=await db();
   return d.collection('nexaccount_accounts').findOne(
