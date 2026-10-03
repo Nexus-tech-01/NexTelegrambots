@@ -345,7 +345,14 @@ async function sendConnectTutorial(ctx,lang){
       return await ctx.replyWithVideo(tutorial.fileId,{
         caption,
         supports_streaming:true,
-        reply_markup:connectMarkup(lang)
+        reply_markup:{
+          inline_keyboard:[[
+            {
+              text:lang==='en'?'Open Mini App':'Ouvrir la Mini App',
+              web_app:{url:'https://nex-telegrambots.vercel.app/'}
+            }
+          ]]
+        }
       });
     }catch(error){
       console.error('[NexAI tutorial send]',String(error?.description||error?.message||error).slice(0,500));
