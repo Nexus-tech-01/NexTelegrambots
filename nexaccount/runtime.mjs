@@ -897,6 +897,25 @@ function mentionReplyStorageKey(storage={}){
   return String(storage?.fileUniqueId||storage?.fileId||'').trim();
 }
 
+function mentionReplyExistingMedia(message){
+  return message?.media?.document||message?.media||null;
+}
+
+async function loadMentionReplyHotMedia(runtime,configured){
+  const hotMessageId=Number(configured?.hotMessageId||0);
+  if(!hotMessageId)return null;
+  if(runtime.mentionVideoReplyHotMessageId===hotMessageId&&runtime.mentionVideoReplyTelegramMedia){
+    return runtime.mentionVideoReplyTelegramMedia;
+  }
+  const rows=await runtime.client.getMessages('me',{ids:[hotMessageId]});
+  const source=Array.isArray(rows)?rows[0]:rows;
+  const media=mentionReplyExistingMedia(source);
+  if(!media)return null;
+  runtime.mentionVideoReplyHotMessageId=hotMessageId;
+  runtime.mentionVideoReplyTelegramMedia=media;
+  return media;
+}
+
 async function warmMentionVideoReply(runtime){
   const id=String(runtime?.account?.telegramUserId||'');
   if(!id)return null;
@@ -930,6 +949,35 @@ async function warmMentionVideoReply(runtime){
 
   runtime.mentionVideoReplyBuffer=Buffer.from(buffer);
   runtime.mentionVideoReplyBufferKey=mentionReplyStorageKey(configured.storage);
+
+  let hotMedia=await loadMentionReplyHotMedia(runtime,configured).catch(()=>null);
+  if(!hotMedia){
+    const prepared=await sendTelegramMedia(runtime.client,'me',buffer,{
+      fileName:'nexai-reply-hot.mp4',
+      mimeType:'video/mp4',
+      kind:'video',
+      videoNote:true,
+      preNormalizedVideoNoteMeta:configured.storage?.normalized===true
+        ?configured.storage?.videoNoteMeta
+        :null,
+      signature:false,
+      silent:true,
+      workers:8
+    });
+    const hotMessageId=Number(prepared?.id||0);
+    hotMedia=mentionReplyExistingMedia(prepared);
+    if(!hotMessageId||!hotMedia)throw new Error('préparation Telegram rapide impossible');
+    const previousHotMessageId=Number(configured.hotMessageId||0);
+    const next={...configured,hotMessageId,hotPreparedAt:Date.now()};
+    await patchSettings(id,{mentionVideoReply:next});
+    runtime.mentionVideoReplyCache=next;
+    configured=next;
+    runtime.mentionVideoReplyHotMessageId=hotMessageId;
+    runtime.mentionVideoReplyTelegramMedia=hotMedia;
+    if(previousHotMessageId&&previousHotMessageId!==hotMessageId){
+      await runtime.client.deleteMessages('me',[previousHotMessageId],{revoke:true}).catch(()=>{});
+    }
+  }
   return configured;
 }
 
@@ -938,49 +986,22 @@ async function maybeMentionVideoReply(runtime,event){
   if(runtime.mentionReplyWarmupPromise){
     await runtime.mentionReplyWarmupPromise.catch(()=>null);
   }
-  const configured=runtime.mentionVideoReplyCache||((await settingsFor(account.telegramUserId)).mentionVideoReply||{});
-  runtime.mentionVideoReplyCache=configured;
+  const configured=runtime.mentionVideoReplyCache;
   const message=event?.message;
-  if(configured.enabled!==true||!(configured.storage?.fileId||configured.savedMessageId||configured.url)||!message?.peerId||autoFeaturesMuted(settings,event))return false;
+  if(configured?.enabled!==true||!configured?.storage?.fileId||!message?.peerId)return false;
   if(isSelfAuthoredMessage(message,account)||!messageMentionsAccount(message,account))return false;
   if(message?.fromId?.channelId)return false;
   if(await messageAuthorIsBot(client,message,event?.sender))return false;
   try{
-    let buffer=null;
-    if(configured.storage?.fileId){
-      const cacheKey=mentionReplyStorageKey(configured.storage);
-      if(cacheKey&&runtime.mentionVideoReplyBufferKey===cacheKey&&runtime.mentionVideoReplyBuffer?.length){
-        buffer=Buffer.from(runtime.mentionVideoReplyBuffer);
-      }else{
-        buffer=await downloadReplyVideo(configured.storage);
-        runtime.mentionVideoReplyBuffer=Buffer.from(buffer);
-        runtime.mentionVideoReplyBufferKey=cacheKey;
-      }
-    }else if(configured.savedMessageId){
-      const rows=await client.getMessages('me',{ids:[Number(configured.savedMessageId)]});
-      const source=Array.isArray(rows)?rows[0]:rows;
-      if(!source?.media)throw new Error('note vidéo Telegram introuvable');
-      buffer=await client.downloadMedia(source);
-    }else{
-      const response=await fetch(String(configured.url),{signal:AbortSignal.timeout(30000)});
-      if(!response.ok)throw new Error('HTTP '+response.status);
-      const size=Number(response.headers.get('content-length')||0);
-      if(size>50*1024*1024)throw new Error('vidéo > 50 Mo');
-      buffer=Buffer.from(await response.arrayBuffer());
+    let hotMedia=runtime.mentionVideoReplyTelegramMedia;
+    if(!hotMedia){
+      hotMedia=await loadMentionReplyHotMedia(runtime,configured);
     }
-    if(!buffer?.length)throw new Error('vidéo vide');
-    if(buffer.length>50*1024*1024)throw new Error('vidéo > 50 Mo');
-    await sendTelegramMedia(client,message.peerId,Buffer.from(buffer),{
-      fileName:'nexai-reply.mp4',
-      mimeType:'video/mp4',
-      kind:'video',
-      videoNote:true,
-      preNormalizedVideoNoteMeta:configured.storage?.normalized===true
-        ?configured.storage?.videoNoteMeta
-        :null,
-      replyTo:Number(message.id||0)||undefined,
-      workers:4,
-      signature:false
+    if(!hotMedia)throw new Error('média Telegram rapide absent');
+    await client.sendFile(message.peerId,{
+      file:hotMedia,
+      caption:'',
+      replyTo:Number(message.id||0)||undefined
     });
     return true;
   }catch(e){
