@@ -287,3 +287,14 @@ export function stickerTransformZone(value='bottom'){
   const [x,y,w,h]=zoneRect(value);
   return {x,y,w,h};
 }
+
+export async function normalizeSticker(source){
+  const src=await sourceInput(source);
+  try{
+    const filter="[0:v]fps=30,scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba[out]";
+    if(src.animated){
+      return await encodeVideo(['-i',src.file],filter);
+    }
+    return await encodeStatic(['-i',src.file],filter);
+  }finally{cleanup(...src.cleanup)}
+}
