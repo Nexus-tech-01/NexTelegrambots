@@ -1001,7 +1001,7 @@ async function serve(state){
       const u=new URL(req.url,'http://localhost');
       if(req.method==='GET'&&u.pathname==='/healthz'){
         res.writeHead(200,{'content-type':'application/json'});
-        return res.end(JSON.stringify({ok:true,pid:process.pid,nextPackAt:state.nextPackAt,orderWindowUntil:state.orderWindowUntil,pending:state.queue.filter(x=>x.status==='pending').length,lastDailyPostAt:state.lastDailyPostAt||0,choiceSession:state.choiceSession||null,mysteryInteractiveDay:state.mysteryInteractiveDay||'',mysteryRevealDay:state.mysteryRevealDay||'',mysterySession:state.mysterySession||null,dailyDone:Object.keys(state.dailyDone||{}).slice(-12)}));
+        return res.end(JSON.stringify({ok:true,pid:process.pid,nextPackAt:state.nextPackAt,orderWindowUntil:state.orderWindowUntil,pending:state.queue.filter(x=>x.status==='pending').length,lastDailyPostAt:state.lastDailyPostAt||0,choiceSession:state.choiceSession||null,mysteryInteractiveDay:state.mysteryInteractiveDay||'',mysteryRevealDay:state.mysteryRevealDay||'',mysterySession:state.mysterySession||null,lastTickError:state.lastTickError||'',lastTickErrorAt:state.lastTickErrorAt||'',dailyDone:Object.keys(state.dailyDone||{}).slice(-12)}));
       }
       if(req.method==='POST'&&u.pathname==='/incoming'){
         const chunks=[];for await(const c of req)chunks.push(c);
@@ -1025,9 +1025,14 @@ async function worker(){
   for(;;){
     try{
       await tick(state);
+      state.lastTickError='';
+      state.lastTickErrorAt='';
       await writeHealth({nextPackAt:state.nextPackAt,orderWindowUntil:state.orderWindowUntil,pending:state.queue.filter(x=>x.status==='pending').length});
     }catch(error){
-      await writeHealth({ok:false,error:clean(error?.message||error).slice(0,400)}).catch(()=>{});
+      state.lastTickError=clean(error?.message||error).slice(0,500);
+      state.lastTickErrorAt=nowIso();
+      await saveState(state).catch(()=>{});
+      await writeHealth({ok:false,error:state.lastTickError}).catch(()=>{});
     }
     await sleep(60_000);
   }
