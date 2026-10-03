@@ -400,7 +400,7 @@ async function runTransformPackJob({
 }) {
   const {client,account}=runtime;
   let added=0,created=false;
-  const label=kind==='filitake'?'Filitake':kind==='ultratake'?'Ultratake':'Noteclone';
+  const label=kind==='filitake'?'Filitake':(kind==='ultratake'||kind==='delfilig')?'Delfilig':'Noteclone';
   console.log('[NexAi sticker transform]',id,'started','kind='+kind,'account='+account.telegramUserId,'total='+docs.length,'pack='+newName);
   try{
     for(let i=0;i<docs.length;i++){
@@ -659,7 +659,7 @@ export function buildWastickersArchive({title='NexAi Stickers',author='NexAi',st
   return makeZip(files);
 }
 
-export const STICKER_ENGINE_COMMANDS=new Set(['sticker','stickerinfo','clonepack','createpack','mypacks','exportwhatsapp','ultratake','filitake','noteclone']);
+export const STICKER_ENGINE_COMMANDS=new Set(['sticker','stickerinfo','clonepack','createpack','mypacks','exportwhatsapp','ultratake','delfilig','filitake','noteclone']);
 export function canHandleStickerCommand(name){return STICKER_ENGINE_COMMANDS.has(String(name||'').toLowerCase())}
 
 let stickerDiagnosticCache={at:0,value:null};
@@ -767,7 +767,7 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
     return true;
   }
 
-  if(name==='ultratake'||name==='filitake'||name==='noteclone'){
+  if(name==='ultratake'||name==='delfilig'||name==='filitake'||name==='noteclone'){
     const set=await sourceSet(client,source).catch(()=>null);
     const scope=transformScope(args,set);
     if(scope==='pack'&&!set?.documents?.length){
@@ -792,8 +792,8 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
       const opacity=transformOpacity(transformArg(args,'opacity','18'),0.18);
       const position=transformArg(args,'position','bottom')||'bottom';
       transform=raw=>addStickerWatermark(raw,{text:title,color,opacity,position});
-    }else if(name==='ultratake'){
-      title=requestedTitle||(sourceTitle+' Ultra').slice(0,64);
+    }else if(name==='ultratake'||name==='delfilig'){
+      title=requestedTitle||(sourceTitle+(name==='delfilig'?' Clean':' Ultra')).slice(0,64);
       const zone=transformArg(args,'zone','bottom')||'bottom';
       transform=raw=>removeStickerWatermark(raw,{zone});
     }else{
@@ -802,7 +802,7 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
     }
 
     const newName=packName(account.telegramUserId,title);
-    const label=name==='filitake'?'Filitake':name==='ultratake'?'Ultratake':'Noteclone';
+    const label=name==='filitake'?'Filitake':name==='delfilig'?'Delfilig':name==='ultratake'?'Ultratake':'Noteclone';
     const progress=externalProgress||await startProgress(client,peer,'⏳ '+label+' · 0/'+docs.length+'…');
     launchTransformPackJob({
       runtime,docs,title,newName,progress,sourcePackName,kind,transform
