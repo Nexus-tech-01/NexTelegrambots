@@ -885,6 +885,38 @@ async function maybeNlpMode(runtime,event){
   }
 }
 
+async function maybeMentionVideoReply(runtime,event){
+  const {client,account}=runtime;
+  const settings=await settingsFor(account.telegramUserId);
+  const configured=settings.mentionVideoReply||{};
+  const message=event?.message;
+  if(configured.enabled!==true||!configured.url||!message?.peerId||autoFeaturesMuted(settings,event))return false;
+  if(isSelfAuthoredMessage(message,account)||!messageMentionsAccount(message,account))return false;
+  if(message?.fromId?.channelId)return false;
+  if(await messageAuthorIsBot(client,message,event?.sender))return false;
+  try{
+    const response=await fetch(String(configured.url),{signal:AbortSignal.timeout(30000)});
+    if(!response.ok)throw new Error('HTTP '+response.status);
+    const size=Number(response.headers.get('content-length')||0);
+    if(size>50*1024*1024)throw new Error('vidéo > 50 Mo');
+    const buffer=Buffer.from(await response.arrayBuffer());
+    if(!buffer.length)throw new Error('vidéo vide');
+    if(buffer.length>50*1024*1024)throw new Error('vidéo > 50 Mo');
+    await sendTelegramMedia(client,message.peerId,buffer,{
+      fileName:'nexai-reply.mp4',
+      mimeType:'video/mp4',
+      kind:'video',
+      videoNote:true,
+      replyTo:Number(message.id||0)||undefined,
+      signature:false
+    });
+    return true;
+  }catch(e){
+    console.error('[NexAccount mentionVideoReply]',account.telegramUserId,String(e?.message||e));
+    return false;
+  }
+}
+
 async function maybeAutoReply(runtime,event){
   const {client,account}=runtime;
   const settings=await settingsFor(account.telegramUserId);
@@ -1700,7 +1732,8 @@ export async function attachConnectedClient(client,account,{leaseOwned=false,ses
       await maybeAutoModerate(runtime,event);
       await maybeServiceGreeting(runtime,event);
       await maybeAutoReact(runtime,event);
-      const autoReplied=await maybeAutoReply(runtime,event);
+      const mentionVideoReplied=await maybeMentionVideoReply(runtime,event);
+      const autoReplied=mentionVideoReplied?true:await maybeAutoReply(runtime,event);
       if(!autoReplied)await maybeNlpMode(runtime,event);
     }catch(e){console.error('[NexAccount incoming]',id,e)}
   },new NewMessage({incoming:true}));
