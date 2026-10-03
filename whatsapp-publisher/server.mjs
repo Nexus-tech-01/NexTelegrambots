@@ -151,6 +151,11 @@ let otakuSendChain=Promise.resolve();
 let otakuLastSendAt=0;
 const otakuPollMessages=new Map();
 const otakuPollRecords=new Map();
+const OTAKU_ACTION_LEDGER_FILE='otaku-action-ledger.json';
+const OTAKU_ACTION_ID_TTL_MS=Math.max(24*60*60_000,Number(process.env.OTAKU_ACTION_ID_TTL_MS||14*24*60*60_000));
+const OTAKU_CONTENT_DEDUP_TTL_MS=Math.max(10*60_000,Number(process.env.OTAKU_CONTENT_DEDUP_TTL_MS||12*60*60_000));
+const OTAKU_ACTION_LEDGER_MAX=Math.max(100,Math.min(5000,Number(process.env.OTAKU_ACTION_LEDGER_MAX||1200)));
+let otakuActionLedger=[];
 let stickGoodSendChain=Promise.resolve();
 let stickGoodLastSendAt=0;
 
@@ -298,6 +303,8 @@ function persistOtakuPollSummary(){
   for(const [id,r] of otakuPollRecords){
     rows.push({
       id,sessionId:r.sessionId||null,question:r.question||'',
+      options:Array.isArray(r.options)?r.options:[],
+      message:r.message||null,
       correctAnswer:r.correctAnswer||null,quiz:Boolean(r.quiz),
       votes:r.votes||{},createdAt:r.createdAt||null
     });
@@ -310,7 +317,7 @@ function aggregateOtakuVotes(record){
     crypto.createHash('sha256').update(Buffer.from(String(name))).digest('hex'),
     String(name)
   ]));
-  const votes={};
+  const votes={...(record?.votes||{})};
   for(const update of record?.updates||[]){
     const vote=update?.vote;
     const voter=String(
@@ -370,6 +377,102 @@ async function waitForQr(timeoutMs=15000){
 const f = name => path.join(DATA_DIR, name);
 function readJson(name, fallback) { try { return JSON.parse(fs.readFileSync(f(name), 'utf8')); } catch { return fallback; } }
 function writeJson(name, value) { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(f(name), JSON.stringify(value, null, 2)); }
+
+function otakuStable(value){
+  if(value==null)return null;
+  if(Array.isArray(value))return value.map(otakuStable);
+  if(Buffer.isBuffer(value)||value instanceof Uint8Array)return Buffer.from(value).toString('hex');
+  if(typeof value==='object'){
+    const out={};
+    for(const key of Object.keys(value).sort()){
+      if(['localPath','createdAt','at','timestamp'].includes(key))continue;
+      out[key]=otakuStable(value[key]);
+    }
+    return out;
+  }
+  if(typeof value==='string')return value.trim().replace(/\s+/g,' ');
+  return value;
+}
+function otakuActionFingerprint(raw={}){
+  const kind=String(raw.kind||'').toLowerCase();
+  const src=kind==='pack'?raw.cover:(raw.image||{url:raw.imageUrl,fileName:raw.fileName});
+  const material={
+    kind,
+    text:String(raw.text||raw.caption||''),
+    question:String(raw.question||''),
+    options:Array.isArray(raw.options)?raw.options:[],
+    quiz:Boolean(raw.quiz),
+    correctAnswer:raw.correctAnswer||'',
+    character:raw.character||'',
+    count:Number(raw.count||0),
+    source:src?{url:src.url||'',fileName:src.fileName||path.basename(String(src.localPath||''))}:null
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(otakuStable(material))).digest('hex');
+}
+function pruneOtakuActionLedger(now=Date.now()){
+  otakuActionLedger=otakuActionLedger
+    .filter(row=>row&&Number(row.at||0)>0&&now-Number(row.at||0)<=OTAKU_ACTION_ID_TTL_MS)
+    .sort((a,b)=>Number(a.at||0)-Number(b.at||0))
+    .slice(-OTAKU_ACTION_LEDGER_MAX);
+}
+function persistOtakuActionLedger(){
+  pruneOtakuActionLedger();
+  writeJson(OTAKU_ACTION_LEDGER_FILE,otakuActionLedger);
+}
+function reserveOtakuAction(raw={}){
+  const now=Date.now();
+  pruneOtakuActionLedger(now);
+  const id=String(raw.id||'').trim();
+  const fingerprint=otakuActionFingerprint(raw);
+  const sameId=id?otakuActionLedger.find(row=>row.id===id&&now-Number(row.at||0)<=OTAKU_ACTION_ID_TTL_MS):null;
+  if(sameId)return {duplicate:true,id,fingerprint,actionId:sameId.actionId||null,reason:'id'};
+  const sameContent=otakuActionLedger.find(row=>row.fingerprint===fingerprint&&now-Number(row.at||0)<=OTAKU_CONTENT_DEDUP_TTL_MS);
+  if(sameContent)return {duplicate:true,id,fingerprint,actionId:sameContent.actionId||null,reason:'content'};
+  const token=crypto.randomUUID();
+  otakuActionLedger.push({token,id,fingerprint,status:'pending',at:now,actionId:null});
+  persistOtakuActionLedger();
+  return {duplicate:false,token,id,fingerprint};
+}
+function completeOtakuAction(claim,actionId=null){
+  if(!claim?.token)return;
+  const row=otakuActionLedger.find(x=>x.token===claim.token);
+  if(!row)return;
+  row.status='sent';row.actionId=actionId||row.actionId||null;row.sentAt=Date.now();
+  persistOtakuActionLedger();
+}
+function releaseOtakuAction(claim){
+  if(!claim?.token)return;
+  otakuActionLedger=otakuActionLedger.filter(x=>x.token!==claim.token);
+  persistOtakuActionLedger();
+}
+function loadOtakuDurableState(){
+  const ledger=readJson(OTAKU_ACTION_LEDGER_FILE,[]);
+  otakuActionLedger=Array.isArray(ledger)?ledger:[];
+  pruneOtakuActionLedger();
+  const rows=readJson('otaku-polls.json',[]);
+  for(const row of Array.isArray(rows)?rows:[]){
+    const id=String(row?.id||'').trim();
+    if(!id)continue;
+    let message=null;
+    if(row?.message){
+      try{message=proto.Message.fromObject(row.message)}catch{message=row.message}
+    }
+    if(message)otakuPollMessages.set(id,{message});
+    otakuPollRecords.set(id,{
+      message,
+      sessionId:String(row?.sessionId||''),
+      question:String(row?.question||''),
+      options:Array.isArray(row?.options)?row.options.map(String):[],
+      correctAnswer:row?.correctAnswer==null?null:String(row.correctAnswer),
+      quiz:Boolean(row?.quiz),
+      updates:[],
+      votes:row?.votes&&typeof row.votes==='object'?row.votes:{},
+      createdAt:row?.createdAt||null
+    });
+  }
+}
+loadOtakuDurableState();
+
 function collectNewsletterMessageNodes(value,out=[],depth=0){
   if(depth>10||value==null) return out;
   if(Array.isArray(value)){ for(const item of value) collectNewsletterMessageNodes(item,out,depth+1); return out; }
@@ -1191,16 +1294,23 @@ async function runOtakuAction(raw={}){
   const kind=String(raw.kind||'').toLowerCase();
 
   return withOtakuSendLock(async()=>{
+    const claim=reserveOtakuAction(raw);
+    if(claim.duplicate){
+      logger.warn({kind,id:String(raw.id||''),reason:claim.reason},'Otaku duplicate publication blocked');
+      return {ok:true,duplicate:true,actionId:claim.actionId||null,dedupReason:claim.reason};
+    }
+    const done=result=>{completeOtakuAction(claim,result?.actionId||null);return result};
+    try{
     if(kind==='text'){
       const id=await sendNewsletterTextDirect(jid,String(raw.text||''));
       queueOtakuRelay(raw).catch(()=>{});
-      return {ok:true,actionId:id};
+      return done({ok:true,actionId:id});
     }
     if(kind==='image'){
       const src=await otakuMediaSource(raw.image||{url:raw.imageUrl,localPath:raw.localPath});
       const sent=await socket.sendMessage(jid,{image:src,caption:String(raw.text||raw.caption||'').slice(0,1024)});
       queueOtakuRelay(raw).catch(()=>{});
-      return {ok:true,actionId:sent?.key?.id||null};
+      return done({ok:true,actionId:sent?.key?.id||null});
     }
     if(kind==='poll'){
       const question=String(raw.question||'Question').slice(0,255);
@@ -1230,7 +1340,7 @@ async function runOtakuAction(raw={}){
         });
         persistOtakuPollSummary();
       }
-      return {ok:true,actionId:id};
+      return done({ok:true,actionId:id});
     }
     if(kind==='pack'){
       if(!raw.pack)throw new Error('Pack Otaku sans fichier .wastickers');
@@ -1251,14 +1361,18 @@ async function runOtakuAction(raw={}){
         caption:'📦 '+character+(count?' · '+count+' stickers':'')+'\n💜 Otaku Nexus · pack complet'
       });
       queueOtakuRelay(raw).catch(()=>{});
-      return {ok:true,actionId:sent?.key?.id||String(raw.id||''),sentCount:1};
+      return done({ok:true,actionId:sent?.key?.id||String(raw.id||''),sentCount:1});
     }
     if(kind==='quiz_results'){
       const text=otakuRankText(String(raw.sessionId||''));
       const id=await sendNewsletterTextDirect(jid,text);
-      return {ok:true,actionId:id};
+      return done({ok:true,actionId:id});
     }
     throw new Error('Action Otaku inconnue: '+kind);
+    }catch(error){
+      releaseOtakuAction(claim);
+      throw error;
+    }
   });
 }
 
