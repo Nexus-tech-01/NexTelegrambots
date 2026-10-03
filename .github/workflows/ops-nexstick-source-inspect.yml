@@ -12,27 +12,19 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 7
+    timeout-minutes: 5
     steps:
-      - name: Locate live NexStick process
+      - name: Read Pterodactyl startup console
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-chatgpt-diag-once"             -o /tmp/procs.json
           curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"             -o /tmp/console.json
           python3 - <<'PY'
-          import json,re
-          p=json.load(open('/tmp/procs.json'))
-          print('=== PROCESS DIAG ===')
-          print(json.dumps(p,ensure_ascii=False,indent=2)[:90000])
+          import json
           c=json.load(open('/tmp/console.json'))
-          print('\n=== CONSOLE MATCHES ===')
-          lines=c.get('logs') or []
-          pat=re.compile(r'nexstick|the_nexus_techbot|sticker|nexus-bridge|adapter',re.I)
-          for line in lines:
-              if pat.search(str(line)):
-                  print(line)
-          print('\nSTATE',c.get('state'),'TOTAL_LOGS',len(lines))
+          print('OK',c.get('ok'),'STATE',c.get('state'))
+          for line in c.get('logs') or []:
+              print(line)
           PY
 
-# nexstick-process-locate-20261003
+# nexstick-console-locate-20261003
