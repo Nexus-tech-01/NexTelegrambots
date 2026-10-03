@@ -93,4 +93,21 @@ const daemonSource=fs.readFileSync(path.resolve(here,'../daemon.mjs'),'utf8');
 assert.equal(daemonSource.includes('NEXACCOUNT_PAIRING_ONLY'),true,'daemon must support pairing-only bridge mode');
 assert.equal(daemonSource.includes("if(PAIRING_ONLY){"),true,'pairing-only mode must avoid attaching paired accounts as runtimes');
 
+const secureRpcSource=fs.readFileSync(path.resolve(here,'../secure-rpc.mjs'),'utf8');
+assert.equal(
+  secureRpcSource.includes('/var/lib/nex/runtime/public/nexaccount/pairing-crypto'),
+  true,
+  'pairing RSA keys must live outside release-local .runtime directories'
+);
+assert.equal(
+  secureRpcSource.includes(".pairing-key.lock"),
+  true,
+  'pairing RSA key creation must be guarded against concurrent generators'
+);
+assert.equal(
+  secureRpcSource.includes("path.join(here,'.runtime')"),
+  false,
+  'pairing RSA keys must never rotate merely because a new release is promoted'
+);
+
 console.log('core architecture ok');
