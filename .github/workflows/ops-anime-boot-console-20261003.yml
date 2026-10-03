@@ -12,17 +12,23 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
-      - name: Restore canonical MAIN_FILE and start Pterodactyl
+      - name: Safely prune caches and stale temporary media
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-safe-cache-clean-once"
+          echo
+      - name: Restore canonical startup and start server
         shell: bash
         run: |
           set -euo pipefail
           curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-mainfile-repair"
           echo
-      - name: Verify server state and anime runtime
+      - name: Verify Pterodactyl and NexAnime runtime
         shell: bash
         run: |
-          sleep 20
+          sleep 25
           curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-diag"
           echo
