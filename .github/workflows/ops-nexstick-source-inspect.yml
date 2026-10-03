@@ -12,19 +12,29 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Read Pterodactyl startup console
+      - name: Map allowed Pterodactyl runtime paths
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-console-live"             -o /tmp/console.json
+          BASE="https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe"
+          for root in bots services config scripts ecosystem pterodactyl; do
+            curl --fail-with-body --silent --show-error "$BASE?root=%2F$root" -o "/tmp/$root.json"
+          done
           python3 - <<'PY'
-          import json
-          c=json.load(open('/tmp/console.json'))
-          print('OK',c.get('ok'),'STATE',c.get('state'))
-          for line in c.get('logs') or []:
-              print(line)
+          import json,re
+          pat=re.compile(r'nexstick|stick|telegram|bot|launch|start|service|ecosystem|pm2|supervisor|package|docker|main|index',re.I)
+          for root in ['bots','services','config','scripts','ecosystem','pterodactyl']:
+              d=json.load(open('/tmp/'+root+'.json'))
+              print('\n=== /'+root+' === ok=',d.get('ok'),'files=',d.get('files'),'visited=',d.get('visited'),'truncated=',d.get('truncated'))
+              rows=[]
+              for x in d.get('fileList') or []:
+                  p=str(x.get('path') or '')
+                  if pat.search(p):
+                      rows.append((p,x.get('size')))
+              for p,s in rows[:1200]:
+                  print(p,'size='+str(s))
           PY
 
-# nexstick-console-locate-20261003
+# nexstick-path-map-20261003
