@@ -12,7 +12,7 @@ import { ownerPanelText, usersText, countriesText, languagesText, userText, botS
 import { listStyles, toSmallCaps } from './styles.mjs';
 import { animatedCustomEmojiEntitySpecs, animatedCustomEmojiEntitySpecsFromLibrary, ensureEmojiLibraryPalette, sanitizeAnimatedEmojiText } from './response-ui.mjs';
 import { sessionsText } from './session-view.mjs';
-import { bindReplyStorageChannel, resolveReplyStorageChannel, replyStorageStatus, saveReplyStorageBotToken } from './reply-storage.mjs';
+import { bindReplyStorageChannel, resolveReplyStorageChannel, replyStorageStatus, saveReplyStorageBotToken, storeReplyVideo } from './reply-storage.mjs';
 
 const commands=commandMap();
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
@@ -211,6 +211,7 @@ function callbackAccessAllowed(clickerId,accountId,accessMode='private',clickerU
 const CONNECT_TUTORIAL_CALLBACK='connect:tutorial';
 const CONNECT_TUTORIAL_RECORD_ID='nexai_connection_tutorial';
 const TELEGRAM_BOT_VIDEO_LIMIT=50*1024*1024;
+const TELEGRAM_BOT_DOWNLOAD_LIMIT=20*1024*1024;
 
 async function tutorialVideoConfig(){
   const d=await db();
@@ -256,7 +257,45 @@ async function saveTutorialVideoConfig(value={}){
   return clean;
 }
 
-async function archiveTutorialVideo(ctx,message){
+async function downloadMainBotFile(fileId){
+  const info=await bot.api.getFile(String(fileId));
+  const size=Number(info?.file_size||0);
+  if(size>TELEGRAM_BOT_DOWNLOAD_LIMIT)throw new Error('tutorial_bot_download_limit');
+  const filePath=String(info?.file_path||'');
+  if(!filePath)throw new Error('tutorial_file_path_missing');
+  const token=await loadBotToken();
+  const response=await fetch('https://api.telegram.org/file/bot'+token+'/'+filePath,{
+    signal:AbortSignal.timeout(45000)
+  });
+  if(!response.ok)throw new Error('tutorial_download_http_'+response.status);
+  const buffer=Buffer.from(await response.arrayBuffer());
+  if(!buffer.length)throw new Error('tutorial_download_empty');
+  if(buffer.length>TELEGRAM_BOT_DOWNLOAD_LIMIT)throw new Error('tutorial_bot_download_limit');
+  return buffer;
+}
+
+async function archiveTutorialVideo(ctx,message,video){
+  const size=Number(video?.file_size||0);
+
+  if(size>0&&size<=TELEGRAM_BOT_DOWNLOAD_LIMIT){
+    try{
+      const buffer=await downloadMainBotFile(video.file_id);
+      const stored=await storeReplyVideo(buffer,{
+        telegramUserId:'tutorial:'+String(ctx.from?.id||''),
+        filenamePrefix:'nexai-connection-tutorial-hq',
+        caption:'NexAI · Tutoriel connexion · HQ'
+      });
+      return {
+        archived:true,
+        storageChatId:String(stored.chatId||''),
+        storageMessageId:Number(stored.messageId||0),
+        storageProvider:'nexai-storage-bot'
+      };
+    }catch(error){
+      console.warn('[NexAI tutorial storage bot]',String(error?.description||error?.message||error).slice(0,400));
+    }
+  }
+
   try{
     const storage=await resolveReplyStorageChannel({discover:true});
     const copied=await ctx.api.copyMessage(
@@ -272,11 +311,12 @@ async function archiveTutorialVideo(ctx,message){
     return {
       archived:true,
       storageChatId:String(storage.chatId||''),
-      storageMessageId:Number(copied?.message_id||0)
+      storageMessageId:Number(copied?.message_id||0),
+      storageProvider:'nexai-main-bot-copy'
     };
   }catch(error){
     console.warn('[NexAI tutorial archive]',String(error?.description||error?.message||error).slice(0,400));
-    return {archived:false,storageChatId:'',storageMessageId:0};
+    return {archived:false,storageChatId:'',storageMessageId:0,storageProvider:'telegram-file-id'};
   }
 }
 
@@ -1004,7 +1044,7 @@ export async function startInlineBot(){
 
     try{
       const previous=await tutorialVideoConfig().catch(()=>({}));
-      const archive=await archiveTutorialVideo(ctx,replied);
+      const archive=await archiveTutorialVideo(ctx,replied,video);
       const saved=await saveTutorialVideoConfig({
         fileId:String(video.file_id),
         fileUniqueId:String(video.file_unique_id||''),
@@ -1035,7 +1075,8 @@ export async function startInlineBot(){
         'Tutoriel NexAI enregistré ✅\n'+
         'Qualité : conservée via le fichier Telegram, sans réencodage à chaque envoi.\n'+
         'Taille : '+(size?Math.round(size/1024/1024*10)/10+' Mo':'Telegram')+'\n'+
-        'Stockage : '+(archive.archived?'NexAI Storage + file_id Telegram persistant':'file_id Telegram persistant')+'\n\n'+
+        'Stockage : '+(archive.archived?'NexAI Storage + file_id Telegram persistant':'file_id Telegram persistant')+'\n'+
+        'Mode : '+String(archive.storageProvider||'telegram-file-id')+'\n\n'+
         'Le bouton « 🎬 Voir le tuto » enverra maintenant cette vidéo.'
       );
     }catch(error){
