@@ -15,27 +15,39 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
-      - name: Read live NexStick source securely
+      - name: Read live NexStick and bridge source
         shell: bash
         env:
-          ENDPOINT: https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?mode=nexstick-source
+          NEXSTICK_ENDPOINT: https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?mode=nexstick-source
+          BRIDGE_ENDPOINT: https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=%2Fnexus-bridge
         run: |
           set -euo pipefail
           OIDC_JSON="$(curl --fail-with-body --silent --show-error             -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=nxc-nexstick-source-read")"
           OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"$OIDC_JSON")"
-          curl --fail-with-body --silent --show-error             -H "Authorization: Bearer $OIDC_TOKEN"             "$ENDPOINT" -o /tmp/nexstick-source.json
+
+          curl --fail-with-body --silent --show-error             -H "Authorization: Bearer $OIDC_TOKEN"             "$NEXSTICK_ENDPOINT" -o /tmp/nexstick.json
+          curl --fail-with-body --silent --show-error             "$BRIDGE_ENDPOINT" -o /tmp/bridge.json
+
           python3 - <<'PY'
           import json
-          d=json.load(open('/tmp/nexstick-source.json'))
-          if d.get('ok') is not True:
-              raise SystemExit(str(d))
-          print('OK',d.get('ok'),'ROOT',d.get('root'),'FILES',d.get('files'),'VISITED',d.get('visited'))
-          for x in d.get('fileList') or []:
+          n=json.load(open('/tmp/nexstick.json'))
+          print('NEXSTICK',n.get('ok'),n.get('root'),'FILES',n.get('files'),'VISITED',n.get('visited'))
+          for x in n.get('fileList') or []:
               print('\n=== '+str(x.get('path'))+' ===')
-              if x.get('content') is not None:
-                  print(x['content'])
-              else:
-                  print('<binary or too large: '+str(x.get('size'))+' bytes>')
+              if x.get('content') is not None: print(x['content'])
+
+          b=json.load(open('/tmp/bridge.json'))
+          print('\nBRIDGE',b.get('ok'),'FILES',b.get('files'))
+          wanted={
+            '/nexus-bridge/_shared.mjs',
+            '/nexus-bridge/receiver.mjs',
+            '/nexus-bridge/adapter-loader.mjs',
+            '/nexus-bridge/adapters/nexstick.mjs'
+          }
+          for x in b.get('fileList') or []:
+              if x.get('path') in wanted:
+                  print('\n=== '+x['path']+' ===')
+                  print(x.get('content') or '<no content>')
           PY
 
-# nexstick-secure-source-read-20261003
+# nexstick-routing-read-20261003
