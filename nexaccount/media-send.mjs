@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -87,6 +87,32 @@ async function normalizeVideoNoteFile(inputPath,outputPath){
   const meta=await probeVideoFile(outputPath);
   if(meta.width!==meta.height)throw new Error('video-note normalisée non carrée');
   return {filePath:outputPath,...meta};
+}
+
+export async function normalizeVideoNoteBuffer(data){
+  const buffer=Buffer.from(data||[]);
+  if(!buffer.length)throw new Error('vidéo vide');
+  const dir=path.join(
+    os.tmpdir(),
+    'nexai-videonote-normalize-'+process.pid+'-'+Date.now()+'-'+crypto.randomBytes(6).toString('hex')
+  );
+  await mkdir(dir,{recursive:true});
+  const inputPath=path.join(dir,'input.mp4');
+  const outputPath=path.join(dir,'normalized.mp4');
+  await writeFile(inputPath,buffer);
+  try{
+    const meta=await normalizeVideoNoteFile(inputPath,outputPath);
+    const normalized=await readFile(meta.filePath);
+    if(!normalized.length)throw new Error('video-note normalisée vide');
+    return {
+      buffer:Buffer.from(normalized),
+      width:Math.max(1,Number(meta.width)||640),
+      height:Math.max(1,Number(meta.height)||640),
+      duration:Math.max(1,Math.min(59,Number(meta.duration)||1))
+    };
+  }finally{
+    await rm(dir,{recursive:true,force:true}).catch(()=>{});
+  }
 }
 
 function cleanMime(value){
@@ -249,7 +275,7 @@ export function prepareTelegramMedia(data,{fileName='media',mimeType='',kind='au
 
 export async function sendTelegramMedia(client,peer,data,{
   fileName='media',mimeType='',kind='auto',caption='',formattingEntities,
-  voiceNote=false,videoNote=false,buttons,replyTo,silent,parseMode,workers,thumb,afterSend,onUploadProgress,signature=true
+  voiceNote=false,videoNote=false,preNormalizedVideoNoteMeta=null,buttons,replyTo,silent,parseMode,workers,thumb,afterSend,onUploadProgress,signature=true
 }={}){
   const media=prepareTelegramMedia(data,{fileName,mimeType,kind});
   const dir=path.join(
@@ -268,11 +294,22 @@ export async function sendTelegramMedia(client,peer,data,{
     let videoNoteMeta=null;
     if(isVideoNote){
       telegramFileName='nexai-video-note.mp4';
-      videoNoteMeta=await normalizeVideoNoteFile(
-        filePath,
-        path.join(dir,telegramFileName)
-      );
-      telegramFilePath=videoNoteMeta.filePath;
+      const supplied=preNormalizedVideoNoteMeta&&typeof preNormalizedVideoNoteMeta==='object'
+        ?preNormalizedVideoNoteMeta
+        :null;
+      const width=Math.max(1,Number(supplied?.width)||0);
+      const height=Math.max(1,Number(supplied?.height)||0);
+      const duration=Math.max(1,Math.min(59,Number(supplied?.duration)||0));
+      if(supplied&&width===height&&width>1&&duration>0){
+        videoNoteMeta={filePath,width,height,duration};
+        telegramFilePath=filePath;
+      }else{
+        videoNoteMeta=await normalizeVideoNoteFile(
+          filePath,
+          path.join(dir,telegramFileName)
+        );
+        telegramFilePath=videoNoteMeta.filePath;
+      }
     }
     if(isVideoNote){
       // Teleproto 1.229 adds a DocumentAttributeAudio(voice=true) whenever
