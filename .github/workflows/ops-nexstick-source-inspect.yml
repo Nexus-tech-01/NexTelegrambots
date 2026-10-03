@@ -12,37 +12,17 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 5
     steps:
-      - name: Search backup and build roots for NexStick
+      - name: Read safe Pterodactyl startup diagnostics
         shell: bash
         run: |
           set -euo pipefail
-          BASE="https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe"
-          declare -A roots=(
-            [nxc]="%2F.nexcontrol"
-            [build]="%2F.build"
-            [local]="%2F.local"
-            [data]="%2Fdata"
-            [assets]="%2Fassets"
-            [shared]="%2Fshared"
-            [connect]="%2Fnexai-connect-v2"
-          )
-          for key in "${!roots[@]}"; do
-            curl --fail-with-body --silent --show-error "$BASE?root=${roots[$key]}" -o "/tmp/$key.json"
-          done
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"             -o /tmp/runtime.json
           python3 - <<'PY'
-          import json,re
-          pat=re.compile(r'nexstick|the_nexus_techbot|sticker(service|bot)?|nexus.?techbot|backup|snapshot|restore',re.I)
-          for key in ['nxc','build','local','data','assets','shared','connect']:
-              d=json.load(open('/tmp/'+key+'.json'))
-              print('\n=== '+key+' === ok=',d.get('ok'),'files=',d.get('files'),'visited=',d.get('visited'),'truncated=',d.get('truncated'))
-              matches=[]
-              for x in d.get('fileList') or []:
-                  p=str(x.get('path') or '')
-                  if pat.search(p): matches.append((p,x.get('size'),x.get('modified_at')))
-              for row in matches[:1600]:
-                  print(*row)
+          import json
+          d=json.load(open('/tmp/runtime.json'))
+          print(json.dumps(d,ensure_ascii=False,indent=2)[:120000])
           PY
 
-# nexstick-backup-search-20261003
+# nexstick-safe-startup-diagnostic-20261003
