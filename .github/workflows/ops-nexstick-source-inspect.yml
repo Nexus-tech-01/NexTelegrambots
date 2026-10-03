@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Inspect Pterodactyl launcher snippets
+      - name: Inspect NexStick launcher definition
         shell: bash
         run: |
           set -euo pipefail
@@ -22,7 +22,8 @@ jobs:
           python3 - <<'PY'
           import json
           d=json.load(open('/tmp/snips.json'))
-          print(json.dumps(d,ensure_ascii=False,indent=2)[:150000])
+          keep={k:v for k,v in d.items() if k in ['childDefs','nexstick','NEXSTICK','stickerService.js','bots/nexstick']}
+          print(json.dumps(keep,ensure_ascii=False,indent=2)[:180000])
           PY
 
-# nexstick-launcher-snips-20261003
+# nexstick-childdef-inspect-20261003
