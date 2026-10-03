@@ -14,15 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Read safe Pterodactyl startup diagnostics
+      - name: Inspect Pterodactyl launcher snippets
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-read-nexmeta-runtime-once"             -o /tmp/runtime.json
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-index-nexmeta-snips"             -o /tmp/snips.json
           python3 - <<'PY'
           import json
-          d=json.load(open('/tmp/runtime.json'))
-          print(json.dumps(d,ensure_ascii=False,indent=2)[:120000])
+          d=json.load(open('/tmp/snips.json'))
+          print(json.dumps(d,ensure_ascii=False,indent=2)[:150000])
           PY
 
-# nexstick-safe-startup-diagnostic-20261003
+# nexstick-launcher-snips-20261003
