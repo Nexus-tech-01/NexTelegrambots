@@ -1,0 +1,29 @@
+{
+  "finishedAt": "2026-10-03T17:33:44.446Z",
+  "manager": {
+    "health": true,
+    "port": 18815,
+    "supervisors": 1,
+    "workers": 1
+  },
+  "ok": true,
+  "rules": {
+    "minVisionConfidence": 0.84,
+    "perStickerVision": true,
+    "visualCharacterGate": true
+  },
+  "sha": "daeb1dfccc02b5ce404cb8b470fa5dc7720a102e",
+  "startedAt": "2026-10-03T17:32:03.379Z",
+  "steps": {
+    "managerFiles": true,
+    "publisherPath": "apps/internal/whatsapp-publisher/current/server.mjs",
+    "publisherPre": true,
+    "publisherReady": true,
+    "publisherRestart": "signal",
+    "sourceValidated": true
+  },
+  "whatsapp": {
+    "channelResolved": true,
+    "ready": true
+  }
+}
