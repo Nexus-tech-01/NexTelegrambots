@@ -1,0 +1,70 @@
+name: Ops NexAI Reply Speed Deploy Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-nexai-reply-speed-deploy-once.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ops-nexai-reply-speed-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate reply speed source
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check nexaccount/media-send.mjs
+          node --check nexaccount/compat.mjs
+          node --check nexaccount/runtime.mjs
+          grep -F "normalizeVideoNoteBuffer" nexaccount/media-send.mjs
+          grep -F "preNormalizedVideoNoteMeta" nexaccount/media-send.mjs
+          grep -F "mentionVideoReplyBufferKey" nexaccount/compat.mjs
+          grep -F "warmMentionVideoReply" nexaccount/runtime.mjs
+          grep -F "workers:4" nexaccount/runtime.mjs
+
+      - name: Deploy instant reply path to NexAI VPS
+        shell: bash
+        env:
+          DEPLOY_ENDPOINT: https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-agent-hotfix-bridge
+        run: |
+          set -euo pipefail
+          OIDC_JSON="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=nxc-nexai-reply-speed-deploy")"
+          OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"$OIDC_JSON")"
+          test -n "$OIDC_TOKEN"
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "$DEPLOY_ENDPOINT" \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "{\"sha\":\"${GITHUB_SHA}\",\"mode\":\"reply-speed\"}" \
+            | tee /tmp/nexai-reply-speed-deploy.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('/tmp/nexai-reply-speed-deploy.json').read_text())
+          if d.get('ok') is not True:
+              raise SystemExit('deployment failed: '+str(d))
+          steps=d.get('steps') or {}
+          for key in ('sourceValidated','criticalRoutes','mediaTest','productionMarker'):
+              if steps.get(key) is not True:
+                  raise SystemExit(key+' not confirmed: '+str(steps))
+          health=steps.get('health') or {}
+          if health.get('ok') is not True or health.get('pairingOnly') is True:
+              raise SystemExit('NexAI health not confirmed: '+str(health))
+          print('NEXAI_REPLY_SPEED_PRODUCTION_OK')
+          PY
