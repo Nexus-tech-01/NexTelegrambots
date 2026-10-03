@@ -86,11 +86,17 @@ await sendTelegramMedia(fakeClient,'peer',png,{fileName:'photo.jpg',mimeType:'im
 assert.equal(afterSendCalled,true,'media afterSend CTA hook must run after a successful upload');
 await assert.rejects(access(usedPath));
 
-let videoNoteSeen=false;
+let roundVideoNoteSeen=false;
 const fakeVideoClient={
   async sendFile(peer,options){
     assert.equal(peer,'peer');
-    videoNoteSeen=options.videoNote===true;
+    assert.equal(options.videoNote,false,'Teleproto videoNote helper must be bypassed');
+    const attrs=Array.isArray(options.attributes)?options.attributes:[];
+    const video=attrs.find(a=>String(a?.className||a?.constructor?.name||'')==='DocumentAttributeVideo');
+    const audio=attrs.find(a=>String(a?.className||a?.constructor?.name||'')==='DocumentAttributeAudio');
+    roundVideoNoteSeen=video?.roundMessage===true;
+    assert.equal(audio,undefined,'round video note must not carry a voice-note audio attribute');
+    assert.equal(video?.w,video?.h,'round video note metadata must be square');
     return {ok:true};
   }
 };
@@ -101,6 +107,6 @@ await sendTelegramMedia(fakeVideoClient,'peer',mp4Header,{
   videoNote:true,
   signature:false
 });
-assert.equal(videoNoteSeen,true,'videoNote option must reach Telegram sendFile');
+assert.equal(roundVideoNoteSeen,true,'Telegram DocumentAttributeVideo.roundMessage must be true');
 
 console.log('media-send regression tests: ok');
