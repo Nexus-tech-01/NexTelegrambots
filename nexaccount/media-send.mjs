@@ -183,7 +183,7 @@ export function prepareTelegramMedia(data,{fileName='media',mimeType='',kind='au
 
 export async function sendTelegramMedia(client,peer,data,{
   fileName='media',mimeType='',kind='auto',caption='',formattingEntities,
-  voiceNote=false,buttons,replyTo,silent,parseMode,workers,thumb,afterSend,onUploadProgress,signature=true
+  voiceNote=false,videoNote=false,buttons,replyTo,silent,parseMode,workers,thumb,afterSend,onUploadProgress,signature=true
 }={}){
   const media=prepareTelegramMedia(data,{fileName,mimeType,kind});
   const dir=path.join(
@@ -207,6 +207,7 @@ export async function sendTelegramMedia(client,peer,data,{
       forceDocument:media.kind==='document',
       supportsStreaming:media.kind==='video'&&(media.mimeType==='video/mp4'||media.mimeType==='video/quicktime'),
       voiceNote:voiceNote===true&&media.kind==='audio',
+      videoNote:videoNote===true&&media.kind==='video',
       formattingEntities:mergedEntities,
       buttons,
       replyTo,
