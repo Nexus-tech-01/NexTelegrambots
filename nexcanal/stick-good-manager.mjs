@@ -37,7 +37,7 @@ const WISHLIST_WINDOW=Math.max(60*60_000,Number(process.env.STICK_GOOD_WISHLIST_
 const AUTOS_BEFORE_WISHLIST=Math.max(1,Math.min(12,Number(process.env.STICK_GOOD_AUTOS_BEFORE_WISHLIST||3)));
 const MAX_STICKERS=30;
 const MIN_TELEGRAM_STICKERS=Math.max(5,Math.min(30,Number(process.env.STICK_GOOD_MIN_TELEGRAM_STICKERS||12)));
-const FIRST_RUN_DELAY=Math.max(60_000,Number(process.env.STICK_GOOD_FIRST_RUN_DELAY_MS||10*60_000));
+const FIRST_RUN_DELAY=Math.max(0,Number(process.env.STICK_GOOD_FIRST_RUN_DELAY_MS||0));
 const ENABLED=!/^(0|false|no)$/i.test(String(process.env.STICK_GOOD_ENABLED||'1'));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
@@ -131,6 +131,14 @@ async function action(payload,timeout=10*60_000){
   const j=await r.json().catch(()=>({}));
   if(!r.ok||j?.ok===false)throw new Error('stick_good_action_'+r.status+': '+clean(j?.error||'failed'));
   return j;
+}
+
+async function whatsappReady(){
+  try{
+    const r=await fetch(WA+'/stick-good/status',{signal:AbortSignal.timeout(10000)});
+    const j=await r.json().catch(()=>({}));
+    return Boolean(r.ok&&j?.connected===true&&j?.channelResolved===true);
+  }catch{return false}
 }
 
 function parseJson(text){
@@ -603,6 +611,11 @@ async function tick(state){
     await saveState(state);
   }
   if(Date.now()<state.nextPackAt)return;
+  if(!(await whatsappReady())){
+    state.nextPackAt=Date.now()+30_000;
+    await saveState(state);
+    return;
+  }
 
   const job=state.queue.find(x=>x.status==='pending');
   if(!job&&state.activeWishlist)return;
