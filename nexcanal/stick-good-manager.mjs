@@ -36,6 +36,7 @@ const PACK_INTERVAL=Math.max(60*60_000,Number(process.env.STICK_GOOD_PACK_INTERV
 const WISHLIST_WINDOW=Math.max(60*60_000,Number(process.env.STICK_GOOD_WISHLIST_WINDOW_MS||12*60*60_000));
 const AUTOS_BEFORE_WISHLIST=Math.max(1,Math.min(12,Number(process.env.STICK_GOOD_AUTOS_BEFORE_WISHLIST||3)));
 const MAX_STICKERS=30;
+const MIN_PACK_STICKERS=Math.max(8,Math.min(MAX_STICKERS,Number(process.env.STICK_GOOD_MIN_PACK_STICKERS||12)));
 const MIN_TELEGRAM_STICKERS=Math.max(5,Math.min(30,Number(process.env.STICK_GOOD_MIN_TELEGRAM_STICKERS||12)));
 const FIRST_RUN_DELAY=Math.max(0,Number(process.env.STICK_GOOD_FIRST_RUN_DELAY_MS||0));
 const ENABLED=!/^(0|false|no)$/i.test(String(process.env.STICK_GOOD_ENABLED||'1'));
@@ -387,7 +388,8 @@ async function downloadTelegramSet(character,dir,limit=30){
           await fs.writeFile(raw,bytes);
           const target=path.join(dir,'sticker-'+String(n+1).padStart(2,'0')+'.webp');
           await normalizeSticker(raw,target);
-          if(!(await visuallyMatches(character,target)))continue;
+          // The set itself has already passed the mono-character metadata gate.
+          // Do not make a whole valid Telegram pack depend on the external vision service.
           rows.push({localPath:target,source:'telegram:@'+c.source,setName:c.setName});
           n++;
         }catch{}
@@ -437,8 +439,8 @@ async function buildPinterestPack(character,medium,mood,dir){
       seq++;
     }catch{}
   }
-  if(out.length!==MAX_STICKERS)throw new Error('pinterest_verified_stickers_'+out.length+'_of_30');
-  return {stickers:out,source:'pinterest',setName:'',sourceTitle:''};
+  if(out.length<MIN_PACK_STICKERS)throw new Error('pinterest_verified_stickers_'+out.length+'_min_'+MIN_PACK_STICKERS);
+  return {stickers:out.slice(0,MAX_STICKERS),source:'pinterest',setName:'',sourceTitle:''};
 }
 function safeBase(value){
   return clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
@@ -638,7 +640,7 @@ async function tick(state){
     }
     state.history.push({at:nowIso(),type:'pack-error',character:choice.character,error:msg});
     state.history=state.history.slice(-500);
-    state.nextPackAt=Date.now()+60*60_000;
+    state.nextPackAt=Date.now()+5*60_000;
   }
   await saveState(state);
 }
