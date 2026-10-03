@@ -2315,7 +2315,7 @@ async function parkSeriesBeforeSynopsis(d,seriesKey,probe={}){
 
 async function choosePreflightReadySeries(runtime,d){
   const excluded=[];
-  const maxAttempts=2;
+  const maxAttempts=25; // scan the full queued-series candidate window before declaring this tick unrunnable
   for(let attempt=0;attempt<maxAttempts;attempt++){
     const seriesKey=await chooseActiveSeries(d,{excludeSeriesKeys:excluded});
     if(!seriesKey)return '';
