@@ -98,6 +98,7 @@ for(const name of ['tourl','crop','resize','analyzesound','vv']){
 const storeSource=fs.readFileSync(path.join(ROOT,'store.mjs'),'utf8');
 const runtime=fs.readFileSync(path.join(ROOT,'runtime.mjs'),'utf8');
 const compat=fs.readFileSync(path.join(ROOT,'compat.mjs'),'utf8');
+const replyStorageSource=fs.readFileSync(path.join(ROOT,'reply-storage.mjs'),'utf8');
 const inline=fs.readFileSync(path.join(ROOT,'inline-bot.mjs'),'utf8');
 const commandSource=fs.readFileSync(path.join(ROOT,'commands.mjs'),'utf8');
 const cliSource=fs.readFileSync(path.join(ROOT,'cli.mjs'),'utf8');
@@ -124,6 +125,12 @@ if(!compat.includes("name==='mention_reply'"))errors.push('mention-reply-handler
 if(!compat.includes("name==='mention_reply_set'"))errors.push('setreply-handler-missing');
 if(!runtime.includes('maybeMentionVideoReply'))errors.push('mention-video-reply-runtime-missing');
 if(!runtime.includes('videoNote:true'))errors.push('mention-video-reply-not-sent-as-video-note');
+if(!compat.includes('storeReplyVideo'))errors.push('mention-reply-private-vault-store-missing');
+if(!runtime.includes('downloadReplyVideo'))errors.push('mention-reply-private-vault-download-missing');
+if(!replyStorageSource.includes("sendDocument"))errors.push('reply-storage-telegram-upload-missing');
+if(!replyStorageSource.includes("getFile"))errors.push('reply-storage-telegram-download-missing');
+if(!replyStorageSource.includes("nexai-storage-bot-token"))errors.push('reply-storage-external-secret-file-missing');
+if(compat.includes("sendTelegramMedia(client,'me',Buffer.from(buffer)"))errors.push('mention-reply-must-not-use-saved-messages');
 if(!storeSource.includes('export async function listConnectedAccounts'))errors.push('live-session-store-query-missing');
 if(!storeSource.includes("find({expiresAt:{$gt:now}}"))errors.push('live-session-store-must-require-unexpired-runtime-lease');
 if(!storeSource.includes("sessionRepairRequired:{$ne:true}"))errors.push('live-session-store-must-exclude-repair-required-sessions');
