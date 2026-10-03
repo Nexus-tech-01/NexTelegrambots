@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { getAttributes } from 'teleproto/Utils.js';
 import { brandedText } from './response-ui.mjs';
 
 const MIME_BY_EXT={
@@ -195,6 +196,40 @@ export async function sendTelegramMedia(client,peer,data,{
   await writeFile(filePath,media.buffer);
 
   try{
+    const isVideoNote=videoNote===true&&media.kind==='video';
+    let telegramAttributes;
+    if(isVideoNote){
+      // Teleproto 1.229 adds a DocumentAttributeAudio(voice=true) whenever
+      // videoNote=true. That can make Telegram normalize the upload as a
+      // regular video. Build the video-note attributes ourselves instead:
+      // keep the detected video metadata, force roundMessage, and do not add
+      // the spurious voice-note audio attribute.
+      const generated=getAttributes(filePath,{
+        mimeType:media.mimeType,
+        forceDocument:false,
+        voiceNote:false,
+        videoNote:false,
+        supportsStreaming:true,
+        thumb
+      });
+      telegramAttributes=(generated?.attrs||[]).filter(attr=>
+        String(attr?.className||attr?.constructor?.name||'')!=='DocumentAttributeAudio'
+      );
+      const videoAttr=telegramAttributes.find(attr=>
+        String(attr?.className||attr?.constructor?.name||'')==='DocumentAttributeVideo'
+      );
+      if(!videoAttr)throw new Error('attribut Telegram video-note introuvable');
+      videoAttr.roundMessage=true;
+      videoAttr.supportsStreaming=true;
+      // Video notes are displayed in a circular viewport. Keep the real media
+      // bytes untouched while advertising a square viewport to Telegram.
+      const w=Math.max(1,Number(videoAttr.w)||1);
+      const h=Math.max(1,Number(videoAttr.h)||1);
+      const side=Math.max(1,Math.min(w,h));
+      videoAttr.w=side;
+      videoAttr.h=side;
+    }
+
     const branded=String(caption||'').length<=980?brandedText(caption||'',{signature}):{text:String(caption||'').slice(0,1024),entities:[]};
     const mergedEntities=[
       ...(Array.isArray(formattingEntities)?formattingEntities:[]),
@@ -207,7 +242,11 @@ export async function sendTelegramMedia(client,peer,data,{
       forceDocument:media.kind==='document',
       supportsStreaming:media.kind==='video'&&(media.mimeType==='video/mp4'||media.mimeType==='video/quicktime'),
       voiceNote:voiceNote===true&&media.kind==='audio',
-      videoNote:videoNote===true&&media.kind==='video',
+      // Do not pass videoNote=true to Teleproto 1.229: its helper adds a
+      // voice-note audio attribute. telegramAttributes already carries the
+      // canonical DocumentAttributeVideo(roundMessage=true).
+      videoNote:false,
+      attributes:telegramAttributes,
       formattingEntities:mergedEntities,
       buttons,
       replyTo,
