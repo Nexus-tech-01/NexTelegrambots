@@ -20,14 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/nexus
-          python3 - <<'PY'
-import base64,glob
-with open('/tmp/nexus.tar.xz','wb') as out:
-    for name in sorted(glob.glob('render-src.b64.part-*')):
-        s=''.join(open(name,encoding='utf-8').read().split())
-        s += '='*((4-len(s)%4)%4)
-        out.write(base64.b64decode(s,validate=False))
-PY
+          python3 -c "import base64,glob; out=open('/tmp/nexus.tar.xz','wb'); [out.write(base64.b64decode((lambda s:s+'='*((4-len(s)%4)%4))(''.join(open(n,encoding='utf-8').read().split())),validate=False)) for n in sorted(glob.glob('render-src.b64.part-*'))]; out.close()"
           xz -t /tmp/nexus.tar.xz
           tar -xJf /tmp/nexus.tar.xz -C /tmp/nexus ./bots/nexstick
           echo "=== FILES ==="
