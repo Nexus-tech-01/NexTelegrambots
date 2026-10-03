@@ -14,21 +14,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Locate live NexStick
+      - uses: actions/checkout@v4
+      - name: Read NexStick canonical source
         shell: bash
         run: |
           set -euo pipefail
-          for root in bots services ecosystem nexus-bridge; do
-            url="https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=%2F$root"
-            curl --fail-with-body --silent --show-error "$url" -o "/tmp/$root.json"
+          mkdir -p /tmp/nexus
+          : > /tmp/nexus-bots.tar.xz
+          for f in $(printf '%s\n' nexus-bots-src.tar.xz.b64.part-* | sort); do
+            base64 -d "$f" >> /tmp/nexus-bots.tar.xz
           done
-          python3 - <<'PY'
-          import json
-          for root in ('bots','services','ecosystem','nexus-bridge'):
-              d=json.load(open('/tmp/'+root+'.json'))
-              print('\n###',root,'ok=',d.get('ok'),'files=',d.get('files'))
-              for x in d.get('fileList') or []:
-                  p=str(x.get('path') or '')
-                  if 'nexstick' in p.lower() or 'sticker' in p.lower():
-                      print(p, x.get('size'))
-          PY
+          xz -t /tmp/nexus-bots.tar.xz
+          tar -xJf /tmp/nexus-bots.tar.xz -C /tmp/nexus ./bots/nexstick
+          find /tmp/nexus/bots/nexstick -maxdepth 5 -type f -print | sort
+          echo "=== stickerService.js ==="
+          cat /tmp/nexus/bots/nexstick/src/services/stickerService.js
