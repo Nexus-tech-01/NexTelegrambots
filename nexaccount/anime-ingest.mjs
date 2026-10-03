@@ -1822,10 +1822,22 @@ async function interSeriesDeadline(d,seriesKey,now=new Date()){
   );
   return interSeriesDeadlineFrom(last?.publishedAt,now);
 }
-async function chooseActiveSeries(d){
+async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
   const scheduler=d.collection('nexanime_config');
   const now=new Date();
+  const requestedExclusions=[...new Set((excludeSeriesKeys||[]).map(String).filter(Boolean))];
   let current=await scheduler.findOne({_id:'scheduler'});
+  const rawBlockedEntries=Array.isArray(current?.blockedSeriesEntries)?current.blockedSeriesEntries:[];
+  const blockedSeriesEntries=rawBlockedEntries.filter(row=>{
+    const key=String(row?.seriesKey||'');
+    const until=row?.until?new Date(row.until):null;
+    return Boolean(key&&until&&Number.isFinite(until.getTime())&&until>now);
+  });
+  const persistedBlockedKeys=[...new Set(blockedSeriesEntries.map(row=>String(row.seriesKey)))];
+  if(blockedSeriesEntries.length!==rawBlockedEntries.length){
+    await scheduler.updateOne({_id:'scheduler'},{$set:{blockedSeriesEntries,updatedAt:now}});
+    current={...(current||{}),blockedSeriesEntries};
+  }
   let blockedSeriesKey=String(current?.blockedSeriesKey||'');
   let blockedSeriesUntil=current?.blockedSeriesUntil?new Date(current.blockedSeriesUntil):null;
   let blockActive=Boolean(
@@ -1860,14 +1872,14 @@ async function chooseActiveSeries(d){
 
     let next='';
     const forcedNext=String(current?.forcedNextSeriesKey||'');
-    if(forcedNext&&(!blockActive||forcedNext!==blockedSeriesKey)){
+    if(forcedNext&&!requestedExclusions.includes(forcedNext)&&!persistedBlockedKeys.includes(forcedNext)&&(!blockActive||forcedNext!==blockedSeriesKey)){
       const forcedExists=await d.collection('nexanime_queue').countDocuments({
         seriesKey:forcedNext,status:'queued',kind:'episode'
       });
       if(forcedExists>0)next=forcedNext;
     }
     if(!next){
-      next=await nextRunnableSeriesKey(d,{excludeSeriesKeys:blockActive?[blockedSeriesKey]:[]});
+      next=await nextRunnableSeriesKey(d,{excludeSeriesKeys:[...new Set([...requestedExclusions,...persistedBlockedKeys,...(blockActive?[blockedSeriesKey]:[])])]});
     }
     if(next){
       // Cross-series spacing is never bypassed, including legacy forced-next requests.
@@ -1917,7 +1929,7 @@ async function chooseActiveSeries(d){
 
   let next=state?.plannedSeriesKey||'';
   if(next){
-    if(stateBlockActive&&next===stateBlockedKey){
+    if(requestedExclusions.includes(String(next))||persistedBlockedKeys.includes(String(next))||(stateBlockActive&&next===stateBlockedKey)){
       next='';
     }else{
       const exists=await d.collection('nexanime_queue').countDocuments({seriesKey:next,status:'queued',kind:'episode'});
@@ -1925,7 +1937,7 @@ async function chooseActiveSeries(d){
     }
   }
   if(!next){
-    next=await nextRunnableSeriesKey(d,{excludeSeriesKeys:stateBlockActive?[stateBlockedKey]:[]});
+    next=await nextRunnableSeriesKey(d,{excludeSeriesKeys:[...new Set([...requestedExclusions,...persistedBlockedKeys,...(stateBlockActive?[stateBlockedKey]:[])])]});
   }
 
   if(!next){
@@ -2253,13 +2265,29 @@ async function preflightSeriesBeforeSynopsis(runtime,d,seriesKey){
 async function parkSeriesBeforeSynopsis(d,seriesKey,probe={}){
   const now=new Date();
   const scheduler=d.collection('nexanime_config');
+  const blockedUntil=new Date(now.getTime()+GAP_RETRY_MS);
+  const snapshot=await scheduler.findOne({_id:'scheduler'},{projection:{blockedSeriesEntries:1}});
+  const blockedSeriesEntries=(Array.isArray(snapshot?.blockedSeriesEntries)?snapshot.blockedSeriesEntries:[])
+    .filter(row=>{
+      const key=String(row?.seriesKey||'');
+      const until=row?.until?new Date(row.until):null;
+      return key&&key!==seriesKey&&until&&Number.isFinite(until.getTime())&&until>now;
+    })
+    .concat([{
+      seriesKey,
+      until:blockedUntil,
+      reason:'preflight_'+String(probe.reason||'unrunnable'),
+      blockedAt:now
+    }])
+    .slice(-100);
   await scheduler.updateOne(
     {_id:'scheduler'},
     {
       $set:{
         blockedSeriesKey:seriesKey,
-        blockedSeriesUntil:new Date(now.getTime()+GAP_RETRY_MS),
+        blockedSeriesUntil:blockedUntil,
         blockedSeriesReason:'preflight_'+String(probe.reason||'unrunnable'),
+        blockedSeriesEntries,
         gapDetected:{
           seriesKey,
           season:Number(probe.season??1),
@@ -2279,22 +2307,32 @@ async function parkSeriesBeforeSynopsis(d,seriesKey,probe={}){
   console.warn('[NexAnime scheduler] skipped synopsis for unrunnable series',seriesKey,String(probe.reason||'unknown'));
 }
 
+async function choosePreflightReadySeries(runtime,d){
+  const excluded=[];
+  const maxAttempts=25;
+  for(let attempt=0;attempt<maxAttempts;attempt++){
+    const seriesKey=await chooseActiveSeries(d,{excludeSeriesKeys:excluded});
+    if(!seriesKey)return '';
+    const preflight=await preflightSeriesBeforeSynopsis(runtime,d,seriesKey);
+    if(preflight.ok)return seriesKey;
+    await parkSeriesBeforeSynopsis(d,seriesKey,preflight);
+    excluded.push(seriesKey);
+  }
+  console.warn('[NexAnime scheduler] preflight scan exhausted',excluded.join(','));
+  return '';
+}
+
 async function claimNext(runtime){
   await ensureIndexes();
   await reconcileStalePublishing();
   const d=await db();
   const accountId=String(runtime.account.telegramUserId);
   const allowAny=isPublisherRuntime(runtime);
-  const seriesKey=await chooseActiveSeries(d);
+  // Skip every temporarily unrunnable series inside the same publish tick.
+  // Persisted blocks plus local exclusions prevent incomplete historical
+  // series from alternating forever and starving valid anime.
+  const seriesKey=await choosePreflightReadySeries(runtime,d);
   if(!seriesKey)return null;
-
-  // Never publish a public synopsis before proving that the first episode can
-  // actually be resolved from Telegram. This prevents "synopsis then silence".
-  const preflight=await preflightSeriesBeforeSynopsis(runtime,d,seriesKey);
-  if(!preflight.ok){
-    await parkSeriesBeforeSynopsis(d,seriesKey,preflight);
-    return null;
-  }
 
   await ensureGeneralPresentation(d,seriesKey);
 
