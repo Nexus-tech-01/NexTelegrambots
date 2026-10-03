@@ -778,15 +778,25 @@ async function sendStart(ctx){
     await recordEvent(ctx.from,'command',{source:'nexai',command:'start',chatType:ctx.chat?.type||'private'}).catch(()=>{});
     return sendDirectMenu(ctx,account,'menu');
   }
+
   const text=lang==='en'
     ? ['♰ ɴᴇxᴀɪ','','🔗 ᴄᴏɴɴᴇᴄᴛ ʏᴏᴜʀ ᴛᴇʟᴇɢʀᴀᴍ ᴀᴄᴄᴏᴜɴᴛ','/pair','','/creator','/language'].join('\n')
     : ['♰ ɴᴇxᴀɪ','','🔗 ʀᴇʟɪᴇ ᴛᴏɴ ᴄᴏᴍᴘᴛᴇ ᴛᴇʟᴇɢʀᴀᴍ','/pair','','/creator','/language'].join('\n');
-  await sendReplyArtwork(ctx);
-  return ctx.reply(text,{
-    entities:quotedEntities(text,['/pair','/creator','/language']),
-    reply_markup:connectMarkup(lang),
-    link_preview_options:{is_disabled:true}
-  });
+
+  try{
+    return await ctx.replyWithPhoto(nexAiReplyArtworkInput(),{
+      caption:text,
+      caption_entities:quotedEntities(text,['/pair','/creator','/language']),
+      reply_markup:connectMarkup(lang)
+    });
+  }catch(error){
+    console.warn('[NexAI start artwork]',String(error?.description||error?.message||error).slice(0,350));
+    return ctx.reply(text,{
+      entities:quotedEntities(text,['/pair','/creator','/language']),
+      reply_markup:connectMarkup(lang),
+      link_preview_options:{is_disabled:true}
+    });
+  }
 }
 
 async function sendCreator(ctx){
