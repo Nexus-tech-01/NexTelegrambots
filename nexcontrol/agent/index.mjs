@@ -513,6 +513,13 @@ async function systemdManagedNexAccountPresent(){
 
 async function ensureNexAccountRuntime(){
   try{
+    // Pterodactyl is no longer allowed to own NexAccount. The production
+    // Telegram session runtime is exclusively managed by systemd on nexus-main.
+    // Keeping a second daemon here causes duplicate leases / AUTH_KEY_DUPLICATED.
+    if(SLUG==='nexus-ptero-primary'){
+      console.log('[NexControlAgent] Pterodactyl NexAccount bootstrap disabled; nexus-main owns production sessions');
+      return;
+    }
     // Production VPSes own NexAccount through systemd. Starting bootstrap.mjs
     // here as well would create a second MTProto runtime on another port and
     // reuse the same StringSessions, risking AUTH_KEY_DUPLICATED.
