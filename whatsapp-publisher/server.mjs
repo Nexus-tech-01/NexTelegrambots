@@ -176,6 +176,10 @@ const OTAKU_MANAGER_URL=String(process.env.OTAKU_MANAGER_URL||'http://127.0.0.1:
 const STICK_GOOD_MANAGER_URL=String(process.env.STICK_GOOD_MANAGER_URL||'http://127.0.0.1:18815').replace(/\/$/,'');
 const STICK_GOOD_MIN_GAP_MS=Math.max(1200,Number(process.env.STICK_GOOD_MIN_GAP_MS||3500));
 const OTAKU_MIN_GAP_MS=Math.max(15000,Number(process.env.OTAKU_MIN_GAP_MS||120000));
+// Polls/questions are continuation messages of one interactive post. Keeping
+// the normal two-minute editorial gap here made the image appear alone long
+// enough to look broken, so interactive follow-ups use a short serialized gap.
+const OTAKU_INTERACTIVE_GAP_MS=Math.max(1500,Number(process.env.OTAKU_INTERACTIVE_GAP_MS||5000));
 const OTAKU_RELAY_GAP_MS=Math.max(120000,Number(process.env.OTAKU_RELAY_GAP_MS||180000));
 const OTAKU_RELAY_DENY_KEYS=new Set(['lustdev','toolsbnn4d','devs101','nextech']);
 const OTAKU_RELAY_DENY_INVITE=String(process.env.OTAKU_RELAY_DENY_INVITE||'GsxCPLB9XyI9zT39c4T9K1');
@@ -208,15 +212,16 @@ function withStickGoodSendLock(fn){
 }
 
 function otakuSleep(ms){return new Promise(r=>setTimeout(r,ms));}
-function withOtakuSendLock(fn){
+function withOtakuSendLock(fn,minGapMs=OTAKU_MIN_GAP_MS){
+  const gap=Math.max(0,Number(minGapMs)||0);
   const task=otakuSendChain.then(async()=>{
-    const wait=Math.max(0,OTAKU_MIN_GAP_MS-(Date.now()-otakuLastSendAt));
+    const wait=Math.max(0,gap-(Date.now()-otakuLastSendAt));
     if(wait)await otakuSleep(wait);
     const out=await fn();
     if(!out?.duplicate)otakuLastSendAt=Date.now();
     return out;
   },async()=>{
-    const wait=Math.max(0,OTAKU_MIN_GAP_MS-(Date.now()-otakuLastSendAt));
+    const wait=Math.max(0,gap-(Date.now()-otakuLastSendAt));
     if(wait)await otakuSleep(wait);
     const out=await fn();
     if(!out?.duplicate)otakuLastSendAt=Date.now();
@@ -1211,6 +1216,43 @@ async function stickGoodMediaSource(item={}){
   if(/^https?:\/\//i.test(url))return {url};
   throw new Error('Stick Good media source absente');
 }
+async function sendOtakuQuestion(jid,raw={}){
+  const text=String(raw.text||'🧩 Session réponse Otaku Nexus').trim().slice(0,1024)||'🧩 Session réponse Otaku Nexus';
+  const inner={
+    extendedTextMessage:proto.Message.ExtendedTextMessage.create({
+      text,
+      contextInfo:{isQuestion:true}
+    })
+  };
+  const content=proto.Message.fromObject({
+    questionMessage:proto.Message.FutureProofMessage.create({message:inner})
+  });
+  const generated=generateWAMessageFromContent(jid,content,{userJid:socket.user?.id});
+  const id=String(generated?.key?.id||'');
+  if(!id||!generated?.message)throw new Error('Session réponse Otaku: génération invalide');
+  await socket.relayMessage(jid,generated.message,{messageId:id});
+  return {id,message:generated.message};
+}
+
+async function sendOtakuPollV3(jid,{question,options}={}){
+  const secret=crypto.randomBytes(32);
+  const content=proto.Message.fromObject({
+    messageContextInfo:{messageSecret:secret},
+    pollCreationMessageV3:{
+      name:String(question||'Question').slice(0,255),
+      options:(Array.isArray(options)?options:[]).map(optionName=>({optionName:String(optionName).slice(0,100)})),
+      selectableOptionsCount:1
+    }
+  });
+  const generated=generateWAMessageFromContent(jid,content,{userJid:socket.user?.id});
+  const id=String(generated?.key?.id||'');
+  if(!id||!generated?.message?.pollCreationMessageV3){
+    throw new Error('Sondage Otaku: pollCreationMessageV3 invalide');
+  }
+  await socket.relayMessage(jid,generated.message,{messageId:id});
+  return {id,message:generated.message};
+}
+
 async function sendStickGoodQuestion(jid,raw={}){
   const text=String(raw.text||'Quel personnage veux-tu pour le prochain pack ?').slice(0,1024);
   let inner;
@@ -1357,6 +1399,7 @@ async function runOtakuAction(raw={}){
   if(!jid)throw new Error('Chaîne Otaku Nexus non résolue');
   const kind=String(raw.kind||'').toLowerCase();
 
+  const actionGap=['poll','question','quiz_results'].includes(kind)?OTAKU_INTERACTIVE_GAP_MS:OTAKU_MIN_GAP_MS;
   return withOtakuSendLock(async()=>{
     const claim=reserveOtakuAction(raw);
     if(claim.duplicate){
@@ -1376,45 +1419,30 @@ async function runOtakuAction(raw={}){
       queueOtakuRelay(raw).catch(()=>{});
       return done({ok:true,actionId:sent?.key?.id||null});
     }
+    if(kind==='question'){
+      const sent=await sendOtakuQuestion(jid,raw);
+      return done({ok:true,actionId:sent.id,nativeQuestion:true});
+    }
     if(kind==='poll'){
       const question=String(raw.question||'Question').slice(0,255);
       const options=(Array.isArray(raw.options)?raw.options:[]).map(x=>String(x).slice(0,100)).filter(Boolean).slice(0,12);
       if(options.length<2)throw new Error('Sondage Otaku: 2 options minimum');
-      const poll={
-        name:question,
-        values:options,
-        selectableCount:1,
-        ...(raw.quiz&&raw.correctAnswer?{correctAnswer:String(raw.correctAnswer),pollType:1}:{})
-      };
-      let sent;
-      try{sent=await socket.sendMessage(jid,{poll});}
-      catch(firstError){
-        try{
-          // Newsletter/channel delivery can reject the regular single-select
-          // poll shape while accepting the announcement-group variant.
-          sent=await socket.sendMessage(jid,{poll:{name:question,values:options,selectableCount:1,toAnnouncementGroup:true}});
-        }catch(secondError){
-          logger.error({
-            first:String(firstError?.message||firstError).slice(0,500),
-            second:String(secondError?.message||secondError).slice(0,500),
-            id:String(raw.id||'')
-          },'Otaku poll delivery failed');
-          throw secondError;
-        }
-      }
-      const id=String(sent?.key?.id||'');
-      if(!id)throw new Error('Sondage Otaku: envoi sans identifiant WhatsApp');
-      if(id){
-        const message=sent?.message||{pollCreationMessage:{name:question,options:options.map(optionName=>({optionName}))}};
-        otakuPollMessages.set(id,{message});
-        otakuPollRecords.set(id,{
-          message,logicalId:String(raw.id||''),sessionId:String(raw.sessionId||''),question,options,
-          correctAnswer:raw.quiz?String(raw.correctAnswer||''):null,
-          quiz:Boolean(raw.quiz),updates:[],votes:{},createdAt:new Date().toISOString()
-        });
-        persistOtakuPollSummary();
-      }
-      return done({ok:true,actionId:id});
+
+      // WhatsApp Channels are newsletter JIDs. The previous fallback used
+      // toAnnouncementGroup, which targets community announcement groups and
+      // can return an id without producing a visible channel poll. Build and
+      // relay the native single-select PollCreationMessageV3 explicitly.
+      const sent=await sendOtakuPollV3(jid,{question,options});
+      const id=sent.id;
+      const message=sent.message;
+      otakuPollMessages.set(id,{message});
+      otakuPollRecords.set(id,{
+        message,logicalId:String(raw.id||''),sessionId:String(raw.sessionId||''),question,options,
+        correctAnswer:raw.quiz?String(raw.correctAnswer||''):null,
+        quiz:Boolean(raw.quiz),updates:[],votes:{},createdAt:new Date().toISOString()
+      });
+      persistOtakuPollSummary();
+      return done({ok:true,actionId:id,pollVersion:3});
     }
     if(kind==='pack'){
       if(!raw.pack)throw new Error('Pack Otaku sans fichier .wastickers');
@@ -1447,7 +1475,7 @@ async function runOtakuAction(raw={}){
       releaseOtakuAction(claim);
       throw error;
     }
-  });
+  },actionGap);
 }
 
 async function sendPublication(jid,destination,pub){
