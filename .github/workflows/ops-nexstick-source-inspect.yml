@@ -14,15 +14,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Inspect NexControl backup format
+      - name: Identify local NexControl backups
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-index-nexmeta-snips?mode=backup-worker"             -o /tmp/snips.json
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-index-nexmeta-snips?mode=backup-meta"             -o /tmp/meta.json
           python3 - <<'PY'
-          import json
-          d=json.load(open('/tmp/snips.json'))
-          print(json.dumps(d,ensure_ascii=False,indent=2)[:180000])
+          import json,re
+          d=json.load(open('/tmp/meta.json'))
+          print('ok=',d.get('ok'),'count=',d.get('count'))
+          for item in d.get('items') or []:
+              m=item.get('meta')
+              s=json.dumps(m,ensure_ascii=False)
+              if re.search(r'nexstick|sticker|bots/nexstick',s,re.I):
+                  print(json.dumps(item,ensure_ascii=False,indent=2))
           PY
 
-# nexstick-backup-format-inspect-20261003
+# nexstick-local-backup-meta-20261003
