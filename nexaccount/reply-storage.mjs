@@ -237,6 +237,18 @@ export async function resolveReplyStorageChannel({discover=true}={}){
   return {chatId:String(row.chatId),title:String(row.title||''),source:'discovered'};
 }
 
+export function replyStorageMediaFromMessage(message={}){
+  return message?.video_note||message?.video||message?.document||message?.animation||null;
+}
+
+function replyStorageMediaType(message={}){
+  if(message?.video_note)return 'video_note';
+  if(message?.video)return 'video';
+  if(message?.document)return 'document';
+  if(message?.animation)return 'animation';
+  return 'unknown';
+}
+
 export async function storeReplyVideo(buffer,{telegramUserId=''}={}){
   const media=Buffer.from(buffer||[]);
   if(!media.length)throw new Error('vidéo vide');
@@ -249,16 +261,20 @@ export async function storeReplyVideo(buffer,{telegramUserId=''}={}){
   form.append('protect_content','true');
   form.append('caption','NexAI Reply Media');
   const message=await botApi('sendDocument',form,60000);
-  const document=message?.document;
-  const fileId=String(document?.file_id||'');
-  if(!fileId)throw new Error('Telegram n’a pas retourné de file_id pour la vidéo');
+  // Telegram may normalize an uploaded MP4 as document, video, video_note or
+  // animation. The storage layer only needs the reusable Bot API file_id, so
+  // never assume that sendDocument implies message.document in the response.
+  const storedMedia=replyStorageMediaFromMessage(message);
+  const fileId=String(storedMedia?.file_id||'');
+  if(!fileId)throw new Error('Telegram n’a pas retourné de file_id exploitable pour la vidéo stockée');
   return {
     provider:'telegram-bot',
     chatId:channel.chatId,
     messageId:Number(message?.message_id||0),
     fileId,
-    fileUniqueId:String(document?.file_unique_id||''),
-    size:Number(document?.file_size||media.length),
+    fileUniqueId:String(storedMedia?.file_unique_id||''),
+    size:Number(storedMedia?.file_size||media.length),
+    mediaType:replyStorageMediaType(message),
     owner:String(telegramUserId||''),
     storedAt:Date.now()
   };
