@@ -12,6 +12,7 @@ import { ownerPanelText, usersText, countriesText, languagesText, userText, botS
 import { listStyles, toSmallCaps } from './styles.mjs';
 import { animatedCustomEmojiEntitySpecs, animatedCustomEmojiEntitySpecsFromLibrary, ensureEmojiLibraryPalette, sanitizeAnimatedEmojiText } from './response-ui.mjs';
 import { sessionsText } from './session-view.mjs';
+import { replyStorageStatus, saveReplyStorageBotToken } from './reply-storage.mjs';
 
 const commands=commandMap();
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
@@ -769,6 +770,44 @@ export async function startInlineBot(){
       owner:true,
       language:lang
     }));
+  });
+
+  bot.command('setstoragetoken',async ctx=>{
+    if(ctx.chat?.type!=='private')return;
+    const owner=isOwnerIdentity(ctx.from.id,ctx.from.username);
+    if(!owner)return ctx.reply('Cette commande est réservée au propriétaire de NexAi.');
+    const token=String(ctx.match||'').trim();
+    if(!token)return ctx.reply('Utilise /setstoragetoken suivi du nouveau token de @NexAiStorage_bot dans ce chat privé.');
+    try{
+      const saved=await saveReplyStorageBotToken(token);
+      await ctx.deleteMessage().catch(()=>{});
+      let status=null;
+      try{status=await replyStorageStatus()}catch(error){
+        return ctx.reply('Token NexAI Storage chiffré et enregistré. Chaîne non détectée : '+String(error?.message||error).slice(0,300));
+      }
+      return ctx.reply(
+        'NexAI Storage configuré ✅\nBot : @'+String(saved.botUsername||status?.botUsername||'NexAiStorage_bot')+
+        '\nChaîne : '+String(status?.title||status?.chatId||'détectée')+
+        '\n/setreply utilisera désormais le coffre Telegram privé.'
+      );
+    }catch(error){
+      return ctx.reply('Configuration NexAI Storage impossible : '+String(error?.message||error).slice(0,350));
+    }
+  });
+
+  bot.command('storagestatus',async ctx=>{
+    if(ctx.chat?.type!=='private')return;
+    const owner=isOwnerIdentity(ctx.from.id,ctx.from.username);
+    if(!owner)return ctx.reply('Cette commande est réservée au propriétaire de NexAi.');
+    try{
+      const status=await replyStorageStatus();
+      return ctx.reply(
+        'NexAI Storage ✅\nBot : @'+String(status.botUsername||'NexAiStorage_bot')+
+        '\nChaîne : '+String(status.title||status.chatId||'détectée')
+      );
+    }catch(error){
+      return ctx.reply('NexAI Storage : '+String(error?.message||error).slice(0,350));
+    }
   });
 
   bot.command('pair',async ctx=>{
