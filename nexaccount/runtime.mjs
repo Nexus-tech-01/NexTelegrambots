@@ -890,19 +890,27 @@ async function maybeMentionVideoReply(runtime,event){
   const settings=await settingsFor(account.telegramUserId);
   const configured=settings.mentionVideoReply||{};
   const message=event?.message;
-  if(configured.enabled!==true||!configured.url||!message?.peerId||autoFeaturesMuted(settings,event))return false;
+  if(configured.enabled!==true||!(configured.savedMessageId||configured.url)||!message?.peerId||autoFeaturesMuted(settings,event))return false;
   if(isSelfAuthoredMessage(message,account)||!messageMentionsAccount(message,account))return false;
   if(message?.fromId?.channelId)return false;
   if(await messageAuthorIsBot(client,message,event?.sender))return false;
   try{
-    const response=await fetch(String(configured.url),{signal:AbortSignal.timeout(30000)});
-    if(!response.ok)throw new Error('HTTP '+response.status);
-    const size=Number(response.headers.get('content-length')||0);
-    if(size>50*1024*1024)throw new Error('vidéo > 50 Mo');
-    const buffer=Buffer.from(await response.arrayBuffer());
-    if(!buffer.length)throw new Error('vidéo vide');
+    let buffer=null;
+    if(configured.savedMessageId){
+      const rows=await client.getMessages('me',{ids:[Number(configured.savedMessageId)]});
+      const source=Array.isArray(rows)?rows[0]:rows;
+      if(!source?.media)throw new Error('note vidéo Telegram introuvable');
+      buffer=await client.downloadMedia(source);
+    }else{
+      const response=await fetch(String(configured.url),{signal:AbortSignal.timeout(30000)});
+      if(!response.ok)throw new Error('HTTP '+response.status);
+      const size=Number(response.headers.get('content-length')||0);
+      if(size>50*1024*1024)throw new Error('vidéo > 50 Mo');
+      buffer=Buffer.from(await response.arrayBuffer());
+    }
+    if(!buffer?.length)throw new Error('vidéo vide');
     if(buffer.length>50*1024*1024)throw new Error('vidéo > 50 Mo');
-    await sendTelegramMedia(client,message.peerId,buffer,{
+    await sendTelegramMedia(client,message.peerId,Buffer.from(buffer),{
       fileName:'nexai-reply.mp4',
       mimeType:'video/mp4',
       kind:'video',
@@ -921,19 +929,30 @@ async function maybeAutoReply(runtime,event){
   const {client,account}=runtime;
   const settings=await settingsFor(account.telegramUserId);
   const auto=settings.autoReply||{};
-  if(auto.enabled!==true||!auto.url||autoFeaturesMuted(settings,event))return false;
+  if(auto.enabled!==true||!(auto.savedMessageId||auto.url)||autoFeaturesMuted(settings,event))return false;
   if(!messageMentionsAccount(event.message,account))return false;
   const delay=Math.max(0,Math.min(30000,Number(auto.delayMs)||0));
   if(delay)await sleep(delay);
   try{
-    const response=await fetch(String(auto.url),{signal:AbortSignal.timeout(20000)});
-    if(!response.ok)throw new Error('HTTP '+response.status);
-    const size=Number(response.headers.get('content-length')||0);
-    if(size>20*1024*1024)throw new Error('média > 20 Mo');
-    const buffer=Buffer.from(await response.arrayBuffer());
+    let buffer=null;
+    let mime=String(auto.mime||'application/octet-stream');
+    if(auto.savedMessageId){
+      const rows=await client.getMessages('me',{ids:[Number(auto.savedMessageId)]});
+      const source=Array.isArray(rows)?rows[0]:rows;
+      if(!source?.media)throw new Error('média Telegram introuvable');
+      buffer=await client.downloadMedia(source);
+      mime=String(auto.mime||source?.document?.mimeType||source?.media?.document?.mimeType||mime);
+    }else{
+      const response=await fetch(String(auto.url),{signal:AbortSignal.timeout(20000)});
+      if(!response.ok)throw new Error('HTTP '+response.status);
+      const size=Number(response.headers.get('content-length')||0);
+      if(size>20*1024*1024)throw new Error('média > 20 Mo');
+      buffer=Buffer.from(await response.arrayBuffer());
+      mime=String(auto.mime||response.headers.get('content-type')||mime);
+    }
+    if(!buffer?.length)throw new Error('média vide');
     if(buffer.length>20*1024*1024)throw new Error('média > 20 Mo');
-    const mime=String(auto.mime||response.headers.get('content-type')||'application/octet-stream');
-    await sendTelegramMedia(client,event.message.peerId,buffer,{fileName:'nexai-autoreply',mimeType:mime,kind:'auto'});
+    await sendTelegramMedia(client,event.message.peerId,Buffer.from(buffer),{fileName:'nexai-autoreply',mimeType:mime,kind:'auto'});
     return true;
   }catch(e){
     console.error('[NexAccount autoReply]',account.telegramUserId,String(e.message||e));
