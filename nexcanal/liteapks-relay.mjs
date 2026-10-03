@@ -20,6 +20,7 @@ const poll=Math.max(1500,Number(process.env.NEXCANAL__WATCHER_POLL_MS||2500));
 // Public policy: one unrelated APK publication batch every two hours.
 // A descriptor and the APK it describes are one logical batch, so the APK companion may follow immediately.
 const publicationGapMs=2*60*60*1000;
+const publicationBatchSize=5;
 const linkedBatchWindowMs=30*60*1000;
 const botLimit=49*1024*1024;
 const smallDownloadTimeoutMs=Math.max(180000,Number(process.env.NEXCANAL__WATCHER_SMALL_DOWNLOAD_TIMEOUT_MS||300000));
@@ -790,15 +791,42 @@ function pruneDescriptors(ss){
 
 function publicationState(st){
   st.publication=st.publication||{};
-  st.publication.lastBatchAt=Number(st.publication.lastBatchAt||0);
-  st.publication.openBatch=st.publication.openBatch||null;
-  return st.publication;
+  const ps=st.publication;
+  ps.lastBatchAt=Number(ps.lastBatchAt||0);
+  ps.batchStartedAt=Number(ps.batchStartedAt||0);
+  ps.apkCount=Math.max(0,Number(ps.apkCount||0));
+  ps.openBatch=ps.openBatch||null;
+  if(!ps.batchStartedAt&&ps.lastBatchAt){
+    ps.batchStartedAt=ps.lastBatchAt;
+    ps.apkCount=publicationBatchSize;
+  }
+  return ps;
+}
+function refreshPublicationBatch(st,now=Date.now()){
+  const ps=publicationState(st);
+  if(ps.batchStartedAt&&now>=ps.batchStartedAt+publicationGapMs){
+    ps.batchStartedAt=0;
+    ps.apkCount=0;
+    ps.openBatch=null;
+  }
+  return ps;
 }
 function nextPublicationAt(st){
-  return Number(publicationState(st).lastBatchAt||0)+publicationGapMs;
+  const ps=refreshPublicationBatch(st);
+  if(!ps.batchStartedAt||ps.apkCount<publicationBatchSize)return 0;
+  return ps.batchStartedAt+publicationGapMs;
+}
+function ensureBatchStarted(st){
+  const ps=refreshPublicationBatch(st);
+  if(!ps.batchStartedAt){
+    ps.batchStartedAt=Date.now();
+    ps.lastBatchAt=ps.batchStartedAt;
+    ps.apkCount=0;
+  }
+  return ps;
 }
 function isOpenBatchCompanion(st,item,linked){
-  const ps=publicationState(st);
+  const ps=refreshPublicationBatch(st);
   const open=ps.openBatch;
   if(!open||!linked)return false;
   if(Date.now()-Number(open.startedAt||0)>linkedBatchWindowMs){
@@ -807,12 +835,18 @@ function isOpenBatchCompanion(st,item,linked){
   }
   return item.source===open.source && Number(linked.id)===Number(open.descriptorId);
 }
-function markBatchStart(st,{source,descriptorId=null}={}){
-  const ps=publicationState(st);
-  ps.lastBatchAt=Date.now();
+function markDescriptorStart(st,{source,descriptorId}={}){
+  const ps=ensureBatchStarted(st);
   ps.openBatch=descriptorId
     ? {source,descriptorId:Number(descriptorId),startedAt:Date.now()}
     : null;
+}
+function markApkPublished(st){
+  const ps=ensureBatchStarted(st);
+  ps.apkCount=Math.min(publicationBatchSize,Number(ps.apkCount||0)+1);
+  ps.lastBatchAt=ps.batchStartedAt;
+  if(ps.apkCount>=publicationBatchSize)ps.openBatch=null;
+  return ps.apkCount;
 }
 function closeOpenBatch(st){
   publicationState(st).openBatch=null;
@@ -839,9 +873,9 @@ async function processItem(c,publisher,destination,st,sources,item){
     await postApk(c,publisher,destination,m,source.kind,!!linked);
     if(linked)linked.used=true;
     pruneDescriptors(ss);
-    if(companion)closeOpenBatch(st);
-    else markBatchStart(st,{source:item.source});
-    return {done:true,reason:linked?'apk-linked':'apk-standalone'};
+    closeOpenBatch(st);
+    const apkCount=markApkPublished(st);
+    return {done:true,reason:(linked?'apk-linked':'apk-standalone')+' batch '+apkCount+'/'+publicationBatchSize};
   }
   if(isDescriptor(m)){
     const nextAt=nextPublicationAt(st);
@@ -855,8 +889,8 @@ async function processItem(c,publisher,destination,st,sources,item){
       used:false
     });
     pruneDescriptors(ss);
-    markBatchStart(st,{source:item.source,descriptorId:Number(m.id)});
-    return {done:true,reason:'descriptor'};
+    markDescriptorStart(st,{source:item.source,descriptorId:Number(m.id)});
+    return {done:true,reason:'descriptor batch '+publicationState(st).apkCount+'/'+publicationBatchSize};
   }
   return {done:true,reason:'ignored'};
 }
