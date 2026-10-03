@@ -19,8 +19,8 @@ import { createCommandDeduper } from './core/command-deduper.mjs';
 import { createRuntimeContext, clearRuntimeTimers } from './core/runtime-context.mjs';
 import { routeEngineCommand } from './core/engine-router.mjs';
 import { animeBeginRebuild, animeDedupePublishedEpisodeVariants, animeDiscoverNow, animeIngestStatus, animePublishNow, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
-import { sendTelegramMedia } from './media-send.mjs';
-import { downloadReplyVideo } from './reply-storage.mjs';
+import { normalizeVideoNoteBuffer, sendTelegramMedia } from './media-send.mjs';
+import { deleteStoredReplyVideo, downloadReplyVideo, storeReplyVideo } from './reply-storage.mjs';
 import { ensureEmojiLibraryPalette, ensurePremiumEmojiPalette, sanitizeAnimatedEmojiText, sendBrandedText, syncOwnedCustomEmojiLibrary } from './response-ui.mjs';
 import { putInlineResponse } from './inline-response-store.mjs';
 import { resolveBotUsername } from './secrets.mjs';
@@ -198,6 +198,7 @@ function connectedAccountIds(account){
 
 async function messageAuthorIsBot(client,message,eventSender=null){
   if(eventSender?.bot===true)return true;
+  if(eventSender&&eventSender.bot===false)return false;
   const id=messageAuthorId(message);
   if(!id)return false;
   try{
@@ -892,10 +893,53 @@ async function maybeNlpMode(runtime,event){
   }
 }
 
+function mentionReplyStorageKey(storage={}){
+  return String(storage?.fileUniqueId||storage?.fileId||'').trim();
+}
+
+async function warmMentionVideoReply(runtime){
+  const id=String(runtime?.account?.telegramUserId||'');
+  if(!id)return null;
+  const settings=await settingsFor(id);
+  let configured=settings.mentionVideoReply||{};
+  runtime.mentionVideoReplyCache=configured;
+  const storage=configured.storage||{};
+  if(configured.enabled!==true||!storage.fileId)return configured;
+
+  let buffer=await downloadReplyVideo(storage);
+  if(!(storage.normalized===true&&storage.videoNoteMeta?.width&&storage.videoNoteMeta?.height)){
+    const normalized=await normalizeVideoNoteBuffer(buffer);
+    const replacement=await storeReplyVideo(normalized.buffer,{
+      telegramUserId:id,
+      filenamePrefix:'nexai-reply-ready',
+      caption:'NexAI Reply Media · ready'
+    });
+    replacement.normalized=true;
+    replacement.videoNoteMeta={
+      width:normalized.width,
+      height:normalized.height,
+      duration:normalized.duration
+    };
+    const next={...configured,storage:replacement,mime:'video/mp4',normalizedAt:Date.now()};
+    await patchSettings(id,{mentionVideoReply:next});
+    runtime.mentionVideoReplyCache=next;
+    configured=next;
+    buffer=normalized.buffer;
+    await deleteStoredReplyVideo(storage).catch(()=>false);
+  }
+
+  runtime.mentionVideoReplyBuffer=Buffer.from(buffer);
+  runtime.mentionVideoReplyBufferKey=mentionReplyStorageKey(configured.storage);
+  return configured;
+}
+
 async function maybeMentionVideoReply(runtime,event){
   const {client,account}=runtime;
-  const settings=await settingsFor(account.telegramUserId);
-  const configured=settings.mentionVideoReply||{};
+  if(runtime.mentionReplyWarmupPromise){
+    await runtime.mentionReplyWarmupPromise.catch(()=>null);
+  }
+  const configured=runtime.mentionVideoReplyCache||((await settingsFor(account.telegramUserId)).mentionVideoReply||{});
+  runtime.mentionVideoReplyCache=configured;
   const message=event?.message;
   if(configured.enabled!==true||!(configured.storage?.fileId||configured.savedMessageId||configured.url)||!message?.peerId||autoFeaturesMuted(settings,event))return false;
   if(isSelfAuthoredMessage(message,account)||!messageMentionsAccount(message,account))return false;
@@ -904,7 +948,14 @@ async function maybeMentionVideoReply(runtime,event){
   try{
     let buffer=null;
     if(configured.storage?.fileId){
-      buffer=await downloadReplyVideo(configured.storage);
+      const cacheKey=mentionReplyStorageKey(configured.storage);
+      if(cacheKey&&runtime.mentionVideoReplyBufferKey===cacheKey&&runtime.mentionVideoReplyBuffer?.length){
+        buffer=Buffer.from(runtime.mentionVideoReplyBuffer);
+      }else{
+        buffer=await downloadReplyVideo(configured.storage);
+        runtime.mentionVideoReplyBuffer=Buffer.from(buffer);
+        runtime.mentionVideoReplyBufferKey=cacheKey;
+      }
     }else if(configured.savedMessageId){
       const rows=await client.getMessages('me',{ids:[Number(configured.savedMessageId)]});
       const source=Array.isArray(rows)?rows[0]:rows;
@@ -924,7 +975,11 @@ async function maybeMentionVideoReply(runtime,event){
       mimeType:'video/mp4',
       kind:'video',
       videoNote:true,
+      preNormalizedVideoNoteMeta:configured.storage?.normalized===true
+        ?configured.storage?.videoNoteMeta
+        :null,
       replyTo:Number(message.id||0)||undefined,
+      workers:4,
       signature:false
     });
     return true;
@@ -1711,6 +1766,12 @@ export async function attachConnectedClient(client,account,{leaseOwned=false,ses
   runtime.sessionFingerprint=fingerprint;
   runtime.setPresenceEnabled=enabled=>configurePresence(runtime,enabled);
   runtimes.set(id,runtime);
+  runtime.mentionReplyWarmupPromise=warmMentionVideoReply(runtime)
+    .catch(error=>{
+      console.warn('[NexAccount mentionVideoReply warmup]',id,String(error?.message||error).slice(0,300));
+      return null;
+    })
+    .finally(()=>{runtime.mentionReplyWarmupPromise=null;});
 
   const emojiLibrarySource=String(cfg.creatorUsername||'tresor20001').trim().replace(/^@/,'').toLowerCase();
   const accountUsername=String(account.username||'').trim().replace(/^@/,'').toLowerCase();
@@ -1755,12 +1816,16 @@ export async function attachConnectedClient(client,account,{leaseOwned=false,ses
       // Messages sent by this same account from another Telegram session may
       // arrive with out=false. Treat recognized self-authored commands as commands.
       if(await maybeHandleSelfCommand(runtime,event,'incoming-self'))return;
+
+      // Reply vidéo prioritaire : aucun autre automate ne doit retarder
+      // l'envoi lorsqu'un compte connecté est mentionné.
+      const mentionVideoReplied=await maybeMentionVideoReply(runtime,event);
+
       if(await handleAnimeIngestEvent(runtime,event))return;
       await handlePremiumPowerEvent(runtime,event);
       await maybeAutoModerate(runtime,event);
       await maybeServiceGreeting(runtime,event);
       await maybeAutoReact(runtime,event);
-      const mentionVideoReplied=await maybeMentionVideoReply(runtime,event);
       const autoReplied=mentionVideoReplied?true:await maybeAutoReply(runtime,event);
       if(!autoReplied)await maybeNlpMode(runtime,event);
     }catch(e){console.error('[NexAccount incoming]',id,e)}
