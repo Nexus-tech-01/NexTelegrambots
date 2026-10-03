@@ -7,7 +7,9 @@ import {promisify} from 'node:util';
 import {fileURLToPath} from 'node:url';
 import {
   canonicalDisplayName,
+  characterTokens,
   fallbackWishlistCandidate,
+  normalizeKey,
   packLooksCharacterSpecific,
   STICK_GOOD_MOODS,
   stickGoodPackName,
@@ -237,15 +239,33 @@ async function visionJson(prompt,filePath){
   }
   return null;
 }
+function characterNamesAgree(expected,actual){
+  const e=normalizeKey(expected),a=normalizeKey(actual);
+  if(!e||!a)return false;
+  if(e===a)return true;
+  const ec=e.replace(/\s+/g,''),ac=a.replace(/\s+/g,'');
+  if(ec===ac)return true;
+  const et=characterTokens(expected),at=new Set(characterTokens(actual));
+  const shared=et.filter(t=>at.has(t));
+  return shared.some(t=>t.length>=4);
+}
 async function visuallyMatches(character,filePath){
   const j=await visionJson(
-    'Inspecte cette image pour un pack de stickers mono-personnage. Le personnage cible est "'+character+'". '+
-    'Réponds JSON uniquement: {"match":true|false,"singleCharacter":true|false,"confidence":0..1,"otherCharacter":true|false}. '+
-    'match=true seulement si le personnage principal est clairement '+character+'. singleCharacter=false si un autre personnage identifiable apparaît aussi.',
+    'Identifie indépendamment le personnage principal visible sur cette image de sticker. '+
+    'N utilise ni le nom du fichier, ni un titre de pack, ni une hypothèse externe. '+
+    'Si tu ne peux pas reconnaître précisément le personnage, laisse character vide et baisse confidence. '+
+    'Réponds JSON uniquement: {"character":"nom canonique exact ou vide","franchise":"oeuvre ou vide","singleCharacter":true|false,"confidence":0..1,"otherCharacter":true|false}.',
     filePath
   );
   if(!j)return false;
-  return j.match===true&&j.singleCharacter===true&&j.otherCharacter!==true&&Number(j.confidence)>=0.80;
+  const actual=canonicalDisplayName(j.character);
+  return Boolean(
+    actual&&
+    j.singleCharacter===true&&
+    j.otherCharacter!==true&&
+    Number(j.confidence)>=0.84&&
+    characterNamesAgree(character,actual)
+  );
 }
 
 async function classifyWishlist(text){
@@ -388,8 +408,9 @@ async function downloadTelegramSet(character,dir,limit=30){
           await fs.writeFile(raw,bytes);
           const target=path.join(dir,'sticker-'+String(n+1).padStart(2,'0')+'.webp');
           await normalizeSticker(raw,target);
-          // The set itself has already passed the mono-character metadata gate.
-          // Do not make a whole valid Telegram pack depend on the external vision service.
+          // Metadata only helps discover a candidate set. Every sticker must independently
+          // pass visual character recognition before it can enter a published pack.
+          if(!(await visuallyMatches(character,target)))continue;
           rows.push({localPath:target,source:'telegram:@'+c.source,setName:c.setName});
           n++;
         }catch{}
