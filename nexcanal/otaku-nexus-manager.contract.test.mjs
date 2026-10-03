@@ -12,6 +12,9 @@ assert.ok(manager.includes("throw new Error('otaku_image_required:'"),'text-only
 assert.ok(manager.includes("options:['✅ Déjà vu','📌 Dans ma liste','👀 Pas encore']"),'recommendation response choices missing');
 assert.ok(manager.includes("correctAnswer:m.name"),'mystery answer session missing');
 assert.ok(manager.includes('function stablePick('),'deterministic retry selection missing');
+assert.ok(!manager.includes("import {TelegramClient} from 'teleproto';"),'teleproto must not be a startup dependency');
+assert.ok(manager.includes('async function optionalTeleproto()'),'optional teleproto loader missing');
+assert.ok(manager.includes("import('teleproto')"),'teleproto fallback loader missing');
 assert.ok(manager.includes('function timeWindowDue('),'interactive session catch-up window missing');
 assert.ok(manager.includes('timeWindowDue(16,0,4*60)'),'choice-session restart catch-up missing');
 assert.ok(manager.includes('timeWindowDue(quizHour,0,3*60)'),'quiz-session restart catch-up missing');
