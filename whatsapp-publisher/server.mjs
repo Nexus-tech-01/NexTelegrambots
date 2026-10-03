@@ -30,6 +30,36 @@ const PUBLISHER_MODE_SUPERVISE=process.argv.includes('--supervise');
 const PUBLISHER_MODE_RESTART=process.argv.includes('--restart-supervisor');
 const publisherSupervisorSleep=ms=>new Promise(r=>setTimeout(r,ms));
 
+function ensureBaileysStickerPackMediaPatch(){
+  const target=path.join(path.dirname(PUBLISHER_SELF),'node_modules','@whiskeysockets','baileys','lib','Defaults','index.js');
+  if(!fs.existsSync(target))return {ok:false,reason:'defaults_missing',target};
+  let src=fs.readFileSync(target,'utf8');
+  const before=src;
+  if(!src.includes("'sticker-pack': '/mms/sticker-pack'")){
+    src=src.replace(
+      /sticker:\s*'\/mms\/image',/,
+      "sticker: '/mms/image',\n    'sticker-pack': '/mms/sticker-pack',\n    'thumbnail-sticker-pack': '/mms/thumbnail-sticker-pack',"
+    );
+  }
+  if(!src.includes("'sticker-pack': 'Sticker Pack'")){
+    src=src.replace(
+      /ptt:\s*'Audio',/,
+      "ptt: 'Audio',\n    'sticker-pack': 'Sticker Pack',\n    'thumbnail-sticker-pack': 'Sticker Pack Thumbnail',"
+    );
+  }
+  if(src===before)return {ok:true,changed:false,target};
+  if(!src.includes("'sticker-pack': '/mms/sticker-pack'")||!src.includes("'thumbnail-sticker-pack': '/mms/thumbnail-sticker-pack'")||!src.includes("'sticker-pack': 'Sticker Pack'")){
+    throw new Error('baileys_sticker_pack_patch_contract_failed');
+  }
+  const backup=target+'.bak-stick-good';
+  if(!fs.existsSync(backup))fs.copyFileSync(target,backup);
+  const tmp=target+'.tmp-'+process.pid;
+  fs.writeFileSync(tmp,src);
+  fs.renameSync(tmp,target);
+  return {ok:true,changed:true,target};
+}
+
+
 async function publisherPidAlive(pid){
   try{if(!Number.isInteger(pid)||pid<=1)return false;process.kill(pid,0);return true}catch{return false}
 }
@@ -41,6 +71,8 @@ async function stopPublisherPid(pid){
 }
 async function publisherSupervise(){
   fs.mkdirSync(PUBLISHER_SUPERVISOR_DIR,{recursive:true});
+  const mediaPatch=ensureBaileysStickerPackMediaPatch();
+  logger.info({mediaPatch},'Baileys Stick Good media map ready');
   let child=null,closing=false,backoff=2000;
   const close=async()=>{
     if(closing)return;closing=true;
@@ -1220,12 +1252,18 @@ async function prepareStickGoodPackCard(jid,raw={}){
     try{fs.unlinkSync(encrypted.encFilePath)}catch{}
     try{if(encrypted.originalFilePath)fs.unlinkSync(encrypted.originalFilePath)}catch{}
   }
-  const cover=await prepareWAMessageMedia(
-    {image:coverBytes},
-    {upload:socket.waUploadToServer,mediaUploadTimeoutMs:120000,logger}
-  );
-  const ci=cover?.imageMessage;
-  if(!ci?.directPath)throw new Error('Stick Good pack thumbnail upload failed');
+  const thumbEncrypted=await encryptedStream(coverBytes,'thumbnail-sticker-pack',{logger,mediaKey:encrypted.mediaKey});
+  let thumbUploaded;
+  try{
+    thumbUploaded=await socket.waUploadToServer(thumbEncrypted.encFilePath,{
+      fileEncSha256B64:thumbEncrypted.fileEncSha256.toString('base64'),
+      mediaType:'thumbnail-sticker-pack',timeoutMs:120000
+    });
+  }finally{
+    try{fs.unlinkSync(thumbEncrypted.encFilePath)}catch{}
+    try{if(thumbEncrypted.originalFilePath)fs.unlinkSync(thumbEncrypted.originalFilePath)}catch{}
+  }
+  if(!thumbUploaded?.directPath)throw new Error('Stick Good pack thumbnail upload failed');
   const stickerPackId='StickGood_'+crypto.randomBytes(10).toString('hex');
   const stickerFiles=(Array.isArray(raw.stickerFiles)?raw.stickerFiles:[])
     .map(x=>String(x||'').trim()).filter(Boolean).slice(0,30);
@@ -1246,12 +1284,12 @@ async function prepareStickGoodPackCard(jid,raw={}){
       mediaKey:encrypted.mediaKey,
       directPath:uploaded?.directPath,
       mediaKeyTimestamp:Math.floor(Date.now()/1000),
-      trayIconFileName:stickerPackId+'.jpg',
-      thumbnailDirectPath:ci.directPath,
-      thumbnailSha256:ci.fileSha256,
-      thumbnailEncSha256:ci.fileEncSha256,
-      thumbnailHeight:ci.height,
-      thumbnailWidth:ci.width,
+      trayIconFileName:stickerFiles[0],
+      thumbnailDirectPath:thumbUploaded.directPath,
+      thumbnailSha256:thumbEncrypted.fileSha256,
+      thumbnailEncSha256:thumbEncrypted.fileEncSha256,
+      thumbnailHeight:252,
+      thumbnailWidth:252,
       imageDataHash:crypto.createHash('sha256').update(coverBytes).digest('base64'),
       stickerPackSize:encrypted.fileLength,
       stickerPackOrigin:proto.Message.StickerPackMessage.StickerPackOrigin.USER_CREATED
