@@ -21,8 +21,10 @@ jobs:
           set -u
           mkdir -p /tmp/nexus
           cat $(printf '%s\n' nexus-bots-src.tar.xz.b64.part-* | sort) | base64 -d > /tmp/nexus-bots.tar.xz
+          set +e
           xz -dc --single-stream /tmp/nexus-bots.tar.xz > /tmp/nexus-bots.tar
           rc=$?
+          set -e
           echo "xz_exit=$rc tar_bytes=$(wc -c </tmp/nexus-bots.tar)"
           echo "=== NEXSTICK TAR ENTRIES ==="
           tar -tf /tmp/nexus-bots.tar 2>/dev/null | grep 'bots/nexstick' | head -200 || true
