@@ -9,6 +9,7 @@ import { loadBotToken } from './secrets.mjs';
 import { consumeQuota, patchSettings, settingsFor } from './store.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
 import { renderTgsToAnimatedWebp } from './lottie-renderer.mjs';
+import { addStickerWatermark, removeStickerWatermark, roundSticker } from './sticker-transform.mjs';
 
 const FFMPEG=String(process.env.FFMPEG_PATH||'ffmpeg');
 const MAX_SOURCE_BYTES=Math.max(1024*1024,Number(process.env.NEXAI_STICKER_MAX_SOURCE_BYTES||25*1024*1024));
@@ -366,6 +367,99 @@ function launchClonePackJob({runtime,docs,title,newName,progress,sourcePackName=
   return id;
 }
 
+function transformArg(args,key,fallback=''){
+  const prefix='--'+key+'=';
+  const found=(Array.isArray(args)?args:[]).find(x=>String(x).toLowerCase().startsWith(prefix));
+  return found===undefined?fallback:String(found).slice(prefix.length).trim();
+}
+
+function transformTitleArgs(args){
+  return (Array.isArray(args)?args:[])
+    .filter(x=>!String(x).startsWith('--'))
+    .join(' ')
+    .trim();
+}
+
+function transformScope(args,set){
+  const flags=new Set((Array.isArray(args)?args:[]).map(x=>String(x).toLowerCase()));
+  if(flags.has('--one')||flags.has('--single'))return 'one';
+  if(flags.has('--pack')||flags.has('--all'))return 'pack';
+  return set?.documents?.length?'pack':'one';
+}
+
+function transformOpacity(value,fallback=0.18){
+  if(value===undefined||value===null||String(value).trim()==='')return fallback;
+  let n=Number(String(value).replace('%','').trim());
+  if(!Number.isFinite(n))return fallback;
+  if(n>1)n/=100;
+  return Math.max(0.03,Math.min(0.85,n));
+}
+
+async function runTransformPackJob({
+  id,runtime,docs,title,newName,progress,sourcePackName='',kind='transform',transform
+}) {
+  const {client,account}=runtime;
+  let added=0,created=false;
+  const label=kind==='filitake'?'Filitake':kind==='ultratake'?'Ultratake':'Noteclone';
+  console.log('[NexAi sticker transform]',id,'started','kind='+kind,'account='+account.telegramUserId,'total='+docs.length,'pack='+newName);
+  try{
+    for(let i=0;i<docs.length;i++){
+      const doc=docs[i];
+      const raw=await queueCloneDownload(
+        account.telegramUserId,
+        ()=>downloadCloneDocument(client,doc,{sourcePackName,sourceIndex:i}),
+        id+' '+kind+' download '+(i+1)+'/'+docs.length
+      );
+      const prepared=await transform(raw,{index:i,doc});
+      const emoji=stickerAttr(doc)?.alt||'✨';
+      if(!created){
+        await queueCloneMutation(
+          ()=>createSet(account,title,newName,prepared,emoji),
+          id+' '+kind+' create set'
+        );
+        created=true;
+      }else{
+        await queueCloneMutation(
+          ()=>addToSet(account,newName,prepared,emoji),
+          id+' '+kind+' add '+(i+1)+'/'+docs.length
+        );
+      }
+      added++;
+      if(i===0||i===docs.length-1||(i+1)%3===0){
+        await safeProgress(progress,'⏳ '+label+' · '+(i+1)+'/'+docs.length+' · '+added+' ajouté(s)…');
+      }
+    }
+    if(added!==docs.length)throw new Error(label+' incomplet: '+added+'/'+docs.length);
+    await rememberPack(account.telegramUserId,{
+      name:newName,title,link:packLink(newName),count:added,sourceCount:docs.length,
+      transform:kind,updatedAt:Date.now()
+    });
+    await safeProgress(progress,'✅ '+label+' terminé · '+added+'/'+docs.length+' sticker(s)\n'+packLink(newName));
+    console.log('[NexAi sticker transform]',id,'completed','kind='+kind,added+'/'+docs.length,'pack='+newName);
+  }catch(error){
+    console.error('[NexAi sticker transform]',id,'stopped','kind='+kind,added+'/'+docs.length,String(error?.stack||error));
+    await safeProgress(progress,'❌ '+label+' interrompu · '+added+'/'+docs.length+' sticker(s)\n'+String(error?.message||error).slice(0,300));
+  }finally{
+    activeCloneJobs.delete(id);
+  }
+}
+
+function launchTransformPackJob({
+  runtime,docs,title,newName,progress,sourcePackName='',kind='transform',transform
+}) {
+  const id=cloneJobId(runtime?.account?.telegramUserId);
+  const immutableDocs=[...docs];
+  activeCloneJobs.set(id,{
+    id,
+    accountId:String(runtime?.account?.telegramUserId||''),
+    title,newName,total:immutableDocs.length,sourcePackName,kind,startedAt:Date.now()
+  });
+  void runTransformPackJob({
+    id,runtime,docs:immutableDocs,title,newName,progress,sourcePackName,kind,transform
+  });
+  return id;
+}
+
 export function stickerCloneJobs(accountId=null){
   const rows=[...activeCloneJobs.values()].map(row=>({...row}));
   if(accountId===null||accountId===undefined)return rows;
@@ -565,7 +659,7 @@ export function buildWastickersArchive({title='NexAi Stickers',author='NexAi',st
   return makeZip(files);
 }
 
-export const STICKER_ENGINE_COMMANDS=new Set(['sticker','stickerinfo','clonepack','createpack','mypacks','exportwhatsapp']);
+export const STICKER_ENGINE_COMMANDS=new Set(['sticker','stickerinfo','clonepack','createpack','mypacks','exportwhatsapp','ultratake','filitake','noteclone']);
 export function canHandleStickerCommand(name){return STICKER_ENGINE_COMMANDS.has(String(name||'').toLowerCase())}
 
 let stickerDiagnosticCache={at:0,value:null};
@@ -670,6 +764,49 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
     });
     if(typeof progress.done==='function')await progress.done('WhatsApp stickers · pack prêt');
     else await progress.update('✅ WhatsApp stickers · pack prêt.');
+    return true;
+  }
+
+  if(name==='ultratake'||name==='filitake'||name==='noteclone'){
+    const set=await sourceSet(client,source).catch(()=>null);
+    const scope=transformScope(args,set);
+    if(scope==='pack'&&!set?.documents?.length){
+      throw new Error('Ce sticker n’appartient pas à un pack accessible. Utilise --one pour traiter seulement ce sticker.');
+    }
+    const docs=(scope==='pack'?set.documents:[documentOf(source)]).filter(Boolean).slice(0,MAX_CLONE);
+    if(!docs.length)throw new Error('Aucun sticker à transformer.');
+
+    const sourceTitle=clean(set?.set?.title)||automaticPackTitle(account,sessionSettings);
+    const sourcePackName=clean(set?.set?.shortName||stickerAttr(documentOf(source))?.stickerset?.shortName);
+    const requestedTitle=transformTitleArgs(args);
+    let title='';
+    let kind=name;
+    let transform=null;
+
+    if(name==='filitake'){
+      if(!requestedTitle){
+        throw new Error('Utilise /filitake NomDuFiligrane en répondant à un sticker. Options : --color=#FFFFFF --opacity=18 --position=bottom.');
+      }
+      title=requestedTitle;
+      const color=transformArg(args,'color','#FFFFFF');
+      const opacity=transformOpacity(transformArg(args,'opacity','18'),0.18);
+      const position=transformArg(args,'position','bottom')||'bottom';
+      transform=raw=>addStickerWatermark(raw,{text:title,color,opacity,position});
+    }else if(name==='ultratake'){
+      title=requestedTitle||(sourceTitle+' Ultra').slice(0,64);
+      const zone=transformArg(args,'zone','bottom')||'bottom';
+      transform=raw=>removeStickerWatermark(raw,{zone});
+    }else{
+      title=requestedTitle||(sourceTitle+' Note').slice(0,64);
+      transform=raw=>roundSticker(raw);
+    }
+
+    const newName=packName(account.telegramUserId,title);
+    const label=name==='filitake'?'Filitake':name==='ultratake'?'Ultratake':'Noteclone';
+    const progress=externalProgress||await startProgress(client,peer,'⏳ '+label+' · 0/'+docs.length+'…');
+    launchTransformPackJob({
+      runtime,docs,title,newName,progress,sourcePackName,kind,transform
+    });
     return true;
   }
 
