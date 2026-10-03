@@ -12,25 +12,23 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 5
     steps:
-      - name: Locate live NexStick runtime
+      - name: Read live NexStick bridge files
         shell: bash
         run: |
           set -euo pipefail
-          for root in services ecosystem data pterodactyl nexus-bridge; do
-            echo "=== /$root ==="
-            curl --fail-with-body --silent --show-error               "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=%2F$root"               -o "/tmp/$root.json"
-            python3 - "$root" <<'PY'
-          import json,sys
-          root=sys.argv[1]
-          d=json.load(open('/tmp/'+root+'.json'))
-          print('ok=',d.get('ok'),'files=',d.get('files'),'truncated=',d.get('truncated'))
+          curl --fail-with-body --silent --show-error             "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-ptero-browser-files-probe?root=%2Fnexus-bridge"             -o /tmp/bridge.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/bridge.json'))
+          wanted={
+            '/nexus-bridge/adapters/nexstick.mjs',
+            '/nexus-bridge/adapter-loader.mjs',
+            '/nexus-bridge/pterodactyl-runtime.mjs'
+          }
           for x in d.get('fileList') or []:
-              p=str(x.get('path',''))
-              content=str(x.get('content') or '')
-              if any(k in (p+' '+content).lower() for k in ['nexstick','the_nexus_techbot','sticker-engine','sticker']):
-                  y={k:v for k,v in x.items() if k!='content'}
-                  print(json.dumps(y,ensure_ascii=False))
+              if x.get('path') in wanted:
+                  print('\n=== '+x['path']+' ===')
+                  print(x.get('content') or '<no content>')
           PY
-          done
