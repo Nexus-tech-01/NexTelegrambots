@@ -11,6 +11,10 @@ assert.ok(manager.includes('buildWastickersFile(canonical,stickers,dir)'),'wasti
 assert.ok(manager.includes("throw new Error('otaku_image_required:'"),'text-only image fallback must stay disabled');
 assert.ok(manager.includes("options:['✅ Déjà vu','📌 Dans ma liste','👀 Pas encore']"),'recommendation response choices missing');
 assert.ok(manager.includes("correctAnswer:m.name"),'mystery answer session missing');
+assert.ok(manager.includes('function stablePick('),'deterministic retry selection missing');
+assert.ok(manager.includes('function timeWindowDue('),'interactive session catch-up window missing');
+assert.ok(manager.includes('timeWindowDue(16,0,4*60)'),'choice-session restart catch-up missing');
+assert.ok(manager.includes('timeWindowDue(quizHour,0,3*60)'),'quiz-session restart catch-up missing');
 
 const packStart=publisher.indexOf("if(kind==='pack')");
 const packEnd=publisher.indexOf("if(kind==='quiz_results')",packStart);
@@ -34,9 +38,11 @@ assert.ok(publisher.includes("const OTAKU_ACTION_LEDGER_FILE='otaku-action-ledge
 assert.ok(publisher.includes('function reserveOtakuAction(raw={})'),'Otaku send reservation guard missing');
 assert.ok(publisher.includes("'Otaku duplicate publication blocked'"),'duplicate blocking log missing');
 assert.ok(publisher.includes('function loadOtakuDurableState()'),'Otaku durable state restore missing');
-assert.ok(publisher.includes('proto.Message.fromObject(row.message)'),'poll creation message restore missing');
+assert.ok(publisher.includes("proto.Message.decode(Buffer.from(String(row.messageB64),'base64'))"),'poll creation message binary restore missing');
 assert.ok(publisher.includes("options:Array.isArray(r.options)?r.options:[]"),'poll options persistence missing');
-assert.ok(publisher.includes("message:r.message||null"),'poll message persistence missing');
+assert.ok(publisher.includes('messageB64'),'poll message binary persistence missing');
+assert.ok(publisher.includes('function otakuActionMediaFingerprint('),'exact media fingerprint dedup missing');
+assert.ok(publisher.includes("reason:'media'"),'duplicate media blocking path missing');
 assert.ok(publisher.includes("const votes={...(record?.votes||{})}"),'poll vote aggregation must preserve restored votes');
 assert.ok(publisher.includes('releaseOtakuAction(claim)'),'failed sends must release their dedup reservation');
 
