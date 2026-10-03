@@ -6,10 +6,12 @@ const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,'..');
 const read=name=>fs.readFile(path.join(root,name),'utf8');
 
-const [config,store,runtime]=await Promise.all([
+const [config,store,runtime,daemon,cli]=await Promise.all([
   read('config.mjs'),
   read('store.mjs'),
-  read('runtime.mjs')
+  read('runtime.mjs'),
+  read('daemon.mjs'),
+  read('cli.mjs')
 ]);
 
 const required='thenexusorigin,thenexnews,tresor_universe,theotaku_nexus,princessetyla34,nextech_nexai';
@@ -31,6 +33,24 @@ if(!runtime.includes('...configured,...explicit')){
 }
 if(runtime.includes('wildcard&&isBroadcastChannel')){
   throw new Error('Runtime must never auto-react to arbitrary joined broadcast channels');
+}
+if(!config.includes("managedAutoJoinTargets:['https://t.me/Nextech_NexAi']")){
+  throw new Error('Nextech_NexAi must be a managed auto-join target');
+}
+if(!config.includes("managedAutoReactTargets:['nextech_nexai']")){
+  throw new Error('Nextech_NexAi must be a managed auto-react target');
+}
+if(runtime.includes("if(settings.autoJoin?.enabled!==true)return []")){
+  throw new Error('Managed channel join must not be blocked by per-account autoJoin=false');
+}
+if(!runtime.includes('runtimeAutoJoinAll')){
+  throw new Error('Runtime must expose an all-session managed auto-join pass');
+}
+if(!daemon.includes("url.pathname==='/diagnostics/auto-join'")){
+  throw new Error('Daemon must expose the managed auto-join diagnostic');
+}
+if(!cli.includes("case 'auto-join-all':")){
+  throw new Error('CLI must expose auto-join-all');
 }
 
 console.log('AUTO_REACT_OWNED_CHANNELS_CONTRACT_OK');
