@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { createCanvas } from '@napi-rs/canvas';
+import { createRequire } from 'node:module';
+const requireFromNexAccount=createRequire(new URL('../../nexaccount/package.json',import.meta.url));
+const { createCanvas }=requireFromNexAccount('@napi-rs/canvas');
 import { renderTgsToAnimatedWebp } from './lottie-renderer.mjs';
 
 const FFMPEG=String(process.env.FFMPEG_PATH||'ffmpeg');
