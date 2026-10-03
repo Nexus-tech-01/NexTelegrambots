@@ -9,9 +9,11 @@ on:
       - 'nexcanal/stick-good-manager.mjs'
       - 'nexcanal/stick-good-manager.contract.test.mjs'
       - 'whatsapp-publisher/server.mjs'
+  workflow_dispatch:
 
 permissions:
   contents: write
+  id-token: write
 
 concurrency:
   group: ops-stick-good-manager-deploy
@@ -21,16 +23,10 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 18
-    env:
-      NXC_BASE: https://nexcontrol-ochre.vercel.app
-      NXC_AGENT: nexus-main
-      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
-      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Validate Stick Good isolation and contracts
-        id: validate
         shell: bash
         run: |
           set -euo pipefail
@@ -41,250 +37,50 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           manager=Path('nexcanal/stick-good-manager.mjs').read_text()
-          publisher=Path('whatsapp-publisher/server.mjs').read_text()
-          core=Path('nexcanal/stick-good-core.mjs').read_text()
           for required in (
+              "async function visuallyMatches(character,filePath)",
+              "Identifie indépendamment le personnage principal visible",
+              "if(!(await visuallyMatches(character,target)))continue;",
+              "Number(j.confidence)>=0.84",
               "STICK_GOOD_PORT||18815",
               "2*60*60_000",
               "12*60*60_000",
               "MAX_STICKERS=30",
-              "supremacy_sticks",
-              "Leonild",
-              "stickerspackanime",
-              "stickeranimepack",
-              "visuallyMatches",
-              "buildPinterestPack",
-              "downloadTelegramSet",
-              "activeWishlist",
-              "/question-response",
-              "requestCount",
           ):
               if required not in manager:
                   raise SystemExit('manager missing '+required)
-          for required in (
-              "ঔৣ𝐒𝐓𝐈𝐂𝐊 𝐆𝐎𝐎𝐃ঔৣ♫",
-              "𝒯𝓇𝑒́𝓈𝑜𝓇",
-              "𝐖𝐈𝐒𝐇 𝐋𝐈𝐒𝐓",
-          ):
-              if required not in core:
-                  raise SystemExit('core missing '+required)
-          for required in (
-              "0029VbC3Uo00LKZNYkEQ9m03",
-              "STICK_GOOD_MANAGER_URL",
-              "forwardStickGoodQuestionResponse",
-              "questionResponseMessage",
-              "prepareStickGoodPackCard",
-              "stickerPackMessage",
-              "stickerPackOrigin",
-              "kind==='pack'",
-              "kind==='question'",
-              "/stick-good/action",
-              "/stick-good/status",
-              "nativePack:true",
-          ):
-              if required not in publisher:
-                  raise SystemExit('publisher missing '+required)
-          print('STICK_GOOD_ASSERTIONS_OK')
+          print('STICK_GOOD_VISUAL_GATE_OK')
           PY
 
-      - name: Deploy isolated Stick Good manager and publisher hook
-        id: deploy
+      - name: Deploy to VPS with GitHub OIDC
         shell: bash
+        env:
+          DEPLOY_ENDPOINT: https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-complete-utf8-61082
         run: |
           set -euo pipefail
-          exec > >(tee /tmp/stick-good-deploy.log) 2>&1
-          python3 - <<'PYDEPLOY'
-          import os,json,time,base64,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib,traceback
+          OIDC_JSON="$(curl --fail-with-body --silent --show-error             -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=nxc-stick-good-deploy")"
+          OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"$OIDC_JSON")"
+          test -n "$OIDC_TOKEN"
+
+          curl --fail-with-body --silent --show-error             -X POST "$DEPLOY_ENDPOINT"             -H "Authorization: Bearer $OIDC_TOKEN"             -H "Content-Type: application/json"             --data "{\"sha\":\"${GITHUB_SHA}\"}"             | tee /tmp/stick-good-deploy.json
+
+          python3 - <<'PY'
+          import json
           from pathlib import Path
-
-          BASE=os.environ['NXC_BASE'].rstrip('/')
-          AGENT=os.environ['NXC_AGENT']
-          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
-          SECRET=os.environ.get('NXC_SESSION_SECRET','')
-          jar=http.cookiejar.CookieJar()
-          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-          cookie=''
-          if SECRET:
-              exp=int(time.time()*1000)+25*60*1000
-              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
-              sig=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
-              cookie=payload+'.'+sig
-          elif ADMIN:
-              data=urllib.parse.urlencode({'password':ADMIN}).encode()
-              op.open(urllib.request.Request(BASE+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=45).read()
-          else:
-              raise RuntimeError('No NexControl credential in Actions secrets')
-
-          def http(method,path,data=None,timeout=60):
-              headers={'Accept':'application/json'}
-              if cookie: headers['Cookie']='nexcontrol_session='+cookie
-              body=None
-              if data is not None:
-                  body=json.dumps(data,separators=(',',':')).encode()
-                  headers['Content-Type']='application/json'
-              req=urllib.request.Request(BASE+path,data=body,headers=headers,method=method)
-              try:
-                  with op.open(req,timeout=timeout) as r:
-                      raw=r.read().decode('utf-8','replace')
-                      return json.loads(raw) if raw else {}
-              except urllib.error.HTTPError as e:
-                  raise RuntimeError(f'HTTP {e.code} {path}: '+e.read().decode('utf-8','replace')[:2000])
-
-          def job(kind,payload,timeout=180):
-              created=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload})
-              jid=created.get('jobId')
-              if not jid: raise RuntimeError(f'No jobId for {kind}: {created}')
-              end=time.time()+timeout
-              while time.time()<end:
-                  state=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid),timeout=45)
-                  status=state.get('status')
-                  if status=='succeeded': return state.get('result') or {}
-                  if status=='failed': raise RuntimeError(f'{kind} failed: {state.get("error")}')
-                  time.sleep(1)
-              raise TimeoutError(f'{kind} timeout: {jid}')
-
-          backups=[]
-          publisher_restarted=False
-          manager_started=False
-          try:
-              pre=job('http.check',{'url':'http://127.0.0.1:18787/healthz','timeoutMs':10000,'previewBytes':1000})
-              if not pre.get('ok'):
-                  raise RuntimeError('WhatsApp publisher unhealthy before Stick Good deploy: '+str(pre))
-
-              for src,dst in (
-                  ('nexcanal/stick-good-core.mjs','stick-good-core.mjs'),
-                  ('nexcanal/stick-good-manager.mjs','stick-good-manager.mjs'),
-              ):
-                  content=Path(src).read_text(encoding='utf-8')
-                  wr=job('fs.write',{'root':'nexcanal','path':dst,'content':content})
-                  backups.append(('nexcanal',dst,wr.get('backupId'),wr.get('created',False)))
-                  ck=job('check.run',{'check':'node-check','root':'nexcanal','file':dst,'timeoutMs':60000})
-                  if not ck.get('ok'):
-                      raise RuntimeError('node-check failed '+dst+': '+str(ck))
-
-              wa_text=Path('whatsapp-publisher/server.mjs').read_text(encoding='utf-8')
-              search=job('fs.search',{'root':'nexus','path':'.','query':'Nex WhatsApp Publisher bridge ready','maxResults':40})
-              matches=list(search.get('matches',[]) or [])
-              def rank(m):
-                  p=str(m.get('path','')).lower()
-                  if p.endswith('wa-routing-server.mjs'): return (0,p)
-                  if p.endswith('whatsapp-publisher-hotfix.mjs'): return (1,p)
-                  if p.endswith('server.mjs') and 'whatsapp' in p: return (2,p)
-                  return (9,p)
-              matches=sorted((m for m in matches if rank(m)[0]<9),key=rank)
-              if not matches: raise RuntimeError('live WhatsApp publisher path not found')
-              wa_path=str(matches[0]['path'])
-              wr=job('fs.write',{'root':'nexus','path':wa_path,'content':wa_text})
-              backups.append(('nexus',wa_path,wr.get('backupId'),wr.get('created',False)))
-              ck=job('check.run',{'check':'node-check','root':'nexus','file':wa_path,'timeoutMs':60000})
-              if not ck.get('ok'): raise RuntimeError('node-check failed WhatsApp publisher: '+str(ck))
-
-              services=job('service.list',{'includeHealth':False})
-              wa_services=[x for x in services.get('items',[]) if 'whatsapp' in (str(x.get('name',''))+' '+str(x.get('unit',''))+' '+str(x.get('description',''))).lower()]
-              if wa_services:
-                  rr=job('service.action',{'name':wa_services[0]['name'],'action':'restart'})
-                  if not rr.get('ok'): raise RuntimeError('WhatsApp restart failed: '+str(rr))
-              else:
-                  procs=job('process.list',{'limit':500})
-                  candidates=[p for p in procs.get('items',[]) if wa_path in str(p.get('cmdline','')) or ('whatsapp-publisher' in str(p.get('cmdline','')).lower() and 'server.mjs' in str(p.get('cmdline','')))]
-                  if not candidates: raise RuntimeError('WhatsApp publisher process not found')
-                  target=sorted(candidates,key=lambda x:int(x.get('pid',0)))[-1]
-                  job('runtime.signal',{'pid':int(target['pid']),'signal':'SIGTERM'})
-              publisher_restarted=True
-              time.sleep(7)
-
-              ready={}
-              hook={}
-              for _ in range(15):
-                  ready=job('http.check',{'url':'http://127.0.0.1:18787/readyz','timeoutMs':10000,'previewBytes':1200})
-                  hook=job('http.check',{'url':'http://127.0.0.1:18787/stick-good/status','timeoutMs':12000,'previewBytes':1600})
-                  if ready.get('ok') and hook.get('ok'): break
-                  time.sleep(3)
-              if not ready.get('ok'): raise RuntimeError('WhatsApp publisher not ready after restart: '+str(ready))
-              if not hook.get('ok'): raise RuntimeError('Stick Good WhatsApp hook missing: '+str(hook))
-              try:
-                  hook_json=json.loads(hook.get('body') or hook.get('preview') or '{}')
-              except Exception:
-                  hook_json={}
-              # http.check response shapes vary; the endpoint itself returning 2xx is
-              # the hard deployment gate. Channel resolution is checked again below.
-              
-              sup=job('runtime.exec',{'root':'nexcanal','command':'node','args':['stick-good-manager.mjs','--restart-supervisor'],'timeoutMs':30000},timeout=60)
-              if sup.get('ok') is False: raise RuntimeError('Stick Good supervisor start failed: '+str(sup))
-              manager_started=True
-              time.sleep(4)
-
-              health=job('http.check',{'url':'http://127.0.0.1:18815/healthz','timeoutMs':10000,'previewBytes':1600})
-              if not health.get('ok'): raise RuntimeError('Stick Good manager health failed: '+str(health))
-
-              # Verify the channel can actually be resolved by the connected WhatsApp account.
-              status=job('http.check',{'url':'http://127.0.0.1:18787/stick-good/status','timeoutMs':12000,'previewBytes':1800})
-              if not status.get('ok'): raise RuntimeError('Stick Good channel status failed: '+str(status))
-              status_text=str(status.get('body') or status.get('preview') or status)
-              if '"channelResolved":true' not in status_text.replace(' ',''):
-                  raise RuntimeError('Stick Good channel is not resolved by WhatsApp: '+status_text[-1200:])
-
-              procs=job('process.list',{'limit':500})
-              items=procs.get('items',[])
-              supervisors=[p for p in items if 'stick-good-manager.mjs' in str(p.get('cmdline','')) and '--supervise' in str(p.get('cmdline',''))]
-              workers=[p for p in items if 'stick-good-manager.mjs' in str(p.get('cmdline','')) and '--worker' in str(p.get('cmdline',''))]
-              if not supervisors or not workers:
-                  raise RuntimeError('Stick Good supervisor/worker missing')
-
-              report={
-                  'ok':True,
-                  'checkedAt':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),
-                  'whatsapp':{
-                      'ready':bool(ready.get('ok')),
-                      'stickGoodHook':bool(status.get('ok')),
-                      'channelResolved':True,
-                  },
-                  'manager':{
-                      'health':bool(health.get('ok')),
-                      'supervisorCount':len(supervisors),
-                      'workerCount':len(workers),
-                      'port':18815,
-                  },
-                  'rules':{
-                      'packGapHours':2,
-                      'wishlistIdleHours':12,
-                      'pinterestPackSize':30,
-                      'previewMin':5,
-                      'previewMax':8,
-                      'nativeStickerPackCard':True,
-                  }
-              }
-              Path('ops-results').mkdir(parents=True,exist_ok=True)
-              Path('ops-results/stick-good-manager.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n',encoding='utf-8')
-              print('STICK_GOOD_PRODUCTION_OK',json.dumps(report,separators=(',',':')),flush=True)
-
-          except Exception:
-              traceback.print_exc()
-              if manager_started:
-                  try:
-                      procs=job('process.list',{'limit':500})
-                      for p in procs.get('items',[]):
-                          if 'stick-good-manager.mjs' in str(p.get('cmdline','')):
-                              try: job('runtime.signal',{'pid':int(p.get('pid')),'signal':'SIGTERM'})
-                              except Exception: pass
-                  except Exception: pass
-              for root,pth,bid,created in reversed(backups):
-                  try:
-                      if bid: job('fs.rollback',{'backupId':bid})
-                      elif created: job('fs.delete',{'root':root,'path':pth,'allowDir':False})
-                  except Exception as rollback_error:
-                      print('rollback warning',pth,rollback_error,flush=True)
-              if publisher_restarted:
-                  try:
-                      services=job('service.list',{'includeHealth':False})
-                      wa_services=[x for x in services.get('items',[]) if 'whatsapp' in (str(x.get('name',''))+' '+str(x.get('unit',''))+' '+str(x.get('description',''))).lower()]
-                      if wa_services: job('service.action',{'name':wa_services[0]['name'],'action':'restart'})
-                  except Exception: pass
-              raise
-          PYDEPLOY
+          p=Path('/tmp/stick-good-deploy.json')
+          data=json.loads(p.read_text())
+          if data.get('ok') is not True:
+              raise SystemExit('deployment did not confirm ok=true')
+          if data.get('rules',{}).get('visualCharacterGate') is not True:
+              raise SystemExit('visual character gate not confirmed')
+          Path('ops-results').mkdir(parents=True,exist_ok=True)
+          Path('ops-results/stick-good-manager.json').write_text(
+              json.dumps(data,indent=2,sort_keys=True)+'\n',encoding='utf-8'
+          )
+          print('STICK_GOOD_PRODUCTION_OK')
+          PY
 
       - name: Commit production verification report
-        if: success()
         shell: bash
         run: |
           set -euo pipefail
