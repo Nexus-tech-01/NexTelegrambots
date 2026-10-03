@@ -722,6 +722,21 @@ async function serve(state){
         res.writeHead(200,{'content-type':'application/json'});
         return res.end(JSON.stringify({ok:true,...out}));
       }
+      if(req.method==='GET'&&u.pathname==='/wishlist-now'){
+        if(!state.activeWishlist){
+          await openWishlist(state);
+          await saveState(state);
+          await writeHealth(state);
+        }
+        res.writeHead(200,{'content-type':'application/json'});
+        return res.end(JSON.stringify({
+          ok:true,
+          active:Boolean(state.activeWishlist),
+          questionId:clean(state.activeWishlist?.questionId||''),
+          openedAt:state.activeWishlist?.openedAt||null,
+          expiresAt:state.activeWishlist?.expiresAt||null
+        }));
+      }
       if(req.method==='POST'&&u.pathname==='/kick'){
         state.nextPackAt=Date.now();
         await saveState(state);
