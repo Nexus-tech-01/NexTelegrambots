@@ -1,17 +1,78 @@
+import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { replyStorageConfig, saveReplyStorageConfig } from './store.mjs';
+import { sessionKey } from './config.mjs';
+import { db, replyStorageConfig, saveReplyStorageConfig } from './store.mjs';
 
 const DEFAULT_TOKEN_FILE='/var/lib/nex/runtime/public/nexaccount/nexai-storage-bot-token';
 const DEFAULT_CHAT_ID_FILE='/var/lib/nex/runtime/public/nexaccount/nexai-storage-chat-id';
 const MAX_REPLY_BYTES=20*1024*1024;
+const STORAGE_TOKEN_RECORD_ID='nexai_reply_storage_bot_token';
+const EXPECTED_STORAGE_BOT_USERNAME=String(process.env.NEXAI_STORAGE_BOT_USERNAME||'NexAiStorage_bot').trim().replace(/^@/,'').toLowerCase();
+let storageTokenCache='';
+
+function encryptStorageToken(value){
+  const iv=crypto.randomBytes(12);
+  const cipher=crypto.createCipheriv('aes-256-gcm',sessionKey(),iv);
+  const encrypted=Buffer.concat([cipher.update(String(value),'utf8'),cipher.final()]);
+  const tag=cipher.getAuthTag();
+  return Buffer.concat([iv,tag,encrypted]).toString('base64');
+}
+
+function decryptStorageToken(value){
+  try{
+    const raw=Buffer.from(String(value||'').trim(),'base64');
+    if(raw.length<29)return '';
+    const iv=raw.subarray(0,12),tag=raw.subarray(12,28),encrypted=raw.subarray(28);
+    const decipher=crypto.createDecipheriv('aes-256-gcm',sessionKey(),iv);
+    decipher.setAuthTag(tag);
+    const token=Buffer.concat([decipher.update(encrypted),decipher.final()]).toString('utf8');
+    return /^\d+:[A-Za-z0-9_-]{20,}$/.test(token)?token:'';
+  }catch{return ''}
+}
+
+async function loadStorageTokenFromStore(){
+  const d=await db();
+  const row=await d.collection('nexaccount_system').findOne(
+    {_id:STORAGE_TOKEN_RECORD_ID},
+    {projection:{encryptedToken:1}}
+  );
+  return decryptStorageToken(row?.encryptedToken||'');
+}
+
+async function persistStorageToken(value,identity={}){
+  const d=await db(),now=new Date();
+  await d.collection('nexaccount_system').updateOne(
+    {_id:STORAGE_TOKEN_RECORD_ID},
+    {$set:{
+      encryptedToken:encryptStorageToken(value),
+      botId:String(identity?.id||''),
+      botUsername:String(identity?.username||'').trim().replace(/^@/,''),
+      updatedAt:now
+    },$setOnInsert:{createdAt:now}},
+    {upsert:true}
+  );
+}
 
 async function storageToken(){
   const fromEnv=String(process.env.NEXAI_STORAGE_BOT_TOKEN||'').trim();
   if(fromEnv)return fromEnv;
+  if(storageTokenCache)return storageTokenCache;
+  try{
+    const stored=await loadStorageTokenFromStore();
+    if(stored){
+      storageTokenCache=stored;
+      return stored;
+    }
+  }catch(error){
+    console.warn('[NexAI Storage] encrypted token read failed',String(error?.message||error).slice(0,220));
+  }
   const file=String(process.env.NEXAI_STORAGE_BOT_TOKEN_FILE||DEFAULT_TOKEN_FILE).trim();
   try{
     const token=String(await readFile(file,'utf8')).trim();
-    if(token)return token;
+    if(token){
+      storageTokenCache=token;
+      return token;
+    }
   }catch{}
   throw new Error('NexAI Storage bot non configuré');
 }
@@ -42,6 +103,24 @@ async function botApi(method,payload={},timeoutMs=30000){
     throw new Error('NexAI Storage '+method+' : '+detail);
   }
   return data.result;
+}
+
+export async function saveReplyStorageBotToken(token){
+  const value=String(token||'').trim();
+  if(!/^\d+:[A-Za-z0-9_-]{20,}$/.test(value))throw new Error('Token Telegram invalide');
+  const response=await fetch('https://api.telegram.org/bot'+value+'/getMe',{
+    signal:AbortSignal.timeout(10000)
+  });
+  const data=await response.json().catch(()=>null);
+  if(!response.ok||data?.ok!==true)throw new Error('Telegram a refusé le token NexAI Storage');
+  const me=data.result||{};
+  const username=String(me.username||'').trim().replace(/^@/,'');
+  if(EXPECTED_STORAGE_BOT_USERNAME&&username.toLowerCase()!==EXPECTED_STORAGE_BOT_USERNAME){
+    throw new Error('Ce token appartient à @'+(username||'inconnu')+', pas à @NexAiStorage_bot');
+  }
+  await persistStorageToken(value,me);
+  storageTokenCache=value;
+  return {ok:true,botId:String(me.id||''),botUsername:username};
 }
 
 function channelFromUpdate(update){
