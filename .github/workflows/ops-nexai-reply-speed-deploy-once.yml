@@ -1,4 +1,4 @@
-name: Ops NexAI Reply Speed Deploy Once
+name: Ops NexAI Reply Speed Deploy Once\n# trigger zero-reupload fast path 2026-10-04
 
 on:
   push:
@@ -32,7 +32,7 @@ jobs:
           grep -F "preNormalizedVideoNoteMeta" nexaccount/media-send.mjs
           grep -F "mentionVideoReplyBufferKey" nexaccount/compat.mjs
           grep -F "warmMentionVideoReply" nexaccount/runtime.mjs
-          grep -F "workers:4" nexaccount/runtime.mjs
+          grep -F "client.sendFile(message.peerId" nexaccount/runtime.mjs\n          grep -F "loadMentionReplyHotMedia" nexaccount/runtime.mjs
 
       - name: Deploy instant reply path to NexAI VPS
         shell: bash
