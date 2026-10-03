@@ -12,7 +12,7 @@ import { ownerPanelText, usersText, countriesText, languagesText, userText, botS
 import { listStyles, toSmallCaps } from './styles.mjs';
 import { animatedCustomEmojiEntitySpecs, animatedCustomEmojiEntitySpecsFromLibrary, ensureEmojiLibraryPalette, sanitizeAnimatedEmojiText } from './response-ui.mjs';
 import { sessionsText } from './session-view.mjs';
-import { replyStorageStatus, saveReplyStorageBotToken } from './reply-storage.mjs';
+import { bindReplyStorageChannel, replyStorageStatus, saveReplyStorageBotToken } from './reply-storage.mjs';
 
 const commands=commandMap();
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
@@ -806,7 +806,55 @@ export async function startInlineBot(){
         '\nChaîne : '+String(status.title||status.chatId||'détectée')
       );
     }catch(error){
-      return ctx.reply('NexAI Storage : '+String(error?.message||error).slice(0,350));
+      return ctx.reply('NexAI Storage : '+String(error?.message||error).slice(0,300)+
+        '\n\nSi le bot est déjà admin, transfère ici un message récent de la chaîne puis réponds-y avec /setstoragechannel.');
+    }
+  });
+
+  bot.command('setstoragechannel',async ctx=>{
+    if(ctx.chat?.type!=='private')return;
+    const owner=isOwnerIdentity(ctx.from.id,ctx.from.username);
+    if(!owner)return ctx.reply('Cette commande est réservée au propriétaire de NexAi.');
+
+    const replied=ctx.message?.reply_to_message;
+    const messages=[replied,ctx.message].filter(Boolean);
+    let channelId='';
+    for(const message of messages){
+      const origin=message?.forward_origin;
+      if(origin?.type==='channel'&&origin?.chat?.id!=null){
+        channelId=String(origin.chat.id);
+        break;
+      }
+      const legacy=message?.forward_from_chat;
+      if(legacy?.type==='channel'&&legacy?.id!=null){
+        channelId=String(legacy.id);
+        break;
+      }
+      if(message?.sender_chat?.type==='channel'&&message.sender_chat.id!=null){
+        channelId=String(message.sender_chat.id);
+        break;
+      }
+    }
+
+    const arg=String(ctx.match||'').trim();
+    const target=channelId||arg;
+    if(!target){
+      return ctx.reply(
+        'Transfère un message récent de la chaîne NexAI Storage dans ce chat, puis réponds au message transféré avec /setstoragechannel.\n\n'+
+        'Tu peux aussi utiliser /setstoragechannel -100… ou /setstoragechannel @username si la chaîne est publique.'
+      );
+    }
+
+    try{
+      const saved=await bindReplyStorageChannel(target);
+      return ctx.reply(
+        'NexAI Storage lié ✅\nBot : @'+String(saved.botUsername||'NexAiStorage_bot')+
+        '\nChaîne : '+String(saved.title||saved.chatId)+
+        '\nID : '+String(saved.chatId)+
+        '\n\n/setreply peut maintenant enregistrer la note vidéo.'
+      );
+    }catch(error){
+      return ctx.reply('Liaison NexAI Storage impossible : '+String(error?.message||error).slice(0,350));
     }
   });
 
