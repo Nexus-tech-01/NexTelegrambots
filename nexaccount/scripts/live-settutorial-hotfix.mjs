@@ -4,8 +4,10 @@ import {spawnSync} from 'node:child_process';
 const base='/opt/nex/apps/public/nexai/current';
 const p=base+'/inline-bot.mjs';
 const runtimeDir=base+'/.runtime';
-const sourcePath=new URL('../inline-bot.mjs',import.meta.url);
-const src=fs.readFileSync(sourcePath,'utf8');
+const sourceUrl='https://raw.githubusercontent.com/Nexus-tech-01/NexTelegrambots/44995041c658ac3636b992ca5459e0842aeb2d74/nexaccount/inline-bot.mjs';
+const sourceResponse=await fetch(sourceUrl,{signal:AbortSignal.timeout(30000)});
+if(!sourceResponse.ok)throw new Error('source_http_'+sourceResponse.status);
+const src=await sourceResponse.text();
 let live=fs.readFileSync(p,'utf8');
 
 const storeLive=fs.readFileSync(base+'/store.mjs','utf8');
