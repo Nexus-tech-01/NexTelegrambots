@@ -236,7 +236,7 @@ async function visuallyMatches(character,filePath){
     filePath
   );
   if(!j)return false;
-  return j.match===true&&j.singleCharacter===true&&j.otherCharacter!==true&&Number(j.confidence)>=0.72;
+  return j.match===true&&j.singleCharacter===true&&j.otherCharacter!==true&&Number(j.confidence)>=0.80;
 }
 
 async function classifyWishlist(text){
@@ -477,11 +477,9 @@ async function buildWastickersFile(character,stickers,dir){
     '-vf','scale=96:96:force_original_aspect_ratio=decrease,pad=96:96:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba',
     '-frames:v','1','-compression_level','9','-y',tray
   ],{timeout:30000,maxBuffer:1024*1024});
-  const files=[
-    {name:'title.txt',data:Buffer.from(stickGoodPackName(character),'utf8')},
-    {name:'author.txt',data:Buffer.from('Trésor','utf8')},
-    {name:'cover.png',data:await fs.readFile(tray)}
-  ];
+  // Native WhatsApp sticker-pack bundles contain only the sticker files.
+  // The title, publisher and tray metadata are carried by StickerPackMessage.
+  const files=[];
   for(let i=0;i<rows.length;i++){
     const b=await fs.readFile(rows[i].localPath);
     files.push({name:'sticker_'+String(i+1).padStart(2,'0')+'.webp',data:b});
@@ -542,7 +540,7 @@ async function wishlistImage(){
       if(urls[0])return urls[0];
     }catch{}
   }
-  return '';
+  throw new Error('wishlist_kawaii_image_not_found');
 }
 async function openWishlist(state){
   const imageUrl=await wishlistImage();
@@ -550,7 +548,7 @@ async function openWishlist(state){
     kind:'question',
     id:'stick-good-wishlist:'+Date.now(),
     text:wishlistText(),
-    ...(imageUrl?{image:{url:imageUrl}}:{})
+    image:{url:imageUrl}
   },120000);
   const questionId=clean(out?.actionId);
   if(!questionId)throw new Error('wishlist_question_missing_id');
