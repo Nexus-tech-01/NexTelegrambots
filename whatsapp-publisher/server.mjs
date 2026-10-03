@@ -1349,12 +1349,22 @@ async function runOtakuAction(raw={}){
       };
       let sent;
       try{sent=await socket.sendMessage(jid,{poll});}
-      catch(error){
-        // Some WhatsApp builds reject quiz-only fields. Fall back to a real
-        // poll while keeping the correct answer server-side for scoring.
-        sent=await socket.sendMessage(jid,{poll:{name:question,values:options,selectableCount:1}});
+      catch(firstError){
+        try{
+          // Newsletter/channel delivery can reject the regular single-select
+          // poll shape while accepting the announcement-group variant.
+          sent=await socket.sendMessage(jid,{poll:{name:question,values:options,selectableCount:1,toAnnouncementGroup:true}});
+        }catch(secondError){
+          logger.error({
+            first:String(firstError?.message||firstError).slice(0,500),
+            second:String(secondError?.message||secondError).slice(0,500),
+            id:String(raw.id||'')
+          },'Otaku poll delivery failed');
+          throw secondError;
+        }
       }
       const id=String(sent?.key?.id||'');
+      if(!id)throw new Error('Sondage Otaku: envoi sans identifiant WhatsApp');
       if(id){
         const message=sent?.message||{pollCreationMessage:{name:question,options:options.map(optionName=>({optionName}))}};
         otakuPollMessages.set(id,{message});
