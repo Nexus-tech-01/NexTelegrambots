@@ -25,6 +25,7 @@ const EXT_BY_MIME={
 };
 const MEDIA_KINDS=new Set(['image','video','audio']);
 const FFMPEG=String(process.env.FFMPEG_PATH||'ffmpeg');
+const FFPROBE=String(process.env.FFPROBE_PATH||'ffprobe');
 
 function runFfmpeg(args,timeout=120000){
   return new Promise((resolve,reject)=>{
@@ -34,6 +35,30 @@ function runFfmpeg(args,timeout=120000){
     },(error,stdout,stderr)=>{
       if(error)return reject(new Error(String(stderr||error.message||error).trim().slice(0,1200)));
       resolve({stdout,stderr});
+    });
+  });
+}
+
+function probeVideoFile(filePath){
+  return new Promise((resolve,reject)=>{
+    execFile(FFPROBE,[
+      '-v','error',
+      '-select_streams','v:0',
+      '-show_entries','stream=width,height:format=duration',
+      '-of','json',
+      filePath
+    ],{timeout:20000,maxBuffer:2*1024*1024},(error,stdout,stderr)=>{
+      if(error)return reject(new Error(String(stderr||error.message||error).trim().slice(0,900)));
+      try{
+        const parsed=JSON.parse(String(stdout||'{}'));
+        const stream=Array.isArray(parsed?.streams)?parsed.streams[0]:null;
+        const width=Math.max(1,Number(stream?.width)||1);
+        const height=Math.max(1,Number(stream?.height)||1);
+        const duration=Math.max(1,Math.min(59,Number(parsed?.format?.duration)||1));
+        resolve({width,height,duration});
+      }catch(error){
+        reject(new Error('ffprobe video-note invalide: '+String(error?.message||error)));
+      }
     });
   });
 }
@@ -59,7 +84,9 @@ async function normalizeVideoNoteFile(inputPath,outputPath){
     '-movflags','+faststart',
     outputPath
   ]);
-  return outputPath;
+  const meta=await probeVideoFile(outputPath);
+  if(meta.width!==meta.height)throw new Error('video-note normalisée non carrée');
+  return {filePath:outputPath,...meta};
 }
 
 function cleanMime(value){
@@ -238,12 +265,14 @@ export async function sendTelegramMedia(client,peer,data,{
     let telegramFilePath=filePath;
     let telegramFileName=media.fileName;
     let telegramAttributes;
+    let videoNoteMeta=null;
     if(isVideoNote){
       telegramFileName='nexai-video-note.mp4';
-      telegramFilePath=await normalizeVideoNoteFile(
+      videoNoteMeta=await normalizeVideoNoteFile(
         filePath,
         path.join(dir,telegramFileName)
       );
+      telegramFilePath=videoNoteMeta.filePath;
     }
     if(isVideoNote){
       // Teleproto 1.229 adds a DocumentAttributeAudio(voice=true) whenever
@@ -268,13 +297,13 @@ export async function sendTelegramMedia(client,peer,data,{
       if(!videoAttr)throw new Error('attribut Telegram video-note introuvable');
       videoAttr.roundMessage=true;
       videoAttr.supportsStreaming=true;
-      // Video notes are displayed in a circular viewport. Keep the real media
-      // bytes untouched while advertising a square viewport to Telegram.
-      const w=Math.max(1,Number(videoAttr.w)||1);
-      const h=Math.max(1,Number(videoAttr.h)||1);
-      const side=Math.max(1,Math.min(w,h));
-      videoAttr.w=side;
-      videoAttr.h=side;
+      // Teleproto's metadata parser may return 1x1/0s on freshly-generated
+      // MP4 files. Use ffprobe's real values instead so Telegram validates the
+      // upload as a proper round video message rather than normalizing it back
+      // into an ordinary video.
+      videoAttr.w=Math.max(1,Number(videoNoteMeta?.width)||640);
+      videoAttr.h=Math.max(1,Number(videoNoteMeta?.height)||640);
+      videoAttr.duration=Math.max(1,Math.min(59,Number(videoNoteMeta?.duration)||1));
     }
 
     const branded=String(caption||'').length<=980?brandedText(caption||'',{signature}):{text:String(caption||'').slice(0,1024),entities:[]};
