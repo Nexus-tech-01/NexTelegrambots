@@ -3,7 +3,7 @@ import { Api } from 'teleproto';
 import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { returnBigInt } from 'teleproto/Helpers.js';
 import { cfg, isOwnerId } from './config.mjs';
-import { customEmojiLibraryStats, listConnectedAccounts, patchSettings, settingsFor, patchSharedGreetingPolicy } from './store.mjs';
+import { customEmojiLibraryStats, listConnectedAccounts, patchSettings, settingsFor, patchSharedGreetingPolicy, sharedBotIdentity } from './store.mjs';
 import { sessionsText } from './session-view.mjs';
 import { toSmallCaps } from './styles.mjs';
 import { AUDIO_LAB_COMMANDS, handleAudioLabCommand } from './audio-lab.mjs';
@@ -17,6 +17,7 @@ import { commandMap } from './commands.mjs';
 import { customStyleFor, normalizeCustomStyle } from './custom-style.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { createProgress, syncOwnedCustomEmojiLibrary } from './response-ui.mjs';
+import { putInlineResponse } from './inline-response-store.mjs';
 
 function replyHotCachePeer(configured={}){
   const channelId=String(configured?.hotCacheChannelId||'').trim();
@@ -482,6 +483,146 @@ async function sendMentionList(client,peer,people,title){
     const built=await buildMentionEntities(client,heading,chunks[index]);
     await client.sendMessage(peer,{message:built.message.trimEnd(),formattingEntities:built.entities});
   }
+}
+
+const tagAllUtf16=value=>Buffer.from(String(value),'utf16le').length/2;
+
+function tagAllVisibleName(person){
+  const username=String(person?.username||'').trim().replace(/^@/,'');
+  return username?'@'+username:displayName(person);
+}
+
+async function nexAiGroupCardUi(){
+  let username=String(cfg.botUsername||'').trim().replace(/^@/,'');
+  if(!username){
+    try{username=String((await sharedBotIdentity())?.username||'').trim().replace(/^@/,'')}catch{}
+  }
+  const miniUrl=username
+    ?'https://t.me/'+username+'?startapp=group'
+    :String(cfg.connectUrl||'https://nex-telegrambots.vercel.app/');
+  let avatarUrl='';
+  if(username){
+    try{
+      const origin=new URL(String(cfg.connectUrl||'https://nex-telegrambots.vercel.app/')).origin;
+      avatarUrl=origin+'/api/telegram-avatar?u='+encodeURIComponent(username);
+    }catch{}
+  }
+  return {
+    username,
+    miniUrl,
+    avatarUrl,
+    replyMarkup:{inline_keyboard:[[{text:'⚡ ᴏᴜᴠʀɪʀ ɴᴇxᴀɪ',url:miniUrl}]]},
+    buttons:[[new Api.KeyboardButtonUrl({text:'⚡ ᴏᴜᴠʀɪʀ ɴᴇxᴀɪ',url:miniUrl})]]
+  };
+}
+
+function tagAllChunks(people){
+  const rows=(people||[]).filter(p=>p?.id).map(p=>({person:p,label:tagAllVisibleName(p)}));
+  const chunks=[];let current=[];let size=0;
+  for(const row of rows){
+    const cost=tagAllUtf16(row.label)+1;
+    if(current.length&&(current.length>=70||size+cost>3000)){
+      chunks.push(current);current=[];size=0;
+    }
+    current.push(row);size+=cost;
+  }
+  if(current.length)chunks.push(current);
+  return chunks;
+}
+
+async function buildStyledTagAllPart(client,rows,actor,requestedMessage,index,total){
+  const actorLabel=tagAllVisibleName(actor||{});
+  const hasMessage=Boolean(String(requestedMessage||'').trim());
+  const userMessage=hasMessage?toSmallCaps(String(requestedMessage).trim()):'';
+  const bodyLines=[
+    '╭▱▱ ᴛᴀɢ ᴀʟʟ ▱▱ 📢',
+    '┃',
+    '┃ 𓆩 '+actorLabel+' 𓆪',
+    hasMessage?'┃ ᴀ ᴘʀᴏᴠᴏǫᴜᴇ́ ᴜɴ ᴛᴀɢᴀʟʟ.':'┃ ᴠᴇᴜᴛ ᴠᴏᴜs ᴘᴀʀʟᴇʀ.',
+    ...(hasMessage?['┃','┃ ᴍᴇssᴀɢᴇ :',...userMessage.split('\n').map(line=>'┃ '+line)]:[]),
+    ...(total>1?['┃','┃ ᴘᴀʀᴛɪᴇ '+(index+1)+'/'+total]:[]),
+    '┃',
+    '╰▱▱▱▱▱▱▱▱▱▱▱▱▱',
+    '',
+    '━━━━━━━━━━━━━━━━━━',
+    ''
+  ];
+  let text=bodyLines.join('\n');
+  const mtEntities=[];
+  const botEntities=[];
+
+  if(actor?.id){
+    const actorAt=text.indexOf(actorLabel);
+    if(actorAt>=0){
+      const offset=tagAllUtf16(text.slice(0,actorAt));
+      const length=tagAllUtf16(actorLabel);
+      try{mtEntities.push(await inputMentionEntity(client,offset,actorLabel,actor))}catch{}
+      botEntities.push({type:'text_link',offset,length,url:'tg://user?id='+String(actor.id)});
+    }
+  }
+
+  const quoteOffset=tagAllUtf16(text);
+  for(let i=0;i<rows.length;i++){
+    const row=rows[i];
+    const offset=tagAllUtf16(text);
+    text+=row.label+(i===rows.length-1?'':'\n');
+    const length=tagAllUtf16(row.label);
+    try{mtEntities.push(await inputMentionEntity(client,offset,row.label,row.person))}catch{}
+    botEntities.push({type:'text_link',offset,length,url:'tg://user?id='+String(row.person.id)});
+  }
+  const quoteLength=tagAllUtf16(text)-quoteOffset;
+  if(quoteLength>0){
+    mtEntities.push(new Api.MessageEntityBlockquote({offset:quoteOffset,length:quoteLength,collapsed:true}));
+    botEntities.push({type:'expandable_blockquote',offset:quoteOffset,length:quoteLength});
+  }
+  return {text,mtEntities,botEntities};
+}
+
+async function sendStyledTagAll({runtime,event,people,requestedMessage,sendInline}){
+  const {client,account}=runtime;
+  const peer=event.message.peerId;
+  const actorId=event.message?.out===true
+    ?account.telegramUserId
+    :(event.message?.senderId||account.telegramUserId);
+  let actor=null;
+  try{actor=await client.getEntity(actorId)}catch{
+    actor={id:actorId,username:account.username,firstName:account.firstName||'Admin'};
+  }
+  const chunks=tagAllChunks(people);
+  if(!chunks.length)return client.sendMessage(peer,{message:'ᴀᴜᴄᴜɴ ᴍᴇᴍʙʀᴇ ᴛʀᴏᴜᴠᴇ́.'});
+  const ui=await nexAiGroupCardUi();
+
+  for(let index=0;index<chunks.length;index++){
+    const part=await buildStyledTagAllPart(client,chunks[index],actor,requestedMessage,index,chunks.length);
+    let sent=false;
+    if(cfg.botUsername||ui.username){
+      try{
+        const token=await putInlineResponse(part.text,{
+          accountId:account.telegramUserId,
+          kind:'tagall',
+          payload:{
+            text:part.text,
+            entities:part.botEntities,
+            photoUrl:index===0?ui.avatarUrl:'',
+            reply_markup:ui.replyMarkup
+          }
+        });
+        const result=await sendInline(client,peer,'groupcard:'+token);
+        sent=Boolean(result);
+      }catch(error){
+        console.warn('[NexAccount tagall inline]',String(error?.message||error).slice(0,250));
+      }
+    }
+    if(!sent){
+      await client.sendMessage(peer,{
+        message:part.text,
+        formattingEntities:part.mtEntities,
+        buttons:ui.buttons,
+        linkPreview:index===0&&ui.avatarUrl?ui.avatarUrl:undefined
+      });
+    }
+  }
+  return true;
 }
 const HIDDEN_TAG_TRANSPORT_BATCH=20;
 function hiddenTagPeople(people){
@@ -1131,6 +1272,10 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       await sendHiddenMentions(client,peer,list,argText||'NexAi · Media tag');
       return true;
     }
+    if(name==='tagall'){
+      await sendStyledTagAll({runtime,event,people:list,requestedMessage:argText,sendInline});
+      return true;
+    }
     await sendMentionList(client,peer,list,argText||'Mention générale : tout le monde est invité à lire ce message.');
     return true;
   }
@@ -1211,7 +1356,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return true;
   }
 
-  if(['antilink','antispam','antiraid','antibadword','antitag','antigroupmention','welcome','goodbye','setwelcome','setgoodbye','autosticker','aimoderator','modlog'].includes(name)){
+  if(['antilink','antiforward','antispam','antiraid','antibadword','antitag','antigroupmention','welcome','goodbye','setwelcome','setgoodbye','autosticker','aimoderator','modlog'].includes(name)){
     const chat=String(event.chatId||peer?.channelId||peer?.chatId||'global');
     const key=name==='setwelcome'?'welcomeText':name==='setgoodbye'?'goodbyeText':name;
     const stored=(await settingsFor(account.telegramUserId)).groupPolicies?.[chat]?.[key];
@@ -1455,7 +1600,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     if(['config','status','permissions'].includes(name)){
       const c=await currentChat(client,peer);let extra='';
       if(name==='permissions')extra='\nLes actions utilisent les permissions réelles du compte Telegram connecté.';
-      await sendText(client,peer,'NexAi · '+name+'\nChat : '+(c?.title||c?.username||chat)+'\nID : '+chat+'\nAnti-link : '+(policy.antilink?'ON':'OFF')+'\nAnti-spam : '+(policy.antispam?'ON':'OFF')+'\nAnti-tag : '+(policy.antitag?'ON':'OFF')+'\nAnti-mention massive : '+(policy.antigroupmention?'ON':'OFF')+'\nFiltre de mots : '+(policy.antibadword?'ON':'OFF')+'\nWelcome : '+(policy.welcome!==false?'ON':'OFF')+'\nGoodbye : '+(policy.goodbye!==false?'ON':'OFF')+extra);return true;
+      await sendText(client,peer,'NexAi · '+name+'\nChat : '+(c?.title||c?.username||chat)+'\nID : '+chat+'\nAnti-link : '+(policy.antilink?'ON':'OFF')+'\nAnti-forward : '+(policy.antiforward?'ON':'OFF')+'\nAnti-spam : '+(policy.antispam?'ON':'OFF')+'\nAnti-tag : '+(policy.antitag?'ON':'OFF')+'\nAnti-mention massive : '+(policy.antigroupmention?'ON':'OFF')+'\nFiltre de mots : '+(policy.antibadword?'ON':'OFF')+'\nWelcome : '+(policy.welcome!==false?'ON':'OFF')+'\nGoodbye : '+(policy.goodbye!==false?'ON':'OFF')+extra);return true;
     }
     if(name==='id'){await sendText(client,peer,'Chat ID : '+chat+'\nCompte : '+account.telegramUserId);return true}
     if(name==='kickall'){
@@ -1481,11 +1626,12 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     }
     if(name==='risk'){
       let score=0;
-      if(!policy.antilink)score+=20;
-      if(!policy.antispam)score+=20;
-      if(!policy.antitag)score+=20;
-      if(!policy.antigroupmention)score+=20;
-      if(!policy.antibadword)score+=20;
+      if(!policy.antilink)score+=17;
+      if(!policy.antiforward)score+=17;
+      if(!policy.antispam)score+=17;
+      if(!policy.antitag)score+=17;
+      if(!policy.antigroupmention)score+=16;
+      if(!policy.antibadword)score+=16;
       await sendText(client,peer,'Indice de risque configuration : '+score+'/100\nCe score reflète uniquement les protections réellement appliquées aux messages par cette version de NexAi.');return true;
     }
     if(name==='privacy'){await sendText(client,peer,'NexAi utilise uniquement les données Telegram nécessaires aux fonctions activées. Les sessions NexAccount sont chiffrées au repos.');return true}
