@@ -5,6 +5,7 @@ import { handleCompatCommand } from '../compat.mjs';
 
 const commands=commandMap();
 const compatSource=await import('node:fs').then(fs=>fs.readFileSync(new URL('../compat.mjs',import.meta.url),'utf8'));
+const runtimeSource=await import('node:fs').then(fs=>fs.readFileSync(new URL('../runtime.mjs',import.meta.url),'utf8'));
 const grouped=commandsByCategory(commands);
 
 assert.equal(grouped.ADMIN,undefined,'ADMIN must not be a separate visible category');
@@ -21,6 +22,9 @@ for(const name of ['tagall','mediatag','promote','demote','kick','ban','mute','w
   assert.equal(commands.get(name)?.adminOnly,true,name+' must require admin rights');
 }
 assert.notEqual(commands.get('hidetag')?.adminOnly,true,'hidetag must be usable by non-admin group members');
+assert.equal(commands.get('antiforward')?.category,'PROTECTION','antiforward must be visible in PROTECTION');
+assert.equal(commands.get('antiforward')?.adminOnly,true,'antiforward must require admin rights');
+assert.match(runtimeSource,/policy\.antiforward&&message\?\.fwdFrom/,'runtime must enforce antiforward on Telegram forwarded messages');
 assert.match(compatSource,/getInputChannel/,'channel APIs must import InputChannel conversion');
 assert.match(compatSource,/const channel=getInputChannel\(await client\.getInputEntity\(peer\)\)/,'moderation APIs must receive InputChannel');
 assert.match(compatSource,/ToggleSlowMode\(\{channel:input,seconds\}\)/,'slowmode route must use converted InputChannel');
@@ -73,11 +77,15 @@ async function run(name,args=[]){
 }
 
 const tagall=await run('tagall',['Hello']);
-assert.equal(tagall.length,3,'tagall must chunk 130 members into three messages');
-assert.ok(tagall[0].text.startsWith('Hello'),'tagall must start with the requested introduction');
-assert.ok(tagall.flatMap(x=>x.entities).every(e=>e instanceof Api.InputMessageEntityMentionName),'tagall must use outgoing InputMessageEntityMentionName entities');
-assert.equal(tagall.reduce((n,x)=>n+x.entities.length,0),130,'tagall must mention every member');
+assert.equal(tagall.length,2,'tagall must keep 130 members in the minimum safe number of styled cards');
+assert.ok(tagall[0].text.startsWith('╭▱▱ ᴛᴀɢ ᴀʟʟ ▱▱ 📢'),'tagall must use the approved NexAi card style');
+assert.ok(tagall[0].text.includes('ᴍᴇssᴀɢᴇ'),'tagall must display the admin message section');
+assert.ok(tagall.every(x=>x.entities.some(e=>e instanceof Api.MessageEntityBlockquote&&e.collapsed===true)),'tagall member list must be an expandable blockquote');
+assert.equal(tagall.reduce((n,x)=>n+x.entities.filter(e=>e instanceof Api.InputMessageEntityMentionName).length,0),132,'tagall must mention all 130 members plus the triggering admin on every card');
 assert.ok(tagall.every(x=>x.text.length<4096),'tagall chunk exceeds Telegram text limit');
+assert.match(compatSource,/ᴏᴜᴠʀɪʀ ɴᴇxᴀɪ/,'tagall must keep the NexAi Mini App button');
+assert.match(compatSource,/api\/telegram-avatar\?u=/,'tagall must use the bot profile image endpoint');
+assert.match(compatSource,/type:'expandable_blockquote'/,'inline tagall must preserve the collapsible member quote');
 
 const hidden=await run('hidetag',['Secret']);
 assert.equal(hidden.length,7,'hidetag must keep one logical batch while using safe transport carriers');
@@ -142,6 +150,7 @@ console.log(JSON.stringify({
   ok:true,
   groupCommands:(grouped.GROUP||[]).length,
   tagallMessages:tagall.length,
+  antiforward:true,
   hidetagMessages:hidden.length,
   outgoingEntity:'InputMessageEntityMentionName',
   tagallMentions:130,
