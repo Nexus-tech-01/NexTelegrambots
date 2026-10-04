@@ -249,11 +249,6 @@ async function route(req,res){
       const state=await cancelPairing(q.id||'');
       return json(res,200,{ok:true,...state});
     }
-    if(req.method==='POST'&&url.pathname==='/conversation/send'){
-      const q=await body(req);
-      if(!q.chatId)return json(res,400,{ok:false,error:'chatId required'});
-      return json(res,200,await runtimeConversationSend(q.telegramUserId||'',q));
-    }
     if(req.method==='POST'&&url.pathname==='/diagnostics/command'){
       const q=await body(req);
       if(!q.telegramUserId)return json(res,400,{ok:false,error:'telegramUserId required'});
