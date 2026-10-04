@@ -1,3 +1,4 @@
+# deploy greeting history recovery fallback
 # deploy coherent runtime graph for greetings
 # redeploy latest HEAD after greeting/session-state fix
 # deploy bot-api greeting fallback + invalid session quarantine
@@ -55,6 +56,7 @@ jobs:
           grep -F "C('customstyle'" nexaccount/commands.mjs
           grep -F "registered.hidden!==true" nexaccount/runtime.mjs
           grep -F "function rawServiceGreetingEvent(update)" nexaccount/runtime.mjs
+          grep -F "Greetings get the same history safety net as commands." nexaccount/runtime.mjs
           grep -F "const greetingEventsSeen=new Map();" nexaccount/runtime.mjs
           grep -F "function isAuthKeyUnregisteredError(error)" nexaccount/runtime.mjs
           grep -F "async function handleBotGreeting(ctx)" nexaccount/inline-bot.mjs
