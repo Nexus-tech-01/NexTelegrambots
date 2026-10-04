@@ -1434,10 +1434,14 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
     const newName=packName(account.telegramUserId,title);
     await withPersistentStickerRetry(
       runtime,
-      ()=>queueCloneMutation(
-        ()=>createSet(account,title,newName,prepared,stickerAttr(docs[0])?.alt||'✨'),
-        label+' create single'
-      ),
+      async()=>{
+        const existing=await destinationState(newName);
+        if(existing.exists)return true;
+        return queueCloneMutation(
+          ()=>createSet(account,title,newName,prepared,stickerAttr(docs[0])?.alt||'✨'),
+          label+' create single'
+        );
+      },
       label+' · création',
       {progress}
     );
@@ -1522,10 +1526,14 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
 
     await withPersistentStickerRetry(
       runtime,
-      ()=>queueCloneMutation(
-        ()=>createSet(account,title,newName,finalSticker,raw.sticker?.alt||'✨'),
-        'createpack '+newName
-      ),
+      async()=>{
+        const existing=await destinationState(newName);
+        if(existing.exists)return true;
+        return queueCloneMutation(
+          ()=>createSet(account,title,newName,finalSticker,raw.sticker?.alt||'✨'),
+          'createpack '+newName
+        );
+      },
       'Createpack · création',
       {progress:externalProgress}
     );
