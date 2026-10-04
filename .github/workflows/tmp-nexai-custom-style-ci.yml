@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - feat/nexai-custom-styles
+  pull_request:
+    paths:
+      - 'nexaccount/**'
+      - '.github/workflows/tmp-nexai-custom-style-ci.yml'
 
 permissions:
   contents: read
