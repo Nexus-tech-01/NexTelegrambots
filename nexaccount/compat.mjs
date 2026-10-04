@@ -14,6 +14,8 @@ import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
 import { normalizeVideoNoteBuffer, sendTelegramMedia } from './media-send.mjs';
 import { deleteStoredReplyVideo, replyStorageJoinLink, storeReplyVideo } from './reply-storage.mjs';
 import { commandMap } from './commands.mjs';
+import { customStyleFor, normalizeCustomStyle } from './custom-style.mjs';
+import { loadBotToken } from './secrets.mjs';
 import { createProgress, syncOwnedCustomEmojiLibrary } from './response-ui.mjs';
 
 function replyHotCachePeer(configured={}){
@@ -204,6 +206,73 @@ async function repliedMessage(client,peer,message){
     return Array.isArray(rows)?rows[0]:rows;
   }catch{return null}
 }
+
+async function updateCustomStyleSettings(userId,patch={}){
+  const settings=await settingsFor(userId);
+  const current=customStyleFor(settings);
+  const next=normalizeCustomStyle({
+    ...current,
+    ...patch,
+    media:patch.media===undefined?current.media:patch.media
+  });
+  await patchSettings(userId,{customStyle:next});
+  return next;
+}
+
+function menuMediaKind(source){
+  if(source?.media instanceof Api.MessageMediaPhoto||source?.media?.photo)return 'photo';
+  const document=source?.media?.document||source?.document;
+  const mime=String(document?.mimeType||document?.mime_type||'').toLowerCase();
+  return mime.startsWith('video/')?'video':'';
+}
+
+async function cacheMenuMediaForBot(account,type,buffer,mimeType=''){
+  const token=await loadBotToken();
+  if(!token)throw new Error('bot NexAI non configuré');
+  const bytes=Buffer.from(buffer||[]);
+  if(!bytes.length)throw new Error('média vide');
+  const max=type==='photo'?10*1024*1024:45*1024*1024;
+  if(bytes.length>max)throw new Error(type==='photo'?'photo > 10 Mo':'vidéo > 45 Mo');
+
+  const endpoint=type==='photo'?'sendPhoto':'sendVideo';
+  const field=type==='photo'?'photo':'video';
+  const ext=type==='photo'?'jpg':'mp4';
+  const mime=String(mimeType||'').trim()||(type==='photo'?'image/jpeg':'video/mp4');
+  const form=new FormData();
+  form.set('chat_id',String(account.telegramUserId));
+  form.set('disable_notification','true');
+  if(type==='video')form.set('supports_streaming','true');
+  form.set(field,new Blob([bytes],{type:mime}),'nexai-menu-'+Date.now()+'.'+ext);
+
+  const response=await fetch('https://api.telegram.org/bot'+token+'/'+endpoint,{
+    method:'POST',
+    body:form,
+    signal:AbortSignal.timeout(120000)
+  });
+  const data=await response.json().catch(()=>null);
+  if(!response.ok||data?.ok!==true){
+    throw new Error(String(data?.description||('Bot API HTTP '+response.status)).slice(0,220));
+  }
+
+  const message=data.result||{};
+  const media=type==='photo'
+    ?(Array.isArray(message.photo)?message.photo.at(-1):null)
+    :message.video;
+  const fileId=String(media?.file_id||'');
+  const fileUniqueId=String(media?.file_unique_id||'');
+  if(!fileId)throw new Error('file_id Telegram absent');
+
+  if(message.message_id){
+    fetch('https://api.telegram.org/bot'+token+'/deleteMessage',{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({chat_id:String(account.telegramUserId),message_id:message.message_id}),
+      signal:AbortSignal.timeout(10000)
+    }).catch(()=>{});
+  }
+  return {type,fileId,fileUniqueId};
+}
+
 function mediaTtlSeconds(source){
   const media=source?.media||source;
   return Number(
@@ -663,6 +732,101 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return true;
   }
   if(name==='stylelist'){await sendInline(client,peer,'styles');return true}
+
+  if(name==='customstyle'){
+    const action=argText.toLowerCase();
+    if(!action){
+      await sendInline(client,peer,'customstyle');
+      return true;
+    }
+    if(action==='reset'){
+      await patchSettings(account.telegramUserId,{customStyle:normalizeCustomStyle({})});
+    }else if(action==='on'||action==='off'){
+      await updateCustomStyleSettings(account.telegramUserId,{enabled:action==='on'});
+    }else{
+      await sendText(client,peer,'Usage : customstyle on | off | reset');
+      return true;
+    }
+    await sendInline(client,peer,'customstyle');
+    return true;
+  }
+
+  if(name==='stylename'){
+    const value=argText.slice(0,32).trim();
+    if(!value){await sendText(client,peer,'Usage : stylename <nom>');return true}
+    await updateCustomStyleSettings(account.telegramUserId,{enabled:true,name:value});
+    await sendInline(client,peer,'customstyle');
+    return true;
+  }
+
+  if(name==='styleemoji'){
+    const values=String(argText||'').split(/\s+/).map(x=>x.trim()).filter(Boolean).slice(0,6);
+    const valid=values.filter(x=>{
+      try{return /\p{Extended_Pictographic}|\p{Emoji_Presentation}/u.test(x)}
+      catch{return /[^\x00-\x7F]/.test(x)}
+    });
+    if(!valid.length){await sendText(client,peer,'Usage : styleemoji ✨ ⚡ 🖤');return true}
+    await updateCustomStyleSettings(account.telegramUserId,{enabled:true,emojis:valid});
+    await sendInline(client,peer,'customstyle');
+    return true;
+  }
+
+  if(name==='styletagline'){
+    await updateCustomStyleSettings(account.telegramUserId,{enabled:true,tagline:argText.slice(0,96)});
+    await sendInline(client,peer,'customstyle');
+    return true;
+  }
+
+  if(name==='stylebuttons'){
+    const value=argText.toLowerCase();
+    if(!['primary','success','danger'].includes(value)){
+      await sendText(client,peer,'Usage : stylebuttons primary | success | danger');
+      return true;
+    }
+    await updateCustomStyleSettings(account.telegramUserId,{enabled:true,buttonStyle:value});
+    await sendInline(client,peer,'customstyle');
+    return true;
+  }
+
+  if(name==='menumedia'){
+    const value=argText.toLowerCase();
+    if(!['off','none','reset'].includes(value)){
+      await sendText(client,peer,'Usage : menumedia off');
+      return true;
+    }
+    await updateCustomStyleSettings(account.telegramUserId,{media:{type:'',fileId:'',fileUniqueId:''}});
+    await sendInline(client,peer,'customstyle');
+    return true;
+  }
+
+  if(name==='menuphoto'||name==='menuvideo'){
+    const wanted=name==='menuphoto'?'photo':'video';
+    const source=await repliedMessage(client,peer,event.message);
+    if(!source){
+      await sendText(client,peer,wanted==='photo'
+        ?'Réponds à une photo avec menuphoto.'
+        :'Réponds à une vidéo avec menuvideo.');
+      return true;
+    }
+    const actual=menuMediaKind(source);
+    if(actual!==wanted){
+      await sendText(client,peer,wanted==='photo'
+        ?'Le message répondu doit être une photo.'
+        :'Le message répondu doit être une vidéo.');
+      return true;
+    }
+    try{
+      const buffer=await client.downloadMedia(source);
+      const mime=String(source?.media?.document?.mimeType||source?.media?.document?.mime_type||'');
+      const cached=await cacheMenuMediaForBot(account,wanted,buffer,mime);
+      await updateCustomStyleSettings(account.telegramUserId,{enabled:true,media:cached});
+      await sendInline(client,peer,'menu');
+    }catch(error){
+      await sendText(client,peer,'Média du menu impossible : '+String(error?.message||error).slice(0,260));
+    }
+    return true;
+  }
+
   if(name==='ping')return false;
   if(name==='help'){
     const query=clean(args[0]).replace(/^\//,'').toLowerCase();
@@ -1626,14 +1790,9 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   }
 
   if(name==='apparence_systeme'){
-    const value=argText.slice(0,64);
-    if(!value){
-      const settings=await settingsFor(account.telegramUserId);
-      await sendText(client,peer,'Nom NexAi du menu : '+(settings.botDisplayName||'NEXAI'));
-      return true;
-    }
-    await patchSettings(account.telegramUserId,{botDisplayName:value});
-    await sendText(client,peer,'Nom du menu mis à jour : '+value);
+    const value=argText.slice(0,32).trim();
+    if(value)await patchSettings(account.telegramUserId,{botDisplayName:value});
+    await sendInline(client,peer,'customstyle');
     return true;
   }
 
