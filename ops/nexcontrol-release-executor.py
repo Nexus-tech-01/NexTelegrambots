@@ -94,11 +94,11 @@ def source_bundle(cfg, work, release):
         fail("invalid_commit_sha")
     count = int(cfg.get("bundlePartCount") or 0)
     pattern = str(cfg.get("bundlePartsPattern") or "")
-    if not 1 <= count <= 100 or "{index}" not in pattern:
+    if not 1 <= count <= 100 or ("{index}" not in pattern and "*" not in pattern):
         fail("invalid_bundle_spec")
     chunks = []
     for i in range(count):
-        name = pattern.replace("{index}", f"{i:02d}")
+        name = pattern.replace("{index}", f"{i:02d}") if "{index}" in pattern else pattern.replace("*", f"{i:02d}", 1)
         if "/" in name or "\\" in name or ".." in name:
             fail("unsafe_bundle_part")
         raw = download(f"https://raw.githubusercontent.com/{owner}/{repo}/{sha}/{name}")
