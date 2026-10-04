@@ -1,4 +1,4 @@
-name: Ops Anime Mid-Series Continuity Deploy Once
+name: Ops Anime Safe Recovery Deploy Once
 
 on:
   push:
@@ -8,20 +8,16 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
-  group: ops-anime-mid-series-continuity-deploy-once
+  group: ops-anime-safe-recovery-deploy-once
   cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      NXC_BASE: https://nexcontrol-ochre.vercel.app
-      NXC_AGENT: nexus-main
-      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
-      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
 
@@ -29,225 +25,39 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Validate NexAnime-only patch
+      - name: Validate NexAnime recovery patch
         shell: bash
         run: |
           set -euo pipefail
           npm install --prefix nexaccount --ignore-scripts
           node --check nexaccount/anime-ingest.mjs
-          node --check nexaccount/anime-contract.mjs
+          node --check nexaccount/bootstrap.mjs
+          node --check ops/deploy-nexai-safe-hotfix-live.mjs
           node nexaccount/scripts/test-anime-ingest.mjs
-          node nexaccount/anime-contract.mjs
-          grep -F "const TRANSIENT_VARIANT_RETRY_MS=Math.max(PUBLISH_MS*2,90_000);" nexaccount/anime-ingest.mjs
-          grep -F "inProgress!==true" nexaccount/anime-ingest.mjs
-          grep -F "episodeVariantRetryReady" nexaccount/anime-ingest.mjs
+          grep -F "and continuing with another runnable series" nexaccount/anime-ingest.mjs
+          grep -F "refusing auxiliary production runtime" nexaccount/bootstrap.mjs
 
-      - name: Deploy only NexAnime continuity files and recover current series
+      - name: Deploy through single-runtime safe bridge
         shell: bash
+        env:
+          DEPLOY_ENDPOINT: https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-agent-hotfix-bridge
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import os,json,time,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib,base64
-          from pathlib import Path
-
-          BASE=os.environ['NXC_BASE'].rstrip('/')
-          AGENT=os.environ['NXC_AGENT']
-          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
-          SECRET=os.environ.get('NXC_SESSION_SECRET','')
-          EXPECTED_HASH='8d929b13085fe70042bc71cc6c7dae89139975a3a043717de30b1b04763e4b36'
-
-          jar=http.cookiejar.CookieJar()
-          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-          cookie=''
-          if SECRET:
-              exp=int(time.time()*1000)+30*60*1000
-              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
-              sig=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
-              cookie=payload+'.'+sig
-          elif ADMIN:
-              data=urllib.parse.urlencode({'password':ADMIN}).encode()
-              op.open(urllib.request.Request(BASE+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=45).read()
-          else:
-              raise RuntimeError('No NexControl credential in Actions secrets')
-
-          def http(method,path,data=None,timeout=60):
-              headers={'Accept':'application/json'}
-              if cookie: headers['Cookie']='nexcontrol_session='+cookie
-              body=None
-              if data is not None:
-                  body=json.dumps(data,separators=(',',':')).encode()
-                  headers['Content-Type']='application/json'
-              req=urllib.request.Request(BASE+path,data=body,headers=headers,method=method)
-              try:
-                  with op.open(req,timeout=timeout) as r:
-                      raw=r.read().decode('utf-8','replace')
-                      return json.loads(raw) if raw else {}
-              except urllib.error.HTTPError as e:
-                  raise RuntimeError(f'HTTP {e.code} {path}: '+e.read().decode('utf-8','replace')[:2000])
-
-          def job(kind,payload,timeout=180):
-              j=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload})
-              jid=j.get('jobId')
-              if not jid:
-                  raise RuntimeError(f'No jobId for {kind}: {j}')
-              end=time.time()+timeout
-              while time.time()<end:
-                  x=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid),timeout=45)
-                  st=x.get('status')
-                  if st=='succeeded':
-                      return x.get('result') or {}
-                  if st=='failed':
-                      raise RuntimeError(f'{kind} failed: {x.get("error")}')
-                  time.sleep(1)
-              raise TimeoutError(f'{kind} timeout: {jid}')
-
-          def runtime(args,timeout_ms=60000,timeout=100):
-              r=job('runtime.exec',{
-                  'root':'nexus',
-                  'command':'node',
-                  'args':args,
-                  'timeoutMs':timeout_ms
-              },timeout=timeout)
-              if r.get('ok') is False:
-                  raise RuntimeError('runtime command failed: '+str(r)[-3000:])
-              return r
-
-          targets=['anime-ingest.mjs','anime-contract.mjs']
-          backups=[]
-          restarted=False
-          try:
-              # Strict scope: write only the two NexAnime files required by this fix.
-              for rel in targets:
-                  src=Path('nexaccount')/rel
-                  result=job('fs.write',{
-                      'root':'nexus',
-                      'path':'bots/nexaccount/'+rel,
-                      'content':src.read_text(encoding='utf-8')
-                  })
-                  backups.append((rel,result.get('backupId'),result.get('created',False)))
-
-              for rel in targets:
-                  ck=job('check.run',{
-                      'check':'node-check',
-                      'root':'nexus',
-                      'file':'bots/nexaccount/'+rel,
-                      'timeoutMs':60000
-                  })
-                  if not ck.get('ok'):
-                      raise RuntimeError('node-check failed '+rel+': '+str(ck))
-
-              hash_exec=runtime([
-                  '--input-type=module','-e',
-                  "import fs from 'node:fs';import crypto from 'node:crypto';const b=fs.readFileSync('bots/nexaccount/anime-ingest.mjs');process.stdout.write(crypto.createHash('sha256').update(b).digest('hex'))"
-              ],30000,60)
-              live_hash=(hash_exec.get('stdout') or '').strip()
-              if live_hash!=EXPECTED_HASH:
-                  raise RuntimeError('NexAnime runtime hash mismatch before restart: '+live_hash)
-              print('NEXANIME_TARGET_HASH_OK',live_hash)
-
-              contract=runtime(['bots/nexaccount/anime-contract.mjs'],30000,60)
-              print('NEXANIME_CONTRACT', (contract.get('stdout') or '').strip())
-
-              boot=runtime(['bots/nexaccount/bootstrap.mjs','--restart','--production'],60000,100)
-              restarted=True
-              print('NEXACCOUNT_RESTART',str(boot)[-2500:])
-              time.sleep(8)
-
-              health=runtime(['bots/nexaccount/cli.mjs','health'],30000,60)
-              health_json=json.loads((health.get('stdout') or '{}').strip() or '{}')
-              if health_json.get('ok') is not True or health_json.get('pairingOnly') is True:
-                  raise RuntimeError('NexAccount health regression: '+str(health_json))
-
-              accounts=runtime(['bots/nexaccount/cli.mjs','accounts'],30000,60)
-              account_json=json.loads((accounts.get('stdout') or '{}').strip() or '{}')
-              rows=account_json.get('runtimes') or []
-              by_name={str(x.get('username') or '').lower().lstrip('@'):x for x in rows if x.get('connected') is True}
-              primary=by_name.get('tresor20001')
-              scanner=by_name.get('tresor20009')
-              if not primary or (primary.get('anime') or {}).get('publisher') is not True or (primary.get('anime') or {}).get('listener') is not True:
-                  raise RuntimeError('primary anime runtime regression: '+str(primary))
-              if not scanner or (scanner.get('anime') or {}).get('listener') is not True:
-                  raise RuntimeError('secondary anime listener regression: '+str(scanner))
-
-              anime=runtime(['bots/nexaccount/cli.mjs','anime-status'],30000,60)
-              anime_json=json.loads((anime.get('stdout') or '{}').strip() or '{}')
-              if anime_json.get('ok') is not True or anime_json.get('enabled') is not True:
-                  raise RuntimeError('NexAnime health regression: '+str(anime_json))
-              if str(anime_json.get('destination') or '').lower()!='@theotaku_nexus':
-                  raise RuntimeError('NexAnime destination regression: '+str(anime_json.get('destination')))
-              if float(anime_json.get('interSeriesMinutes') or 0)!=15:
-                  raise RuntimeError('NexAnime inter-series cadence regression: '+str(anime_json.get('interSeriesMinutes')))
-
-              # Repair ONLY the obsolete transient block produced by the old code,
-              # and only if that exact anime had already begun publishing.
-              repair_code=r"""
-              import {db} from './bots/nexaccount/store.mjs';
-              const d=await db();
-              const c=d.collection('nexanime_config');
-              const q=d.collection('nexanime_queue');
-              const p=d.collection('nexanime_publications');
-              const s=await c.findOne({_id:'scheduler'});
-              const key=String(s?.blockedSeriesKey||'');
-              let result={changed:false,key,reason:String(s?.blockedSeriesReason||''),active:String(s?.activeSeriesKey||'')};
-              if(key&&s?.blockedSeriesReason==='source_unavailable_after_retries'){
-                const started=await p.countDocuments({seriesKey:key,kind:'episode',purgedAt:{$exists:false}});
-                const remaining=await q.countDocuments({seriesKey:key,kind:'episode',status:{$in:['queued','publishing']}});
-                const active=String(s?.activeSeriesKey||'');
-                if(started>0&&remaining>0&&(!active||active===key)){
-                  const now=new Date();
-                  await c.updateOne(
-                    {_id:'scheduler',blockedSeriesKey:key,blockedSeriesReason:'source_unavailable_after_retries'},
-                    {$set:{activeSeriesKey:key,activeSeriesStartedAt:s?.activeSeriesStartedAt||now,continuityRecoveredAt:now,updatedAt:now},
-                     $unset:{blockedSeriesKey:'',blockedSeriesUntil:'',blockedSeriesReason:'',cooldownUntil:'',plannedSeriesKey:'',plannedAt:'',plannedSummary:'',gapDetected:''}}
-                  );
-                  result={changed:true,key,started,remaining,activeBefore:active};
-                }
-              }
-              process.stdout.write(JSON.stringify(result));
-              process.exit(0);
-              """
-              repair=runtime(['--input-type=module','-e',repair_code],45000,75)
-              repair_json=json.loads((repair.get('stdout') or '{}').strip() or '{}')
-              print('NEXANIME_CONTINUITY_RECOVERY',json.dumps(repair_json,separators=(',',':')))
-
-              # Trigger only the anime publisher. If the old preferred copy is stale,
-              # the new code cools it down; the next pass can use another copy of the same episode.
-              pub1=runtime(['bots/nexaccount/cli.mjs','anime-publish-now','@tresor20001'],180000,215)
-              pub1_json=json.loads((pub1.get('stdout') or '{}').strip() or '{}')
-              print('NEXANIME_PUBLISH_NOW_1',json.dumps(pub1_json,separators=(',',':')))
-              if pub1_json.get('published') is not True:
-                  time.sleep(3)
-                  pub2=runtime(['bots/nexaccount/cli.mjs','anime-publish-now','@tresor20001'],180000,215)
-                  pub2_json=json.loads((pub2.get('stdout') or '{}').strip() or '{}')
-                  print('NEXANIME_PUBLISH_NOW_2',json.dumps(pub2_json,separators=(',',':')))
-
-              after=runtime(['bots/nexaccount/cli.mjs','anime-status'],30000,60)
-              after_json=json.loads((after.get('stdout') or '{}').strip() or '{}')
-              print('NEXANIME_AFTER',json.dumps({
-                  'ok':after_json.get('ok'),
-                  'enabled':after_json.get('enabled'),
-                  'destination':after_json.get('destination'),
-                  'interSeriesMinutes':after_json.get('interSeriesMinutes'),
-                  'scheduler':after_json.get('scheduler'),
-                  'queue':after_json.get('queue')
-              },default=str,separators=(',',':')))
-              if after_json.get('ok') is not True or after_json.get('enabled') is not True:
-                  raise RuntimeError('NexAnime post-recovery regression: '+str(after_json))
-
-              print('DEPLOYMENT_OK NexAnime mid-series continuity only')
-          except Exception:
-              for rel,bid,created in reversed(backups):
-                  try:
-                      if bid:
-                          job('fs.rollback',{'backupId':bid})
-                      elif created:
-                          job('fs.delete',{'root':'nexus','path':'bots/nexaccount/'+rel,'allowDir':False})
-                  except Exception as e:
-                      print('rollback warning',rel,e)
-              if restarted:
-                  try:
-                      runtime(['bots/nexaccount/bootstrap.mjs','--restart','--production'],60000,100)
-                  except Exception as e:
-                      print('rollback restart warning',e)
-              raise
+          OIDC_JSON="$(curl --fail-with-body --silent --show-error             -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=nxc-nexanime-safe-deploy")"
+          OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"$OIDC_JSON")"
+          body="$(curl --fail-with-body --silent --show-error --max-time 330             -X POST "$DEPLOY_ENDPOINT"             -H "Authorization: Bearer $OIDC_TOKEN"             -H "Content-Type: application/json"             --data "{\"sha\":\"${GITHUB_SHA}\",\"mode\":\"anime-gap-skip\"}")"
+          echo "$body"
+          python3 - "$body" <<'PY'
+          import json,sys
+          d=json.loads(sys.argv[1])
+          if d.get("ok") is not True:
+              raise SystemExit("safe deploy failed: "+str(d))
+          steps=d.get("steps") or {}
+          if steps.get("safeSingleRuntime") is not True:
+              raise SystemExit("single-runtime protection missing: "+str(steps))
+          live=steps.get("live") or {}
+          anime=live.get("anime") or {}
+          if anime.get("ok") is not True or anime.get("enabled") is not True:
+              raise SystemExit("NexAnime live verification failed: "+str(anime))
+          print("NEXANIME_SAFE_RECOVERY_OK")
           PY
