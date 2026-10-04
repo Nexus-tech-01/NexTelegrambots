@@ -446,7 +446,25 @@ function generatedOutputPeerKey(peer){
 }
 
 function generatedOutputText(value){
-  return String(value??'').trim().replace(/\s+/g,' ').toLowerCase();
+  // NexAI's direct renderer appends the visible "By Nextech" signature after
+  // sendText() has been called. Strip that transport decoration so the text
+  // fingerprint is identical before and after Telegram echoes the outgoing
+  // message back to the connected account.
+  const raw=String(value??'')
+    .replace(/\u2063/g,'')
+    .trim()
+    .replace(/\s+by nextech\s*$/i,'')
+    .trim();
+  return raw.replace(/\s+/g,' ').toLowerCase();
+}
+
+function messageLooksGeneratedByNexAi(message){
+  const raw=String(textOf(message)||'').trim();
+  if(!raw)return false;
+  // Every normal NexAI text reply rendered by sendBrandedText carries this
+  // signature. This is an independent guard in case peer/update shapes differ
+  // and the transient fingerprint cannot be matched.
+  return /(?:^|\n)\s*By Nextech\s*$/i.test(raw);
 }
 
 function generatedOutputKey(accountId,peer,text){
@@ -461,12 +479,12 @@ function pruneGeneratedCommandOutputs(now=Date.now()){
   }
 }
 
-function markGeneratedCommandOutput(accountId,peer,text,{ttlMs=15000}={}){
+function markGeneratedCommandOutput(accountId,peer,text,{ttlMs=60000}={}){
   const key=generatedOutputKey(accountId,peer,text);
   if(!key)return;
   const now=Date.now();
   pruneGeneratedCommandOutputs(now);
-  generatedCommandOutputs.set(key,now+Math.max(1000,Number(ttlMs)||15000));
+  generatedCommandOutputs.set(key,now+Math.max(1000,Number(ttlMs)||60000));
 }
 
 function consumeGeneratedCommandOutput(accountId,message){
@@ -539,6 +557,9 @@ async function sendOwnerText(client,peer,text){
   const runtime=runtimeEntry?.[1]||null;
   const settings=accountId?await settingsFor(accountId).catch(()=>null):null;
   const safe=sanitizeAnimatedEmojiText(String(text),settings?.customEmojiIds||{});
+  // Owner replies intentionally omit the Nextech signature, so fingerprint
+  // them explicitly before sending to keep them out of the command parser too.
+  if(accountId)markGeneratedCommandOutput(accountId,peer,safe);
   try{
     return await sendBrandedText(client,peer,safe,{
       signature:false,
@@ -1824,6 +1845,9 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
   // them as outgoing just like a human-typed bare command. The pre-send fingerprint
   // above is the authoritative distinction between NexAI output and user input.
   if(selfAuthored&&consumeGeneratedCommandOutput(account.telegramUserId,message))return false;
+  // Defense in depth: branded NexAI replies are generated output even if a
+  // Telegram peer/update representation prevented the fingerprint match.
+  if(selfAuthored&&messageLooksGeneratedByNexAi(message))return false;
 
   const settings=await settingsFor(account.telegramUserId);
   const ownerCaller=event?.callerOwner===true||(
