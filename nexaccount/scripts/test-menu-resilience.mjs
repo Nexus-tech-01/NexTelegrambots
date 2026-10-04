@@ -71,7 +71,7 @@ assert.match(inlineReplyFallback.reply_markup.inline_keyboard[0][0].text,/^⚡\s
 
 assert.deepEqual(
   __test.telegramCommandMenu().map(x=>x.command),
-  ['start','menu','help','pair','premium','language','creator'],
+  ['start','menu','help','pair','premium','language','creator','customstyle'],
   'Telegram slash menu must contain only real Bot API handlers'
 );
 
@@ -140,7 +140,7 @@ assert.match(menuSource,/Number\(settings\?\.menuImageStyle\|\|0\)===Number\(sty
 assert.match(menuSource,/resolveInlinePhoto/,'custom artwork must be validated before inline use');
 assert.ok(!menuSource.includes("resolveStyleImage(1,''"),'a missing theme image must not silently reuse Dark artwork');
 assert.ok(!menuSource.includes('const perPage=16'),'category pagination must be removed');
-assert.ok(!menuSource.includes("localized(settings,'Suivant','Next')"),'category next/previous navigation must be removed');
+assert.match(menuSource,/const pageCount=media\?/,'category pagination must activate only for personal Telegram media menus');
 assert.ok(!menuSource.includes("photoUrl:view==='category'?'':"),'category artwork must no longer be dropped just to avoid caption limits');
 assert.match(themeSource,/THEME_UI_IDS/,'new theme UI registry must be present');
 assert.match(themeSource,/31:/,'all 31 theme layouts must be defined');
@@ -254,6 +254,46 @@ const sessionEmojiIds=sessionEmojiModel.entities
   .map(x=>x.custom_emoji_id);
 assert.ok(sessionEmojiIds.includes('5368324170671202300'),'session style custom emoji ID must override environment defaults');
 assert.ok(sessionEmojiIds.includes('5368324170671202301'),'session category custom emoji ID must be applied');
+
+const customMediaSettings={
+  style:2,
+  prefix:'.',
+  language:'fr',
+  botDisplayName:'Nova',
+  customStyle:{
+    enabled:true,
+    name:'Neon',
+    emojis:['🖤','⚡','✨'],
+    tagline:'Own the night',
+    buttonStyle:'danger',
+    media:{type:'video',fileId:'BAACAgQAAxkBAAIBCUSTOMFILE123456789',fileUniqueId:'unique_custom'}
+  }
+};
+const customHome=await menuModel({
+  account:{telegramUserId:'7803',username:'custom_user',firstName:'Custom',premium:false},
+  settings:customMediaSettings,
+  commands:registry,
+  includeArtwork:true
+});
+assert.equal(customHome.media?.type,'video','custom style video must be returned as Telegram cached media');
+assert.equal(customHome.media?.fileId,customMediaSettings.customStyle.media.fileId,'custom media file_id must stay per user');
+assert.equal(customHome.photoUrl,'','custom Telegram media must not leak through an external artwork URL');
+assert.ok(customHome.text.includes('Nova'),'custom menu must use the chosen bot name');
+assert.ok(customHome.text.includes('Neon'),'custom menu must use the personal style name');
+assert.ok(customHome.text.includes('🖤')||customHome.text.includes('⚡')||customHome.text.includes('✨'),'dominant custom emojis must appear in the menu');
+assert.ok(customHome.reply_markup.inline_keyboard.flat().some(button=>String(button.callback_data||'')==='menu:customstyle'),'home menu must expose the personal-style editor');
+
+const customAnimePage0=await menuModel({
+  account:{telegramUserId:'7803',username:'custom_user',firstName:'Custom',premium:false},
+  settings:customMediaSettings,
+  commands:registry,
+  view:'category',
+  category:'ANIME',
+  page:0,
+  includeArtwork:true
+});
+assert.ok(customAnimePage0.text.length<=1024,'custom media category caption must fit Telegram limits');
+assert.ok(customAnimePage0.reply_markup.inline_keyboard.flat().some(button=>String(button.callback_data||'').startsWith('cat:ANIME:1')),'custom media categories must expose next-page navigation when needed');
 
 const normalFallbackModel=await menuModel({
   account:{telegramUserId:'7801',username:'normal_fallback',firstName:'Fallback',premium:false},
