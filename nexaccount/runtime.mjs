@@ -1946,6 +1946,19 @@ async function pollRecentCommands(runtime){
       if(!message)return;
       const stamp=messageTimestampMs(message);
       if(stamp&&stamp<since)return;
+
+      // Greetings get the same history safety net as commands. Telegram may
+      // occasionally omit/delay a live MessageService update while GetHistory
+      // already contains it. The greeting-event deduper makes this idempotent.
+      const serviceKind=String(message?.action?.className||message?.action?.constructor?.name||'');
+      if(isGroup&&message?.action&&message?.peerId&&/ChatAddUser|ChatJoinedByLink|ChatJoinedByRequest|ChatDeleteUser/i.test(serviceKind)){
+        await maybeServiceGreeting(runtime,{
+          message,
+          chatId:message?.peerId?.channelId||message?.peerId?.chatId||null,
+          isGroup:true
+        });
+      }
+
       // Do not use a fixed "60 seconds old" cutoff here. Telegram can delay
       // GetDialogs/GetHistory while the same MTProto session is under FloodWait.
       // The previous-poll watermark below is the replay boundary, and
