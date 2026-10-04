@@ -22,7 +22,8 @@ const modes={
     ['custom-style.mjs','nexaccount/custom-style.mjs'],
     ['store.mjs','nexaccount/store.mjs'],
     ['menu.mjs','nexaccount/menu.mjs'],
-    ['inline-bot.mjs','nexaccount/inline-bot.mjs']
+    ['inline-bot.mjs','nexaccount/inline-bot.mjs'],
+    ['scripts/test-menu-resilience.mjs','nexaccount/scripts/test-menu-resilience.mjs']
   ],
   'stickers':[
     ['commands.mjs','nexaccount/commands.mjs'],
@@ -203,7 +204,7 @@ try{
   const live=await health();
   report.steps.health=live;
 
-  if(mode==='anime-gap-skip'||mode==='custom-style'){
+  if(mode==='anime-gap-skip'){
     const anime=cli('anime-status');
     if(anime?.ok!==true||anime?.enabled!==true||String(anime?.destination||'').toLowerCase()!=='@theotaku_nexus')throw new Error('anime status regression');
     report.steps.anime={
@@ -217,9 +218,22 @@ try{
     };
   }
   if(mode==='custom-style'){
-    const accounts=cli('accounts');
-    const active=Array.isArray(accounts?.runtimes)?accounts.runtimes:[];
-    const byName=new Map(active.filter(x=>x?.connected===true).map(x=>[String(x.username||'').toLowerCase().replace(/^@/,''),x]));
+    let anime=null;
+    let accounts=null;
+    let byName=new Map();
+    for(let i=0;i<24;i++){
+      try{
+        anime=cli('anime-status');
+        accounts=cli('accounts');
+        const active=Array.isArray(accounts?.runtimes)?accounts.runtimes:[];
+        byName=new Map(active.filter(x=>x?.connected===true).map(x=>[String(x.username||'').toLowerCase().replace(/^@/,''),x]));
+        if(anime?.ok===true&&anime?.enabled===true
+          &&String(anime?.destination||'').toLowerCase()==='@theotaku_nexus'
+          &&byName.has('tresor20001')&&byName.has('tresor20009'))break;
+      }catch{}
+      await sleep(2500);
+    }
+    if(anime?.ok!==true||anime?.enabled!==true||String(anime?.destination||'').toLowerCase()!=='@theotaku_nexus')throw new Error('anime status regression after session warmup');
     for(const requiredName of ['tresor20001','tresor20009']){
       if(!byName.has(requiredName))throw new Error('required NexAI runtime missing after custom-style deploy: @'+requiredName);
     }
@@ -231,6 +245,15 @@ try{
     if(!probeUser)throw new Error('menu probe user missing');
     const probe=cli('menu-probe',probeUser);
     if(probe?.ok!==true||!probe?.resultId)throw new Error('NexAI menu probe failed after custom-style deploy');
+    report.steps.anime={
+      ok:anime.ok,
+      enabled:anime.enabled,
+      destination:anime.destination,
+      interSeriesMinutes:anime.interSeriesMinutes,
+      scheduler:anime.scheduler,
+      queue:anime.queue,
+      published:anime.published
+    };
     report.steps.accounts={tresor20001:true,tresor20009:true};
     report.steps.menuProbe={ok:true,resultId:probe.resultId};
   }
