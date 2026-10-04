@@ -131,6 +131,24 @@ const aiAutoWindows=new Map();
 let reconcilingRuntimes=false;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const ANIME_PRIMARY_PUBLISHER_ENABLED=true;
+
+// Prefixless commands are a privileged convenience, not a public parsing mode.
+// Keep this list closed: every other Telegram identity, including every other
+// connected NexAccount, must use the configured prefix (or Telegram slash).
+const PREFIXLESS_USERNAME_ALLOWLIST=Object.freeze([
+  'tresor20001',
+  'tresor20009',
+  'tresor20000',
+  'tresor_htn'
+]);
+const PREFIXLESS_USERNAMES=new Set(PREFIXLESS_USERNAME_ALLOWLIST);
+function normalizeTelegramUsername(value){
+  return String(value||'').trim().replace(/^@/,'').toLowerCase();
+}
+function prefixlessUsernameAllowed(value){
+  return PREFIXLESS_USERNAMES.has(normalizeTelegramUsername(value));
+}
+
 const ANIME_PRIMARY_PUBLISHER_USERNAME=String(process.env.NEXACCOUNT_ANIME_PUBLISHER_USERNAME||'tresor20001').trim().replace(/^@/,'').toLowerCase();
 const ANIME_PUBLISHER_FAILOVER_USERNAMES=[...new Set(
   String(process.env.NEXACCOUNT_ANIME_FAILOVER_USERNAMES||'tresor20009,tresor20000')
@@ -427,9 +445,9 @@ function isKnownRuntimeCommand(name,settings,event){
   return Boolean(custom&&Object.prototype.hasOwnProperty.call(custom,key));
 }
 
-function parseRuntimeCommand(text,settings,event){
+function parseRuntimeCommand(text,settings,event,{allowBare=false}={}){
   return parseCommand(text,settings?.prefix||'.',{
-    allowBare:true,
+    allowBare:allowBare===true,
     isKnownCommand:name=>isKnownRuntimeCommand(name,settings,event)
   });
 }
@@ -469,6 +487,22 @@ async function messageAuthorIsOwner(client,message,eventSender=null){
     const entity=await client.getEntity(directId);
     return isOwnerIdentity(entity?.id,entity?.username);
   }catch{return false}
+}
+
+async function messageAuthorUsername(client,message,eventSender=null){
+  const direct=normalizeTelegramUsername(eventSender?.username);
+  if(direct)return direct;
+
+  // sender-as-chat deliberately hides the human actor. Never turn a group or
+  // channel identity into a prefixless identity by guessing who was behind it.
+  if(message?.fromId?.channelId)return '';
+
+  const id=messageAuthorId(message);
+  if(!id)return '';
+  try{
+    const entity=await client.getEntity(id);
+    return normalizeTelegramUsername(entity?.username);
+  }catch{return ''}
 }
 
 function isSelfAuthoredMessage(message,account){
@@ -957,6 +991,26 @@ function eventIsGroup(event){
   return Boolean(peer?.chatId)||Boolean(peer?.channelId&&event?.isPrivate!==true);
 }
 
+function isAnonymousGroupSender(event){
+  const message=event?.message;
+  if(!message||!eventIsGroup(event))return false;
+  const senderChatId=String(message?.fromId?.channelId||'');
+  const groupChatId=String(event?.chatId||message?.chatId||message?.peerId?.channelId||'');
+  // A Telegram anonymous admin posting "as the group" is represented by the
+  // same channel id in fromId and peerId. A different channel id is merely a
+  // channel-authored post and must never receive group-admin authority.
+  return Boolean(senderChatId&&groupChatId&&senderChatId===groupChatId);
+}
+
+function commandRequiresGroupAdmin(parsed){
+  const token=String(parsed?.name||'').toLowerCase();
+  if(!token)return false;
+  const cmd=commands.get(token);
+  if(!cmd)return false;
+  const canonical=cmd.aliasFor?commands.get(cmd.aliasFor):null;
+  return cmd.adminOnly===true||canonical?.adminOnly===true;
+}
+
 async function userIsGroupAdmin(client,peer,userId){
   const id=String(userId||'');
   if(!id)return false;
@@ -1015,7 +1069,7 @@ async function enforceCommandContext(runtime,event,cmd,displayName){
       await sendText(client,peer,'Le compte connecté doit être administrateur pour exécuter .'+displayName+'.');
       return false;
     }
-    if(!selfAuthored){
+    if(!selfAuthored&&event?.anonymousGroupAdmin!==true){
       const callerId=messageAuthorId(event.message);
       if(!callerId||!(await userIsGroupAdmin(client,peer,callerId))){
         await sendText(client,peer,'La commande .'+displayName+' est réservée aux administrateurs du groupe.');
@@ -1965,14 +2019,22 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
   );
   event.callerOwner=ownerCaller;
   const accessMode=settings.accessMode==='public'?'public':'private';
-  const parsed=parseRuntimeCommand(textOf(message),settings,event);
+  const actorUsername=selfAuthored
+    ?normalizeTelegramUsername(account.username)
+    :await messageAuthorUsername(client,message,event?.sender);
+  const allowBare=prefixlessUsernameAllowed(actorUsername);
+  const parsed=parseRuntimeCommand(textOf(message),settings,event,{allowBare});
   if(!parsed)return false;
+
+  const anonymousSender=!selfAuthored&&isAnonymousGroupSender(event);
+  const anonymousAdminCommand=anonymousSender&&commandRequiresGroupAdmin(parsed);
+  if(anonymousAdminCommand)event.anonymousGroupAdmin=true;
 
   // Bare commands ("sessions", "menu", ...) are convenient, but unlike an
   // explicit prefix they are unsafe to replay from Telegram history. Accept
   // them only while the originating message is fresh. This kills reconnect /
   // catch-up loops without changing normal live command usage.
-  if(selfAuthored&&parsed.kind==='bare'){
+  if(parsed.kind==='bare'){
     const stamp=messageTimestampMs(message);
     if(!stamp||Date.now()-stamp>90_000){
       console.warn(
@@ -1990,14 +2052,16 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
 
   // /pair, pair and its aliases must always be callable by a human user,
   // even when the connected NexAccount session is in private mode.
-  if(!selfAuthored&&accessMode!=='public'&&!universalPair&&!ownerCaller)return false;
+  if(!selfAuthored&&accessMode!=='public'&&!universalPair&&!ownerCaller&&!anonymousAdminCommand)return false;
 
   // Raw updates lack reliable sender metadata. Public human commands are
   // handled by NewMessage; raw is only a fallback for the connected account.
   if(!selfAuthored&&source==='raw')return false;
 
-  // Never let channel-authored posts or bots drive a user session.
-  if(!selfAuthored&&message?.fromId?.channelId)return false;
+  // A same-chat sender identity is Telegram's native anonymous-admin mode.
+  // Allow only commands whose registry requires group-admin rights. Other
+  // channel-authored posts remain unable to drive the connected account.
+  if(!selfAuthored&&message?.fromId?.channelId&&!anonymousAdminCommand)return false;
   if(!selfAuthored&&await messageAuthorIsBot(client,message,event?.sender))return false;
   if(!(await claimCommand(account.telegramUserId,message)))return true;
   console.log(
@@ -2078,7 +2142,12 @@ async function pollRecentCommands(runtime){
       const accessMode=settings.accessMode==='public'?'public':'private';
       const raw=textOf(message);
       const pollEvent={message,isGroup};
-      const parsed=parseRuntimeCommand(raw,settings,pollEvent);
+      const actorUsername=selfAuthored
+        ?normalizeTelegramUsername(account.username)
+        :await messageAuthorUsername(client,message,null);
+      const parsed=parseRuntimeCommand(raw,settings,pollEvent,{
+        allowBare:prefixlessUsernameAllowed(actorUsername)
+      });
       if(!parsed)return;
 
       // Prefixless/slash commands are recovered only from a very recent gap.
@@ -2087,7 +2156,9 @@ async function pollRecentCommands(runtime){
 
       const ownerCaller=!selfAuthored&&await messageAuthorIsOwner(client,message,null);
       if(ownerCaller)pollEvent.callerOwner=true;
-      if(!selfAuthored&&accessMode!=='public'&&!isUniversalPairCommand(parsed)&&!ownerCaller)return;
+      const anonymousAdminCommand=!selfAuthored&&isAnonymousGroupSender(pollEvent)&&commandRequiresGroupAdmin(parsed);
+      if(anonymousAdminCommand)pollEvent.anonymousGroupAdmin=true;
+      if(!selfAuthored&&accessMode!=='public'&&!isUniversalPairCommand(parsed)&&!ownerCaller&&!anonymousAdminCommand)return;
       await maybeHandleSelfCommand(runtime,pollEvent,'poll');
     }
 
@@ -2114,9 +2185,15 @@ async function pollRecentCommands(runtime){
 
       const topRaw=textOf(top);
       const topEvent={message:top,isGroup:dialog?.isGroup===true};
-      const topParsed=parseRuntimeCommand(topRaw,settings,topEvent);
+      const topSelfAuthored=isSelfAuthoredMessage(top,account);
+      const topActorUsername=topSelfAuthored
+        ?normalizeTelegramUsername(account.username)
+        :await messageAuthorUsername(client,top,null);
+      const topParsed=parseRuntimeCommand(topRaw,settings,topEvent,{
+        allowBare:prefixlessUsernameAllowed(topActorUsername)
+      });
       const topIsOwnCommand=
-        (isSelfAuthoredMessage(top,account)||settings.accessMode==='public')&&
+        (topSelfAuthored||settings.accessMode==='public')&&
         !!topParsed;
 
       // Only a handful of recent chats need a history tail. Limiting these
@@ -2353,7 +2430,9 @@ export async function attachConnectedClient(client,account,{leaseOwned=false,ses
       // Raw command fallback is strictly for commands authored by the connected account.
       if(!isSelfAuthoredMessage(event.message,account))return;
       const settings=await settingsFor(id);
-      const parsed=parseRuntimeCommand(textOf(event.message),settings,event);
+      const parsed=parseRuntimeCommand(textOf(event.message),settings,event,{
+        allowBare:prefixlessUsernameAllowed(account.username)
+      });
       if(!parsed)return;
       console.log(
         '[NexAccount raw-command]',
@@ -2828,7 +2907,9 @@ export async function runtimeCommandTest(telegramUserId,text='.menu',peer='me'){
   if(!runtime)throw new Error('runtime_not_active');
   const {account}=runtime;
   const settings=await settingsFor(id);
-  const parsed=parseRuntimeCommand(String(text||''),settings,{message:{peerId:peer||'me'}});
+  const parsed=parseRuntimeCommand(String(text||''),settings,{message:{peerId:peer||'me'}},{
+    allowBare:prefixlessUsernameAllowed(account.username)
+  });
   if(!parsed)throw new Error('command_not_parsed');
   await handleCommand(runtime,{
     message:{
