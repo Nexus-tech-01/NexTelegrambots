@@ -217,7 +217,9 @@ async function downloadCloneDocument(client,doc,{sourcePackName='',sourceIndex=0
     const message=String(error?.message||error||'');
     if(sourcePackName&&/FILE_REFERENCE|FILEREF|document.*invalid|media.*invalid/i.test(message)){
       const refreshed=await telegramSetByName(client,sourcePackName);
-      const fresh=refreshed?.documents?.[sourceIndex];
+      const targetId=String(current?.id||'');
+      const fresh=(refreshed?.documents||[]).find(item=>String(item?.id||'')===targetId)
+        ||refreshed?.documents?.[sourceIndex];
       if(fresh){
         current=fresh;
         return downloadDocument(client,current);
