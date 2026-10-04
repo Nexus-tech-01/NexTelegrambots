@@ -125,6 +125,7 @@ const commands=commandMap();
 const runtimes=new Map();
 const spamWindows=new Map();
 const commandDeduper=createCommandDeduper();
+const generatedCommandOutputs=new Map();
 const aiAutoWindows=new Map();
 let reconcilingRuntimes=false;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -391,6 +392,52 @@ async function claimCommand(telegramUserId,message){
   }
 }
 
+function generatedOutputPeerKey(peer){
+  return String(
+    peer?.userId||
+    peer?.chatId||
+    peer?.channelId||
+    peer?.id||
+    peer||
+    'peer'
+  );
+}
+
+function generatedOutputText(value){
+  return String(value??'').trim().replace(/\s+/g,' ').toLowerCase();
+}
+
+function generatedOutputKey(accountId,peer,text){
+  const normalized=generatedOutputText(text);
+  if(!normalized)return '';
+  return String(accountId||'')+':'+generatedOutputPeerKey(peer)+':'+normalized;
+}
+
+function pruneGeneratedCommandOutputs(now=Date.now()){
+  for(const [key,expiresAt] of generatedCommandOutputs){
+    if(expiresAt<=now)generatedCommandOutputs.delete(key);
+  }
+}
+
+function markGeneratedCommandOutput(accountId,peer,text,{ttlMs=15000}={}){
+  const key=generatedOutputKey(accountId,peer,text);
+  if(!key)return;
+  const now=Date.now();
+  pruneGeneratedCommandOutputs(now);
+  generatedCommandOutputs.set(key,now+Math.max(1000,Number(ttlMs)||15000));
+}
+
+function consumeGeneratedCommandOutput(accountId,message){
+  const key=generatedOutputKey(accountId,message?.peerId||message?.chatId,textOf(message));
+  if(!key)return false;
+  const now=Date.now();
+  pruneGeneratedCommandOutputs(now);
+  const expiresAt=generatedCommandOutputs.get(key);
+  if(!expiresAt||expiresAt<=now)return false;
+  generatedCommandOutputs.delete(key);
+  return true;
+}
+
 async function sendText(client,peer,text){
   const value=String(text??'');
   if(!value.trim())return null;
@@ -399,6 +446,11 @@ async function sendText(client,peer,text){
   const runtime=runtimeEntry?.[1]||null;
   const settings=accountId?await settingsFor(accountId).catch(()=>null):null;
   const customEmojiIds=settings?.customEmojiIds||{};
+
+  // Bare commands are parsed from outgoing messages too. Mark every runtime-generated
+  // text before sending it so a reply such as "Broadcast terminé" can never be
+  // reinterpreted as a fresh prefixless command from the connected account.
+  if(accountId)markGeneratedCommandOutput(accountId,peer,value);
 
   // Try the rich direct path for every connected account. Premium accounts
   // normally accept MessageEntityCustomEmoji directly. If Telegram rejects
@@ -1681,8 +1733,13 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
   // as fresh user commands, otherwise the account can command itself in a loop.
   if(messageWasSentViaBot(message))return false;
 
-  const settings=await settingsFor(account.telegramUserId);
   const selfAuthored=isSelfAuthoredMessage(message,account);
+  // Direct replies are sent by the connected user account itself, so Telegram marks
+  // them as outgoing just like a human-typed bare command. The pre-send fingerprint
+  // above is the authoritative distinction between NexAI output and user input.
+  if(selfAuthored&&consumeGeneratedCommandOutput(account.telegramUserId,message))return false;
+
+  const settings=await settingsFor(account.telegramUserId);
   const ownerCaller=event?.callerOwner===true||(
     selfAuthored
       ?isOwnerIdentity(account.telegramUserId,account.username)
