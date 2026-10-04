@@ -84,3 +84,5 @@ jobs:
               raise SystemExit('critical NexAI sessions not confirmed: '+str(accounts))
           print('NEXAI_PREFIXLESS_LOOP_V2_PRODUCTION_OK')
           PY
+
+# trigger: hardened-v2
