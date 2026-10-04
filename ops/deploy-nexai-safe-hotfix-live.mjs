@@ -138,7 +138,12 @@ async function restore(){
     const bak=path.join(backupDir,dst),target=path.join(base,dst);
     if(fs.existsSync(bak)){
       const tmp=target+'.rollback-'+process.pid;
-      fs.copyFileSync(bak,tmp);copyMeta(target,tmp);fs.renameSync(tmp,target);
+      fs.copyFileSync(bak,tmp);
+      const metaSource=fs.existsSync(target)?target:bak;
+      copyMeta(metaSource,tmp);
+      fs.renameSync(tmp,target);
+    }else if(originallyMissing.has(dst)&&fs.existsSync(target)){
+      fs.unlinkSync(target);
     }
   }
   await stopAllNexDaemons();
@@ -146,6 +151,7 @@ async function restore(){
 }
 
 const report={ok:false,mode,sha,base,backupDir,steps:{}};
+const originallyMissing=new Set();
 let changed=false;
 try{
   const remote={};
@@ -158,13 +164,20 @@ try{
 
   for(const [dst] of files){
     const target=path.join(base,dst),bak=path.join(backupDir,dst);
-    fs.copyFileSync(target,bak);copyMeta(target,bak);
+    const exists=fs.existsSync(target);
+    const metaSource=exists?target:path.join(base,'menu.mjs');
+    if(exists){
+      fs.copyFileSync(target,bak);
+      copyMeta(target,bak);
+    }else{
+      originallyMissing.add(dst);
+    }
     const tmp=target+'.safe-hotfix-'+process.pid;
-    fs.writeFileSync(tmp,remote[dst],{mode:fs.statSync(target).mode&0o777});
-    copyMeta(target,tmp);
+    fs.writeFileSync(tmp,remote[dst],{mode:fs.statSync(metaSource).mode&0o777});
+    copyMeta(metaSource,tmp);
     fs.renameSync(tmp,target);
+    changed=true;
   }
-  changed=true;
   report.steps.written=files.map(x=>x[0]);
 
   for(const [dst] of files){
