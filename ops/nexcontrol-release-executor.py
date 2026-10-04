@@ -114,6 +114,29 @@ def source_bundle(cfg, work, release):
     src = locate_component(extracted, cfg.get("componentPath", "."))
     copy_component(src, release)
 
+def apply_shared_paths(cfg, release):
+    applied = []
+    for item in cfg.get("sharedPaths") or []:
+        rel = str((item or {}).get("path") or "").strip().strip("/")
+        target = safe_abs((item or {}).get("target"), "shared_target")
+        if not rel or rel.startswith(".") or ".." in rel.split("/"):
+            fail("invalid_shared_path")
+        if not os.path.isdir(target):
+            fail("shared_target_missing:" + target)
+        dest = os.path.join(release, rel)
+        parent = os.path.dirname(dest)
+        os.makedirs(parent, exist_ok=True)
+        if os.path.lexists(dest):
+            if os.path.islink(dest):
+                os.unlink(dest)
+            elif os.path.isdir(dest):
+                shutil.rmtree(dest)
+            else:
+                os.unlink(dest)
+        os.symlink(target, dest)
+        applied.append({"path": rel, "target": target})
+    return applied
+
 def run_project_command(command, release, label):
     command = str(command or "").strip()
     if not command:
@@ -229,6 +252,7 @@ def main():
         else:
             fail("unsupported_source_type")
         report["steps"]["source"] = {"ok": True, "type": source_type}
+        report["steps"]["sharedPaths"] = apply_shared_paths(cfg, release)
 
         metadata = {
             "deploymentId": deployment_id, "project": slug,
