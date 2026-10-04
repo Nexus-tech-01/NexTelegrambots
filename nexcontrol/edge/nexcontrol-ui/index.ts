@@ -384,7 +384,7 @@ async function ncState(){
     infraDb("nxc_bots?select=id,slug,display_name,username,enabled,last_heartbeat_at,version,capabilities&order=display_name.asc"),
     infraDb("nxc_destinations?select=id,bot_id,chat_id,type,title,username,bot_status,can_publish,publish_block_reason,active,last_seen_at,last_verified_at&order=updated_at.desc&limit=180"),
     infraDb("nxc_bot_jobs?select=id,bot_id,kind,status,payload,result,error,created_at,completed_at&order=created_at.desc&limit=160"),
-    infraDb("nxc_bot_events?select=id,bot_id,direction,event_type,chat_id,chat_type,chat_title,username,message_id,text,payload,created_at&order=created_at.desc&limit=240"),
+    infraDb("nxc_bot_events?select=id,bot_id,direction,event_type,chat_id,chat_type,chat_title,user_id,username,message_id,reply_to_message_id,text,payload,created_at&order=created_at.desc&limit=240"),
     infraDb("nxc_deliveries?select=id,bot_id,chat_id,destination_title,status,attempts,error,sent_at,created_at&order=created_at.desc&limit=160"),
     infraDb("nxc_agents?select=id,slug,display_name,enabled,version,hostname,platform,node_version,roots,last_heartbeat_at&order=display_name.asc"),
     infraDb("nxc_agent_jobs?select=id,agent_id,kind,status,payload,result,error,created_at,completed_at&order=created_at.desc&limit=120"),
@@ -421,6 +421,8 @@ function ncPage(s:any,route:URL){
     servers:["Serveurs","VPS, agents, jobs, ressources et opérations système."],
     projects:["Projets","Services, GitHub, auto-deploy, santé, logs et contrôles."],
     bots:["Bots","État détaillé de chaque bot et contrôles runtime."],
+    conversations:["Conversations","Conversations de groupes reçues par NexAi en temps réel."],
+    files:["Fichiers","Explorateur des fichiers runtime, projet par projet."],
     "bot-view":["Bot View","Flux, destinations, jobs et logs live du bot."],
     deployments:["Déploiements","Pipelines, commits, plans et blocages."],
     github:["GitHub","Comptes connectés et watchers de dépôts."],
@@ -432,6 +434,8 @@ function ncPage(s:any,route:URL){
     ["servers","/infrastructure/servers","server","Serveurs"],
     ["projects","/infrastructure/projects","project","Projets"],
     ["bots","/infrastructure/bots","bot","Bots"],
+    ["conversations","/infrastructure/conversations","eye","Conversations"],
+    ["files","/infrastructure/files","project","Fichiers"],
     ["bot-view","/infrastructure/bot-view","eye","Bot View"],
     ["deployments","/infrastructure/deployments","deploy","Déploiements"],
     ["github","/infrastructure/github","git","GitHub"],
@@ -490,6 +494,26 @@ function ncPage(s:any,route:URL){
         section("Destinations et droits","Groupes, canaux et chats connus du bot.",'<div class="tablebox"><table><thead><tr><th>Destination</th><th>Type</th><th>Statut</th><th>Publication</th><th>Vérifié</th></tr></thead><tbody>'+dr+'</tbody></table></div>');
       extra='document.getElementById("botPick").onchange=e=>location.href="/infrastructure/bot-view?bot="+encodeURIComponent(e.target.value);';
     }
+
+  }else if(page==="conversations"){
+    const ev=(s.botEvents||[]).filter((e:any)=>e.chat_type==="group"||e.chat_type==="supergroup").slice().reverse();
+    const groups:any={};for(const e of ev){const k=String(e.chat_id||"");if(k&&!groups[k])groups[k]={id:k,title:e.chat_title||k}}
+    const options='<option value="">Tous les groupes</option>'+Object.values(groups).map((g:any)=>'<option value="'+infraEsc(g.id)+'">'+infraEsc(g.title||g.id)+'</option>').join("");
+    const initial=ev.map((e:any)=>'<div class="row conversation" data-chat="'+infraEsc(e.chat_id||"")+'"><div>'+pill(e.direction||"incoming")+'</div><div><b>'+infraEsc(e.chat_title||e.chat_id||"Groupe")+'</b><p>'+infraEsc(e.text||"(média / événement sans texte)")+'</p><span class="tiny">'+infraEsc(e.username?"@"+e.username:(e.user_id||""))+' · vu par '+infraEsc(e.payload?.accountUsername?"@"+e.payload.accountUsername:(e.payload?.accountTelegramUserId||"NexAi"))+'</span></div><time>'+infraEsc(infraAgo(e.created_at))+'</time></div>').join("");
+    body='<section><div class="sh"><div><small>LIVE GROUP STREAM</small><h2>Conversations</h2></div><select id="groupPick">'+options+'</select></div><article class="card"><div class="between"><div><small>État</small><h3>Flux NexAi</h3></div>'+pill("live")+'</div><p class="muted">Uniquement les groupes et supergroupes vus par les comptes NexAi connectés. Les messages privés ne sont pas collectés dans cette vue.</p></article></section>'+
+      section("Messages en temps réel","Actualisation automatique environ chaque seconde.",'<div class="stream" id="conversationStream">'+(initial||'<div class="empty" id="conversationEmpty">En attente du premier message de groupe…</div>')+'</div>');
+    extra='let convAfter='+JSON.stringify(ev.length?ev[ev.length-1].created_at:"")+',groupFilter="";var stream=document.getElementById("conversationStream"),pick=document.getElementById("groupPick");function ce(x){return String(x==null?"":x).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]})}function addConv(e){var d=document.createElement("div");d.className="row conversation";d.dataset.chat=String(e.chat_id||"");var seen=e.payload&&e.payload.accountUsername?"@"+e.payload.accountUsername:(e.payload&&e.payload.accountTelegramUserId||"NexAi");var who=e.username?"@"+e.username:(e.user_id||"");d.innerHTML="<div><span class=\"pill\">"+ce(e.direction||"incoming")+"</span></div><div><b>"+ce(e.chat_title||e.chat_id||"Groupe")+"</b><p>"+ce(e.text||"(média / événement sans texte)")+"</p><span class=\"tiny\">"+ce(who)+" · vu par "+ce(seen)+"</span></div><time>maintenant</time>";stream.appendChild(d)}function applyGroup(){document.querySelectorAll(".conversation").forEach(function(x){x.style.display=!groupFilter||x.dataset.chat===groupFilter?"grid":"none"})}pick.onchange=function(){groupFilter=pick.value;applyGroup()};async function pollConv(){try{var u="/api/admin/infrastructure/conversations"+(convAfter?"?after="+encodeURIComponent(convAfter):"");var r=await fetch(u),j=await r.json();if(r.ok&&Array.isArray(j.events)&&j.events.length){var empty=document.getElementById("conversationEmpty");if(empty)empty.remove();j.events.forEach(function(e){addConv(e);convAfter=e.created_at||convAfter;var exists=false;for(var i=0;i<pick.options.length;i++)if(pick.options[i].value===String(e.chat_id||""))exists=true;if(e.chat_id&&!exists){var o=document.createElement("option");o.value=e.chat_id;o.textContent=e.chat_title||e.chat_id;pick.appendChild(o)}});while(stream.children.length>350)stream.removeChild(stream.firstElementChild);applyGroup()}}catch(e){}setTimeout(pollConv,1200)}setTimeout(pollConv,700);';
+
+  }else if(page==="files"){
+    const agent=(s.agents||[]).find((a:any)=>a.slug==="nexus-main");
+    const roots=agent?.roots||[];
+    const requestedRoot=String(route.searchParams.get("root")||(roots.some((r:any)=>r.key==="nexai")?"nexai":(roots[0]?.key||"nexus")));
+    const requestedPath=String(route.searchParams.get("path")||".");
+    const rootOpts=roots.map((r:any)=>'<option value="'+infraEsc(r.key)+'" '+(r.key===requestedRoot?"selected":"")+'>'+infraEsc(r.key)+' · '+infraEsc(r.path)+'</option>').join("");
+    body='<section><div class="sh"><div><small>RUNTIME FILESYSTEM</small><h2>Explorateur de fichiers</h2></div><div class="actions"><select id="rootPick">'+rootOpts+'</select><button class="btn" id="fileUp">↑ Parent</button></div></div><article class="card"><small>Chemin actuel</small><h3 id="filePath">'+infraEsc(requestedPath)+'</h3><p class="muted">Navigation en lecture seule. Les secrets et fichiers hors des roots autorisés restent inaccessibles.</p></article></section>'+
+      section("Fichiers","Dossiers et fichiers du projet sélectionné.",'<div class="tablebox"><table><thead><tr><th>Nom</th><th>Type</th><th>Taille</th><th>Modifié</th></tr></thead><tbody id="fileRows"><tr><td colspan="4">Chargement…</td></tr></tbody></table></div>')+
+      section("Aperçu","Contenu du fichier sélectionné.",'<div class="card"><b id="previewName">Aucun fichier sélectionné</b><pre id="filePreview" style="max-height:65vh;overflow:auto;margin-top:12px">Sélectionne un fichier.</pre></div>');
+    extra='var fileRoot='+JSON.stringify(requestedRoot)+',filePath='+JSON.stringify(requestedPath)+';var rows=document.getElementById("fileRows"),pathEl=document.getElementById("filePath"),preview=document.getElementById("filePreview"),previewName=document.getElementById("previewName");function fp(a,b){return !a||a==="."?b:a.replace(/\\\/$/,"")+"/"+b}function parentPath(p){if(!p||p===".")return ".";var a=p.split("/").filter(Boolean);a.pop();return a.length?a.join("/"):"."}function cell(tr,v){var d=document.createElement("td");d.textContent=v==null?"—":String(v);tr.appendChild(d)}async function loadFiles(){rows.innerHTML="<tr><td colspan=\"4\">Chargement…</td></tr>";pathEl.textContent=filePath;var r=await fetch("/api/admin/infrastructure/files/list?root="+encodeURIComponent(fileRoot)+"&path="+encodeURIComponent(filePath)),j=await r.json();if(!r.ok){rows.innerHTML="<tr><td colspan=\"4\">Erreur: "+String(j.message||j.error||r.status)+"</td></tr>";return}var items=(j.result&&((j.result.items)||(j.result.entries)))||j.items||[];rows.innerHTML="";items.forEach(function(x){var tr=document.createElement("tr");tr.style.cursor="pointer";var name=x.name||x.path||"",type=x.type||(x.isDirectory?"directory":"file");tr.dataset.name=name;tr.dataset.type=type;cell(tr,(type==="directory"?"📁 ":"📄 ")+name);cell(tr,type);cell(tr,x.size!=null?x.size:(x.bytes!=null?x.bytes:"—"));cell(tr,x.mtime||x.modifiedAt||"—");rows.appendChild(tr)});if(!items.length)rows.innerHTML="<tr><td colspan=\"4\">Dossier vide.</td></tr>"}rows.onclick=async function(e){var tr=e.target.closest("tr[data-name]");if(!tr)return;var next=fp(filePath,tr.dataset.name);if(tr.dataset.type==="directory"||tr.dataset.type==="dir"){filePath=next;loadFiles();return}previewName.textContent=next;preview.textContent="Chargement…";var r=await fetch("/api/admin/infrastructure/files/read?root="+encodeURIComponent(fileRoot)+"&path="+encodeURIComponent(next)),j=await r.json();preview.textContent=r.ok?((j.result&&j.result.content)||j.content||JSON.stringify(j.result||j,null,2)):"Erreur: "+String(j.message||j.error||r.status)};document.getElementById("rootPick").onchange=function(e){fileRoot=e.target.value;filePath=".";loadFiles()};document.getElementById("fileUp").onclick=function(){filePath=parentPath(filePath);loadFiles()};loadFiles();';
   }else if(page==="deployments"){
     const rows=(s.deployments||[]).map((d:any)=>'<tr><td><code>'+infraEsc(String(d.commit_sha||"").slice(0,12))+'</code><div class="tiny">'+infraEsc(d.branch||"—")+'</div></td><td>'+pill(d.status)+'</td><td>'+infraEsc(d.trigger_type||d.source_provider||"—")+'</td><td>'+infraEsc(infraAgo(d.created_at))+'</td><td><details><summary>Détails</summary><pre>'+ncJson(d.metadata)+'</pre></details></td></tr>').join("");
     body=section("Déploiements","Historique et détails des mutations production.",'<div class="tablebox"><table><thead><tr><th>Commit</th><th>État</th><th>Source</th><th>Créé</th><th>Détails</th></tr></thead><tbody>'+rows+'</tbody></table></div>');
@@ -509,6 +533,91 @@ function ncPage(s:any,route:URL){
   return '<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+infraEsc(meta[0])+' · NexControl</title><style>'+css+'</style></head><body><aside class="side"><div class="brand">'+ncIcon("home")+'NEXCONTROL</div><nav class="nav">'+nav+'</nav></aside><main class="main"><header class="top"><div><button id="menu" class="ico mobile">'+ncIcon("menu")+'</button><button id="back" class="ico">'+ncIcon("back")+'</button><b>'+infraEsc(meta[0])+'</b></div><div><span class="tiny">LIVE</span><button id="refresh" class="ico">↻</button></div></header><div class="hero"><small>CONTROL PLANE PRIVÉ</small><h1>'+infraEsc(meta[0])+'</h1><p>'+infraEsc(meta[1])+'</p></div>'+kpis+body+'</main><div id="drawer" class="drawer"><div class="drawerbox"><div class="drawerhead"><b>NEXCONTROL</b><button id="closeMenu" class="ico">'+ncIcon("close")+'</button></div><nav class="nav">'+nav+'</nav></div></div><div id="modal" class="modal"><div class="modalbox"><div class="between"><b>Runtime logs</b><button id="closeModal" class="ico">'+ncIcon("close")+'</button></div><pre id="logBody">Chargement…</pre></div></div><div id="toast" class="toast"></div><script>'+js+'</script></body></html>';
 }
 
+
+ // NEXCONTROL_FILES_CONVERSATIONS_HELPERS_V1
+ async function ncPrimaryAgent(){
+   const rows=await infraDb("nxc_agents?slug=eq.nexus-main&select=id,slug,roots,last_heartbeat_at&limit=1");
+   const a=rows?.[0]; if(!a)throw new Error("nexus_main_agent_not_found"); return a;
+ }
+ async function ncQueueAgentJob(kind:string,payload:any){
+   const a=await ncPrimaryAgent();
+   const rows=await infraDb("nxc_agent_jobs",{
+     method:"POST",
+     headers:{"prefer":"return=representation"},
+     body:JSON.stringify({agent_id:a.id,kind,payload,status:"pending",available_at:new Date().toISOString(),created_by:"nexcontrol-files-v1"})
+   });
+   const j=rows?.[0]; if(!j?.id)throw new Error("agent_job_create_failed"); return j.id;
+ }
+ async function ncWaitAgentJob(id:string,timeoutMs=12000){
+   const until=Date.now()+timeoutMs;
+   while(Date.now()<until){
+     const rows=await infraDb("nxc_agent_jobs?id=eq."+encodeURIComponent(id)+"&select=id,status,result,error,completed_at&limit=1");
+     const j=rows?.[0];
+     if(j?.status==="done")return j.result||{};
+     if(j?.status==="failed")throw new Error(j.error||"agent_job_failed");
+     await new Promise(r=>setTimeout(r,450));
+   }
+   return {pending:true,jobId:id};
+ }
+ function ncSafeRoot(v:any){
+   const x=String(v||"").trim();
+   if(!/^[A-Za-z0-9._-]{1,80}$/.test(x))throw new Error("invalid_root");
+   return x;
+ }
+ function ncSafePath(v:any){
+   const x=String(v||".").trim()||".";
+   if(x.length>1600||/[\u0000-\u001f]/.test(x)||x.startsWith("/")||x.split("/").some(p=>p===".."))throw new Error("invalid_path");
+   return x;
+ }
+ async function ncFilesList(root:any,path:any){
+   const id=await ncQueueAgentJob("fs.list",{root:ncSafeRoot(root),path:ncSafePath(path)});
+   return ncWaitAgentJob(id,12000);
+ }
+ async function ncFilesRead(root:any,path:any,start:any=1,end:any=1400){
+   const id=await ncQueueAgentJob("fs.read",{root:ncSafeRoot(root),path:ncSafePath(path),startLine:Math.max(1,Number(start)||1),endLine:Math.min(5000,Math.max(1,Number(end)||1400))});
+   return ncWaitAgentJob(id,12000);
+ }
+ async function ncFilesSearch(root:any,path:any,query:any){
+   const q=String(query||"").trim(); if(!q||q.length>200)throw new Error("invalid_search");
+   const id=await ncQueueAgentJob("fs.search",{root:ncSafeRoot(root),path:ncSafePath(path),query:q,maxResults:120});
+   return ncWaitAgentJob(id,15000);
+ }
+ async function ncConversationEvents(after:string|null=null,limit=250){
+   let p="nxc_bot_events?select=id,bot_id,direction,event_type,chat_id,chat_type,chat_title,user_id,username,message_id,reply_to_message_id,text,payload,created_at&chat_type=in.(group,supergroup)&order=created_at.asc&limit="+Math.min(500,Math.max(1,limit));
+   if(after){const d=new Date(after);if(!Number.isNaN(d.getTime()))p+="&created_at=gt."+encodeURIComponent(d.toISOString())}
+   return infraDb(p);
+ }
+ async function ncTelemetryGroupEvent(req:Request,origin:string|null){
+   const expected=String(Deno.env.get("NEXCONTROL_FLEET_KEY")||"").trim();
+   const supplied=String(req.headers.get("x-nexcontrol-agent-key")||"").trim();
+   if(!expected||!supplied||supplied!==expected)return infraJson({ok:false,error:"unauthorized"},401,origin);
+   const q=await req.json().catch(()=>null);
+   if(!q||typeof q!=="object")return infraJson({ok:false,error:"invalid_payload"},400,origin);
+   const chatType=String(q.chatType||"group").toLowerCase();
+   if(!["group","supergroup"].includes(chatType))return infraJson({ok:false,error:"group_only"},400,origin);
+   const chatId=String(q.chatId||"").slice(0,120),messageId=String(q.messageId||"").slice(0,120);
+   if(!chatId||!messageId)return infraJson({ok:false,error:"chat_or_message_missing"},400,origin);
+   const bots=await infraDb("nxc_bots?slug=eq.nexai&select=id&limit=1");
+   const botId=bots?.[0]?.id;if(!botId)return infraJson({ok:false,error:"nexai_bot_not_registered"},409,origin);
+   const direction=String(q.direction||"incoming")==="outgoing"?"outgoing":"incoming";
+   const existing=await infraDb("nxc_bot_events?bot_id=eq."+botId+"&chat_id=eq."+encodeURIComponent(chatId)+"&message_id=eq."+encodeURIComponent(messageId)+"&direction=eq."+direction+"&select=id&limit=1");
+   if(!existing?.length){
+     const row={
+       bot_id:botId,direction,event_type:String(q.eventType||"message").slice(0,80),
+       chat_id:chatId,chat_type:chatType,chat_title:String(q.chatTitle||"").slice(0,300)||null,
+       user_id:String(q.userId||"").slice(0,120)||null,username:String(q.username||"").slice(0,200)||null,
+       message_id:messageId,reply_to_message_id:String(q.replyToMessageId||"").slice(0,120)||null,
+       text:String(q.text||"").slice(0,12000)||null,payload:q.payload&&typeof q.payload==="object"?q.payload:{},
+       created_at:q.createdAt&&!Number.isNaN(new Date(q.createdAt).getTime())?new Date(q.createdAt).toISOString():new Date().toISOString()
+     };
+     try{await infraDb("nxc_bot_events",{method:"POST",headers:{"prefer":"return=minimal"},body:JSON.stringify(row)})}catch(error){
+       if(!/duplicate|unique/i.test(String(error?.message||error)))throw error;
+     }
+   }
+   await infraDb("nxc_bots?id=eq."+botId,{method:"PATCH",headers:{"prefer":"return=minimal"},body:JSON.stringify({last_heartbeat_at:new Date().toISOString(),updated_at:new Date().toISOString()})});
+   return infraJson({ok:true},202,origin);
+ }
+
 async function handleInfrastructure(req:Request,route:URL,origin:string|null){
   try{
     if(req.method==="GET"&&(route.pathname==="/infrastructure"||route.pathname.startsWith("/infrastructure/"))){const html=ncPage(await ncState(),route);const headers=cors(origin);headers.set("content-type","text/html; charset=utf-8");headers.set("content-security-policy","default-src 'self' https: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'self'");return new Response(html,{status:200,headers})}
@@ -525,6 +634,21 @@ async function handleInfrastructure(req:Request,route:URL,origin:string|null){
     if(req.method==="POST"&&m)return infraJson(await infraProjectAction(m[1],m[2]),202,origin);
     m=route.pathname.match(/^\/api\/admin\/infrastructure\/projects\/([A-Za-z0-9._-]+)\/logs$/);
     if(req.method==="GET"&&m){const lines=Math.max(20,Math.min(1000,Number(route.searchParams.get("lines")||250)));return infraJson(await infraProjectLogs(m[1],lines),200,origin)}
+
+
+    // FILES_CONVERSATIONS_API_V1
+    if(req.method==="GET"&&route.pathname==="/api/admin/infrastructure/conversations"){
+      const after=route.searchParams.get("after");return infraJson({events:await ncConversationEvents(after,300)},200,origin)
+    }
+    if(req.method==="GET"&&route.pathname==="/api/admin/infrastructure/files/list"){
+      return infraJson({result:await ncFilesList(route.searchParams.get("root"),route.searchParams.get("path"))},200,origin)
+    }
+    if(req.method==="GET"&&route.pathname==="/api/admin/infrastructure/files/read"){
+      return infraJson({result:await ncFilesRead(route.searchParams.get("root"),route.searchParams.get("path"),route.searchParams.get("start")||1,route.searchParams.get("end")||1400)},200,origin)
+    }
+    if(req.method==="GET"&&route.pathname==="/api/admin/infrastructure/files/search"){
+      return infraJson({result:await ncFilesSearch(route.searchParams.get("root"),route.searchParams.get("path"),route.searchParams.get("q"))},200,origin)
+    }
 
     // BOT_CONTROL_ROUTES_V4
     m=route.pathname.match(/^\/api\/admin\/infrastructure\/bots\/([A-Za-z0-9._-]+)\/actions\/(start|stop|restart)$/);
@@ -557,6 +681,12 @@ Deno.serve(async (req: Request) => {
   if (!route) {
     const h = cors(origin); h.set("content-type", "application/json");
     return new Response(JSON.stringify({ ok: false, error: "invalid_route" }), { status: 400, headers: h });
+  }
+
+
+  // TELEMETRY_GROUP_EVENT_ROUTE_V1
+  if(route.pathname==="/api/telemetry/group-event"&&req.method==="POST"){
+    return ncTelemetryGroupEvent(req,origin);
   }
 
   const ua = req.headers.get("user-agent") || "";
