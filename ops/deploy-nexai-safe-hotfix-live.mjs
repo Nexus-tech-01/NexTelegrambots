@@ -165,6 +165,8 @@ try{
 
   for(const [dst] of files){
     const target=path.join(base,dst),bak=path.join(backupDir,dst);
+    fs.mkdirSync(path.dirname(target),{recursive:true,mode:0o750});
+    fs.mkdirSync(path.dirname(bak),{recursive:true,mode:0o750});
     const exists=fs.existsSync(target);
     const metaSource=exists?target:path.join(base,'menu.mjs');
     if(exists){
