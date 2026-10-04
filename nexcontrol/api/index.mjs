@@ -62,7 +62,7 @@ async function runAgentCli(req,args,timeoutMs=45000){
   const create=await upstreamJson(req,'/api/admin/agent/jobs','POST',{
     agentSlug:AGENT,
     kind:'runtime.exec',
-    payload:{command:'node',args:['bots/nexaccount/cli.mjs',...args],root:'nexus',timeoutMs}
+    payload:{command:'node',args:['cli.mjs',...args],root:'nexai',timeoutMs}
   });
   if(create.status>=400)return create;
   const jobId=create.json.jobId;
