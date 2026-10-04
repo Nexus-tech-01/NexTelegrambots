@@ -156,8 +156,33 @@ function telegramRuntimeErrorText(error){
 function isAuthKeyDuplicatedError(error){
   return /AUTH_KEY_DUPLICATED|AuthKeyDuplicatedError|Concurrent usage of the current session from multiple connections/i.test(telegramRuntimeErrorText(error));
 }
+function isAuthKeyUnregisteredError(error){
+  return /AUTH_KEY_UNREGISTERED|AuthKeyUnregisteredError|authorization key is not registered|authorization is invalid/i.test(telegramRuntimeErrorText(error));
+}
 function isReconnectableTelegramTransportError(error){
   return /Cannot send requests while disconnected|authorization is invalid|AuthKeyUnregistered|AUTH_KEY_UNREGISTERED|watcher session is not authorized|not connected/i.test(telegramRuntimeErrorText(error));
+}
+
+async function quarantineInvalidAuthKey(runtime,error,source='runtime'){
+  if(!runtime)return false;
+  if(runtime.authKeyQuarantinePromise)return runtime.authKeyQuarantinePromise;
+  const id=String(runtime.account?.telegramUserId||'');
+  runtime.sessionInvalidated=true;
+  runtime.sessionInvalidatedAt=new Date();
+  runtime.sessionInvalidationReason='AUTH_KEY_UNREGISTERED';
+  runtime.authKeyQuarantinePromise=(async()=>{
+    console.error('[NexAccount session]',id,'AUTH_KEY_UNREGISTERED; saved session requires reconnect source='+source,telegramRuntimeErrorText(error).slice(0,240));
+    clearRuntimeTimers(runtime);
+    await stopEmbeddedLiteApkScanner(runtime).catch(()=>{});
+    await stopAnimeIngest(runtime).catch(()=>{});
+    try{await runtime.client?.disconnect?.()}catch{}
+    runtimes.delete(id);
+    await markSessionRepairRequired(id,'AUTH_KEY_UNREGISTERED').catch(e=>console.error('[NexAccount session]',id,'repair_flag_failed',String(e?.message||e).slice(0,180)));
+    if(runtime.sessionFingerprint)await releaseSessionLease(runtime.sessionFingerprint,id).catch(()=>{});
+    await releaseRuntimeLease(id).catch(()=>{});
+    return true;
+  })();
+  return runtime.authKeyQuarantinePromise;
 }
 
 async function quarantineAuthKeyDuplicated(runtime,error,source='runtime'){
@@ -1760,6 +1785,10 @@ async function syncRuntimeUpdates(runtime){
       await quarantineAuthKeyDuplicated(runtime,error,'updates');
       return;
     }
+    if(isAuthKeyUnregisteredError(error)){
+      await quarantineInvalidAuthKey(runtime,error,'updates');
+      return;
+    }
     runtime.catchUpFailures=(runtime.catchUpFailures||0)+1;
     console.error('[NexAccount updates]',String(account.telegramUserId),'catchup_failed',runtime.catchUpFailures,String(error?.errorMessage||error?.message||error).slice(0,500));
     if(runtime.catchUpFailures>=3){
@@ -1964,6 +1993,10 @@ async function pollRecentCommands(runtime){
   }catch(error){
     if(isAuthKeyDuplicatedError(error)){
       await quarantineAuthKeyDuplicated(runtime,error,'command-poll');
+      return;
+    }
+    if(isAuthKeyUnregisteredError(error)){
+      await quarantineInvalidAuthKey(runtime,error,'command-poll');
       return;
     }
     runtime.commandPollFailures=(runtime.commandPollFailures||0)+1;
