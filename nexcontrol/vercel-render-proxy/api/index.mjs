@@ -4,7 +4,7 @@ const SESSION_MAX_AGE = 8 * 60 * 60;
 
 const HOP = new Set([
   "host","content-length","connection","transfer-encoding","keep-alive","upgrade",
-  "proxy-connection","te","trailer","accept-encoding","cookie","x-nxc-session"
+  "proxy-connection","te","trailer","accept-encoding","cookie","x-nxc-session","origin","referer"
 ]);
 
 function cookieValue(header, name) {
