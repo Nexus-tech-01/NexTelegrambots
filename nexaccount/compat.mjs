@@ -986,7 +986,10 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
   if(['antilink','antispam','antiraid','antibadword','antitag','antigroupmention','welcome','goodbye','setwelcome','setgoodbye','autosticker','aimoderator','modlog'].includes(name)){
     const chat=String(event.chatId||peer?.channelId||peer?.chatId||'global');
     const key=name==='setwelcome'?'welcomeText':name==='setgoodbye'?'goodbyeText':name;
-    const current=(await settingsFor(account.telegramUserId)).groupPolicies?.[chat]?.[key];
+    const stored=(await settingsFor(account.telegramUserId)).groupPolicies?.[chat]?.[key];
+    const current=(name==='welcome'||name==='goodbye')
+      ? stored!==false
+      : stored;
 
     if((name==='setwelcome'||name==='setgoodbye')&&!argText){
       const command=name==='setwelcome'?'.setwelcome':'.setgoodbye';
@@ -1221,7 +1224,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     if(['config','status','permissions'].includes(name)){
       const c=await currentChat(client,peer);let extra='';
       if(name==='permissions')extra='\nLes actions utilisent les permissions réelles du compte Telegram connecté.';
-      await sendText(client,peer,'NexAi · '+name+'\nChat : '+(c?.title||c?.username||chat)+'\nID : '+chat+'\nAnti-link : '+(policy.antilink?'ON':'OFF')+'\nAnti-spam : '+(policy.antispam?'ON':'OFF')+'\nAnti-tag : '+(policy.antitag?'ON':'OFF')+'\nAnti-mention massive : '+(policy.antigroupmention?'ON':'OFF')+'\nFiltre de mots : '+(policy.antibadword?'ON':'OFF')+'\nWelcome : '+(policy.welcome?'ON':'OFF')+extra);return true;
+      await sendText(client,peer,'NexAi · '+name+'\nChat : '+(c?.title||c?.username||chat)+'\nID : '+chat+'\nAnti-link : '+(policy.antilink?'ON':'OFF')+'\nAnti-spam : '+(policy.antispam?'ON':'OFF')+'\nAnti-tag : '+(policy.antitag?'ON':'OFF')+'\nAnti-mention massive : '+(policy.antigroupmention?'ON':'OFF')+'\nFiltre de mots : '+(policy.antibadword?'ON':'OFF')+'\nWelcome : '+(policy.welcome!==false?'ON':'OFF')+'\nGoodbye : '+(policy.goodbye!==false?'ON':'OFF')+extra);return true;
     }
     if(name==='id'){await sendText(client,peer,'Chat ID : '+chat+'\nCompte : '+account.telegramUserId);return true}
     if(name==='kickall'){
