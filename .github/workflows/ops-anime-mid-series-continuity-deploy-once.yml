@@ -1,3 +1,4 @@
+# trigger metadata-stall recovery 2026-10-04
 name: Ops Anime Safe Recovery Deploy Once
 
 on:
