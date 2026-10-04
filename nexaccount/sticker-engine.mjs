@@ -1254,7 +1254,7 @@ export function buildWastickersArchive({title='NexAi Stickers',author='NexAi',st
   return makeZip(files);
 }
 
-export const STICKER_ENGINE_COMMANDS=new Set(['sticker','stickerinfo','clonepack','createpack','mypacks','exportwhatsapp','ultratake','delfilig','filitake','noteclone']);
+export const STICKER_ENGINE_COMMANDS=new Set(['sticker','stickerinfo','clonepack','take','createpack','mypacks','exportwhatsapp','ultratake','delfilig','filitake','noteclone']);
 export function canHandleStickerCommand(name){return STICKER_ENGINE_COMMANDS.has(String(name||'').toLowerCase())}
 
 let stickerDiagnosticCache={at:0,value:null};
@@ -1452,7 +1452,7 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
     return true;
   }
 
-  if(name==='clonepack'){
+  if(name==='clonepack'||name==='take'){
     const set=await sourceSet(client,source);
     if(!set?.documents?.length)throw new Error('Réponds à un sticker appartenant à un pack.');
     if(account.nexaiPremium!==true){
