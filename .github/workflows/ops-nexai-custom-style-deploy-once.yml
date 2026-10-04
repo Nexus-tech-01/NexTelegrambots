@@ -1,3 +1,4 @@
+# deploy service-message welcome/goodbye fallback
 # redeploy: confirm live welcome goodbye tag hidetag broadcast
 # redeploy: remove personal style label beside bot name
 # retry with nested backup path support
@@ -47,6 +48,8 @@ jobs:
           grep -F "customStyleModel" nexaccount/menu.mjs
           grep -F "C('customstyle'" nexaccount/commands.mjs
           grep -F "registered.hidden!==true" nexaccount/runtime.mjs
+          grep -F "function rawServiceGreetingEvent(update)" nexaccount/runtime.mjs
+          grep -F "const greetingEventsSeen=new Map();" nexaccount/runtime.mjs
           grep -F "cacheMenuMediaForBot" nexaccount/compat.mjs
           grep -F "bot.command('menuvideo'" nexaccount/inline-bot.mjs
           grep -F "inlineCachedMediaResult" nexaccount/inline-bot.mjs
