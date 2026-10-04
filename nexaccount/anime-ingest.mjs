@@ -1869,6 +1869,24 @@ async function nextRunnableSeriesKey(d,{excludeSeriesKeys=[]}={}){
   }
   return '';
 }
+async function latestIncompletePublishedSeries(d,{excludeSeriesKeys=[]}={}){
+  const excluded=new Set((excludeSeriesKeys||[]).map(String).filter(Boolean));
+  const recent=await d.collection('nexanime_publications').find(
+    {kind:'episode',purgedAt:{$exists:false},seriesKey:{$type:'string'}},
+    {projection:{seriesKey:1,publishedAt:1}}
+  ).sort({publishedAt:-1,_id:-1}).limit(80).toArray();
+  const seen=new Set();
+  for(const row of recent){
+    const key=String(row?.seriesKey||'');
+    if(!key||seen.has(key)||excluded.has(key))continue;
+    seen.add(key);
+    const remaining=await d.collection('nexanime_queue').countDocuments({
+      seriesKey:key,kind:'episode',status:{$in:['queued','publishing']}
+    });
+    if(remaining>0&&await seriesHasRunnableFrontier(d,key))return key;
+  }
+  return '';
+}
 async function preparePlannedSeries(d,seriesKey){
   if(!seriesKey)return;
   await ensureGeneralPresentation(d,seriesKey).catch(()=>{});
@@ -1958,6 +1976,34 @@ async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
       activeSeriesKey:'',activeSeriesStartedAt:null,
       ...(clearForced?{forcedNextSeriesKey:''}:{})
     };
+  }
+
+  if(!current?.activeSeriesKey){
+    const resumeKey=await latestIncompletePublishedSeries(d,{
+      excludeSeriesKeys:[...new Set([
+        ...requestedExclusions,
+        ...persistedBlockedKeys,
+        ...(blockActive?[blockedSeriesKey]:[])
+      ])]
+    });
+    if(resumeKey){
+      await scheduler.updateOne(
+        {_id:'scheduler'},
+        {
+          $set:{
+            activeSeriesKey:resumeKey,
+            activeSeriesStartedAt:now,
+            continuityResumeReason:'latest_incomplete_published_series',
+            continuityResumedAt:now,
+            updatedAt:now
+          },
+          $unset:{plannedSeriesKey:'',plannedAt:'',plannedSummary:'',cooldownUntil:''}
+        },
+        {upsert:true}
+      );
+      current={...(current||{}),activeSeriesKey:resumeKey,activeSeriesStartedAt:now};
+      console.log('[NexAnime scheduler] resuming latest incomplete anime',resumeKey);
+    }
   }
 
   if(current?.activeSeriesKey){
@@ -3079,17 +3125,31 @@ async function purgePublishedEpisodeImageCards(runtime){
 }
 
 async function publishOne(runtime){
-  if(!isPublisherRuntime(runtime)||runtime.animeIngest?.publishing)return false;
   runtime.animeIngest ??={};
+  runtime.animeIngest.lastPublishAttemptAt=new Date();
+  if(!isPublisherRuntime(runtime)){
+    runtime.animeIngest.lastPublishSkipReason='not_publisher';
+    return false;
+  }
+  if(runtime.animeIngest?.publishing){
+    runtime.animeIngest.lastPublishSkipReason='already_publishing';
+    return false;
+  }
   // Queue writes from discovery are idempotent and claimNext already enforces
   // synopsis + strict episode order. Long discovery scans must not pause publishing.
   const locked=await acquireGlobalPublishLock(runtime);
-  if(!locked)return false;
+  if(!locked){
+    runtime.animeIngest.lastPublishSkipReason='global_lock_busy';
+    return false;
+  }
   runtime.animeIngest.publishing=true;
   let item=null;
   try{
     item=await claimNext(runtime);
-    if(!item)return false;
+    if(!item){
+      runtime.animeIngest.lastPublishSkipReason='no_claimable_item';
+      return false;
+    }
     if(await alreadyPublished(item.dedupeKey)){
       await (await db()).collection('nexanime_queue').updateOne({_id:item._id},{$set:{status:'published',updatedAt:new Date(),deduplicated:true}});
       return true;
@@ -3117,6 +3177,8 @@ async function publishOne(runtime){
     await markPublication(item,sent,runtime);
     await mirrorPublishedAnimeToWhatsApp(runtime,item,resolved,sent).catch(error=>console.warn('[NexAnime/WhatsApp]',String(error?.message||error).slice(0,300)));
     runtime.animeIngest.lastPublishedAt=new Date();
+    runtime.animeIngest.lastPublishSkipReason='';
+    runtime.animeIngest.lastPublishError='';
     runtime.animeIngest.published=(runtime.animeIngest.published||0)+1;
     console.log('[NexAnime] published',item.dedupeKey,'-> @'+DESTINATION);
     return true;
@@ -3124,6 +3186,9 @@ async function publishOne(runtime){
     if(e?.message!=='source_message_unavailable_for_runtime'){
       console.warn('[NexAnime publish]',String(runtime.account.telegramUserId),String(e?.message||e).slice(0,300));
     }
+    runtime.animeIngest.lastPublishSkipReason='publish_error';
+    runtime.animeIngest.lastPublishError=String(e?.message||e).slice(0,500);
+    runtime.animeIngest.lastPublishErrorAt=new Date();
     if(item)await releaseClaim(item,e).catch(()=>{});
     return false;
   }finally{
@@ -3183,7 +3248,24 @@ export async function startAnimeIngest(runtime){
 export async function animePublishNow(runtime){
   if(!isPublisherRuntime(runtime))throw new Error('anime_publisher_runtime_required');
   const published=await publishOne(runtime);
-  return {ok:true,published:Boolean(published),anime:animeIngestStatus(runtime)};
+  const d=await db();
+  const [scheduler,lock,lastPublication]=await Promise.all([
+    d.collection('nexanime_config').findOne({_id:'scheduler'}),
+    d.collection('nexanime_locks').findOne({_id:'publisher'}),
+    d.collection('nexanime_publications').findOne(
+      {purgedAt:{$exists:false}},
+      {sort:{publishedAt:-1,_id:-1},projection:{seriesKey:1,kind:1,season:1,episode:1,publishedAt:1,telegramMessageId:1}}
+    )
+  ]);
+  return {
+    ok:true,published:Boolean(published),
+    reason:String(runtime.animeIngest?.lastPublishSkipReason||''),
+    error:String(runtime.animeIngest?.lastPublishError||''),
+    anime:animeIngestStatus(runtime),
+    scheduler:scheduler||null,
+    publisherLock:lock||null,
+    lastPublication:lastPublication||null
+  };
 }
 
 export async function stopAnimeIngest(runtime){
@@ -3207,6 +3289,8 @@ export function animeIngestStatus(runtime){
     handoffWorker:a.publisher===true,publicPublisher:'@'+NEXCANAL_STAGE_BOT,destination:a.destination||'@'+DESTINATION,
     mediaPolicy:a.mediaPolicy||MEDIA_POLICY_DEFAULT,sources:a.sources||0,queued:a.queued||0,published:a.published||0,
     lastQueuedAt:a.lastQueuedAt||null,lastPublishedAt:a.lastPublishedAt||null,
+    lastPublishAttemptAt:a.lastPublishAttemptAt||null,lastPublishSkipReason:a.lastPublishSkipReason||'',
+    lastPublishErrorAt:a.lastPublishErrorAt||null,lastPublishError:a.lastPublishError||'',
     lastStartedAt:a.lastStartedAt||null,lastStartFailedAt:a.lastStartFailedAt||null,lastStartError:a.lastStartError||'',
     lastDiscoveryAt:a.lastDiscoveryAt||null,lastBackfillAt:a.lastBackfillAt||null,
     lastBackfillCount:a.lastBackfillCount||0,lastPollAt:a.lastPollAt||null,
