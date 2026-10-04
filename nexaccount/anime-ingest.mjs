@@ -17,7 +17,10 @@ const LISTENERS=new Set([
 const DESTINATION=String(process.env.NEXCANAL__ANIME_DESTINATION||process.env.NEXANIME_DESTINATION||'theotaku_nexus').trim().replace(/^@/,'');
 const NEXCANAL_STAGE_BOT=String(process.env.NEXANIME_NEXCANAL_BOT||'the_big_dipper_bot').trim().replace(/^@/,'');
 const NEXCANAL_HANDOFF_COLLECTION='nexanime_nexcanal_handoffs';
-const NEXCANAL_HANDOFF_TIMEOUT_MS=Math.max(15_000,Number(process.env.NEXANIME_NEXCANAL_HANDOFF_TIMEOUT_MS||120_000));
+// NexCanal is preferred, but it must never become a liveness dependency.
+// If it cannot confirm quickly, NexAnime cancels that handoff and publishes
+// through the healthy account runtime instead.
+const NEXCANAL_HANDOFF_TIMEOUT_MS=25_000;
 const DISCOVERY_MS=Math.max(15*60*1000,Number(process.env.NEXANIME_DISCOVERY_MS||6*60*60*1000));
 // Publication cadence is a product invariant, not an environment override:
 // - same anime: another publication opportunity every 30s (<= 1 min)
@@ -2814,6 +2817,74 @@ function isNexCanalCopyMissingError(error){
   const message=String(error?.message||error||'').toLowerCase();
   return message.includes('nexcanal_handoff_failed:')&&message.includes('message to copy not found');
 }
+function isNexCanalFallbackError(error){
+  const message=String(error?.message||error||'').toLowerCase();
+  return (
+    isNexCanalCopyMissingError(error)||
+    message.includes('nexcanal_handoff_timeout')||
+    message.includes('nexcanal_handoff_failed:')
+  );
+}
+async function cancelNexCanalHandoffForFallback(item,error){
+  const d=await db();
+  const c=d.collection(NEXCANAL_HANDOFF_COLLECTION);
+  const existing=await c.findOne({dedupeKey:item.dedupeKey});
+  if(existing?.status==='done'&&Number(existing?.resultMessageId)>0){
+    return {
+      done:true,
+      result:{
+        id:Number(existing.resultMessageId),
+        messageId:Number(existing.resultMessageId),
+        via:'nexcanal'
+      }
+    };
+  }
+  // Do not race a worker that has already started the Bot API copy. Give an
+  // in-flight processing handoff one final short grace period first.
+  if(existing?.status==='processing'){
+    const until=Date.now()+8_000;
+    while(Date.now()<until){
+      await sleep(500);
+      const row=await c.findOne({dedupeKey:item.dedupeKey});
+      if(row?.status==='done'&&Number(row?.resultMessageId)>0){
+        return {
+          done:true,
+          result:{
+            id:Number(row.resultMessageId),
+            messageId:Number(row.resultMessageId),
+            via:'nexcanal'
+          }
+        };
+      }
+      if(row?.status!=='processing')break;
+    }
+  }
+  const latest=await c.findOne({dedupeKey:item.dedupeKey});
+  if(latest?.status==='done'&&Number(latest?.resultMessageId)>0){
+    return {
+      done:true,
+      result:{
+        id:Number(latest.resultMessageId),
+        messageId:Number(latest.resultMessageId),
+        via:'nexcanal'
+      }
+    };
+  }
+  await c.updateOne(
+    {
+      dedupeKey:item.dedupeKey,
+      status:{$in:['staging','pending','processing','failed']}
+    },
+    {$set:{
+      status:'cancelled',
+      cancelledAt:new Date(),
+      cancelReason:'account_fallback_after_handoff_failure',
+      lastError:String(error?.message||error).slice(0,500),
+      updatedAt:new Date()
+    }}
+  ).catch(()=>{});
+  return {done:false,result:null};
+}
 async function prepareNexCanalCopyHandoff(runtime,item,{caption='',stageMarker=''}) {
   await ensureIndexes();
   const d=await db(),c=d.collection(NEXCANAL_HANDOFF_COLLECTION),now=new Date();
@@ -3170,9 +3241,18 @@ async function publishOne(runtime){
     try{
       sent=await publishViaNexCanal(runtime,item,resolved);
     }catch(error){
-      if(!isNexCanalCopyMissingError(error))throw error;
-      console.warn('[NexAnime] NexCanal copy unavailable; using anime-only direct fallback',item.dedupeKey);
-      sent=await publishDirectAnimeFallback(runtime,item,resolved);
+      if(!isNexCanalFallbackError(error))throw error;
+      const handoff=await cancelNexCanalHandoffForFallback(item,error);
+      if(handoff.done){
+        sent=handoff.result;
+      }else{
+        console.warn(
+          '[NexAnime] NexCanal unavailable; using direct account fallback',
+          item.dedupeKey,
+          String(error?.message||error).slice(0,180)
+        );
+        sent=await publishDirectAnimeFallback(runtime,item,resolved);
+      }
     }
     await markPublication(item,sent,runtime);
     await mirrorPublishedAnimeToWhatsApp(runtime,item,resolved,sent).catch(error=>console.warn('[NexAnime/WhatsApp]',String(error?.message||error).slice(0,300)));
@@ -3306,7 +3386,7 @@ export const __test={
   standardizedCaption,quotedCaption,titleFromMessage,titleEvidenceFromMessage,titlesClearlyConflict,
   episodeEvidenceFromMessage,meaningfulTitleSimilarity,bestAnchor,episodeVariantScore,episodeIdentityCompatible,
   isTransientPublishError,inferredSeasonAlias,shouldParkTransientEpisode,episodeVariantRetryReady,
-  queuedPresentationNeedsRepair,isNexCanalCopyMissingError,interSeriesDeadlineFrom,
+  queuedPresentationNeedsRepair,isNexCanalCopyMissingError,isNexCanalFallbackError,interSeriesDeadlineFrom,
   timing:{publishMs:PUBLISH_MS,interSeriesMs:INTER_SERIES_MS,transientVariantRetryMs:TRANSIENT_VARIANT_RETRY_MS}
 };
 
