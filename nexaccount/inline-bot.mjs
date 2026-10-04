@@ -65,22 +65,22 @@ function greetingVisualTemplate(template,isWelcome){
   ]);
   if(isWelcome&&(!raw||legacyWelcome.has(raw))){
     return [
-      '╭▱▱ 𝚆𝙴𝙻𝙲𝙾𝙼𝙴 ▱▱ 🎉',
-      '┃≫ ⛩ 👑 ⚡ {mention} ⚡ 👑 ⛩',
-      '┃≫ 🌸 🔥 ʙɪᴇɴᴠᴇɴᴜᴇ ᴅᴀɴs {group} 🔥 🌸',
-      '┃≫ 🦋 🌙 💻 🗡 🎯 🪷 🦇',
-      '╰▱▱▱▱▱▱▱▱',
-      '≪ ɴᴇxᴀɪ • {group} 👑≫'
+      '╭▱▱ ᴡᴇʟᴄᴏᴍᴇ ▱▱ 🎉',
+      '┃',
+      '┃ 𓆩 {mention} 𓆪',
+      '┃ ʙɪᴇɴᴠᴇɴᴜᴇ ᴅᴀɴs {group}',
+      '┃',
+      '╰▱▱▱▱▱▱▱▱▱▱▱▱▱'
     ].join('\n');
   }
   if(!isWelcome&&(!raw||legacyGoodbye.has(raw))){
     return [
-      '╭▱▱ 𝙶𝙾𝙾𝙳𝙱𝚈𝙴 ▱▱ 🌙',
-      '┃≫ 🦋 ⚡ {mention} ⚡ 🦋',
-      '┃≫ 🕯️ ᴀ̀ ʙɪᴇɴᴛᴏ̂ᴛ • {group} 🕯️',
-      '┃≫ 👑 🌸 🔥 🌒 🦇',
-      '╰▱▱▱▱▱▱▱▱',
-      '≪ ɴᴇxᴀɪ • {group} ⚡≫'
+      '╭▱▱ ɢᴏᴏᴅʙʏᴇ ▱▱ 🌙',
+      '┃',
+      '┃ 𓆩 {mention} 𓆪',
+      '┃ ᴀ̀ ʙɪᴇɴᴛᴏ̂ᴛ • {group}',
+      '┃',
+      '╰▱▱▱▱▱▱▱▱▱▱▱▱▱'
     ].join('\n');
   }
   return raw;
@@ -796,6 +796,26 @@ async function inlineReplyModelFromLibrary(value,settings={}){
   return {...model,entities:[...withoutCustom,...libraryEntities]};
 }
 
+async function groupCardModelFromLibrary(row,settings={}){
+  const payload=row?.payload&&typeof row.payload==='object'?row.payload:{};
+  const text=String(payload.text||row?.text||'').slice(0,4096);
+  const entities=(Array.isArray(payload.entities)?payload.entities:[])
+    .filter(e=>e&&Number(e.offset)>=0&&Number(e.length)>0&&Number(e.offset)+Number(e.length)<=utf16len(text));
+  const libraryEntities=await animatedCustomEmojiEntitySpecsFromLibrary(
+    text,
+    settings?.customEmojiIds||{},
+    {sourceUsername:cfg.creatorUsername||'tresor20001'}
+  ).catch(()=>[]);
+  return {
+    text,
+    entities:[...entities,...libraryEntities],
+    reply_markup:payload.reply_markup&&typeof payload.reply_markup==='object'
+      ?payload.reply_markup
+      :greetingMiniAppMarkup(),
+    photoUrl:String(payload.photoUrl||'')
+  };
+}
+
 async function modelFor(account,query){
   const entitlement=await nexAiPremiumState(account.telegramUserId).catch(()=>({active:false,expiresAt:null}));
   account={
@@ -817,6 +837,15 @@ async function modelFor(account,query){
       return null;
     }
     return inlineReplyModelFromLibrary(row.text,settings);
+  }
+  if(q.startsWith('groupcard:')){
+    const token=rawQuery.slice('groupcard:'.length).trim();
+    const row=await getInlineResponse(token,account.telegramUserId);
+    if(!row){
+      console.warn('[NexAI group card] missing_or_expired',String(account.telegramUserId),token.slice(0,8));
+      return null;
+    }
+    return groupCardModelFromLibrary(row,settings);
   }
   if(q==='styles'||q==='style')return stylesModel({account,settings});
   if(q==='customstyle'||q==='custom-style')return customStyleModel({account,settings});
