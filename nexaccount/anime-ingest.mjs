@@ -1,3 +1,4 @@
+import { Api } from 'teleproto';
 import { Button } from 'teleproto/tl/custom/button.js';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -1004,6 +1005,7 @@ async function saveSource(accountId,entity,stats){
   const key=String(accountId)+':'+channelId;
   const doc={
     accountId:String(accountId),channelId,username,title,
+    channelAccessHash:String(entity?.accessHash||''),
     classification:stats.classification,animeSignals:stats.animeSignals,
     blockedSignals:stats.blockedSignals,sampleSize:stats.sampleSize,
     confidence:stats.confidence,updatedAt:now
@@ -1069,6 +1071,7 @@ async function enqueueCandidate(runtime,entity,message,c,{mode='live'}={}){
     channelId:String(entity?.id||sourcePeerId(message)),
     channelUsername:String(entity?.username||''),
     channelTitle:String(entity?.title||''),
+    channelAccessHash:String(entity?.accessHash||''),
     messageId:Number(message?.id||0)
   };
   const dedupeKey=c.kind==='episode'?releaseKey(c):presentationKey(c);
@@ -1542,11 +1545,30 @@ async function resolveSource(runtime,item,{maxSources=Infinity}={}){
       const client=readerRuntime.client;
       let entity=null;
       const username=String(source?.channelUsername||'').replace(/^@/,'');
+      const channelId=String(source?.channelId||'').trim();
+      const channelAccessHash=String(source?.channelAccessHash||source?.accessHash||'').trim();
       if(username){
         try{entity=await client.getEntity(username)}catch{}
       }
-      if(!entity&&source?.channelId){
-        try{entity=await client.getEntity(BigInt(source.channelId))}catch{}
+      if(!entity&&channelId&&channelAccessHash){
+        try{
+          entity=new Api.InputChannel({
+            channelId:BigInt(channelId),
+            accessHash:BigInt(channelAccessHash)
+          });
+        }catch{}
+      }
+      if(!entity&&channelId){
+        try{entity=await client.getEntity(BigInt(channelId))}catch{}
+      }
+      if(!entity&&channelId){
+        try{
+          const dialogs=await client.getDialogs({limit:500});
+          const match=(Array.isArray(dialogs)?dialogs:[]).find(row=>
+            String(row?.entity?.id||row?.id||'')===channelId
+          );
+          entity=match?.entity||null;
+        }catch{}
       }
       if(!entity)continue;
       try{

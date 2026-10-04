@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
-const PINNED_ANIME_SHA256='b69c21fbb43ad5d84717e445213fe690964bfb2b74822edcf0cdb70a1236aaf3';
+const PINNED_ANIME_SHA256='b97c86e903f820abdd4fca1759e8c02c1fca9b5bc08ec01b8a09702b258dc5e1';
 
 const CONTRACT={
   'anime-ingest.mjs':[
@@ -17,6 +17,9 @@ const CONTRACT={
     'function episodeVariantRetryReady',
     'const LIVE_ANIME_RUNTIMES=new Map();',
     'function liveRuntimeCandidates',
+    "channelAccessHash:String(entity?.accessHash||'')",
+    'new Api.InputChannel',
+    'getDialogs({limit:500})',
     'const transferRuntime=resolved?.runtime?.client?.connected===true?resolved.runtime:runtime;',
     'function queuedPresentationNeedsRepair',
     'function isNexCanalCopyMissingError',
