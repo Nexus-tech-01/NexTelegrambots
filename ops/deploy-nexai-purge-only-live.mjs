@@ -84,7 +84,7 @@ try{
   fs.copyFileSync(target,backup);
   copyMeta(target,backup);
 
-  const tmp=target+'.purge-hotfix-'+process.pid;
+  const tmp=target+'.purge-hotfix-'+process.pid+'.mjs';
   fs.writeFileSync(tmp,remote,{mode:fs.statSync(target).mode&0o777});
   copyMeta(target,tmp);
   const syntax=run(process.execPath,['--check',tmp],{cwd:base,timeout:60000});
@@ -123,7 +123,7 @@ try{
   report.error=String(error?.stack||error).slice(0,6000);
   if(changed&&fs.existsSync(backup)){
     try{
-      const tmp=target+'.purge-rollback-'+process.pid;
+      const tmp=target+'.purge-rollback-'+process.pid+'.mjs';
       fs.copyFileSync(backup,tmp);
       copyMeta(backup,tmp);
       fs.renameSync(tmp,target);
