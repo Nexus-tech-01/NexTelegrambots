@@ -12,30 +12,36 @@ async function admin(req){const t=C(req,'nxc_session');if(!t)return false;const{
 function key(){return'nxa_'+crypto.randomUUID().replaceAll('-','')+crypto.randomUUID().replaceAll('-','')}
 async function auth(req){const slug=(req.headers.get('x-nexcontrol-agent')||'').toLowerCase().trim(),k=req.headers.get('x-nexcontrol-agent-key')||'';if(!slug||!k)return null;const{data}=await sb.from('nxc_agents').select('*').eq('slug',slug).eq('enabled',true).maybeSingle();if(!data||await H(k)!==data.key_hash)return null;return data}
 const kinds=new Set(['fs.list','fs.read','fs.search','fs.write','fs.mkdir','fs.move','fs.delete','fs.rollback','check.run','logs.tail','runtime.restart']),mut=new Set(['fs.write','fs.mkdir','fs.move','fs.delete','fs.rollback','runtime.restart']);
-async function agentApi(req,p){const a=await auth(req);if(!a)return J({error:'unauthorized'},401);const q=await B(req),t=now();if(p==='/api/v1/agent/group-event'){
-    const chatType=String(q.chatType||'group').toLowerCase();
-    if(!['group','supergroup'].includes(chatType))return J({error:'group_only'},400);
-    const chatId=String(q.chatId||'').slice(0,120),messageId=String(q.messageId||'').slice(0,120);
-    if(!chatId||!messageId)return J({error:'chat_or_message_missing'},400);
-    const{data:b,error:be}=await sb.from('nxc_bots').select('id').eq('slug','nexai').maybeSingle();
-    if(be)throw be;if(!b)return J({error:'nexai_bot_not_registered'},409);
-    const direction=String(q.direction||'incoming')==='outgoing'?'out':'in';
-    const{data:old,error:oe}=await sb.from('nxc_bot_events').select('id').eq('bot_id',b.id).eq('chat_id',chatId).eq('message_id',messageId).eq('direction',direction).limit(1);
-    if(oe)throw oe;
-    if(!old?.length){
-      const row={
-        bot_id:b.id,direction,event_type:String(q.eventType||'message').slice(0,80),
-        chat_id:chatId,chat_type:chatType,chat_title:String(q.chatTitle||'').slice(0,300)||null,
-        user_id:String(q.userId||'').slice(0,120)||null,username:String(q.username||'').slice(0,200)||null,
-        message_id:messageId,reply_to_message_id:String(q.replyToMessageId||'').slice(0,120)||null,
-        text:String(q.text||'').slice(0,12000)||null,payload:q.payload&&typeof q.payload==='object'?q.payload:{},
-        created_at:q.createdAt&&!Number.isNaN(new Date(q.createdAt).getTime())?new Date(q.createdAt).toISOString():t
-      };
-      const{error:ie}=await sb.from('nxc_bot_events').insert(row);if(ie&&String(ie.code)!=='23505')throw ie;
-    }
-    await sb.from('nxc_bots').update({last_heartbeat_at:t,updated_at:t}).eq('id',b.id);
-    return J({ok:true},202)
-  }if(p==='/api/v1/agent/heartbeat'){const{error}=await sb.from('nxc_agents').update({display_name:q.displayName||a.display_name,version:q.version||null,hostname:q.hostname||null,platform:q.platform||null,node_version:q.nodeVersion||null,capabilities:q.capabilities||{},roots:q.roots||[],last_heartbeat_at:t,updated_at:t}).eq('id',a.id);if(error)throw error;return J({ok:true,agentId:a.id})}if(p==='/api/v1/agent/jobs/claim'){await sb.from('nxc_agent_jobs').update({status:'pending',claimed_at:null,claim_expires_at:null,updated_at:t}).eq('agent_id',a.id).eq('status','claimed').lt('claim_expires_at',t);const{data,error}=await sb.from('nxc_agent_jobs').select('*').eq('agent_id',a.id).eq('status','pending').lte('available_at',t).order('created_at').limit(Math.max(1,Math.min(5,Number(q.limit)||3)));if(error)throw error;const jobs=[];for(const z of data||[]){const exp=new Date(Date.now()+90000).toISOString();const{data:u,error:e}=await sb.from('nxc_agent_jobs').update({status:'claimed',claimed_at:t,claim_expires_at:exp,updated_at:t}).eq('id',z.id).eq('status','pending').select('*').maybeSingle();if(e)throw e;if(u)jobs.push({id:u.id,kind:u.kind,payload:u.payload})}return J({jobs})}if(p==='/api/v1/agent/jobs/result'){const{data:z,error}=await sb.from('nxc_agent_jobs').select('*').eq('id',q.jobId).eq('agent_id',a.id).maybeSingle();if(error)throw error;if(!z)return J({error:'not_found'},404);const patch=q.ok?{status:'done',result:q.result||{},error:null,completed_at:t,updated_at:t}:{status:'failed',result:null,error:String(q.error||'agent_error').slice(0,20000),completed_at:t,updated_at:t};const{error:e}=await sb.from('nxc_agent_jobs').update(patch).eq('id',z.id);if(e)throw e;if(q.ok&&mut.has(z.kind)){const r=q.result||{},v=z.payload||{};await sb.from('nxc_agent_changes').insert({agent_id:a.id,job_id:z.id,action:z.kind,root_key:r.root||v.root||null,path:r.path||v.path||null,before_sha:r.beforeSha||null,after_sha:r.afterSha||null,backup_id:r.backupId||r.restoredBackupId||null,summary:JSON.stringify(r).slice(0,4000)})}return J({ok:true})}return J({error:'not_found'},404)}
+async function ingestBotEvent(slug,q,t){
+  const botSlug=String(slug||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,'');
+  if(!botSlug)return J({error:'bot_slug_required'},400);
+  const chatType=String(q.chatType||'private').toLowerCase();
+  if(!['private','group','supergroup','channel'].includes(chatType))return J({error:'invalid_chat_type'},400);
+  const chatId=String(q.chatId||'').slice(0,120),messageId=String(q.messageId||'').slice(0,120);
+  if(!chatId||!messageId)return J({error:'chat_or_message_missing'},400);
+  const{data:b,error:be}=await sb.from('nxc_bots').select('id').eq('slug',botSlug).maybeSingle();
+  if(be)throw be;if(!b)return J({error:'bot_not_registered'},409);
+  const rawDir=String(q.direction||'incoming').toLowerCase();
+  const direction=rawDir==='outgoing'||rawDir==='out'?'out':rawDir==='system'?'system':'in';
+  const{data:old,error:oe}=await sb.from('nxc_bot_events').select('id').eq('bot_id',b.id).eq('chat_id',chatId).eq('message_id',messageId).eq('direction',direction).limit(1);
+  if(oe)throw oe;
+  if(!old?.length){
+    const row={
+      bot_id:b.id,direction,event_type:String(q.eventType||'message').slice(0,80),
+      chat_id:chatId,chat_type:chatType,chat_title:String(q.chatTitle||'').slice(0,300)||null,
+      user_id:String(q.userId||'').slice(0,120)||null,username:String(q.username||'').slice(0,200)||null,
+      message_id:messageId,reply_to_message_id:String(q.replyToMessageId||'').slice(0,120)||null,
+      text:String(q.text||'').slice(0,12000)||null,payload:q.payload&&typeof q.payload==='object'?q.payload:{},
+      created_at:q.createdAt&&!Number.isNaN(new Date(q.createdAt).getTime())?new Date(q.createdAt).toISOString():t
+    };
+    const{error:ie}=await sb.from('nxc_bot_events').insert(row);if(ie&&String(ie.code)!=='23505')throw ie;
+  }
+  await sb.from('nxc_bots').update({last_heartbeat_at:t,updated_at:t}).eq('id',b.id);
+  return J({ok:true},202)
+}
+async function agentApi(req,p){const a=await auth(req);if(!a)return J({error:'unauthorized'},401);const q=await B(req),t=now();if(p==='/api/v1/agent/group-event')return ingestBotEvent('nexai',q,t);
+if(p==='/api/v1/agent/bot-event')return ingestBotEvent(q.slug,q,t);
+if(p==='/api/v1/agent/heartbeat'){const{error}=await sb.from('nxc_agents').update({display_name:q.displayName||a.display_name,version:q.version||null,hostname:q.hostname||null,platform:q.platform||null,node_version:q.nodeVersion||null,capabilities:q.capabilities||{},roots:q.roots||[],last_heartbeat_at:t,updated_at:t}).eq('id',a.id);if(error)throw error;return J({ok:true,agentId:a.id})}if(p==='/api/v1/agent/jobs/claim'){await sb.from('nxc_agent_jobs').update({status:'pending',claimed_at:null,claim_expires_at:null,updated_at:t}).eq('agent_id',a.id).eq('status','claimed').lt('claim_expires_at',t);const{data,error}=await sb.from('nxc_agent_jobs').select('*').eq('agent_id',a.id).eq('status','pending').lte('available_at',t).order('created_at').limit(Math.max(1,Math.min(5,Number(q.limit)||3)));if(error)throw error;const jobs=[];for(const z of data||[]){const exp=new Date(Date.now()+90000).toISOString();const{data:u,error:e}=await sb.from('nxc_agent_jobs').update({status:'claimed',claimed_at:t,claim_expires_at:exp,updated_at:t}).eq('id',z.id).eq('status','pending').select('*').maybeSingle();if(e)throw e;if(u)jobs.push({id:u.id,kind:u.kind,payload:u.payload})}return J({jobs})}if(p==='/api/v1/agent/jobs/result'){const{data:z,error}=await sb.from('nxc_agent_jobs').select('*').eq('id',q.jobId).eq('agent_id',a.id).maybeSingle();if(error)throw error;if(!z)return J({error:'not_found'},404);const patch=q.ok?{status:'done',result:q.result||{},error:null,completed_at:t,updated_at:t}:{status:'failed',result:null,error:String(q.error||'agent_error').slice(0,20000),completed_at:t,updated_at:t};const{error:e}=await sb.from('nxc_agent_jobs').update(patch).eq('id',z.id);if(e)throw e;if(q.ok&&mut.has(z.kind)){const r=q.result||{},v=z.payload||{};await sb.from('nxc_agent_changes').insert({agent_id:a.id,job_id:z.id,action:z.kind,root_key:r.root||v.root||null,path:r.path||v.path||null,before_sha:r.beforeSha||null,after_sha:r.afterSha||null,backup_id:r.backupId||r.restoredBackupId||null,summary:JSON.stringify(r).slice(0,4000)})}return J({ok:true})}return J({error:'not_found'},404)}
 async function createAgent(req){const q=await B(req),slug=String(q.slug||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,'');if(!slug)return J({error:'invalid_slug'},400);const k=key(),t=now();const{data,error}=await sb.from('nxc_agents').insert({slug,display_name:String(q.displayName||slug),key_hash:await H(k),enabled:true,created_at:t,updated_at:t}).select('id,slug,display_name').single();if(error){if(String(error.code)==='23505')return J({error:'slug_exists'},409);throw error}return J({ok:true,agent:data,agentKey:k})}
 async function enqueue(req){const q=await B(req);if(!q.agentId||!kinds.has(q.kind))return J({error:'invalid_job'},400);const{data:a}=await sb.from('nxc_agents').select('id,enabled').eq('id',q.agentId).maybeSingle();if(!a||!a.enabled)return J({error:'agent_not_found'},404);const{data,error}=await sb.from('nxc_agent_jobs').insert({agent_id:a.id,kind:q.kind,payload:q.payload||{},status:'pending',available_at:q.availableAt||now(),created_by:'admin',created_at:now(),updated_at:now()}).select('*').single();if(error)throw error;return J({ok:true,jobId:data.id,status:data.status})}
 async function status(u){const id=u.searchParams.get('id');if(!id)return J({error:'id_required'},400);const{data,error}=await sb.from('nxc_agent_jobs').select('*').eq('id',id).maybeSingle();if(error)throw error;return data?J({job:data}):J({error:'not_found'},404)}
