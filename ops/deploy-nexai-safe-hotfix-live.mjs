@@ -54,7 +54,7 @@ const required={
   'store.mjs':['customStyle:normalizeCustomStyle','safe.customStyle=normalizeCustomStyle'],
   'menu.mjs':['customStyleModel','menu:customstyle','customStyleMedia(settings)','categoryPage'],
   'commands.mjs':["C('ultratake'","C('delfilig'","C('filitake'","C('noteclone'","C('customstyle'","C('stylename'","C('menuvideo'"],
-  'sticker-engine.mjs':["'ultratake'","'delfilig'","'filitake'","'noteclone'","export async function resumeStickerJobs","applyDurableStickerMutation","startPrepared","traitement rapide sécurisé"],
+  'sticker-engine.mjs':["'ultratake'","'delfilig'","'filitake'","'noteclone'","export async function resumeStickerJobs","applyDurableStickerMutation","startPrepared","traitement rapide sécurisé","runNativeCloneJob","CreateStickerSet","createSetBatch","préparation batch"],
   'sticker-transform.mjs':['export async function addStickerWatermark','export async function removeStickerWatermark','export async function roundSticker'],
   'runtime.mjs':['canHandleStickerCommand(parsed.name)','Sticker engine fallback','registered.hidden!==true','consumeGeneratedCommandOutput','markGeneratedCommandOutput','NEXACCOUNT_EMBEDDED_ANIME'],
   'core/engine-router.mjs':['outcome?.deferred!==true','await progress.done','canonicalName(cmd)','handleStickerCommand'],
@@ -204,11 +204,15 @@ try{
   // node --check does not resolve ESM imports/exports. Import the runtime graph
   // before touching systemd so mismatched dependent files can never crash live.
   if(mode==='custom-style'||mode==='stickers'||mode==='prefixless-loop'){
-    const graph=run(process.execPath,['--input-type=module','-e',"await import('./runtime.mjs'); await import('./inline-bot.mjs'); console.log('MODULE_GRAPH_OK')"],{cwd:base,timeout:90000});
+    const graphCode=mode==='stickers'
+      ?"const {Api}=await import('teleproto'); if(!Api?.stickers?.CreateStickerSet||!Api?.InputStickerSetItem||!Api?.InputUserSelf) throw new Error('native sticker API unavailable'); await import('./runtime.mjs'); await import('./inline-bot.mjs'); console.log('MODULE_GRAPH_OK')"
+      :"await import('./runtime.mjs'); await import('./inline-bot.mjs'); console.log('MODULE_GRAPH_OK')";
+    const graph=run(process.execPath,['--input-type=module','-e',graphCode],{cwd:base,timeout:90000});
     if(!graph.ok||!graph.stdout.includes('MODULE_GRAPH_OK')){
       throw new Error('module graph validation failed: '+(graph.stderr||graph.stdout).slice(-2200));
     }
     report.steps.moduleGraph=true;
+    if(mode==='stickers')report.steps.nativeStickerApi=true;
   }
 
   if(mode==='anime-gap-skip'){
