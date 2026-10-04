@@ -1,3 +1,4 @@
+# deploy engine-router with take fix 2026-10-04
 # deploy verified take completion fix 2026-10-04
 # deploy take bare-alias fix 2026-10-04
 # trigger final durable sticker deployment 2026-10-04
@@ -94,7 +95,7 @@ jobs:
           if live.get('sourceValidated') is not True or live.get('syntax') is not True:
               raise SystemExit('live sticker source/syntax not confirmed: '+str(live))
           written=set(live.get('written') or [])
-          required={'commands.mjs','sticker-engine.mjs','sticker-transform.mjs','runtime.mjs'}
+          required={'commands.mjs','sticker-engine.mjs','sticker-transform.mjs','runtime.mjs','core/engine-router.mjs'}
           if not required.issubset(written):
               raise SystemExit('production sticker files incomplete: '+str(sorted(written)))
           health=(live.get('health') or {}).get('data') or steps.get('health') or {}
