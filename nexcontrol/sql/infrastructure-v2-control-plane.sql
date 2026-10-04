@@ -1,7 +1,6 @@
 -- NexControl Infrastructure v2 control-plane snapshot
--- Source of truth for the functions introduced by the Infrastructure v2 rollout.
--- Apply only to the NexCode Supabase project after reviewing against current production.
--- Server-only admin RPCs remain executable by service_role only.
+-- Exact SQL snapshot for the Infrastructure v2 orchestration layer.
+-- Review before applying to another environment.
 
 -- nxc_private.deployment_tick
 CREATE OR REPLACE FUNCTION nxc_private.deployment_tick()
@@ -693,6 +692,92 @@ AS $function$
   select nxc_private.deployment_tick();
 $function$;
 
+-- public.nxc_admin_project_action
+CREATE OR REPLACE FUNCTION public.nxc_admin_project_action(p_project_slug text, p_action text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public'
+AS $function$
+declare
+  p public.nxc_projects%rowtype;
+  d public.nxc_deploy_profiles%rowtype;
+  a public.nxc_host_agents%rowtype;
+  v_job uuid;
+begin
+  if p_action not in ('start','stop','restart') then raise exception 'invalid_action'; end if;
+  select * into p from public.nxc_projects
+  where slug=lower(trim(p_project_slug)) and archived_at is null;
+  if not found then raise exception 'project_not_found'; end if;
+  select * into d from public.nxc_deploy_profiles where project_id=p.id;
+  if d.service_name is null or d.service_name !~ '^[A-Za-z0-9@_.:-]+[.]service$' then raise exception 'service_not_ready'; end if;
+  select ha.* into a
+  from public.nxc_nodes n join public.nxc_host_agents ha on ha.id=n.host_agent_id
+  where n.id=p.node_id;
+  if a.id is null or a.enabled=false or a.last_seen_at < now()-interval '3 minutes' then raise exception 'agent_offline'; end if;
+
+  insert into public.nxc_host_jobs(agent_id,kind,payload,status,created_at,updated_at)
+  values(
+    a.id,'systemd',
+    jsonb_build_object(
+      'action',p_action,'service',d.service_name,'projectId',p.id,
+      'collector','nxc-project-systemd-v1'
+    ),
+    'pending',now(),now()
+  ) returning id into v_job;
+
+  update public.nxc_projects
+  set status=case p_action when 'stop' then 'stopping' when 'start' then 'starting' else 'restarting' end,
+      updated_at=now()
+  where id=p.id;
+
+  return jsonb_build_object('ok',true,'jobId',v_job,'action',p_action,'service',d.service_name);
+end
+$function$;
+
+-- public.nxc_admin_project_logs
+CREATE OR REPLACE FUNCTION public.nxc_admin_project_logs(p_project_slug text, p_lines integer DEFAULT 200)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public'
+AS $function$
+declare
+  p public.nxc_projects%rowtype;
+  d public.nxc_deploy_profiles%rowtype;
+  a public.nxc_host_agents%rowtype;
+  v_job uuid;
+  v_lines integer;
+  v_cmd text;
+begin
+  v_lines := greatest(20,least(1000,coalesce(p_lines,200)));
+  select * into p from public.nxc_projects
+  where slug=lower(trim(p_project_slug)) and archived_at is null;
+  if not found then raise exception 'project_not_found'; end if;
+  select * into d from public.nxc_deploy_profiles where project_id=p.id;
+  if d.service_name is null or d.service_name !~ '^[A-Za-z0-9@_.:-]+[.]service$' then raise exception 'service_not_ready'; end if;
+  select ha.* into a
+  from public.nxc_nodes n join public.nxc_host_agents ha on ha.id=n.host_agent_id
+  where n.id=p.node_id;
+  if a.id is null or a.enabled=false or a.last_seen_at < now()-interval '3 minutes' then raise exception 'agent_offline'; end if;
+
+  v_cmd := 'journalctl --no-pager --output=short-iso -n '||v_lines::text||
+           ' --unit '||quote_literal(d.service_name);
+
+  insert into public.nxc_host_jobs(agent_id,kind,payload,status,created_at,updated_at)
+  values(
+    a.id,'exec',
+    jsonb_build_object(
+      'command',v_cmd,'cwd','/','timeout',30,'projectId',p.id,
+      'collector','nxc-project-logs-v1'
+    ),
+    'pending',now(),now()
+  ) returning id into v_job;
+
+  return jsonb_build_object('ok',true,'jobId',v_job,'service',d.service_name,'lines',v_lines);
+end
+$function$;
+
 -- public.nxc_admin_queue_deployment
 CREATE OR REPLACE FUNCTION public.nxc_admin_queue_deployment(p_project_slug text, p_commit_sha text DEFAULT NULL::text, p_trigger_type text DEFAULT 'manual'::text)
  RETURNS jsonb
@@ -780,7 +865,7 @@ begin
 end
 $function$;
 
--- Lock admin RPCs to service_role.
+-- Server-only admin RPC grants.
 revoke all on function public.nxc_admin_create_host_setup_token(integer) from public,anon,authenticated;
 grant execute on function public.nxc_admin_create_host_setup_token(integer) to service_role;
 revoke all on function public.nxc_admin_create_project(jsonb) from public,anon,authenticated;
@@ -791,8 +876,12 @@ revoke all on function public.nxc_admin_retry_project_verification(text) from pu
 grant execute on function public.nxc_admin_retry_project_verification(text) to service_role;
 revoke all on function public.nxc_admin_deployment_tick() from public,anon,authenticated;
 grant execute on function public.nxc_admin_deployment_tick() to service_role;
+revoke all on function public.nxc_admin_project_action(text,text) from public,anon,authenticated;
+grant execute on function public.nxc_admin_project_action(text,text) to service_role;
+revoke all on function public.nxc_admin_project_logs(text,integer) from public,anon,authenticated;
+grant execute on function public.nxc_admin_project_logs(text,integer) to service_role;
 
--- FK indexes recommended by the Supabase advisor.
+-- Advisor-recommended FK indexes.
 create index if not exists nxc_alerts_node_id_idx on public.nxc_alerts(node_id);
 create index if not exists nxc_alerts_project_id_idx on public.nxc_alerts(project_id);
 create index if not exists nxc_deploy_plans_environment_id_idx on public.nxc_deploy_plans(environment_id);
