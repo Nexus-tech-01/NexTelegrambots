@@ -71,7 +71,7 @@ assert.match(inlineReplyFallback.reply_markup.inline_keyboard[0][0].text,/^⚡\s
 
 assert.deepEqual(
   __test.telegramCommandMenu().map(x=>x.command),
-  ['start','menu','help','pair','premium','language','creator','customstyle'],
+  ['start','menu','help','pair','settutorial','premium','language','creator','customstyle'],
   'Telegram slash menu must contain only real Bot API handlers'
 );
 
