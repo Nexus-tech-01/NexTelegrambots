@@ -294,7 +294,7 @@ async function infraHostSetup(q:any){
   if(!/^[A-Za-z0-9 _.-]{1,80}$/.test(name))throw new Error("invalid_host_name");
   const x=await infraRpc("nxc_admin_create_host_setup_token",{p_ttl_minutes:15});
   if(!x?.token||!/^[A-Za-z0-9_]+$/.test(String(x.token)))throw new Error("setup_token_generation_failed");
-  const installer="https://raw.githubusercontent.com/Nexus-tech-01/NexTelegrambots/ef8deff76d9e24d994178d9c55da0af12dbaf313/ops/install-nexforge-host-agent.sh";
+  const installer="https://raw.githubusercontent.com/Nexus-tech-01/NexTelegrambots/ce2fdff3d76f2277f88c1e80f73ea133bb4ac515/ops/install-nexforge-host-agent.sh";
   const command="curl -fsSL '"+installer+"' | sudo bash -s -- '"+x.token+"' '"+name+"'";
   return {ok:true,command,expiresAt:x.expiresAt};
 }
