@@ -27,6 +27,7 @@ Le navigateur ne reçoit jamais le cookie administrateur interne de NexControl.
 5. Seul le SHA-256 de ce jeton est stocké côté serveur.
 6. La session est liée au hash du User-Agent et expire après 8 heures.
 7. Les tables de session sont inaccessibles directement aux rôles Supabase `anon` et `authenticated`.
+8. Les routes Infrastructure revalident également le cookie administrateur auprès du backend NexControl avant toute lecture ou mutation.
 
 Les origines web autorisées par la passerelle sont explicitement limitées aux domaines NexControl/portfolio configurés dans `nexcontrol/supabase-ui/index.ts`.
 
@@ -77,6 +78,75 @@ L'interface refuse l'activation d'Auto Deploy si l'un des points suivants n'est 
 - rollback non prêt.
 
 Le watcher ne crée une entrée de déploiement que si le dépôt est non bloqué **et** que le projet a explicitement `auto_deploy=true`.
+
+### Add VPS
+
+Le bouton **Add VPS** génère un token d'installation à usage unique (15 minutes) et une commande bootstrap.
+
+- le token brut n'est jamais stocké en base, uniquement son SHA-256 ;
+- l'agent portable est `ops/nexforge-host-agent.py` ;
+- l'installateur est `ops/install-nexforge-host-agent.sh` ;
+- le binaire/script téléchargé est épinglé à un commit Git et contrôlé avant installation ;
+- après enregistrement, `nexcontrol-host-onboarding-v1` crée automatiquement le nœud NexControl correspondant.
+
+Aucun mot de passe SSH n'est enregistré dans NexControl.
+
+### Add Project
+
+Le bouton **Add Project** permet de choisir simultanément parmi les connexions GitHub déjà enregistrées et les VPS disponibles.
+
+L'onboarding valide :
+
+- l'appartenance du dépôt à l'allowlist de la connexion GitHub ;
+- la branche et son SHA Git immuable ;
+- le chemin `current` ;
+- le service systemd ;
+- le fait que la cible actuelle soit un symlink restaurable ;
+- la disponibilité de l'agent VPS et du release root.
+
+Un projet n'obtient `rollback_supported=true` qu'après cette vérification runtime.
+
+### Release executor
+
+Le moteur de release utilise `ops/nexcontrol-release-executor.py` et le cron `nexcontrol-deployment-executor-v1`.
+
+Pipeline :
+
+1. récupération de l'exact commit Git ou reconstruction du bundle commit-pinned ;
+2. vérification d'intégrité et extraction sans path traversal, symlink, hardlink ou device ;
+3. installation des dépendances ;
+4. build et checks pré-déploiement ;
+5. création d'une release dans `/opt/nex/releases` ;
+6. switch atomique du symlink `current` ;
+7. restart du service systemd ;
+8. health checks locaux puis control-plane ;
+9. promotion si healthy ;
+10. rollback automatique vers l'ancienne cible en cas d'échec.
+
+Le bouton **Deploy** applique les mêmes gates avant même de créer une ligne `queued`.
+
+### Runtime controls
+
+Le bouton **Manage** d'un projet expose :
+
+- Start ;
+- Restart ;
+- Stop ;
+- les dernières lignes de `journalctl`.
+
+Le navigateur ne choisit jamais un nom de service libre : l'action utilise uniquement `service_name` déjà validé dans `nxc_deploy_profiles`.
+
+### Jobs Infrastructure v2
+
+- `nexcontrol-github-watch-v2` : toutes les 5 minutes ;
+- `nexcontrol-node-metrics-v2` : toutes les 5 minutes ;
+- `nexcontrol-health-v2` : chaque minute ;
+- `nexcontrol-source-validation-v2` : chaque minute ;
+- `nexcontrol-host-onboarding-v1` : chaque minute ;
+- `nexcontrol-project-verify-v1` : chaque minute ;
+- `nexcontrol-deployment-executor-v1` : chaque minute.
+
+La définition SQL source-controlled de cette couche se trouve dans `nexcontrol/sql/infrastructure-v2-control-plane.sql`.
 
 ## Fonctions principales
 
