@@ -61,7 +61,8 @@ function clearSessionCookie() {
 export default async function handler(req, res) {
   try {
     const u = new URL(req.url || "/", "https://nexcontrol.local");
-    const route = u.pathname + u.search;
+    const hasSession = !!cookieValue(req.headers?.cookie, SESSION_COOKIE);
+    const route = (u.pathname === "/" && hasSession ? "/infrastructure" : u.pathname) + u.search;
     const headers = outboundHeaders(req);
     const body = outboundBody(req, headers);
 
@@ -92,7 +93,7 @@ export default async function handler(req, res) {
     }
 
     if (newSession) copyHeader(res, "set-cookie", sessionCookie(newSession));
-    else if (location === "/login" && cookieValue(req.headers?.cookie, SESSION_COOKIE)) {
+    else if (location === "/login" && hasSession) {
       copyHeader(res, "set-cookie", clearSessionCookie());
     }
 
