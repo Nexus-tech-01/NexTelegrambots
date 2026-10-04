@@ -463,8 +463,7 @@ async function sendMentionList(client,peer,people,title){
     await client.sendMessage(peer,{message:built.message.trimEnd(),formattingEntities:built.entities});
   }
 }
-const HIDDEN_TAG_BATCH=50;
-function hiddenTagChunks(people){
+function hiddenTagPeople(people){
   const list=[];
   const seen=new Set();
   for(const p of people||[]){
@@ -473,26 +472,21 @@ function hiddenTagChunks(people){
     seen.add(id);
     list.push(p);
   }
-  const chunks=[];
-  for(let i=0;i<list.length;i+=HIDDEN_TAG_BATCH)chunks.push(list.slice(i,i+HIDDEN_TAG_BATCH));
-  return chunks;
+  return list;
 }
 async function sendHiddenMentions(client,peer,people,title){
-  const chunks=hiddenTagChunks(people);
-  if(!chunks.length)return client.sendMessage(peer,{message:'Aucun membre trouvé.'});
+  const list=hiddenTagPeople(people);
+  if(!list.length)return client.sendMessage(peer,{message:'Aucun membre trouvé.'});
   const visible=String(title||'Tout le monde est invité à lire ce message.').trim();
-  for(let i=0;i<chunks.length;i++){
-    const base=i===0?visible:'\u2063';
-    const built=await buildMentionEntities(client,base,chunks[i],{hidden:true});
-    await client.sendMessage(peer,{message:built.message,formattingEntities:built.entities});
-  }
+  const built=await buildMentionEntities(client,visible,list,{hidden:true});
+  await client.sendMessage(peer,{message:built.message,formattingEntities:built.entities});
 }
 async function sendHiddenTaggedCopy(client,peer,people,source){
-  const chunks=hiddenTagChunks(people);
-  if(!chunks.length)return client.sendMessage(peer,{message:'Aucun membre trouvé.'});
+  const list=hiddenTagPeople(people);
+  if(!list.length)return client.sendMessage(peer,{message:'Aucun membre trouvé.'});
   const visible=String(source?.message??source?.text??'');
   const sourceEntities=Array.isArray(source?.entities)?source.entities:[];
-  const first=await buildMentionEntities(client,visible,chunks[0],{hidden:true});
+  const first=await buildMentionEntities(client,visible,list,{hidden:true});
   if(source?.media){
     const buffer=await client.downloadMedia(source).catch(()=>null);
     if(!buffer?.length)throw new Error('Impossible de recopier le média répondu.');
@@ -509,10 +503,6 @@ async function sendHiddenTaggedCopy(client,peer,people,source){
       message:first.message,
       formattingEntities:[...sourceEntities,...first.entities]
     });
-  }
-  for(let i=1;i<chunks.length;i++){
-    const built=await buildMentionEntities(client,'\u2063',chunks[i],{hidden:true});
-    await client.sendMessage(peer,{message:built.message,formattingEntities:built.entities});
   }
 }
 async function deleteCommandMessage(client,peer,message){
