@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import argparse, base64, hashlib, io, json, os, pathlib, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request
 
-ALLOWED_ROOTS = ("/opt/nex/releases/", "/opt/nex/apps/", "/opt/nex/current/")
+ALLOWED_ROOTS = ("/opt/nex/releases/", "/opt/nex/apps/", "/opt/nex/current/", "/opt/nex/shared/")
 IDENT = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
 SERVICE = re.compile(r"^[A-Za-z0-9@_.:-]+\.service$")
 
