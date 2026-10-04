@@ -1,6 +1,7 @@
 # retry with nested backup path support
 # retry with current menu regression test + runtime warmup
 # retry after new-file rollback support
+# deploy prefixless custom-style commands + botname recursion fix
 name: Ops NexAI Custom Style Deploy Once
 
 on:
@@ -35,10 +36,16 @@ jobs:
           npm install --prefix nexaccount --ignore-scripts
           node --check nexaccount/custom-style.mjs
           node --check nexaccount/store.mjs
+          node --check nexaccount/commands.mjs
+          node --check nexaccount/runtime.mjs
+          node --check nexaccount/compat.mjs
           node --check nexaccount/menu.mjs
           node --check nexaccount/inline-bot.mjs
           node nexaccount/scripts/test-menu-resilience.mjs
           grep -F "customStyleModel" nexaccount/menu.mjs
+          grep -F "C('customstyle'" nexaccount/commands.mjs
+          grep -F "registered.hidden!==true" nexaccount/runtime.mjs
+          grep -F "cacheMenuMediaForBot" nexaccount/compat.mjs
           grep -F "bot.command('menuvideo'" nexaccount/inline-bot.mjs
           grep -F "inlineCachedMediaResult" nexaccount/inline-bot.mjs
 
