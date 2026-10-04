@@ -1139,47 +1139,67 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
   if(name==='exportwhatsapp'){
     const progress=externalProgress||await startProgress(client,peer,'⏳ WhatsApp stickers · préparation du pack…');
     const set=await sourceSet(client,source).catch(()=>null);
-    const docs=(set?.documents?.length?set.documents:[documentOf(source)]).filter(Boolean).slice(0,Math.min(MAX_EXPORT,30));
+    const docs=(set?.documents?.length?set.documents:[documentOf(source)]).filter(Boolean);
     if(!docs.length)throw new Error('Aucun sticker à exporter.');
-
-    const stickers=[];
-    let skipped=0;
-    for(let i=0;i<docs.length;i++){
-      try{
-        const raw=await downloadDocument(client,docs[i]);
-        const webp=await whatsappStickerWebp(raw);
-        stickers.push(webp);
-      }catch(error){
-        skipped++;
-        console.warn('[NexAi wastickers]',String(error?.message||error));
-      }
-      if(i===0||i===docs.length-1||(i+1)%3===0){
-        await progress.update('⏳ WhatsApp stickers · '+(i+1)+'/'+docs.length+' traité(s)…');
-      }
-    }
-    if(!stickers.length)throw new Error('Aucun sticker du pack n’a pu être converti pour WhatsApp.');
-    while(stickers.length<3)stickers.push({buffer:Buffer.from(stickers[0].buffer),animated:stickers[0].animated===true});
-    const tray=await whatsappTray(stickers[0].buffer);
 
     const title=clean(set?.set?.title)||automaticPackTitle(account,sessionSettings);
     const author=accountDisplayName(account);
-    const pack=buildWastickersArchive({
-      title,
-      author,
-      cover:tray,
-      stickers:stickers.slice(0,30)
-    });
+    const sourcePackName=clean(set?.set?.shortName||stickerAttr(documentOf(source))?.stickerset?.shortName);
+
+    if(set?.documents?.length&&sourcePackName){
+      const id=cloneJobId(account.telegramUserId);
+      const job=await createStickerJob({
+        id,
+        telegramUserId:String(account.telegramUserId),
+        kind:'exportwhatsapp',
+        title,
+        author,
+        total:docs.length,
+        sourcePackName,
+        sourceDocumentIds:docs.map(doc=>String(doc?.id||'')),
+        peerRef:serializePeer(peer)
+      });
+      startDurableStickerJob(runtime,job,progress);
+      return {deferred:true,jobId:id};
+    }
+
+    const raw=await withPersistentStickerRetry(
+      runtime,
+      ()=>downloadDocument(client,docs[0]),
+      'WhatsApp stickers · téléchargement',
+      {progress}
+    );
+    const converted=await withPersistentStickerRetry(
+      runtime,
+      ()=>whatsappStickerWebp(raw),
+      'WhatsApp stickers · conversion',
+      {progress}
+    );
+    const archiveRows=[converted];
+    while(archiveRows.length<3){
+      archiveRows.push({buffer:Buffer.from(converted.buffer),animated:converted.animated===true});
+    }
+    const tray=await withPersistentStickerRetry(
+      runtime,
+      ()=>whatsappTray(converted.buffer),
+      'WhatsApp stickers · miniature',
+      {progress}
+    );
+    const pack=buildWastickersArchive({title,author,cover:tray,stickers:archiveRows});
     const safe=safeBase(title,48)||'nexai-pack';
-    await progress.update('⬆️ WhatsApp stickers · envoi du fichier…');
-    await sendTelegramMedia(client,peer,pack,{
-      fileName:safe+'.wastickers',
-      mimeType:'application/zip',
-      kind:'document',
-      caption:'NexAi · WhatsApp stickers · '+Math.min(stickers.length,30)+' sticker(s) · '+stickers.filter(x=>x.animated).length+' animé(s)'+(skipped?' · '+skipped+' ignoré(s)':''),
-      afterSend:null
-    });
-    if(typeof progress.done==='function')await progress.done('WhatsApp stickers · pack prêt');
-    else await progress.update('✅ WhatsApp stickers · pack prêt.');
+    await withPersistentStickerRetry(
+      runtime,
+      ()=>sendTelegramMedia(client,peer,pack,{
+        fileName:safe+'.wastickers',
+        mimeType:'application/zip',
+        kind:'document',
+        caption:'NexAi · WhatsApp stickers · 1 sticker',
+        afterSend:null
+      }),
+      'WhatsApp stickers · envoi',
+      {progress}
+    );
+    await finishProgress(progress,'✅ WhatsApp stickers · 1/1 sticker traité');
     return true;
   }
 
