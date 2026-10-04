@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
-const PINNED_ANIME_SHA256='769811d2ea87931f70d2ab22daef2b4dcf881da3e99837dedb600801c55713de';
+const PINNED_ANIME_SHA256='ec9294fca03a3e4c10f10f360cf6b29365e4798639401e31e7e8b63da949782b';
 
 const CONTRACT={
   'anime-ingest.mjs':[
@@ -18,6 +18,9 @@ const CONTRACT={
     'function queuedPresentationNeedsRepair',
     'function isNexCanalCopyMissingError',
     'async function publishDirectAnimeFallback',
+    'async function cancelNexCanalHandoffForFallback',
+    'function isNexCanalFallbackError',
+    'const NEXCANAL_HANDOFF_TIMEOUT_MS=25_000;',
     'async function preflightSeriesBeforeSynopsis',
     'function obsoleteLivenessBlockReason',
     'async function latestIncompletePublishedSeries',
