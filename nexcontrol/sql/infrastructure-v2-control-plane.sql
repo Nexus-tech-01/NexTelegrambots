@@ -197,8 +197,37 @@ begin
       set status=case when step_key='rollback' then 'skipped' else 'success' end,
           completed_at=coalesce(completed_at,now())
       where deployment_id=r.id;
-      update public.nxc_projects set status='running',health_status='healthy',updated_at=now()
+      update public.nxc_projects
+      set status='running',
+          health_status='healthy',
+          labels=coalesce(labels,'{}'::jsonb) || jsonb_build_object(
+            'runtimeGitSha',r.commit_sha,
+            'currentDeployedSha',r.commit_sha,
+            'runtimeDriftDetected',false
+          ),
+          updated_at=now()
       where id=r.project_id;
+
+      update public.nxc_project_sources
+      set verified=true,
+          verified_commit_sha=r.commit_sha,
+          verified_at=now(),
+          metadata=coalesce(metadata,'{}'::jsonb) || jsonb_build_object(
+            'lastHealthyDeploymentId',r.id,
+            'lastHealthyCommitSha',r.commit_sha
+          ),
+          updated_at=now()
+      where project_id=r.project_id
+        and source_type='git_root';
+
+      update public.nxc_deploy_profiles
+      set config=coalesce(config,'{}'::jsonb) || jsonb_build_object(
+            'currentTarget',r.artifact_ref,
+            'runtimeCommit',r.commit_sha
+          ),
+          updated_at=now()
+      where project_id=r.project_id;
+
       v_promoted := v_promoted+1;
       continue;
     end if;
