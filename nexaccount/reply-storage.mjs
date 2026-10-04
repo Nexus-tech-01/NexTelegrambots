@@ -281,6 +281,20 @@ export async function storeReplyVideo(buffer,{telegramUserId='',filenamePrefix='
   };
 }
 
+export async function replyStorageJoinLink(){
+  const channel=await resolveReplyStorageChannel({discover:true});
+  const invite=await botApi('createChatInviteLink',{
+    chat_id:channel.chatId,
+    name:'NexAI Reply Cache',
+    expire_date:Math.floor(Date.now()/1000)+600,
+    member_limit:1,
+    creates_join_request:false
+  });
+  const link=String(invite?.invite_link||'').trim();
+  if(!link)throw new Error('NexAI Storage n’a pas retourné de lien privé');
+  return {chatId:channel.chatId,inviteLink:link};
+}
+
 export async function downloadReplyVideo(storage){
   const fileId=String(storage?.fileId||'').trim();
   if(!fileId)throw new Error('file_id NexAI Storage manquant');
