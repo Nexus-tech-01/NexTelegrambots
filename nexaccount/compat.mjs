@@ -486,7 +486,7 @@ async function deleteHiddenPacket(client,peer,sent){
   if(!id)return false;
   // Telegram must first accept the mention entities; then remove the technical
   // carrier so the group is not polluted by visually empty follow-up messages.
-  await sleep(350);
+  await new Promise(resolve=>setTimeout(resolve,350));
   try{
     await client.deleteMessages(peer,[id],{revoke:true});
     return true;
