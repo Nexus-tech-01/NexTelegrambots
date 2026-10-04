@@ -675,8 +675,8 @@ export async function sharedGreetingPolicy(chatId){
   const id=String(chatId||'').trim();
   if(!id)return {
     chatId:'',
-    welcome:false,
-    goodbye:false,
+    welcome:true,
+    goodbye:true,
     welcomeText:'👋 Bienvenue {mention} dans {group} !',
     goodbyeText:'👋 Au revoir {mention}. À bientôt dans {group}.'
   };
@@ -684,8 +684,8 @@ export async function sharedGreetingPolicy(chatId){
   const row=await d.collection('nexaccount_group_policies').findOne({_id:id});
   return {
     chatId:id,
-    welcome:row?.welcome===true,
-    goodbye:row?.goodbye===true,
+    welcome:row?.welcome!==false,
+    goodbye:row?.goodbye!==false,
     welcomeText:String(row?.welcomeText||'👋 Bienvenue {mention} dans {group} !'),
     goodbyeText:String(row?.goodbyeText||'👋 Au revoir {mention}. À bientôt dans {group}.')
   };
@@ -706,6 +706,54 @@ export async function patchSharedGreetingPolicy(chatId,patch={}){
     {upsert:true}
   );
   return sharedGreetingPolicy(id);
+}
+
+let sharedGreetingDeliveryIndexReady=false;
+
+async function sharedGreetingDeliveries(){
+  const d=await db();
+  const collection=d.collection('nexaccount_greeting_deliveries');
+  if(!sharedGreetingDeliveryIndexReady){
+    sharedGreetingDeliveryIndexReady=true;
+    await collection.createIndex({expiresAt:1},{expireAfterSeconds:0}).catch(error=>{
+      sharedGreetingDeliveryIndexReady=false;
+      throw error;
+    });
+  }
+  return collection;
+}
+
+export async function claimSharedGreetingDelivery(chatId,userId,kind,{ttlMs=30_000}={}){
+  const chat=String(chatId||'').trim();
+  const user=String(userId||'').trim();
+  const type=String(kind||'welcome').trim().toLowerCase()==='goodbye'?'goodbye':'welcome';
+  if(!chat||!user)return true;
+  const collection=await sharedGreetingDeliveries();
+  const now=new Date();
+  const expiresAt=new Date(now.getTime()+Math.max(5_000,Math.min(120_000,Number(ttlMs)||30_000)));
+  const _id=[chat,user,type].join(':');
+  try{
+    await collection.insertOne({_id,chatId:chat,userId:user,kind:type,createdAt:now,expiresAt});
+    return true;
+  }catch(error){
+    if(Number(error?.code)!==11000)throw error;
+    const refreshed=await collection.findOneAndUpdate(
+      {_id,expiresAt:{$lte:now}},
+      {$set:{createdAt:now,expiresAt}},
+      {returnDocument:'after'}
+    ).catch(()=>null);
+    return Boolean(refreshed);
+  }
+}
+
+export async function releaseSharedGreetingDelivery(chatId,userId,kind){
+  const chat=String(chatId||'').trim();
+  const user=String(userId||'').trim();
+  const type=String(kind||'welcome').trim().toLowerCase()==='goodbye'?'goodbye':'welcome';
+  if(!chat||!user)return false;
+  const collection=await sharedGreetingDeliveries();
+  const result=await collection.deleteOne({_id:[chat,user,type].join(':')});
+  return result.deletedCount===1;
 }
 
 export async function patchSettings(telegramUserId,patch){
