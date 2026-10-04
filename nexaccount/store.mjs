@@ -666,9 +666,46 @@ export async function settingsFor(telegramUserId){
     autoReact:{enabled:cfg.autoReact,mode:'smart',targets:[...cfg.autoReactTargets],reactions:['🔥','❤️','👍']},
     autoJoin:{enabled:cfg.autoJoin,targets:[...cfg.autoJoinTargets]},
     welcome:{enabled:true,text:'Bienvenue {name} dans {group}.'},
-    goodbye:{enabled:false,text:'Au revoir {name}.'},
+    goodbye:{enabled:true,text:'Au revoir {name}.'},
     antilink:{enabled:false,allowAdmins:true,allowlist:[]}
   };
+}
+
+export async function sharedGreetingPolicy(chatId){
+  const id=String(chatId||'').trim();
+  if(!id)return {
+    chatId:'',
+    welcome:true,
+    goodbye:true,
+    welcomeText:'👋 Bienvenue {mention} dans {group} !',
+    goodbyeText:'👋 Au revoir {mention}. À bientôt dans {group}.'
+  };
+  const d=await db();
+  const row=await d.collection('nexaccount_group_policies').findOne({_id:id});
+  return {
+    chatId:id,
+    welcome:row?.welcome!==false,
+    goodbye:row?.goodbye!==false,
+    welcomeText:String(row?.welcomeText||'👋 Bienvenue {mention} dans {group} !'),
+    goodbyeText:String(row?.goodbyeText||'👋 Au revoir {mention}. À bientôt dans {group}.')
+  };
+}
+
+export async function patchSharedGreetingPolicy(chatId,patch={}){
+  const id=String(chatId||'').trim();
+  if(!id)throw new Error('group_chat_id_required');
+  const safe={};
+  if(patch.welcome!==undefined)safe.welcome=patch.welcome!==false;
+  if(patch.goodbye!==undefined)safe.goodbye=patch.goodbye!==false;
+  if(patch.welcomeText!==undefined)safe.welcomeText=String(patch.welcomeText||'').trim().slice(0,1500);
+  if(patch.goodbyeText!==undefined)safe.goodbyeText=String(patch.goodbyeText||'').trim().slice(0,1500);
+  const d=await db(),now=new Date();
+  await d.collection('nexaccount_group_policies').updateOne(
+    {_id:id},
+    {$set:{...safe,updatedAt:now},$setOnInsert:{createdAt:now}},
+    {upsert:true}
+  );
+  return sharedGreetingPolicy(id);
 }
 
 export async function patchSettings(telegramUserId,patch){
