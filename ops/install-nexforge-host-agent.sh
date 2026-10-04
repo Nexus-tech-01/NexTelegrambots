@@ -16,6 +16,10 @@ if [ "${#TOKEN}" -lt 20 ]; then
   echo "Missing or invalid NexControl setup token." >&2
   exit 1
 fi
+if [[ ! "$NAME" =~ ^[A-Za-z0-9_.\ -]{1,80}$ ]]; then
+  echo "Invalid agent name. Use letters, digits, spaces, dot, underscore or dash." >&2
+  exit 1
+fi
 for cmd in python3 curl sha256sum systemctl; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "Missing required command: $cmd" >&2; exit 1; }
 done
@@ -28,12 +32,12 @@ curl -fsSL --retry 3 --connect-timeout 10 "$AGENT_URL" -o "$tmp"
 echo "$AGENT_SHA256  $tmp" | sha256sum -c -
 install -m 0755 "$tmp" /opt/nexforge-host-agent/agent.py
 
-cat >/etc/nexforge-host-agent.env <<EOF
-SUPABASE_URL='$SUPABASE_URL'
-PUBLISHABLE_KEY='$PUBLISHABLE_KEY'
-SETUP_TOKEN='$TOKEN'
-AGENT_NAME='${NAME//\'/}'
-EOF
+{
+  printf 'SUPABASE_URL=%q\n' "$SUPABASE_URL"
+  printf 'PUBLISHABLE_KEY=%q\n' "$PUBLISHABLE_KEY"
+  printf 'SETUP_TOKEN=%q\n' "$TOKEN"
+  printf 'AGENT_NAME=%q\n' "$NAME"
+} >/etc/nexforge-host-agent.env
 chmod 600 /etc/nexforge-host-agent.env
 
 cat >/etc/systemd/system/nexforge-host-agent.service <<'EOF'
