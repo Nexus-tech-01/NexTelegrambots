@@ -147,7 +147,7 @@ export async function saveAccount({me,session,phone,enabled=true}){
       customStyle:normalizeCustomStyle({}),
       autoReact:{enabled:true,mode:'smart',targets:[...cfg.autoReactTargets],reactions:['🔥','❤️','👍']},
       autoJoin:{enabled:cfg.autoJoin,targets:[...cfg.autoJoinTargets]},
-      welcome:{enabled:true,text:preferredLanguage==='fr'?'Bienvenue {name} dans {group}.':'Welcome {name} to {group}.'},
+      welcome:{enabled:false,text:preferredLanguage==='fr'?'Bienvenue {name} dans {group}.':'Welcome {name} to {group}.'},
       goodbye:{enabled:false,text:preferredLanguage==='fr'?'Au revoir {name}.':'Goodbye {name}.'},
       antilink:{enabled:false,allowAdmins:true,allowlist:[]},
       createdAt:now
@@ -665,8 +665,8 @@ export async function settingsFor(telegramUserId){
     botDisplayName:'NexAi',menuImageUrl:'',menuImageStyle:0,customEmojiIds:{},customStyle:normalizeCustomStyle({}),
     autoReact:{enabled:cfg.autoReact,mode:'smart',targets:[...cfg.autoReactTargets],reactions:['🔥','❤️','👍']},
     autoJoin:{enabled:cfg.autoJoin,targets:[...cfg.autoJoinTargets]},
-    welcome:{enabled:true,text:'Bienvenue {name} dans {group}.'},
-    goodbye:{enabled:true,text:'Au revoir {name}.'},
+    welcome:{enabled:false,text:'Bienvenue {name} dans {group}.'},
+    goodbye:{enabled:false,text:'Au revoir {name}.'},
     antilink:{enabled:false,allowAdmins:true,allowlist:[]}
   };
 }
@@ -675,8 +675,8 @@ export async function sharedGreetingPolicy(chatId){
   const id=String(chatId||'').trim();
   if(!id)return {
     chatId:'',
-    welcome:true,
-    goodbye:true,
+    welcome:false,
+    goodbye:false,
     welcomeText:'👋 Bienvenue {mention} dans {group} !',
     goodbyeText:'👋 Au revoir {mention}. À bientôt dans {group}.'
   };
@@ -684,8 +684,8 @@ export async function sharedGreetingPolicy(chatId){
   const row=await d.collection('nexaccount_group_policies').findOne({_id:id});
   return {
     chatId:id,
-    welcome:row?.welcome!==false,
-    goodbye:row?.goodbye!==false,
+    welcome:row?.welcome===true,
+    goodbye:row?.goodbye===true,
     welcomeText:String(row?.welcomeText||'👋 Bienvenue {mention} dans {group} !'),
     goodbyeText:String(row?.goodbyeText||'👋 Au revoir {mention}. À bientôt dans {group}.')
   };
