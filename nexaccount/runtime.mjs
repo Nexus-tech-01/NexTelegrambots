@@ -1970,6 +1970,63 @@ async function syncRuntimeUpdates(runtime){
   }
 }
 
+
+const NEXCONTROL_GROUP_TELEMETRY_URL='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol-ui?route=%2Fapi%2Ftelemetry%2Fgroup-event';
+
+// NEXCONTROL_GROUP_TELEMETRY_V1
+function nexControlTelemetryChatId(message){
+  const peer=message?.peerId;
+  if(peer?.channelId)return '-100'+String(peer.channelId);
+  if(peer?.chatId)return '-'+String(peer.chatId);
+  return String(message?.chatId||'');
+}
+
+async function emitNexControlGroupEvent(runtime,event,direction='incoming'){
+  try{
+    if(!process.env.NEXCONTROL_FLEET_KEY)return;
+    if(!eventIsGroup(event))return;
+    // Broadcast channels are excluded; this stream is deliberately group-only.
+    if(event?.isChannel===true&&event?.isGroup!==true)return;
+    const message=event?.message;
+    if(!message)return;
+    const chatId=nexControlTelemetryChatId(message);
+    const messageId=String(message?.id||'');
+    if(!chatId||!messageId)return;
+    const peer=message?.peerId;
+    const body={
+      direction:direction==='outgoing'?'outgoing':'incoming',
+      eventType:String(message?.action?.className||message?.action?.constructor?.name||'message'),
+      chatId,
+      chatType:peer?.chatId?'group':'supergroup',
+      chatTitle:String(event?.chat?.title||event?.chatTitle||''),
+      userId:messageAuthorId(message),
+      username:String(event?.sender?.username||''),
+      messageId,
+      replyToMessageId:String(message?.replyTo?.replyToMsgId||message?.replyToMsgId||''),
+      text:textOf(message),
+      createdAt:new Date(messageTimestampMs(message)||Date.now()).toISOString(),
+      payload:{
+        accountTelegramUserId:String(runtime?.account?.telegramUserId||''),
+        accountUsername:String(runtime?.account?.username||''),
+        mediaType:String(message?.media?.className||message?.media?.constructor?.name||''),
+        hasMedia:Boolean(message?.media)
+      }
+    };
+    const response=await fetch(NEXCONTROL_GROUP_TELEMETRY_URL,{
+      method:'POST',
+      headers:{
+        'content-type':'application/json',
+        'x-nexcontrol-agent-key':String(process.env.NEXCONTROL_FLEET_KEY)
+      },
+      body:JSON.stringify(body),
+      signal:AbortSignal.timeout(5000)
+    });
+    if(!response.ok)console.warn('[NexAccount telemetry]',response.status);
+  }catch(error){
+    console.warn('[NexAccount telemetry]',String(error?.message||error).slice(0,160));
+  }
+}
+
 async function maybeHandleSelfCommand(runtime,event,source='event'){
   const {client,account}=runtime;
   const message=event?.message;
@@ -2345,6 +2402,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false,ses
 
   client.addEventHandler(async event=>{
     markRuntimeUpdate(runtime);
+    void emitNexControlGroupEvent(runtime,event,'outgoing');
     try{
       if(await maybeHandleSelfCommand(runtime,event,'outgoing'))return;
     }catch(e){
@@ -2355,6 +2413,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false,ses
 
   client.addEventHandler(async event=>{
     markRuntimeUpdate(runtime);
+    void emitNexControlGroupEvent(runtime,event,'incoming');
     try{
       // Messages sent by this same account from another Telegram session may
       // arrive with out=false. Treat recognized self-authored commands as commands.
