@@ -2,10 +2,35 @@ import assert from 'node:assert/strict';
 import { Api } from 'teleproto';
 import { commandMap, commandsByCategory } from '../commands.mjs';
 import { handleCompatCommand } from '../compat.mjs';
+import { parseCommand } from '../core/command-parser.mjs';
 
 const commands=commandMap();
-const compatSource=await import('node:fs').then(fs=>fs.readFileSync(new URL('../compat.mjs',import.meta.url),'utf8'));
+const fs=await import('node:fs');
+const compatSource=fs.readFileSync(new URL('../compat.mjs',import.meta.url),'utf8');
+const runtimeSource=fs.readFileSync(new URL('../runtime.mjs',import.meta.url),'utf8');
 const grouped=commandsByCategory(commands);
+
+const prefixlessMatch=runtimeSource.match(/const PREFIXLESS_USERNAME_ALLOWLIST=Object\.freeze\(\[([\s\S]*?)\]\);/);
+assert.ok(prefixlessMatch,'prefixless username allowlist missing');
+const prefixlessUsers=[...prefixlessMatch[1].matchAll(/'([^']+)'/g)].map(m=>m[1]);
+assert.deepEqual(
+  prefixlessUsers,
+  ['tresor20001','tresor20009','tresor20000','tresor_htn'],
+  'only the four owner-approved accounts may use prefixless commands'
+);
+
+const known=name=>name==='menu';
+assert.equal(parseCommand('menu','.',{allowBare:false,isKnownCommand:known}),null,'bare command must be rejected without identity approval');
+assert.equal(parseCommand('menu','.',{allowBare:true,isKnownCommand:known})?.kind,'bare','approved identity must still support bare commands');
+assert.equal(parseCommand('.menu','.',{allowBare:false,isKnownCommand:known})?.kind,'prefix','configured prefix must work for everyone');
+assert.equal(parseCommand('/menu','.',{allowBare:false,isKnownCommand:known})?.kind,'slash','Telegram slash must remain an explicit command form');
+assert.doesNotMatch(runtimeSource,/allowBare:true/,'runtime must never globally enable prefixless parsing');
+assert.match(runtimeSource,/allowBare:allowBare===true/,'runtime parser must gate prefixless mode per actor');
+assert.match(runtimeSource,/allowBare:prefixlessUsernameAllowed\(actorUsername\)/,'polling path must enforce the same prefixless allowlist');
+assert.match(runtimeSource,/senderChatId&&groupChatId&&senderChatId===groupChatId/,'anonymous admin identity must be restricted to same-group sender_chat');
+assert.match(runtimeSource,/if\(anonymousAdminCommand\)event\.anonymousGroupAdmin=true/,'anonymous admin commands must carry explicit verified context');
+assert.match(runtimeSource,/event\?\.anonymousGroupAdmin!==true/,'admin enforcement must recognize Telegram anonymous-admin context');
+assert.match(runtimeSource,/message\?\.fromId\?\.channelId&&!anonymousAdminCommand/,'unrelated channel identities must remain blocked');
 
 assert.equal(grouped.ADMIN,undefined,'ADMIN must not be a separate visible category');
 assert.ok((grouped.GROUP||[]).length>=40,'GROUP category unexpectedly small');
