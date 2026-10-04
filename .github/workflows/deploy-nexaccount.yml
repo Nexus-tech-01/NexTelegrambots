@@ -1,11 +1,11 @@
 name: Deploy NexAccount
-# Production safety: manual-only. Unrelated pushes must never restart NexAnime.
+# Production safety: manual-only. NexAI Core deploys must never restart NexAnime or NexAPK.
 
 on:
   workflow_dispatch:
     inputs:
       confirm_nexanime_restart:
-        description: 'Confirm an intentional NexAccount/NexAnime production restart'
+        description: 'Confirm an intentional NexAI Core production restart'
         required: true
         default: false
         type: boolean
@@ -199,41 +199,28 @@ jobs:
               by_name={str(x.get('username') or '').lower().lstrip('@'):x for x in active if x.get('connected') is True}
               primary=by_name.get('tresor20001')
               if not primary:
-                  raise RuntimeError('required primary anime runtime is not active: @tresor20001')
-              primary_anime=primary.get('anime') or {}
-              if primary_anime.get('listener') is not True or primary_anime.get('publisher') is not True:
-                  raise RuntimeError('@tresor20001 must be anime listener+publisher: '+str(primary_anime))
-
+                  raise RuntimeError('required NexAI owner runtime is not active: @tresor20001')
               scanner=by_name.get('tresor20009')
               if not scanner:
-                  raise RuntimeError('required APK/anime scanner is not active: @tresor20009')
-              scanner_anime=scanner.get('anime') or {}
-              if scanner_anime.get('listener') is not True:
-                  raise RuntimeError('@tresor20009 must be an anime listener: '+str(scanner_anime))
+                  raise RuntimeError('required NexAI account runtime is not active: @tresor20009')
 
-              anime_status=job('runtime.exec',{
+              # NexAnime and NexAPK are standalone systemd workers. Core deployment
+              # verifies them over localhost but never restarts or replaces them.
+              worker_probe=job('runtime.exec',{
                   'root':'nexus',
                   'command':'node',
-                  'args':['bots/nexaccount/cli.mjs','anime-status'],
+                  'args':['-e',(
+                      "Promise.all(['http://127.0.0.1:18130/health','http://127.0.0.1:18131/health']"
+                      ".map(async u=>{const r=await fetch(u);const j=await r.json();if(!r.ok||j.ok!==true)throw new Error(u+' unhealthy '+JSON.stringify(j));return j;}))"
+                      ".then(x=>console.log(JSON.stringify(x))).catch(e=>{console.error(e);process.exit(1)})"
+                  )],
                   'timeoutMs':30000
               },timeout=60)
-              anime_text=anime_status.get('stdout','').strip()
-              anime_json=json.loads(anime_text or '{}')
-              listeners=set(str(x).lower() for x in (anime_json.get('listeners') or []))
-              if anime_json.get('ok') is not True or anime_json.get('enabled') is not True:
-                  raise RuntimeError('NexAnime system status is not healthy: '+str(anime_json))
-              if str(anime_json.get('destination') or '').lower()!='@theotaku_nexus':
-                  raise RuntimeError('NexAnime destination regression: '+str(anime_json.get('destination')))
-              if float(anime_json.get('interSeriesMinutes') or 0)!=15:
-                  raise RuntimeError('NexAnime inter-series cadence regression: '+str(anime_json.get('interSeriesMinutes')))
-              for required_listener in ('@tresor20001','@tresor20009'):
-                  if required_listener not in listeners:
-                      raise RuntimeError('NexAnime listener missing: '+required_listener)
-              print('NEXANIME_RUNTIME_CONTRACT_OK',anime_json.get('destination'),anime_json.get('interSeriesMinutes'))
-
-              lite=scanner.get('liteApks') or {}
-              if lite.get('scanner') is not True or lite.get('running') is not True:
-                  raise RuntimeError('@tresor20009 embedded LiteAPK scanner is not running: '+str(lite))
+              worker_text=worker_probe.get('stdout','').strip()
+              workers=json.loads(worker_text or '[]')
+              if len(workers)!=2:
+                  raise RuntimeError('standalone worker probe incomplete: '+worker_text)
+              print('NEXAI_INDEPENDENT_WORKERS_OK',[(x.get('service'),x.get('ok')) for x in workers])
 
               probe_row=by_name.get('tresor20001') or next((x for x in active if x.get('connected') is True),None)
               if not probe_row or not probe_row.get('telegramUserId'):
@@ -269,7 +256,7 @@ jobs:
               else:
                   print('NEXAI_AI_OK',ai)
 
-              print('AUTOMATIONS_OK @tresor20001 anime publisher + @tresor20009 anime/APK scanner')
+              print('AUTOMATIONS_OK NexAI Core isolated from standalone NexAnime + NexAPK workers')
               print('DEPLOYMENT_OK NexAccount')
           except Exception:
               if production_previous:
