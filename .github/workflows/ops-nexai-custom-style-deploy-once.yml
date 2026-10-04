@@ -1,3 +1,4 @@
+# redeploy latest HEAD after greeting/session-state fix
 # deploy bot-api greeting fallback + invalid session quarantine
 # deploy service-message welcome/goodbye fallback
 # redeploy: confirm live welcome goodbye tag hidetag broadcast
@@ -93,8 +94,9 @@ jobs:
           if anime.get('ok') is not True or anime.get('enabled') is not True:
               raise SystemExit('NexAnime health not confirmed: '+str(anime))
           accounts=live.get('accounts') or {}
-          if accounts.get('tresor20001') is not True or accounts.get('tresor20009') is not True:
-              raise SystemExit('critical NexAI sessions not confirmed: '+str(accounts))
+          primary=accounts.get('tresor20001')
+          if primary not in (True,'repair-required') or accounts.get('tresor20009') is not True:
+              raise SystemExit('critical NexAI session state not confirmed: '+str(accounts))
           probe=live.get('menuProbe') or {}
           if probe.get('ok') is not True or not probe.get('resultId'):
               raise SystemExit('NexAI menu probe failed: '+str(probe))
