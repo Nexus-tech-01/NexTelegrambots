@@ -463,6 +463,7 @@ async function sendMentionList(client,peer,people,title){
     await client.sendMessage(peer,{message:built.message.trimEnd(),formattingEntities:built.entities});
   }
 }
+const HIDDEN_TAG_BATCH=50;
 function hiddenTagPeople(people){
   const list=[];
   const seen=new Set();
@@ -474,19 +475,48 @@ function hiddenTagPeople(people){
   }
   return list;
 }
-async function sendHiddenMentions(client,peer,people,title){
+function hiddenTagChunks(people){
   const list=hiddenTagPeople(people);
-  if(!list.length)return client.sendMessage(peer,{message:'Aucun membre trouvé.'});
+  const chunks=[];
+  for(let i=0;i<list.length;i+=HIDDEN_TAG_BATCH)chunks.push(list.slice(i,i+HIDDEN_TAG_BATCH));
+  return chunks;
+}
+async function deleteHiddenPacket(client,peer,sent){
+  const id=Number(sent?.id||sent?.message?.id||0);
+  if(!id)return false;
+  // Telegram must first accept the mention entities; then remove the technical
+  // carrier so the group is not polluted by visually empty follow-up messages.
+  await sleep(350);
+  try{
+    await client.deleteMessages(peer,[id],{revoke:true});
+    return true;
+  }catch{return false}
+}
+async function sendHiddenTagRemainder(client,peer,chunks,startIndex=1){
+  for(let i=startIndex;i<chunks.length;i++){
+    const built=await buildMentionEntities(client,'\u2063',chunks[i],{hidden:true});
+    const sent=await client.sendMessage(peer,{
+      message:built.message,
+      formattingEntities:built.entities,
+      silent:true
+    });
+    await deleteHiddenPacket(client,peer,sent);
+  }
+}
+async function sendHiddenMentions(client,peer,people,title){
+  const chunks=hiddenTagChunks(people);
+  if(!chunks.length)return client.sendMessage(peer,{message:'Aucun membre trouvé.'});
   const visible=String(title||'Tout le monde est invité à lire ce message.').trim();
-  const built=await buildMentionEntities(client,visible,list,{hidden:true});
-  await client.sendMessage(peer,{message:built.message,formattingEntities:built.entities});
+  const first=await buildMentionEntities(client,visible,chunks[0],{hidden:true});
+  await client.sendMessage(peer,{message:first.message,formattingEntities:first.entities});
+  await sendHiddenTagRemainder(client,peer,chunks,1);
 }
 async function sendHiddenTaggedCopy(client,peer,people,source){
-  const list=hiddenTagPeople(people);
-  if(!list.length)return client.sendMessage(peer,{message:'Aucun membre trouvé.'});
+  const chunks=hiddenTagChunks(people);
+  if(!chunks.length)return client.sendMessage(peer,{message:'Aucun membre trouvé.'});
   const visible=String(source?.message??source?.text??'');
   const sourceEntities=Array.isArray(source?.entities)?source.entities:[];
-  const first=await buildMentionEntities(client,visible,list,{hidden:true});
+  const first=await buildMentionEntities(client,visible,chunks[0],{hidden:true});
   if(source?.media){
     const buffer=await client.downloadMedia(source).catch(()=>null);
     if(!buffer?.length)throw new Error('Impossible de recopier le média répondu.');
@@ -504,6 +534,7 @@ async function sendHiddenTaggedCopy(client,peer,people,source){
       formattingEntities:[...sourceEntities,...first.entities]
     });
   }
+  await sendHiddenTagRemainder(client,peer,chunks,1);
 }
 async function deleteCommandMessage(client,peer,message){
   const id=Number(message?.id||0);
