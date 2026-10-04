@@ -2026,8 +2026,8 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
   const parsed=parseRuntimeCommand(textOf(message),settings,event,{allowBare});
   if(!parsed)return false;
 
-  const anonymousGroupSender=!selfAuthored&&isAnonymousGroupSender(event);
-  const anonymousAdminCommand=anonymousGroupSender&&commandRequiresGroupAdmin(parsed);
+  const anonymousSender=!selfAuthored&&isAnonymousGroupSender(event);
+  const anonymousAdminCommand=anonymousSender&&commandRequiresGroupAdmin(parsed);
   if(anonymousAdminCommand)event.anonymousGroupAdmin=true;
 
   // Bare commands ("sessions", "menu", ...) are convenient, but unlike an
