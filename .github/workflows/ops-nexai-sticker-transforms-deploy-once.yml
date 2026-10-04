@@ -1,3 +1,4 @@
+# deploy accelerated sticker pipeline 2026-10-04
 # deploy engine-router with take fix 2026-10-04
 # deploy verified take completion fix 2026-10-04
 # deploy take bare-alias fix 2026-10-04
@@ -56,6 +57,10 @@ jobs:
           grep -F "sourceDocumentIds" nexaccount/sticker-engine.mjs
           grep -F "resumeStickerJobs(runtime)" nexaccount/runtime.mjs
           grep -F "outcome?.deferred!==true" nexaccount/core/engine-router.mjs
+          grep -F "applyDurableStickerMutation" nexaccount/sticker-engine.mjs
+          grep -F "startPrepared" nexaccount/sticker-engine.mjs
+          grep -F "traitement rapide sécurisé" nexaccount/sticker-engine.mjs
+          grep -F "NEXAI_STICKER_MUTATION_GAP_MS||300" nexaccount/sticker-engine.mjs
           if grep -F "MAX_CLONE" nexaccount/sticker-engine.mjs; then
             echo "legacy pack truncation still present" >&2
             exit 1
