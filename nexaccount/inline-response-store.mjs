@@ -20,7 +20,7 @@ async function collection(){
   return c;
 }
 
-export async function putInlineResponse(text,{ttlMs=TTL_MS,accountId=''}={}){
+export async function putInlineResponse(text,{ttlMs=TTL_MS,accountId='',kind='',payload=null}={}){
   const token=crypto.randomBytes(12).toString('base64url');
   const now=new Date();
   const ttl=Math.max(10_000,Math.min(300_000,Number(ttlMs)||TTL_MS));
@@ -29,6 +29,8 @@ export async function putInlineResponse(text,{ttlMs=TTL_MS,accountId=''}={}){
     _id:token,
     text:String(text??'').slice(0,4096),
     accountId:String(accountId||''),
+    kind:String(kind||'').slice(0,32),
+    payload:payload&&typeof payload==='object'?structuredClone(payload):null,
     createdAt:now,
     expiresAt:new Date(now.getTime()+ttl)
   });
@@ -43,7 +45,13 @@ export async function getInlineResponse(token,accountId=''){
     expiresAt:{$gt:new Date()}
   });
   if(!row)return null;
-  return {text:String(row.text||''),createdAt:row.createdAt,expiresAt:row.expiresAt};
+  return {
+    text:String(row.text||''),
+    kind:String(row.kind||''),
+    payload:row.payload&&typeof row.payload==='object'?row.payload:null,
+    createdAt:row.createdAt,
+    expiresAt:row.expiresAt
+  };
 }
 
 export async function deleteInlineResponse(token){
