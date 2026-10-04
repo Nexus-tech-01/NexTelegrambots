@@ -49,35 +49,61 @@ let pollerRestartAttempt=0;
 
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
-function greetingHtmlEscape(value){
-  return String(value??'')
-    .replaceAll('&','&amp;')
-    .replaceAll('<','&lt;')
-    .replaceAll('>','&gt;');
-}
-
 function greetingBotDisplayName(user){
   return String([user?.first_name,user?.last_name].filter(Boolean).join(' ')||user?.username||user?.id||'Membre').trim();
 }
 
-function renderBotGreeting(template,users,chatTitle){
+function renderBotGreetingText(template,users,chatTitle){
   const list=(Array.isArray(users)?users:[]).filter(Boolean);
   const safeUsers=list.length?list:[{id:'',first_name:'Membre'}];
   const names=safeUsers.map(greetingBotDisplayName);
   const first=safeUsers[0]||{};
-  const mentions=safeUsers.map(user=>{
-    const name=greetingHtmlEscape(greetingBotDisplayName(user));
-    const id=String(user?.id||'');
-    return id?'<a href="tg://user?id='+id+'">'+name+'</a>':name;
-  }).join(', ');
-  let text=greetingHtmlEscape(String(template||''))
-    .replaceAll('{mention}',mentions)
-    .replaceAll('{name}',greetingHtmlEscape(names.join(', ')))
-    .replaceAll('{username}',first?.username?'@'+greetingHtmlEscape(String(first.username).replace(/^@/,'')):'')
-    .replaceAll('{id}',greetingHtmlEscape(String(first?.id||'')))
-    .replaceAll('{group}',greetingHtmlEscape(String(chatTitle||'ce groupe')))
+  return String(template||'')
+    .replaceAll('{mention}',names.join(', '))
+    .replaceAll('{name}',names.join(', '))
+    .replaceAll('{username}',first?.username?'@'+String(first.username).replace(/^@/,''):'')
+    .replaceAll('{id}',String(first?.id||''))
+    .replaceAll('{group}',String(chatTitle||'ce groupe'))
     .replaceAll('{count}',String(safeUsers.length));
-  return '<blockquote>'+text+'</blockquote>';
+}
+
+function greetingMiniAppMarkup(){
+  const username=String(cfg.botUsername||'').trim().replace(/^@/,'');
+  const url=username
+    ?'https://t.me/'+username+'?startapp=welcome'
+    :String(cfg.connectUrl||'https://nex-telegrambots.vercel.app/');
+  return {
+    inline_keyboard:[[
+      {text:'ᴄᴏɴɴᴇᴄᴛ ɴᴇxᴀɪ',url}
+    ]]
+  };
+}
+
+async function greetingProfilePhotoFileId(ctx,user){
+  const id=Number(user?.id||0);
+  if(!id)return '';
+  try{
+    const photos=await ctx.api.getUserProfilePhotos(id,{offset:0,limit:1});
+    const sizes=Array.isArray(photos?.photos?.[0])?photos.photos[0]:[];
+    // Keep Telegram's original profile framing. No canvas crop, zoom or face-cut.
+    return String(sizes.at(-1)?.file_id||sizes[0]?.file_id||'');
+  }catch(error){
+    console.warn('[NexAI greeting-avatar]',id,String(error?.description||error?.message||error).slice(0,280));
+    return '';
+  }
+}
+
+async function greetingCaptionEntities(text){
+  const value=String(text||'');
+  const custom=await animatedCustomEmojiEntitySpecsFromLibrary(
+    value,
+    {},
+    {sourceUsername:cfg.creatorUsername||'tresor20001'}
+  ).catch(()=>[]);
+  return [
+    {type:'blockquote',offset:0,length:utf16len(value)},
+    ...custom
+  ];
 }
 
 async function handleBotGreeting(ctx){
@@ -98,11 +124,26 @@ async function handleBotGreeting(ctx){
 
   const users=isWelcome?newcomers:left;
   const template=isWelcome?policy.welcomeText:policy.goodbyeText;
-  const html=renderBotGreeting(template,users,chat.title||'ce groupe');
+  const text=renderBotGreetingText(template,users,chat.title||'ce groupe').slice(0,1024);
+  const entities=await greetingCaptionEntities(text);
+  const reply_markup=greetingMiniAppMarkup();
+
   try{
-    await ctx.reply(html,{parse_mode:'HTML'});
-    console.log('[NexAI greeting-bot]',isWelcome?'welcome':'goodbye','chat='+String(chat.id),'users='+users.map(x=>x.id).join(','));
+    const profilePhoto=isWelcome?await greetingProfilePhotoFileId(ctx,users[0]):'';
+    if(profilePhoto){
+      await ctx.replyWithPhoto(profilePhoto,{
+        caption:text,
+        caption_entities:entities,
+        reply_markup
+      });
+    }else{
+      await ctx.reply(text,{entities,reply_markup});
+    }
+    console.log('[NexAI greeting-bot]',isWelcome?'welcome':'goodbye','chat='+String(chat.id),'users='+users.map(x=>x.id).join(','),'profilePhoto='+Boolean(profilePhoto));
   }catch(error){
+    try{
+      await ctx.reply(text,{entities:[{type:'blockquote',offset:0,length:utf16len(text)}],reply_markup});
+    }catch{}
     console.error('[NexAI greeting-bot]',isWelcome?'welcome':'goodbye','chat='+String(chat.id),String(error?.description||error?.message||error).slice(0,500));
   }
   return true;
