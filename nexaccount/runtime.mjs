@@ -14,7 +14,7 @@ import { ownerPanelText, usersText, countriesText, languagesText, userText, botS
 import { handleCompatCommand } from './compat.mjs';
 import { menuModel, stylesModel } from './menu.mjs';
 import { aiProviderStatus, generateAiReply } from './ai-engine.mjs';
-import { stickerEngineDiagnostic, canHandleStickerCommand } from './sticker-engine.mjs';
+import { stickerEngineDiagnostic, canHandleStickerCommand, resumeStickerJobs } from './sticker-engine.mjs';
 import { parseCommand, textOf } from './core/command-parser.mjs';
 import { createCommandDeduper } from './core/command-deduper.mjs';
 import { createRuntimeContext, clearRuntimeTimers } from './core/runtime-context.mjs';
@@ -2122,6 +2122,12 @@ export async function attachConnectedClient(client,account,{leaseOwned=false,ses
   runtime.sessionFingerprint=fingerprint;
   runtime.setPresenceEnabled=enabled=>configurePresence(runtime,enabled);
   runtimes.set(id,runtime);
+  runtime.stickerJobResumePromise=resumeStickerJobs(runtime)
+    .catch(error=>{
+      console.warn('[NexAccount sticker resume]',id,String(error?.message||error).slice(0,300));
+      return [];
+    })
+    .finally(()=>{runtime.stickerJobResumePromise=null;});
   runtime.mentionReplyWarmupPromise=warmMentionVideoReply(runtime)
     .catch(error=>{
       console.warn('[NexAccount mentionVideoReply warmup]',id,String(error?.message||error).slice(0,300));
