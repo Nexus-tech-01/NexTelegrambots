@@ -492,6 +492,7 @@ function ncPage(s:any,route:URL){
     const slug=String(route.searchParams.get("bot")||(s.bots||[])[0]?.slug||"");
     const tab=String(route.searchParams.get("tab")||"overview");
     const selectedChat=String(route.searchParams.get("chat")||"");
+    const selectedSession=String(route.searchParams.get("session")||"");
     const b=(s.bots||[]).find((x:any)=>x.slug===slug)||(s.bots||[])[0];
     if(!b){body='<div class="empty">Aucun bot.</div>'}else{
       const events=s.eventsByBot[b.id]||[],jobs=s.jobsByBot[b.id]||[],ds=s.destByBot[b.id]||[];
@@ -564,7 +565,7 @@ function ncPage(s:any,route:URL){
   }
   fetch("/api/admin/infrastructure/bots/nexai/sessions").then(r=>r.json()).then(j=>{
     const active=(j.runtimes||[]).filter(x=>x.connected);
-    const preferred=active.find(x=>x.premium)||active.find(x=>String(x.username||"").toLowerCase()==="tresor20001")||active[0];
+    const preferred=active.find(x=>String(x.telegramUserId)===String(new URLSearchParams(location.search).get("session")||""))||active.find(x=>x.premium)||active.find(x=>String(x.username||"").toLowerCase()==="tresor20001")||active[0];
     for(const x of active){
       const label=(x.username?"@"+x.username:(x.firstName||x.telegramUserId))+" · "+x.telegramUserId+(x.premium?" · Premium":"");
       for(const sel of [live,compose])if(sel){const o=document.createElement("option");o.value=x.telegramUserId;o.textContent=label;sel.appendChild(o)}
@@ -580,7 +581,7 @@ function ncPage(s:any,route:URL){
         }
       }else if(tab==="sessions"&&b.slug==="nexai"){
         body=head+section("Sessions Telegram connectées","Comptes stockés, runtimes actifs, worker, synchronisation, réparation et automatisations. Les numéros restent masqués.",'<div id="sessionGrid" class="grid"><div class="empty">Chargement des sessions live…</div></div>');
-        extra+='fetch("/api/admin/infrastructure/bots/nexai/sessions").then(async r=>{const j=await r.json();if(!r.ok)throw new Error(j.message||j.error||"session_load_failed");const by={};for(const a of j.accounts||[])by[String(a.telegramUserId)]=a;const cards=(j.runtimes||[]).map(x=>{const a=by[String(x.telegramUserId)]||{};const ident=x.username?"@"+x.username:(x.firstName||x.telegramUserId);const detail={telegramUserId:x.telegramUserId,phone:a.phoneMasked||null,premium:Boolean(a.premium||x.premium),connected:x.connected,workerId:x.workerId,startedAt:x.startedAt,lastUpdateAt:x.lastUpdateAt,lastCatchUpAt:x.lastCatchUpAt,updateCount:x.updateCount,catchUpFailures:x.catchUpFailures,lastCommandPollAt:x.lastCommandPollAt,commandPollFailures:x.commandPollFailures,sessionRepairRequired:a.sessionRepairRequired,sessionRepairReason:a.sessionRepairReason,lastRuntimeSeenAt:a.lastRuntimeSeenAt,automations:x.automations,anime:x.anime,liteApks:x.liteApks};return "<article class=card><div class=between><div><small>SESSION TELEGRAM</small><h3>"+ident+"</h3><span class=tiny>"+x.telegramUserId+"</span></div><span class=pill>"+(x.connected?"connected":"offline")+"</span></div><div class=nums><div><span>Premium</span><b>"+(detail.premium?"Oui":"Non")+"</b></div><div><span>Updates</span><b>"+(x.updateCount||0)+"</b></div><div><span>Poll errors</span><b>"+(x.commandPollFailures||0)+"</b></div></div><details open><summary>Détails complets</summary><pre>"+JSON.stringify(detail,null,2)+"</pre></details></article>"}).join("");const offline=(j.accounts||[]).filter(a=>!(j.runtimes||[]).some(x=>String(x.telegramUserId)===String(a.telegramUserId))).map(a=>"<article class=card><small>SESSION STOCKÉE</small><h3>"+(a.username?"@"+a.username:(a.firstName||a.telegramUserId))+"</h3><span class=pill>offline</span><pre>"+JSON.stringify({telegramUserId:a.telegramUserId,phone:a.phoneMasked,premium:a.premium,enabled:a.enabled,connectedAt:a.connectedAt,lastActivityAt:a.lastActivityAt,lastRuntimeSeenAt:a.lastRuntimeSeenAt,sessionRepairRequired:a.sessionRepairRequired,sessionRepairReason:a.sessionRepairReason},null,2)+"</pre></article>").join("");document.getElementById("sessionGrid").innerHTML=cards+offline||"<div class=empty>Aucune session.</div>"}).catch(e=>document.getElementById("sessionGrid").innerHTML="<div class=empty>Erreur: "+e.message+"</div>");';
+        extra+='fetch("/api/admin/infrastructure/bots/nexai/sessions").then(async r=>{const j=await r.json();if(!r.ok)throw new Error(j.message||j.error||"session_load_failed");const by={};for(const a of j.accounts||[])by[String(a.telegramUserId)]=a;const cards=(j.runtimes||[]).map(x=>{const a=by[String(x.telegramUserId)]||{};const ident=x.username?"@"+x.username:(x.firstName||x.telegramUserId);const detail={telegramUserId:x.telegramUserId,phone:a.phoneMasked||null,premium:Boolean(a.premium||x.premium),connected:x.connected,workerId:x.workerId,startedAt:x.startedAt,lastUpdateAt:x.lastUpdateAt,lastCatchUpAt:x.lastCatchUpAt,updateCount:x.updateCount,catchUpFailures:x.catchUpFailures,lastCommandPollAt:x.lastCommandPollAt,commandPollFailures:x.commandPollFailures,sessionRepairRequired:a.sessionRepairRequired,sessionRepairReason:a.sessionRepairReason,lastRuntimeSeenAt:a.lastRuntimeSeenAt,automations:x.automations,anime:x.anime,liteApks:x.liteApks};return "<article class=card><div class=between><div><small>SESSION TELEGRAM</small><h3>"+ident+"</h3><span class=tiny>"+x.telegramUserId+"</span></div><span class=pill>"+(x.connected?"connected":"offline")+"</span></div><div class=nums><div><span>Premium</span><b>"+(detail.premium?"Oui":"Non")+"</b></div><div><span>Updates</span><b>"+(x.updateCount||0)+"</b></div><div><span>Poll errors</span><b>"+(x.commandPollFailures||0)+"</b></div></div><details open><summary>Détails complets</summary><pre>"+JSON.stringify(detail,null,2)+"</pre></details><div class=actions><a class="btn primary" href="/infrastructure/bot-view?bot=nexai&tab=conversations&session="+encodeURIComponent(x.telegramUserId)>Conversations</a></div></article>"}).join("");const offline=(j.accounts||[]).filter(a=>!(j.runtimes||[]).some(x=>String(x.telegramUserId)===String(a.telegramUserId))).map(a=>"<article class=card><small>SESSION STOCKÉE</small><h3>"+(a.username?"@"+a.username:(a.firstName||a.telegramUserId))+"</h3><span class=pill>offline</span><pre>"+JSON.stringify({telegramUserId:a.telegramUserId,phone:a.phoneMasked,premium:a.premium,enabled:a.enabled,connectedAt:a.connectedAt,lastActivityAt:a.lastActivityAt,lastRuntimeSeenAt:a.lastRuntimeSeenAt,sessionRepairRequired:a.sessionRepairRequired,sessionRepairReason:a.sessionRepairReason},null,2)+"</pre><div class=actions><a class="btn" href="/infrastructure/bot-view?bot=nexai&tab=conversations&session="+encodeURIComponent(a.telegramUserId)>Conversations</a></div></article>").join("");document.getElementById("sessionGrid").innerHTML=cards+offline||"<div class=empty>Aucune session.</div>"}).catch(e=>document.getElementById("sessionGrid").innerHTML="<div class=empty>Erreur: "+e.message+"</div>");';
       }else if(tab==="automations"){
         const jb=jobs.slice(0,100).map((j:any)=>'<div class="row"><div>'+pill(j.status)+'</div><div><b>'+infraEsc(j.kind)+'</b><p>'+infraEsc(j.error||"")+'</p><details><summary>Payload / résultat</summary><pre>'+ncJson({payload:j.payload,result:j.result},3200)+'</pre></details></div><time>'+infraEsc(infraAgo(j.created_at))+'</time></div>').join("");
         const proc=(s.processes||[]).filter((p:any)=>String(p.cmdline||"").toLowerCase().includes(b.slug==="nexai"?"nexai":b.slug)).map((p:any)=>'<div class="row"><div>'+pill("running")+'</div><div><b>PID '+infraEsc(p.pid)+'</b><p>'+infraEsc(String(p.cmdline||"").slice(0,300))+'</p></div></div>').join("");
@@ -687,7 +688,42 @@ function ncPage(s:any,route:URL){
    if(after){const d=new Date(after);if(!Number.isNaN(d.getTime()))p+="&created_at=gt."+encodeURIComponent(d.toISOString())}
    return infraDb(p);
  }
- async function ncTelemetryGroupEvent(req:Request,origin:string|null){
+ async function ncTelemetryBotEvent(req:Request,origin:string|null){
+   const expected=String(Deno.env.get("NEXCONTROL_FLEET_KEY")||"").trim();
+   const supplied=String(req.headers.get("x-nexcontrol-agent-key")||"").trim();
+   if(!expected||!supplied||supplied!==expected)return infraJson({ok:false,error:"unauthorized"},401,origin);
+   const q=await req.json().catch(()=>null);
+   if(!q||typeof q!=="object")return infraJson({ok:false,error:"invalid_payload"},400,origin);
+   const slug=String(q.slug||"").trim().toLowerCase().replace(/[^a-z0-9._-]/g,"");
+   if(!slug)return infraJson({ok:false,error:"bot_slug_required"},400,origin);
+   const chatType=String(q.chatType||"private").toLowerCase();
+   if(!["private","group","supergroup","channel"].includes(chatType))return infraJson({ok:false,error:"invalid_chat_type"},400,origin);
+   const chatId=String(q.chatId||"").slice(0,120);
+   const messageId=String(q.messageId||q.updateId||"").slice(0,120);
+   if(!chatId||!messageId)return infraJson({ok:false,error:"chat_or_message_missing"},400,origin);
+   const bots=await infraDb("nxc_bots?slug=eq."+encodeURIComponent(slug)+"&select=id&limit=1");
+   const botId=bots?.[0]?.id;if(!botId)return infraJson({ok:false,error:"bot_not_registered"},409,origin);
+   const direction=["out","outgoing"].includes(String(q.direction||"").toLowerCase())?"out":"in";
+   const existing=await infraDb("nxc_bot_events?bot_id=eq."+botId+"&chat_id=eq."+encodeURIComponent(chatId)+"&message_id=eq."+encodeURIComponent(messageId)+"&direction=eq."+direction+"&select=id&limit=1");
+   if(!existing?.length){
+     const row={
+       bot_id:botId,direction,event_type:String(q.eventType||"message").slice(0,80),
+       chat_id:chatId,chat_type:chatType,chat_title:String(q.chatTitle||"").slice(0,300)||null,
+       user_id:String(q.userId||"").slice(0,120)||null,username:String(q.username||"").slice(0,200)||null,
+       message_id:messageId,reply_to_message_id:String(q.replyToMessageId||"").slice(0,120)||null,
+       text:String(q.text||"").slice(0,12000)||null,
+       payload:q.payload&&typeof q.payload==="object"?q.payload:{},
+       created_at:q.createdAt&&!Number.isNaN(new Date(q.createdAt).getTime())?new Date(q.createdAt).toISOString():new Date().toISOString()
+     };
+     try{await infraDb("nxc_bot_events",{method:"POST",headers:{"prefer":"return=minimal"},body:JSON.stringify(row)})}catch(error){
+       if(!/duplicate|unique/i.test(String(error?.message||error)))throw error;
+     }
+   }
+   await infraDb("nxc_bots?id=eq."+botId,{method:"PATCH",headers:{"prefer":"return=minimal"},body:JSON.stringify({last_heartbeat_at:new Date().toISOString(),updated_at:new Date().toISOString()})});
+   return infraJson({ok:true},202,origin);
+ }
+
+async function ncTelemetryGroupEvent(req:Request,origin:string|null){
    const expected=String(Deno.env.get("NEXCONTROL_FLEET_KEY")||"").trim();
    const supplied=String(req.headers.get("x-nexcontrol-agent-key")||"").trim();
    if(!expected||!supplied||supplied!==expected)return infraJson({ok:false,error:"unauthorized"},401,origin);
@@ -881,6 +917,10 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ ok: false, error: "invalid_route" }), { status: 400, headers: h });
   }
 
+
+  if(route.pathname==="/api/telemetry/bot-event"&&req.method==="POST"){
+    return ncTelemetryBotEvent(req,origin);
+  }
 
   // TELEMETRY_GROUP_EVENT_ROUTE_V1
   if(route.pathname==="/api/telemetry/group-event"&&req.method==="POST"){
