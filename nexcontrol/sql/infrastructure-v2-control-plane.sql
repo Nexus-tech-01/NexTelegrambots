@@ -322,6 +322,7 @@ begin
       'buildCommand',prof.build_command,
       'predeployCommand',prof.predeploy_command,
       'postdeployCommand',prof.postdeploy_command,
+      'sharedPaths',coalesce(prof.config->'sharedPaths','[]'::jsonb),
       'healthChecks',v_health
     );
 
@@ -346,8 +347,8 @@ begin
     set status='deploying',started_at=coalesce(started_at,now()),previous_deployment_id=v_prev,
         metadata=(metadata-'waitingReason') || jsonb_build_object(
           'phase','deploy','hostJobId',v_job,'planId',v_plan,
-          'executorCommit','21ecaeeaacb3f14bd947c5d67f3222fa9555ac87',
-          'executorSha256','f570f3be42b1d5bcfa015ae3812b0614a2696261a7e5fbf8677c80070a7704e6'
+          'executorCommit','b790559ba7af415df27a222e72a0584ba4107fe1',
+          'executorSha256','4cbb37cda69b0f303a98412090e4a208b90ec4fbe24cbb2cd3c17a72541604b4'
         )
     where id=r.id;
 
@@ -370,7 +371,8 @@ begin
     'failed',v_failed,'rolledBack',v_rolled,'at',now()
   );
 end
-$function$;
+$function$
+;
 
 -- nxc_private.executor_command
 CREATE OR REPLACE FUNCTION nxc_private.executor_command(p_payload jsonb)
@@ -386,13 +388,14 @@ begin
     'set -euo pipefail; D=/opt/nex/control; F=$D/nexcontrol-release-executor.py; T=$D/.executor.tmp; '||
     'mkdir -p "$D"; '||
     'curl -fsSL --retry 3 --connect-timeout 10 '||
-    'https://raw.githubusercontent.com/Nexus-tech-01/NexTelegrambots/21ecaeeaacb3f14bd947c5d67f3222fa9555ac87/ops/nexcontrol-release-executor.py '||
+    'https://raw.githubusercontent.com/Nexus-tech-01/NexTelegrambots/b790559ba7af415df27a222e72a0584ba4107fe1/ops/nexcontrol-release-executor.py '||
     '-o "$T"; '||
-    'echo "f570f3be42b1d5bcfa015ae3812b0614a2696261a7e5fbf8677c80070a7704e6  $T" | sha256sum -c - >/dev/null; '||
+    'echo "4cbb37cda69b0f303a98412090e4a208b90ec4fbe24cbb2cd3c17a72541604b4  $T" | sha256sum -c - >/dev/null; '||
     'install -m 0755 "$T" "$F"; rm -f "$T"; '||
     'python3 "$F" --payload '||quote_literal(v_b64);
 end
-$function$;
+$function$
+;
 
 -- nxc_private.host_onboarding_tick
 CREATE OR REPLACE FUNCTION nxc_private.host_onboarding_tick()
