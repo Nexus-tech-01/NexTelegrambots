@@ -56,7 +56,7 @@ const required={
   'anime-contract.mjs':["'const INTER_SERIES_MS=5*60_000;'","'const GAP_RETRY_MS=5*60_000;'","'function obsoleteLivenessBlockReason'"],
   'scripts/test-anime-ingest.mjs':['__test.timing.interSeriesMs,5*60_000',"2026-01-01T00:05:00.000Z"],
   'bootstrap.mjs':['refusing auxiliary production runtime','AUTH_KEY_DUPLICATED','canonicalRoot'],
-  'inline-bot.mjs':['CONNECT_TUTORIAL_CALLBACK','connect:tutorial','sendConnectTutorial','storeReplyVideo'],
+  'inline-bot.mjs':['CONNECT_TUTORIAL_CALLBACK','connect:tutorial','sendConnectTutorial','storeReplyVideo','compactGreetingEmojiNoise',"nexai-fallback","return compactGreetingEmojiNoise(resolved,isWelcome?2:1);"],
   'reply-storage.mjs':['filenamePrefix','safePrefix'],
   'config.mjs':["const DEFAULT_ADMIN_USERNAMES='josh_33_06';",'export function isAdminUsername',"export function isAdminIdentity"],
   'custom-style.mjs':['normalizeCustomStyle','customStyleMedia','renderCustomHeader','renderCustomCategory'],
