@@ -79,6 +79,14 @@ try{
       if(!args[0])throw new Error('telegram user id required');
       out=await call('POST','/diagnostics/menu',{telegramUserId:args[0],peer:args[1]||'me'});
       break;
+    case 'conversation-send-file': {
+      const file=String(args[0]||'');
+      if(!file||!file.startsWith('.runtime/nexcontrol-compose-'))throw new Error('compose file required');
+      const payload=JSON.parse(fs.readFileSync(file,'utf8'));
+      try{out=await call('POST','/conversation/send',payload,180000)}
+      finally{try{fs.unlinkSync(file)}catch{}}
+      break;
+    }
     case 'command-test':
       if(!args[0]||!args[1])throw new Error('telegram user id and command text required');
       out=await call('POST','/diagnostics/command',{telegramUserId:args[0],text:args[1],peer:args[2]||'me'});
