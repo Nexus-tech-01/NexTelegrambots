@@ -1620,7 +1620,14 @@ async function maybeAutoModerate(runtime,event){
   const sender=String(message.senderId||event.senderId||'');
   if(Array.isArray(policy.whitelist)&&policy.whitelist.map(String).includes(sender))return;
   let remove=Array.isArray(policy.blacklist)&&policy.blacklist.map(String).includes(sender);
-  if(!remove&&policy.antilink&&/(?:https?:\/\/|t\.me\/|telegram\.me\/|www\.)/i.test(text))remove=true;
+  const hasLinkEntity=(Array.isArray(message?.entities)?message.entities:[]).some(entity=>{
+    const type=String(entity?.className||entity?.constructor?.name||'');
+    return /MessageEntity(?:Url|TextUrl)/i.test(type);
+  });
+  if(!remove&&policy.antilink&&(
+    /(?:https?:\/\/|t\.me\/|telegram\.me\/|www\.)/i.test(text)||
+    hasLinkEntity
+  ))remove=true;
   if(!remove&&policy.antiforward&&message?.fwdFrom)remove=true;
   if(!remove&&policy.antitag&&/@[A-Za-z0-9_]{3,}/.test(text))remove=true;
   if(!remove&&policy.antigroupmention&&(text.match(/@[A-Za-z0-9_]{3,}/g)||[]).length>=5)remove=true;
