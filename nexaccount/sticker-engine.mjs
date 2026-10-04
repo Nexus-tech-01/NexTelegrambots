@@ -654,10 +654,158 @@ async function runDurablePackJob({runtime,job,progress=null}){
   }
 }
 
+
+function serializePeer(peer){
+  if(peer?.userId!==undefined&&peer?.userId!==null)return {type:'user',id:String(peer.userId)};
+  if(peer?.chatId!==undefined&&peer?.chatId!==null)return {type:'chat',id:String(peer.chatId)};
+  if(peer?.channelId!==undefined&&peer?.channelId!==null)return {type:'channel',id:String(peer.channelId)};
+  return null;
+}
+
+function peerFromRef(ref){
+  const id=String(ref?.id||'').trim();
+  if(!/^-?\d+$/.test(id))return null;
+  if(ref?.type==='user')return new Api.PeerUser({userId:BigInt(id)});
+  if(ref?.type==='chat')return new Api.PeerChat({chatId:BigInt(id)});
+  if(ref?.type==='channel')return new Api.PeerChannel({channelId:BigInt(id)});
+  return null;
+}
+
+async function runDurableExportJob({runtime,job,progress=null}){
+  const {client,account}=runtime;
+  const id=String(job?.id||job?._id||'');
+  if(!id)return false;
+  const claimed=await claimStickerJob(id,account.telegramUserId).catch(()=>null);
+  if(!claimed)return false;
+
+  const label=jobLabel('exportwhatsapp');
+  activeCloneJobs.set(id,{
+    id,
+    accountId:String(account.telegramUserId),
+    title:String(claimed.title||''),
+    total:Number(claimed.total)||0,
+    nextIndex:Number(claimed.nextIndex)||0,
+    sourcePackName:String(claimed.sourcePackName||''),
+    kind:'exportwhatsapp',
+    startedAt:new Date(claimed.createdAt||Date.now()).getTime(),
+    durable:true
+  });
+
+  try{
+    const sourceSet=await withPersistentStickerRetry(
+      runtime,
+      ()=>telegramSetByName(client,claimed.sourcePackName),
+      label+' · pack source',
+      {jobId:id,progress}
+    );
+    const docs=sourceDocsForJob(sourceSet,claimed);
+    const peer=peerFromRef(claimed.peerRef);
+    if(!peer)throw new Error('Destination Telegram de l’export introuvable.');
+    const title=String(claimed.title||'NexAi Stickers');
+    const author=String(claimed.author||accountDisplayName(account));
+    const safe=safeBase(title,40)||'nexai-pack';
+    const totalParts=Math.max(1,Math.ceil(docs.length/30));
+    let start=Math.max(0,Math.min(docs.length,Number(claimed.nextIndex)||0));
+    start=Math.floor(start/30)*30;
+
+    for(;start<docs.length;start+=30){
+      const end=Math.min(docs.length,start+30);
+      const stickers=[];
+      for(let i=start;i<end;i++){
+        const raw=await withPersistentStickerRetry(
+          runtime,
+          ()=>queueCloneDownload(
+            account.telegramUserId,
+            ()=>downloadCloneDocument(client,docs[i],{sourcePackName:claimed.sourcePackName,sourceIndex:i}),
+            id+' wastickers download '+(i+1)+'/'+docs.length
+          ),
+          label+' · téléchargement '+(i+1)+'/'+docs.length,
+          {jobId:id,progress}
+        );
+        const converted=await withPersistentStickerRetry(
+          runtime,
+          ()=>whatsappStickerWebp(raw),
+          label+' · conversion '+(i+1)+'/'+docs.length,
+          {jobId:id,progress}
+        );
+        stickers.push(converted);
+        updateActiveJob(id,{nextIndex:i+1});
+        if(i===start||i===end-1||(i+1)%3===0){
+          await safeProgress(progress,'⏳ '+label+' · '+(i+1)+'/'+docs.length+' traité(s)');
+        }
+      }
+
+      const archiveRows=[...stickers];
+      while(archiveRows.length<3){
+        archiveRows.push({
+          buffer:Buffer.from(archiveRows[0].buffer),
+          animated:archiveRows[0].animated===true
+        });
+      }
+      const tray=await withPersistentStickerRetry(
+        runtime,
+        ()=>whatsappTray(archiveRows[0].buffer),
+        label+' · miniature',
+        {jobId:id,progress}
+      );
+      const partIndex=Math.floor(start/30)+1;
+      const pack=buildWastickersArchive({
+        title:totalParts>1?(title+' '+partIndex+'/'+totalParts):title,
+        author,
+        cover:tray,
+        stickers:archiveRows
+      });
+      await withPersistentStickerRetry(
+        runtime,
+        ()=>sendTelegramMedia(client,peer,pack,{
+          fileName:safe+(totalParts>1?'-part-'+partIndex:'')+'.wastickers',
+          mimeType:'application/zip',
+          kind:'document',
+          caption:'NexAi · WhatsApp stickers · '+(end-start)+' sticker(s) · partie '+partIndex+'/'+totalParts,
+          afterSend:null
+        }),
+        label+' · envoi partie '+partIndex+'/'+totalParts,
+        {jobId:id,progress}
+      );
+      await patchStickerJob(id,{
+        status:'running',
+        nextIndex:end,
+        currentPart:partIndex,
+        attempts:0,
+        lastError:'',
+        retryAt:null
+      }).catch(()=>{});
+      await renewStickerJobLease(id).catch(()=>{});
+      updateActiveJob(id,{nextIndex:end});
+    }
+
+    await completeStickerJob(id,{nextIndex:docs.length,partsSent:Math.max(1,Math.ceil(docs.length/30))});
+    await finishProgress(progress,'✅ WhatsApp stickers terminé · '+docs.length+'/'+docs.length+' sticker(s) · '+Math.max(1,Math.ceil(docs.length/30))+' fichier(s)');
+    return true;
+  }catch(error){
+    const disconnected=error?.code==='STICKER_RUNTIME_DISCONNECTED'||runtime?.client?.connected===false;
+    const reason=String(error?.message||error||'').replace(/\s+/g,' ').slice(0,400);
+    await releaseStickerJob(id,{
+      status:disconnected?'queued':'retrying',
+      lastError:reason,
+      retryAt:new Date(Date.now()+STICKER_PERSISTENT_RETRY_MS)
+    }).catch(()=>{});
+    await safeProgress(progress,'⏸️ '+label+' · reprise automatique · '+Math.max(0,Number(activeCloneJobs.get(id)?.nextIndex)||0)+'/'+Math.max(0,Number(claimed.total)||0));
+    if(!disconnected){
+      const timer=setTimeout(()=>resumeStickerJobs(runtime).catch(()=>{}),STICKER_PERSISTENT_RETRY_MS);
+      timer.unref?.();
+    }
+    return false;
+  }finally{
+    activeCloneJobs.delete(id);
+  }
+}
+
 function startDurableStickerJob(runtime,job,progress=null){
   const id=String(job?.id||job?._id||'');
   if(!id||activeCloneJobs.has(id))return id;
-  void runDurablePackJob({runtime,job,progress}).catch(error=>{
+  const runner=String(job?.kind||'')==='exportwhatsapp'?runDurableExportJob:runDurablePackJob;
+  void runner({runtime,job,progress}).catch(error=>{
     console.error('[NexAi sticker durable background]',id,String(error?.stack||error));
   });
   return id;
