@@ -196,7 +196,7 @@ export async function menuModel({account,settings,commands,view='home',category=
 
   if(view==='category'&&category){
     const allList=(category==='PREMIUM'?premiumCommands(commands):(groups[category]||[])).filter(visible);
-    const mediaPageSize=8;
+    const mediaPageSize=6;
     const pageCount=media?Math.max(1,Math.ceil(allList.length/mediaPageSize)):1;
     const safePage=media?Math.max(0,Math.min(pageCount-1,Number(page)||0)):0;
     const list=media?allList.slice(safePage*mediaPageSize,(safePage+1)*mediaPageSize):allList;
