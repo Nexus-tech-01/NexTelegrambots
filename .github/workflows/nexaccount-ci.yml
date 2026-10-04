@@ -64,6 +64,14 @@ jobs:
         run: node nexaccount/scripts/test-download-progress.mjs
       - name: Menu resilience regression
         run: node nexaccount/scripts/test-menu-resilience.mjs
+      - name: NexAi group features syntax
+        run: |
+          node --check nexaccount/commands.mjs
+          node --check nexaccount/compat.mjs
+          node --check nexaccount/runtime.mjs
+          node --check nexaccount/inline-bot.mjs
+          node --check nexaccount/store.mjs
+          node --check nexaccount/inline-response-store.mjs
       - name: Critical public routes regression
         run: node nexaccount/scripts/test-critical-routes.mjs
       - name: Core architecture regression
