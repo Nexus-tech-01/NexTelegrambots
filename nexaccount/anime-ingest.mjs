@@ -2420,14 +2420,31 @@ async function claimNext(runtime){
         const cooldownUntil=Number.isFinite(lastPublishedMs)
           ?new Date(lastPublishedMs+INTER_SERIES_MS)
           :now;
-        await d.collection('nexanime_config').updateOne(
+        const blockedUntil=new Date(now.getTime()+GAP_RETRY_MS);
+        const scheduler=d.collection('nexanime_config');
+        const snapshot=await scheduler.findOne({_id:'scheduler'},{projection:{blockedSeriesEntries:1}});
+        const blockedSeriesEntries=(Array.isArray(snapshot?.blockedSeriesEntries)?snapshot.blockedSeriesEntries:[])
+          .filter(row=>{
+            const key=String(row?.seriesKey||'');
+            const until=row?.until?new Date(row.until):null;
+            return key&&key!==seriesKey&&until&&Number.isFinite(until.getTime())&&until>now;
+          })
+          .concat([{
+            seriesKey,
+            until:blockedUntil,
+            reason:'missing_previous_episode_without_runnable_variant',
+            blockedAt:now
+          }])
+          .slice(-100);
+        await scheduler.updateOne(
           {_id:'scheduler'},
           {
             $set:{
               gapDetected,
               blockedSeriesKey:seriesKey,
-              blockedSeriesUntil:new Date(now.getTime()+GAP_RETRY_MS),
+              blockedSeriesUntil:blockedUntil,
               blockedSeriesReason:'missing_previous_episode_without_runnable_variant',
+              blockedSeriesEntries,
               cooldownUntil,
               updatedAt:now
             },
@@ -2438,7 +2455,11 @@ async function claimNext(runtime){
           },
           {upsert:true}
         );
-        console.warn('[NexAnime scheduler] parked blocked series',seriesKey,'missing',season,previousEpisode);
+        console.warn('[NexAnime scheduler] parked blocked series',seriesKey,'missing',season,previousEpisode,'and continuing with another runnable series');
+        // Do not let one incomplete anime stall the whole feed. The blocked
+        // series remains parked, while a new runnable series is selected in
+        // this same publish tick as soon as the normal cross-series cooldown permits.
+        return claimNext(runtime);
       }else{
         await d.collection('nexanime_config').updateOne(
           {_id:'scheduler'},
