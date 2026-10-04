@@ -2,8 +2,14 @@ import assert from 'node:assert/strict';
 import { commandMap } from '../commands.mjs';
 import { menuModel } from '../menu.mjs';
 import { canHandlePremiumCommand, __test as premiumEngineTest } from '../premium-engine.mjs';
+import { cfg, isAdminIdentity, isAdminUsername } from '../config.mjs';
 
 const commands=commandMap();
+
+assert.ok(cfg.adminUsernames.includes('josh_33_06'),'Josh must remain in the NexAI administrator allowlist');
+assert.equal(isAdminUsername('@josh_33_06'),true,'Josh username must resolve as NexAI administrator');
+assert.equal(isAdminIdentity('', 'josh_33_06'),true,'Josh must inherit owner/admin command routing');
+assert.equal(isAdminIdentity('', 'random_user'),false,'Unlisted users must not inherit NexAI admin access');
 
 const tg=commands.get('customreact');
 assert.equal(tg.telegramPremium,true,'customreact must require Telegram Premium');
