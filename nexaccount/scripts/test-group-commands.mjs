@@ -166,14 +166,14 @@ assert.equal(single[0].entities.length,1,'tag must contain one mention entity');
   assert.equal(handled,true,'clean/purge engine must handle large requests');
   assert.equal(deleted.reduce((n,row)=>n+row.ids.length,0),250,'purge must delete beyond 100 messages');
   assert.deepEqual(deleted.map(row=>row.ids.length),[100,100,50],'purge must delete in Telegram-safe batches');
-  assert.match(sent.at(-1)||'',/250 message\\(s\\) supprimé\\(s\\)/,'purge must report the full deleted count');
+  assert.match(sent.at(-1)||'',/250 message\(s\) supprimé\(s\)/,'purge must report the full deleted count');
 }
 
-assert.match(runtimeSource,/policy\\.welcome!==true/,'welcome must be opt-in per group');
-assert.match(runtimeSource,/policy\\.goodbye!==true/,'goodbye must be opt-in per group');
-assert.match(runtimeSource,/return \\[chat,id,kind\\]\\.join\\(':'\\)/,'greeting dedupe must be shared across connected sessions');
-assert.match(runtimeSource,/String\\(id\\)!==String\\(account\\.telegramUserId\\)/,'a connected account must not welcome itself when joining');
-assert.doesNotMatch(compatSource,/Math\\.min\\(100,Number\\(args\\[0\\]\\)/,'purge must not hard-cap the requested count at 100');
+assert.match(runtimeSource,/policy\.welcome!==true/,'welcome must be opt-in per group');
+assert.match(runtimeSource,/policy\.goodbye!==true/,'goodbye must be opt-in per group');
+assert.match(runtimeSource,/return \[chat,id,kind\]\.join\(':'\)/,'greeting dedupe must be shared across connected sessions');
+assert.match(runtimeSource,/String\(id\)!==String\(account\.telegramUserId\)/,'a connected account must not welcome itself when joining');
+assert.ok(!compatSource.includes('Math.min(100,Number(args[0])'),'purge must not hard-cap the requested count at 100');
 
 console.log(JSON.stringify({
   ok:true,
