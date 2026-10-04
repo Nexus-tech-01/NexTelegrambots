@@ -8,24 +8,26 @@ const compatPath=base+'/compat.mjs';
 let runtime=fs.readFileSync(runtimePath,'utf8');
 let compat=fs.readFileSync(compatPath,'utf8');
 
-const oldCond="  if((welcome&&policy.welcome!==true)||(goodbye&&policy.goodbye!==true)||(!welcome&&!goodbye))return;";
-const newCond="  // Welcome/Goodbye are ON by default in every group.\n  // A group must explicitly store false to disable either feature.\n  if((welcome&&policy.welcome===false)||(goodbye&&policy.goodbye===false)||(!welcome&&!goodbye))return;";
-if(runtime.includes(oldCond))runtime=runtime.replace(oldCond,newCond);
-else if(!runtime.includes(newCond))throw new Error('runtime_default_greeting_marker_missing');
+const legacyCond="  // Welcome/Goodbye are ON by default in every group.\n  // A group must explicitly store false to disable either feature.\n  if((welcome&&policy.welcome===false)||(goodbye&&policy.goodbye===false)||(!welcome&&!goodbye))return;";
+const optInCond="  // Greetings are opt-in per group. A missing setting must never produce an\n  // unsolicited welcome/goodbye from newly connected NexAi sessions.\n  if((welcome&&policy.welcome!==true)||(goodbye&&policy.goodbye!==true)||(!welcome&&!goodbye))return;";
+if(runtime.includes(legacyCond))runtime=runtime.replace(legacyCond,optInCond);
+else if(!runtime.includes("policy.welcome!==true")||!runtime.includes("policy.goodbye!==true")){
+  throw new Error('runtime_opt_in_greeting_marker_missing');
+}
 
-const oldCurrent="    const current=(await settingsFor(account.telegramUserId)).groupPolicies?.[chat]?.[key];\n\n    if((name==='setwelcome'||name==='setgoodbye')&&!argText){";
-const newCurrent="    const stored=(await settingsFor(account.telegramUserId)).groupPolicies?.[chat]?.[key];\n    const current=(name==='welcome'||name==='goodbye')\n      ? stored!==false\n      : stored;\n\n    if((name==='setwelcome'||name==='setgoodbye')&&!argText){";
-if(compat.includes(oldCurrent))compat=compat.replace(oldCurrent,newCurrent);
-else if(!compat.includes(newCurrent))throw new Error('compat_default_state_marker_missing');
+const legacyCurrent="    const current=(name==='welcome'||name==='goodbye')\n      ? stored!==false\n      : stored;";
+const optInCurrent="    const current=(name==='welcome'||name==='goodbye')\n      ? stored===true\n      : stored;";
+if(compat.includes(legacyCurrent))compat=compat.replace(legacyCurrent,optInCurrent);
+else if(!compat.includes(optInCurrent))throw new Error('compat_opt_in_state_marker_missing');
 
-const oldStatus="'\\nWelcome : '+(policy.welcome?'ON':'OFF')+extra";
-const newStatus="'\\nWelcome : '+(policy.welcome!==false?'ON':'OFF')+'\\nGoodbye : '+(policy.goodbye!==false?'ON':'OFF')+extra";
-if(compat.includes(oldStatus))compat=compat.replace(oldStatus,newStatus);
-else if(!compat.includes(newStatus))throw new Error('compat_status_marker_missing');
+const legacyStatus="'\\nWelcome : '+(policy.welcome!==false?'ON':'OFF')+'\\nGoodbye : '+(policy.goodbye!==false?'ON':'OFF')+extra";
+const optInStatus="'\\nWelcome : '+(policy.welcome===true?'ON':'OFF')+'\\nGoodbye : '+(policy.goodbye===true?'ON':'OFF')+extra";
+if(compat.includes(legacyStatus))compat=compat.replace(legacyStatus,optInStatus);
+else if(!compat.includes(optInStatus))throw new Error('compat_opt_in_status_marker_missing');
 
 fs.mkdirSync(base+'/.runtime',{recursive:true});
 for(const [path,text,name] of [[runtimePath,runtime,'runtime.mjs'],[compatPath,compat,'compat.mjs']]){
-  fs.copyFileSync(path,base+'/.runtime/'+name+'.before-default-greetings-'+Date.now());
+  fs.copyFileSync(path,base+'/.runtime/'+name+'.before-opt-in-greetings-'+Date.now());
   const tmp=path+'.tmp-'+Date.now()+'.mjs';
   fs.writeFileSync(tmp,text);
   const chk=spawnSync(process.execPath,['--check',tmp],{encoding:'utf8'});
@@ -45,7 +47,7 @@ for(const n of fs.readdirSync('/proc')){
     if(cmd.includes('/opt/nex/apps/public/nexai/')&&cmd.endsWith('/daemon.mjs')){
       pid=Number(n);
       env={};
-      for(const row of fs.readFileSync('/proc/'+n+'/environ','utf8').split('\\0').filter(Boolean)){
+      for(const row of fs.readFileSync('/proc/'+n+'/environ','utf8').split(/\\0/).filter(Boolean)){
         const i=row.indexOf('=');
         if(i>0)env[row.slice(0,i)]=row.slice(i+1);
       }
@@ -75,8 +77,8 @@ if(!health?.ok)throw new Error('health_not_restored');
 
 const rt=fs.readFileSync(runtimePath,'utf8');
 const cp=fs.readFileSync(compatPath,'utf8');
-if(!rt.includes("policy.welcome===false")||!rt.includes("policy.goodbye===false"))throw new Error('runtime_default_not_active');
-if(!cp.includes("stored!==false")||!cp.includes("policy.welcome!==false")||!cp.includes("policy.goodbye!==false"))throw new Error('compat_default_not_active');
+if(!rt.includes("policy.welcome!==true")||!rt.includes("policy.goodbye!==true"))throw new Error('runtime_opt_in_not_active');
+if(!cp.includes("stored===true")||!cp.includes("policy.welcome===true")||!cp.includes("policy.goodbye===true"))throw new Error('compat_opt_in_not_active');
 
 console.log(JSON.stringify({
   ok:true,
@@ -84,6 +86,6 @@ console.log(JSON.stringify({
   worker:health.worker?.id||'',
   runtimeCount:health.runtimeCount,
   port,
-  welcomeDefault:true,
-  goodbyeDefault:true
+  welcomeDefault:false,
+  goodbyeDefault:false
 }));
