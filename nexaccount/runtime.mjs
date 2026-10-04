@@ -3129,6 +3129,64 @@ export async function engineStatus(){
   };
 }
 
+
+async function runtimeConversationPeer(client,target=''){
+  const raw=String(target||'').trim();
+  if(!raw)throw new Error('chat_id_required');
+  if(raw==='me'||raw.startsWith('@'))return client.getInputEntity(raw);
+  const normalized=raw.startsWith('-100')?raw.slice(4):raw.startsWith('-')?raw.slice(1):raw;
+  const dialogs=await client.getDialogs({limit:250});
+  const row=(dialogs||[]).find(d=>{
+    const entity=d?.entity||d;
+    const id=String(entity?.id||d?.id||'');
+    const username=String(entity?.username||'').toLowerCase();
+    return id===normalized||('@'+username)===raw.toLowerCase()||username===raw.replace(/^@/,'').toLowerCase();
+  });
+  if(row)return client.getInputEntity(row.entity||row.inputEntity||row);
+  try{return await client.getInputEntity(raw)}catch{}
+  if(raw.startsWith('-100'))return client.getInputEntity(new Api.PeerChannel({channelId:returnBigInt(normalized)}));
+  if(raw.startsWith('-'))return client.getInputEntity(new Api.PeerChat({chatId:returnBigInt(normalized)}));
+  return client.getInputEntity(new Api.PeerUser({userId:returnBigInt(normalized)}));
+}
+
+export async function runtimeConversationSend(telegramUserId,{chatId,text='',fileBase64='',fileName='media',mimeType='',mode='auto',replyToMessageId=0}={}){
+  const id=String(telegramUserId||'').trim();
+  const runtime=id?runtimes.get(id):([...runtimes.values()].find(r=>r?.client?.connected===true)||null);
+  if(!runtime||runtime.client?.connected!==true)throw new Error('runtime_not_active');
+  const peer=await runtimeConversationPeer(runtime.client,chatId);
+  const body=String(text||'');
+  let sent;
+  if(fileBase64){
+    const buffer=Buffer.from(String(fileBase64),'base64');
+    if(!buffer.length)throw new Error('media_empty');
+    const kind=mode==='photo'?'image':mode==='video'?'video':mode==='voice'||mode==='audio'?'audio':mode==='document'?'document':'auto';
+    sent=await sendTelegramMedia(runtime.client,peer,buffer,{
+      fileName:String(fileName||'media'),
+      mimeType:String(mimeType||''),
+      kind,
+      caption:body,
+      voiceNote:mode==='voice',
+      videoNote:mode==='video_note',
+      replyTo:Number(replyToMessageId||0)||undefined,
+      signature:false
+    });
+  }else{
+    if(!body.trim())throw new Error('message_empty');
+    sent=await runtime.client.sendMessage(peer,{message:body,replyTo:Number(replyToMessageId||0)||undefined});
+  }
+  const row=Array.isArray(sent)?sent[0]:sent;
+  return {
+    ok:true,
+    telegramUserId:String(runtime.account?.telegramUserId||''),
+    username:String(runtime.account?.username||''),
+    chatId:String(chatId),
+    messageId:String(row?.id||row?.messageId||''),
+    text:body,
+    media:Boolean(fileBase64),
+    mode:String(mode||'auto')
+  };
+}
+
 export function runtimeConnectionFor(target=''){
   const q=String(target||'').trim().replace(/^@/,'').toLowerCase();
   const candidates=[...runtimes.values()].filter(r=>r?.client?.connected===true);
