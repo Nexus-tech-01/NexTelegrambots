@@ -1193,8 +1193,8 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const accessMode=value==='public'?'public':'private';
     await patchSettings(account.telegramUserId,{accessMode});
     await sendText(client,peer,accessMode==='public'
-      ? 'Mode PUBLIC activé : les autres utilisateurs peuvent lancer les commandes non sensibles. Les commandes compte/propriétaire restent privées et les commandes admin exigent que l’auteur soit admin du groupe.'
-      : 'Mode PRIVÉ activé : seul le compte connecté peut lancer les commandes.');
+      ? '✅ Mode PUBLIC activé : les autres utilisateurs peuvent lancer les commandes non sensibles. Les commandes compte/propriétaire restent privées et les commandes admin exigent que l’auteur soit admin du groupe.'
+      : '🔒 Mode PRIVÉ activé : seul le compte connecté peut lancer les commandes.');
     return true;
   }
 
