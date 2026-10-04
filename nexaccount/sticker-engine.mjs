@@ -704,20 +704,48 @@ async function runDurablePackJob({runtime,job,progress=null}){
         );
         const emoji=stickerAttr(doc)?.alt||'✨';
 
-        await withPersistentStickerRetry(
+        const mutation=await withPersistentStickerRetry(
           runtime,
-          ()=>queueCloneMutation(
-            ()=>localIndex===0&&!state.exists
-              ?createSet(account,part.title,part.name,prepared,emoji)
-              :addToSet(account,part.name,prepared,emoji),
-            id+' '+kind+' '+(sourceIndex+1)+'/'+docs.length
-          ),
+          async()=>{
+            const live=await destinationState(part.name);
+            if(!live.exists&&localIndex>0)return {resetPart:true};
+            if(live.exists&&Number(live.count)>localIndex){
+              return {alreadyApplied:true,count:Number(live.count)};
+            }
+            await queueCloneMutation(
+              ()=>!live.exists
+                ?createSet(account,part.title,part.name,prepared,emoji)
+                :addToSet(account,part.name,prepared,emoji),
+              id+' '+kind+' '+(sourceIndex+1)+'/'+docs.length
+            );
+            return {added:true,count:localIndex+1};
+          },
           label+' · ajout '+(sourceIndex+1)+'/'+docs.length,
           {jobId:id,progress}
         );
 
-        localDone++;
-        completed++;
+        if(mutation?.resetPart===true){
+          completed=Math.max(0,completed-localDone);
+          localDone=0;
+          localIndex=-1;
+          state.exists=false;
+          state.count=0;
+          await patchStickerJob(id,{
+            status:'running',
+            nextIndex:completed,
+            currentPart:Number(part.index)||0,
+            lastError:'destination part recreated after deletion'
+          }).catch(()=>{});
+          continue;
+        }
+
+        const effectiveCount=Math.max(localIndex+1,Math.min(Number(part.total)||0,Number(mutation?.count)||0));
+        const advanced=Math.max(1,effectiveCount-localDone);
+        localDone=Math.min(Number(part.total)||0,effectiveCount);
+        completed+=advanced;
+        if(localDone>localIndex+1){
+          localIndex=localDone-1;
+        }
         state.exists=true;
         state.count=localDone;
         updateActiveJob(id,{nextIndex:completed});
