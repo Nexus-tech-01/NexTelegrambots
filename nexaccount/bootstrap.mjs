@@ -55,6 +55,16 @@ async function loadHostEnvironment(){
 await loadHostEnvironment();
 const productionMode=process.argv.includes('--production');
 if(productionMode){
+  // Production may only be started from the canonical systemd-managed tree.
+  // Starting the agent/worktree copy would load the same MTProto sessions in
+  // parallel and Telegram can invalidate them with AUTH_KEY_DUPLICATED.
+  const canonicalRoot='/opt/nex/apps/public/nexai';
+  const canonicalHere=here===path.join(canonicalRoot,'current')
+    ||here.startsWith(path.join(canonicalRoot,'releases')+path.sep);
+  if(!canonicalHere){
+    console.error('[NexAccount protection] refusing auxiliary production runtime from '+here);
+    process.exit(1);
+  }
   // The main VPS must always run the full command runtime. A stale host-level
   // pairing-only flag from the legacy bridge must never silence every account.
   process.env.NEXACCOUNT_PAIRING_ONLY='false';
