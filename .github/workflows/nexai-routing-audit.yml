@@ -1,0 +1,33 @@
+name: NexAI routing audit
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rehydrate bundled source
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > /tmp/nexus-bots.tar.xz
+          for f in $(printf '%s\n' render-src.b64.part-* | sort); do
+            base64 -d "$f" >> /tmp/nexus-bots.tar.xz
+          done
+          mkdir -p /tmp/nexus-src
+          tar -xJf /tmp/nexus-bots.tar.xz -C /tmp/nexus-src
+      - name: Locate NexAI routing code
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/nexus-src
+          echo "=== candidate files ==="
+          find . -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.ts' -o -name '*.cjs' \) | sort | grep -Ei 'nexai|account|telegram|command|handler|router|session' | head -250 || true
+          echo "=== prefix / owner / anonymous hits ==="
+          grep -RniE --include='*.js' --include='*.mjs' --include='*.ts' --include='*.cjs'             'no.?prefix|prefix|sender_chat|senderChat|anonymous|owner|admin|tresor2000|command' .             | grep -Ei 'nexai|account|session|command|prefix|sender_chat|anonymous|owner|admin'             | head -600 || true
