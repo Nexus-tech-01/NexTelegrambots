@@ -1,0 +1,98 @@
+name: Stacy Promote Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-stacy-promote-diag-20261004.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NXC_BASE: https://nexcontrol-ochre.vercel.app
+      NXC_AGENT: nexus-main
+      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
+      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect live Stacy runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,json,time,base64,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib,pathlib
+
+          BASE=os.environ['NXC_BASE'].rstrip('/')
+          AGENT=os.environ['NXC_AGENT']
+          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
+          SECRET=os.environ.get('NXC_SESSION_SECRET','')
+          jar=http.cookiejar.CookieJar()
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          cookie=''
+          if SECRET:
+              exp=int(time.time()*1000)+20*60*1000
+              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
+              sig=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
+              cookie=payload+'.'+sig
+          elif ADMIN:
+              data=urllib.parse.urlencode({'password':ADMIN}).encode()
+              op.open(urllib.request.Request(BASE+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=45).read()
+          else:
+              raise RuntimeError('No NexControl credential available')
+
+          def http(method,path,data=None):
+              h={'Accept':'application/json'}
+              if cookie: h['Cookie']='nexcontrol_session='+cookie
+              body=None
+              if data is not None:
+                  body=json.dumps(data,separators=(',',':')).encode()
+                  h['Content-Type']='application/json'
+              req=urllib.request.Request(BASE+path,data=body,headers=h,method=method)
+              with op.open(req,timeout=45) as r:
+                  raw=r.read().decode('utf-8','replace')
+                  return json.loads(raw) if raw else {}
+
+          def job(kind,payload):
+              j=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload})
+              jid=j.get('jobId')
+              if not jid: raise RuntimeError(f'No jobId for {kind}: {j}')
+              end=time.time()+150
+              while time.time()<end:
+                  x=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid))
+                  if x.get('status')=='succeeded': return x.get('result') or {}
+                  if x.get('status')=='failed': raise RuntimeError(f'{kind} failed: {x.get("error")}')
+                  time.sleep(2)
+              raise TimeoutError(kind)
+
+          out={'tree':{},'searches':{},'reads':{},'services':{},'errors':{}}
+          for depth in (2,4):
+              try: out['tree'][str(depth)] = job('fs.tree',{'root':'stacy','path':'.','maxDepth':depth,'maxEntries':1200})
+              except Exception as e: out['errors']['tree:'+str(depth)] = str(e)
+
+          for q in ('promote','setChatAdministrator','promoteChatMember','telegram','bot.launch','bot.start','telegraf','NexAi Group Test','Tresortelegramgroup','DarkNexus01_bot'):
+              try: out['searches'][q] = job('fs.search',{'root':'stacy','path':'.','query':q,'maxResults':100})
+              except Exception as e: out['errors']['search:'+q] = str(e)
+
+          try: out['services']=job('service.list',{'includeHealth':False})
+          except Exception as e: out['errors']['service.list']=str(e)
+
+          pathlib.Path('.ops-results').mkdir(exist_ok=True)
+          pathlib.Path('.ops-results/stacy-promote-diag.json').write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps({'ok':True,'errorKeys':list(out['errors'])},ensure_ascii=False))
+          PY
+
+      - name: Commit diagnostic
+        shell: bash
+        run: |
+          git config user.name "Stacy Ops"
+          git config user.email "actions@users.noreply.github.com"
+          git add .ops-results/stacy-promote-diag.json
+          if ! git diff --cached --quiet; then
+            git commit -m "ops: capture Stacy promote diagnostic"
+            git push
+          fi
