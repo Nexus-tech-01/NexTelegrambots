@@ -1765,7 +1765,7 @@ async function queuedSeriesCandidates(d,{excludeSeriesKeys=[]}={}){
       ...(excluded.length?{_id:{$nin:excluded}}:{})
     }},
     {$sort:{hasPresentation:-1,firstCreated:1,_id:1}},
-    {$limit:25}
+    {$limit:500}
   ]).toArray();
 }
 async function seriesHasRunnableFrontier(d,seriesKey){
@@ -2346,7 +2346,7 @@ async function parkSeriesBeforeSynopsis(d,seriesKey,probe={}){
 
 async function choosePreflightReadySeries(runtime,d){
   const excluded=[];
-  const maxAttempts=25; // scan the full queued-series candidate window before declaring this tick unrunnable
+  const maxAttempts=60; // keep scanning past polluted/incomplete series instead of silencing the feed
   for(let attempt=0;attempt<maxAttempts;attempt++){
     const seriesKey=await chooseActiveSeries(d,{excludeSeriesKeys:excluded});
     if(!seriesKey)return '';
