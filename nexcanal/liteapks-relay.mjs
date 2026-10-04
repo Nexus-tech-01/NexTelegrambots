@@ -28,8 +28,10 @@ const largeDownloadTimeoutMs=Math.max(300000,Number(process.env.NEXCANAL__WATCHE
 const largeUploadTimeoutMs=Math.max(300000,Number(process.env.NEXCANAL__WATCHER_LARGE_UPLOAD_TIMEOUT_MS||900000));
 const maxFetch=500;
 const interrouteUrl=String(process.env.NEX_INTERROUTE_URL||'http://127.0.0.1:18130').replace(/\/$/,'');
-const nextechMirrorTmpDir=String(process.env.NEXTECH_WHATSAPP_MIRROR_TMP||'/var/lib/nex/tmp/public/nexai/nextech-channel-mirror');
+const nextechMirrorTmpDir=String(process.env.NEXTECH_WHATSAPP_MIRROR_TMP||'/var/lib/nex/tmp/internal-automation/nextech-channel-mirror');
 const nextechMirrorRetentionMs=Math.max(60*60*1000,Number(process.env.NEXTECH_WHATSAPP_MIRROR_RETENTION_MS||24*60*60*1000));
+const nextechMirrorBackfillMs=Math.max(60*60*1000,Number(process.env.NEXTECH_WHATSAPP_MIRROR_BACKFILL_MS||24*60*60*1000));
+const nextechMirrorRecoveryLimit=Math.max(5,Math.min(100,Number(process.env.NEXTECH_WHATSAPP_MIRROR_RECOVERY_LIMIT||40)));
 const mediaTmpRetentionMs=Math.max(30*60*1000,Number(process.env.NEXCANAL__WATCHER_MEDIA_RETENTION_MS||2*60*60*1000));
 const mediaTmpCleanupMs=Math.max(60*1000,Number(process.env.NEXCANAL__WATCHER_MEDIA_CLEANUP_MS||10*60*1000));
 const mediaDownloadLocks=new Map();
@@ -445,6 +447,12 @@ function telegramDocumentType(m){
   if(mime.startsWith('image/'))return 'photo';
   return 'document';
 }
+function isNextechApkChannelMessage(m){
+  if(!m?.document)return false;
+  const name=telegramDocumentName(m).toLowerCase();
+  const mime=String(m?.document?.mimeType||'').toLowerCase();
+  return /\.(?:apk|xapk|apks|apkm)$/i.test(name)||mime==='application/vnd.android.package-archive';
+}
 async function mirrorChannelMedia(c,m){
   await fs.mkdir(nextechMirrorTmpDir,{recursive:true});
   if(m?.photo){
@@ -480,7 +488,7 @@ async function cleanupNextechMirrorTmp(){
     }catch{}
   }
 }
-async function mirrorNextechChannelMessage(c,m){
+async function mirrorNextechChannelMessage(c,m,{idempotencyVersion='v2-download-links'}={}){
   const id=Number(m?.id||0);
   if(!id||m?.action)return true;
   const text=String(m?.message||'').trim();
@@ -489,7 +497,7 @@ async function mirrorNextechChannelMessage(c,m){
   if(!text&&!buttons.length&&!media.length)return true;
   const out=await enqueueWhatsAppMirror({
     ownerDomain:'system',
-    idempotencyKey:'nextech-channel:'+String(id)+':v2-download-links',
+    idempotencyKey:'nextech-channel:'+String(id)+':'+String(idempotencyVersion||'v2-download-links'),
     source:{platform:'telegram',name:'thenexusorigin',messageId:String(id),accountRole:'system-channel-mirror'},
     content:{text,media,buttons},
     routes:[{platform:'whatsapp'}]
@@ -500,16 +508,30 @@ async function pollNextechChannelMirror(c,entity,st){
   st.nextechWhatsappMirror=st.nextechWhatsappMirror||{cursor:0,lastSuccessAt:0,lastError:null};
   const ms=st.nextechWhatsappMirror;
   if(!Number(ms.cursor||0)){
-    const latest=await c.getMessages(entity,{limit:1});
-    const newest=Array.isArray(latest)&&latest.length?Number(latest[0]?.id||0):0;
-    if(newest){
-      ms.cursor=newest;
+    const bootstrap=await c.getMessages(entity,{limit:100});
+    const cutoff=Date.now()-nextechMirrorBackfillMs;
+    const recent=(bootstrap||[]).filter(m=>{
+      const t=Number(m?.date||0)*1000;
+      return Number(m?.id||0)>0&&(!t||t>=cutoff);
+    });
+    const ids=recent.map(m=>Number(m.id)).filter(Boolean);
+    if(ids.length){
+      ms.cursor=Math.max(0,Math.min(...ids)-1);
       ms.lastSuccessAt=Date.now();
       ms.lastError=null;
       await save(st);
-      log('Nextech WhatsApp mirror armed at message',newest);
+      log('Nextech WhatsApp mirror backfill armed',ids.length,'post(s)','from #'+Math.min(...ids),'to #'+Math.max(...ids));
+    }else{
+      const newest=Array.isArray(bootstrap)&&bootstrap.length?Number(bootstrap[0]?.id||0):0;
+      if(newest){
+        ms.cursor=newest;
+        ms.lastSuccessAt=Date.now();
+        ms.lastError=null;
+        await save(st);
+        log('Nextech WhatsApp mirror armed at message',newest);
+      }
+      return;
     }
-    return;
   }
   const fresh=await c.getMessages(entity,{limit:100,minId:Number(ms.cursor||0)});
   const list=(fresh||[]).filter(x=>Number(x?.id||0)>Number(ms.cursor||0)).sort((a,b)=>Number(a.id)-Number(b.id));
@@ -530,6 +552,35 @@ async function pollNextechChannelMirror(c,entity,st){
       break;
     }
   }
+}
+
+async function recoverRecentNextechApkMirrors(c,entity,st){
+  st.nextechWhatsappMirror=st.nextechWhatsappMirror||{cursor:0,lastSuccessAt:0,lastError:null};
+  const ms=st.nextechWhatsappMirror;
+  const recoveryVersion='v3-apk-path-recovery';
+  const prior=ms.apkRecovery&&ms.apkRecovery.version===recoveryVersion?ms.apkRecovery:{version:recoveryVersion,ids:[]};
+  prior.ids=Array.isArray(prior.ids)?prior.ids.map(Number).filter(Boolean).slice(-200):[];
+  const done=new Set(prior.ids);
+  const rows=await c.getMessages(entity,{limit:nextechMirrorRecoveryLimit});
+  const cutoff=Date.now()-nextechMirrorBackfillMs;
+  const recent=(rows||[]).filter(m=>{
+    const t=Number(m?.date||0)*1000;
+    return Number(m?.id||0)>0&&isNextechApkChannelMessage(m)&&(!t||t>=cutoff)&&!done.has(Number(m.id));
+  }).sort((a,b)=>Number(a.id)-Number(b.id));
+  let queued=0;
+  for(const m of recent){
+    const ok=await mirrorNextechChannelMessage(c,m,{idempotencyVersion:recoveryVersion});
+    if(!ok)throw new Error('interroute APK recovery enqueue unavailable for #'+String(m?.id||'?'));
+    done.add(Number(m.id));
+    prior.ids=[...done].slice(-200);
+    prior.lastQueuedAt=Date.now();
+    ms.apkRecovery=prior;
+    await save(st);
+    queued++;
+    log('Nextech APK WhatsApp recovery queued','#'+String(m.id));
+  }
+  if(!queued)log('Nextech APK WhatsApp recovery: no unqueued recent APK');
+  return queued;
 }
 
 async function postDescriptor(c,m,sourceKind){
@@ -1013,6 +1064,7 @@ async function runWithClient(c,{ownsReader=false,signal=null,expectedUsername=ex
   try{
     await recoverMissedApks(c,nextechEntity,st,sources);
     kickWorkers(c,publisher,destination,st,sources);
+    await withTimeout(recoverRecentNextechApkMirrors(c,nextechEntity,st),Math.max(opTimeoutMs,largeDownloadTimeoutMs),'initial Nextech APK WhatsApp recovery');
     await withTimeout(pollNextechChannelMirror(c,nextechEntity,st),opTimeoutMs,'initial Nextech WhatsApp mirror');
     await withTimeout(discover(c,st,sources),opTimeoutMs,'initial source discovery');
   }catch(e){
