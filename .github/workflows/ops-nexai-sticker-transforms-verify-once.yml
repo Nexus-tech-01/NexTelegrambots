@@ -1,3 +1,4 @@
+# durable-sticker-jobs-v2-current
 # durable-sticker-jobs-v1
 name: Ops NexAI Sticker Transforms Verify Once
 
@@ -35,7 +36,6 @@ jobs:
           set -euo pipefail
           node --check nexaccount/sticker-transform.mjs
           node --check nexaccount/sticker-engine.mjs
-          node --check nexaccount/sticker-jobs.mjs
           node --check nexaccount/core/engine-router.mjs
           node --check nexaccount/runtime.mjs
           node --check nexaccount/commands.mjs
@@ -52,7 +52,7 @@ jobs:
           grep -F "export async function resumeStickerJobs" nexaccount/sticker-engine.mjs
           grep -F "sourceDocumentIds" nexaccount/sticker-engine.mjs
           grep -F "STICKER_PACK_PART_SIZE" nexaccount/sticker-engine.mjs
-          grep -F "listPendingStickerJobs" nexaccount/sticker-jobs.mjs
+          grep -F "nexaccount_sticker_jobs" nexaccount/sticker-engine.mjs
           grep -F "outcome?.deferred!==true" nexaccount/core/engine-router.mjs
           grep -F "resumeStickerJobs(runtime)" nexaccount/runtime.mjs
           if grep -F "MAX_CLONE" nexaccount/sticker-engine.mjs; then
