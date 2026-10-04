@@ -18,6 +18,12 @@ const modes={
     ['inline-bot.mjs','nexaccount/inline-bot.mjs'],
     ['reply-storage.mjs','nexaccount/reply-storage.mjs']
   ],
+  'custom-style':[
+    ['custom-style.mjs','nexaccount/custom-style.mjs'],
+    ['store.mjs','nexaccount/store.mjs'],
+    ['menu.mjs','nexaccount/menu.mjs'],
+    ['inline-bot.mjs','nexaccount/inline-bot.mjs']
+  ],
   'stickers':[
     ['commands.mjs','nexaccount/commands.mjs'],
     ['sticker-engine.mjs','nexaccount/sticker-engine.mjs'],
@@ -33,6 +39,9 @@ const required={
   'bootstrap.mjs':['refusing auxiliary production runtime','AUTH_KEY_DUPLICATED','canonicalRoot'],
   'inline-bot.mjs':['CONNECT_TUTORIAL_CALLBACK','connect:tutorial','sendConnectTutorial','storeReplyVideo'],
   'reply-storage.mjs':['filenamePrefix','safePrefix'],
+  'custom-style.mjs':['normalizeCustomStyle','customStyleMedia','renderCustomHeader','renderCustomCategory'],
+  'store.mjs':['customStyle:normalizeCustomStyle','safe.customStyle=normalizeCustomStyle'],
+  'menu.mjs':['customStyleModel','menu:customstyle','customStyleMedia(settings)','categoryPage'],
   'commands.mjs':["C('ultratake'","C('delfilig'","C('filitake'","C('noteclone'"],
   'sticker-engine.mjs':["'ultratake'","'delfilig'","'filitake'","'noteclone'"],
   'sticker-transform.mjs':['export async function addStickerWatermark','export async function removeStickerWatermark','export async function roundSticker'],
@@ -169,6 +178,11 @@ try{
     if(!test.ok)throw new Error('anime regression tests failed: '+test.stderr.slice(-2000));
     report.steps.animeTests=true;
   }
+  if(mode==='custom-style'){
+    const test=run(process.execPath,[path.join(base,'scripts/test-menu-resilience.mjs')],{cwd:base,timeout:120000});
+    if(!test.ok)throw new Error('custom style menu regression failed: '+(test.stderr||test.stdout).slice(-2600));
+    report.steps.menuTests=true;
+  }
 
   await stopAllNexDaemons();
   report.steps.duplicatesCleared=true;
@@ -176,7 +190,7 @@ try{
   const live=await health();
   report.steps.health=live;
 
-  if(mode==='anime-gap-skip'){
+  if(mode==='anime-gap-skip'||mode==='custom-style'){
     const anime=cli('anime-status');
     if(anime?.ok!==true||anime?.enabled!==true||String(anime?.destination||'').toLowerCase()!=='@theotaku_nexus')throw new Error('anime status regression');
     report.steps.anime={
@@ -188,6 +202,24 @@ try{
       queue:anime.queue,
       published:anime.published
     };
+  }
+  if(mode==='custom-style'){
+    const accounts=cli('accounts');
+    const active=Array.isArray(accounts?.runtimes)?accounts.runtimes:[];
+    const byName=new Map(active.filter(x=>x?.connected===true).map(x=>[String(x.username||'').toLowerCase().replace(/^@/,''),x]));
+    for(const requiredName of ['tresor20001','tresor20009']){
+      if(!byName.has(requiredName))throw new Error('required NexAI runtime missing after custom-style deploy: @'+requiredName);
+    }
+    const primary=byName.get('tresor20001');
+    const scanner=byName.get('tresor20009');
+    if(primary?.anime?.listener!==true||primary?.anime?.publisher!==true)throw new Error('@tresor20001 anime role regression');
+    if(scanner?.anime?.listener!==true)throw new Error('@tresor20009 anime listener regression');
+    const probeUser=String(primary?.telegramUserId||'');
+    if(!probeUser)throw new Error('menu probe user missing');
+    const probe=cli('menu-probe',probeUser);
+    if(probe?.ok!==true||!probe?.resultId)throw new Error('NexAI menu probe failed after custom-style deploy');
+    report.steps.accounts={tresor20001:true,tresor20009:true};
+    report.steps.menuProbe={ok:true,resultId:probe.resultId};
   }
 
   report.ok=true;
