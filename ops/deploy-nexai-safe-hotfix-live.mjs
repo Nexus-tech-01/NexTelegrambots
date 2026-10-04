@@ -21,6 +21,9 @@ const modes={
   'custom-style':[
     ['custom-style.mjs','nexaccount/custom-style.mjs'],
     ['store.mjs','nexaccount/store.mjs'],
+    ['commands.mjs','nexaccount/commands.mjs'],
+    ['runtime.mjs','nexaccount/runtime.mjs'],
+    ['compat.mjs','nexaccount/compat.mjs'],
     ['menu.mjs','nexaccount/menu.mjs'],
     ['inline-bot.mjs','nexaccount/inline-bot.mjs'],
     ['scripts/test-menu-resilience.mjs','nexaccount/scripts/test-menu-resilience.mjs']
@@ -43,10 +46,11 @@ const required={
   'custom-style.mjs':['normalizeCustomStyle','customStyleMedia','renderCustomHeader','renderCustomCategory'],
   'store.mjs':['customStyle:normalizeCustomStyle','safe.customStyle=normalizeCustomStyle'],
   'menu.mjs':['customStyleModel','menu:customstyle','customStyleMedia(settings)','categoryPage'],
-  'commands.mjs':["C('ultratake'","C('delfilig'","C('filitake'","C('noteclone'"],
+  'commands.mjs':["C('ultratake'","C('delfilig'","C('filitake'","C('noteclone'","C('customstyle'","C('stylename'","C('menuvideo'"],
   'sticker-engine.mjs':["'ultratake'","'delfilig'","'filitake'","'noteclone'"],
   'sticker-transform.mjs':['export async function addStickerWatermark','export async function removeStickerWatermark','export async function roundSticker'],
-  'runtime.mjs':['canHandleStickerCommand(parsed.name)','Sticker engine fallback']
+  'runtime.mjs':['canHandleStickerCommand(parsed.name)','Sticker engine fallback','registered.hidden!==true'],
+  'compat.mjs':['cacheMenuMediaForBot',"name==='customstyle'","name==='menuphoto'||name==='menuvideo'"]
 };
 
 const stamp=new Date().toISOString().replace(/[:.]/g,'-');
