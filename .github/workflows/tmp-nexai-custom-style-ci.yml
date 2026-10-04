@@ -1,0 +1,30 @@
+name: Temporary NexAI Custom Style Validation
+
+on:
+  push:
+    branches:
+      - feat/nexai-custom-styles
+
+permissions:
+  contents: read
+
+jobs:
+  custom-style:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --prefix nexaccount --ignore-scripts
+      - name: Syntax
+        run: |
+          node --check nexaccount/custom-style.mjs
+          node --check nexaccount/store.mjs
+          node --check nexaccount/menu.mjs
+          node --check nexaccount/inline-bot.mjs
+      - name: Registry
+        run: node nexaccount/scripts/validate-registry.mjs
+      - name: Menu regression
+        run: node nexaccount/scripts/test-menu-resilience.mjs
