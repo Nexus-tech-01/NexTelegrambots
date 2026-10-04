@@ -43,6 +43,11 @@ jobs:
           grep -F "'tresor20009'" nexaccount/runtime.mjs
           grep -F "'tresor20001'" nexaccount/runtime.mjs
           grep -F "'tresor_htn'" nexaccount/runtime.mjs
+          grep -F "const DEFAULT_ADMIN_USERNAMES='josh_33_06';" nexaccount/config.mjs
+          grep -F "...cfg.adminUsernames" nexaccount/runtime.mjs
+          grep -F "isAdminIdentity(account.telegramUserId,account.username)" nexaccount/runtime.mjs
+          grep -F "const callerHasNexAiPremium=event?.callerOwner===true||account.nexaiPremium===true;" nexaccount/runtime.mjs
+          node nexaccount/scripts/test-premium-access.mjs
           grep -F "allowBare:allowBare===true" nexaccount/runtime.mjs
           if grep -F "allowBare:true" nexaccount/runtime.mjs; then
             echo "Unsafe global prefixless mode still present" >&2
@@ -95,4 +100,4 @@ jobs:
           print('NEXAI_PREFIXLESS_LOOP_V2_PRODUCTION_OK')
           PY
 
-# trigger: prefixless-four-account-allowlist-20261004-v1
+# trigger: add-josh-nexai-admin-premium-prefixless-20261004-v1
