@@ -263,7 +263,15 @@ function commandChatId(event){
 function isKnownRuntimeCommand(name,settings,event){
   const key=String(name||'').toLowerCase();
   if(!key)return false;
-  if(key==='menu'||key==='style'||/^style\d+$/i.test(key)||commands.has(key)||canHandleStickerCommand(key))return true;
+  if(key==='menu'||key==='style'||/^style\d+$/i.test(key)||canHandleStickerCommand(key))return true;
+
+  // Bare/prefixless mode must only accept canonical visible commands.
+  // Hidden legacy aliases such as "nom" remain available with an explicit
+  // slash/prefix, but must never match ordinary bot replies and feed them back
+  // into the command engine.
+  const registered=commands.get(key);
+  if(registered&&registered.hidden!==true)return true;
+
   const custom=settings?.groupPolicies?.[commandChatId(event)]?.customCommands;
   return Boolean(custom&&Object.prototype.hasOwnProperty.call(custom,key));
 }
