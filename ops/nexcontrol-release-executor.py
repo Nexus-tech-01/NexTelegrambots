@@ -54,6 +54,10 @@ def safe_extract_xz(data, dst):
             target = os.path.realpath(os.path.join(dst, member.name))
             if not (target == root or target.startswith(root + os.sep)):
                 fail("archive_path_traversal")
+            if member.issym() or member.islnk():
+                fail("archive_links_not_allowed")
+            if member.isdev() or member.isfifo():
+                fail("archive_special_file_not_allowed")
         tf.extractall(dst)
 
 def locate_component(root, component):
