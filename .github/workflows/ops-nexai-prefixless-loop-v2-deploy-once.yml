@@ -30,6 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           npm install --prefix nexaccount --ignore-scripts
+          node --check nexaccount/config.mjs
           node --check nexaccount/runtime.mjs
           node --check nexaccount/compat.mjs
           grep -F "function messageLooksGeneratedByNexAi(message)" nexaccount/runtime.mjs
@@ -91,6 +92,9 @@ jobs:
           anti=live.get('prefixlessLoop') or {}
           if anti.get('antiLoop') is not True or anti.get('broadcastReplySafe') is not True:
               raise SystemExit('anti-loop production verification missing: '+str(live))
+          admin=live.get('adminAccess') or {}
+          if admin.get('josh') is not True or admin.get('prefixless') is not True or admin.get('nexaiPremium') is not True:
+              raise SystemExit('Josh admin production verification missing: '+str(live))
           anime=live.get('anime') or {}
           if anime.get('ok') is not True or anime.get('enabled') is not True:
               raise SystemExit('NexAnime regression check failed: '+str(anime))
@@ -100,4 +104,4 @@ jobs:
           print('NEXAI_PREFIXLESS_LOOP_V2_PRODUCTION_OK')
           PY
 
-# trigger: add-josh-nexai-admin-premium-prefixless-20261004-v1
+# trigger: add-josh-nexai-admin-premium-prefixless-20261004-v2
