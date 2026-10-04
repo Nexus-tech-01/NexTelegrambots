@@ -54,7 +54,7 @@ const required={
   'store.mjs':['customStyle:normalizeCustomStyle','safe.customStyle=normalizeCustomStyle'],
   'menu.mjs':['customStyleModel','menu:customstyle','customStyleMedia(settings)','categoryPage'],
   'commands.mjs':["C('ultratake'","C('delfilig'","C('filitake'","C('noteclone'","C('customstyle'","C('stylename'","C('menuvideo'"],
-  'sticker-engine.mjs':["'ultratake'","'delfilig'","'filitake'","'noteclone'","export async function resumeStickerJobs"],
+  'sticker-engine.mjs':["'ultratake'","'delfilig'","'filitake'","'noteclone'","export async function resumeStickerJobs","applyDurableStickerMutation","startPrepared","traitement rapide sécurisé"],
   'sticker-transform.mjs':['export async function addStickerWatermark','export async function removeStickerWatermark','export async function roundSticker'],
   'runtime.mjs':['canHandleStickerCommand(parsed.name)','Sticker engine fallback','registered.hidden!==true','consumeGeneratedCommandOutput','markGeneratedCommandOutput','NEXACCOUNT_EMBEDDED_ANIME'],
   'core/engine-router.mjs':['outcome?.deferred!==true','await progress.done','canonicalName(cmd)','handleStickerCommand'],
