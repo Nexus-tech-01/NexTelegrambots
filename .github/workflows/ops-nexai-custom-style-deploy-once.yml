@@ -60,6 +60,8 @@ jobs:
           grep -F "const greetingEventsSeen=new Map();" nexaccount/runtime.mjs
           grep -F "function isAuthKeyUnregisteredError(error)" nexaccount/runtime.mjs
           grep -F "async function handleBotGreeting(ctx)" nexaccount/inline-bot.mjs
+          grep -F "compactGreetingEmojiNoise" nexaccount/inline-bot.mjs
+          grep -F "nexai-fallback" nexaccount/inline-bot.mjs
           grep -F "message.new_chat_members" nexaccount/inline-bot.mjs
           grep -F "message.left_chat_member" nexaccount/inline-bot.mjs
           grep -F "sharedGreetingPolicy" nexaccount/store.mjs
@@ -112,3 +114,4 @@ jobs:
 
 # trigger: prefixless-loop-v2-via-supported-custom-style-mode
 # trigger: welcome-avatar-uncropped-media-card
+# trigger: compact-welcome-emojis-and-nexai-avatar-fallback-20261005
