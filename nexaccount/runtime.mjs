@@ -3333,6 +3333,152 @@ export async function runtimeConversationSend(telegramUserId,{chatId,text='',fil
   };
 }
 
+
+function nexControlConversationPeerId(entity={},dialog={}){
+  const id=String(entity?.id??dialog?.id??'');
+  if(!id)return '';
+  const kind=String(entity?.className||entity?.constructor?.name||'');
+  if(/Channel/i.test(kind)||dialog?.isChannel===true)return '-100'+id;
+  if(/Chat/i.test(kind)||dialog?.isGroup===true)return '-'+id;
+  return id;
+}
+
+function nexControlConversationTitle(entity={},fallback=''){
+  const title=String(entity?.title||'').trim();
+  if(title)return title;
+  const name=[entity?.firstName,entity?.lastName].map(x=>String(x||'').trim()).filter(Boolean).join(' ');
+  if(name)return name;
+  const username=String(entity?.username||'').trim();
+  if(username)return '@'+username;
+  return String(fallback||'Conversation');
+}
+
+function nexControlConversationMedia(message){
+  const media=message?.media;
+  if(!media)return {hasMedia:false,mediaType:''};
+  const raw=String(media?.className||media?.constructor?.name||'media').replace(/^MessageMedia/,'').toLowerCase();
+  let mediaType=raw||'media';
+  const doc=media?.document;
+  const mime=String(doc?.mimeType||'').toLowerCase();
+  if(mime.startsWith('image/'))mediaType='image';
+  else if(mime.startsWith('video/'))mediaType='video';
+  else if(mime.startsWith('audio/'))mediaType='audio';
+  else if(doc)mediaType='document';
+  return {hasMedia:true,mediaType};
+}
+
+async function nexControlResolveConversationPeer(client,chatId){
+  const raw=String(chatId||'').trim();
+  if(!raw)throw new Error('chat_id_required');
+  const stripped=raw.replace(/^-100/,'').replace(/^-/,'');
+  const dialogs=await client.getDialogs({limit:250});
+  for(const dialog of dialogs||[]){
+    const entity=dialog?.entity||dialog;
+    const key=nexControlConversationPeerId(entity,dialog);
+    if(key===raw||String(entity?.id||dialog?.id||'')===stripped){
+      return dialog?.inputEntity||entity||dialog;
+    }
+  }
+  if(/^@/.test(raw))return client.getInputEntity(raw);
+  if(/^-100\d+$/.test(raw)){
+    const peer=new Api.PeerChannel({channelId:returnBigInt(raw.slice(4))});
+    return client.getInputEntity(peer);
+  }
+  if(/^-\d+$/.test(raw)){
+    const peer=new Api.PeerChat({chatId:returnBigInt(raw.slice(1))});
+    return client.getInputEntity(peer);
+  }
+  return client.getInputEntity(raw);
+}
+
+export async function runtimeConversationList(target='',limit=100){
+  const runtime=runtimeConnectionFor(target);
+  if(!runtime)throw new Error('runtime_not_active');
+  const max=Math.max(1,Math.min(250,Number(limit)||100));
+  const dialogs=await runtime.client.getDialogs({limit:max});
+  const rows=[];
+  for(const dialog of dialogs||[]){
+    const entity=dialog?.entity||{};
+    const chatId=nexControlConversationPeerId(entity,dialog);
+    if(!chatId)continue;
+    const message=dialog?.message||null;
+    rows.push({
+      chatId,
+      title:nexControlConversationTitle(entity,chatId),
+      username:String(entity?.username||''),
+      type:dialog?.isGroup===true?'group':dialog?.isChannel===true?'channel':'private',
+      isGroup:dialog?.isGroup===true,
+      isChannel:dialog?.isChannel===true,
+      unreadCount:Number(dialog?.unreadCount||0),
+      unreadMentionsCount:Number(dialog?.unreadMentionsCount||0),
+      pinned:Boolean(dialog?.pinned),
+      archived:Number(dialog?.folderId||0)===1,
+      lastMessageId:Number(message?.id||0),
+      lastMessage:textOf(message),
+      lastMessageAt:messageTimestampMs(message)?new Date(messageTimestampMs(message)).toISOString():null,
+      lastMessageOut:message?.out===true,
+      media:nexControlConversationMedia(message)
+    });
+  }
+  return {ok:true,telegramUserId:String(runtime.account.telegramUserId),username:runtime.account.username||'',dialogs:rows};
+}
+
+export async function runtimeConversationHistory(target='',chatId='',limit=80){
+  const runtime=runtimeConnectionFor(target);
+  if(!runtime)throw new Error('runtime_not_active');
+  const peer=await nexControlResolveConversationPeer(runtime.client,chatId);
+  const max=Math.max(1,Math.min(200,Number(limit)||80));
+  const messages=await runtime.client.getMessages(peer,{limit:max});
+  const rows=[...(messages||[])].sort((a,b)=>Number(a?.id||0)-Number(b?.id||0)).map(message=>({
+    id:Number(message?.id||0),
+    text:textOf(message),
+    out:message?.out===true,
+    senderId:messageAuthorId(message),
+    date:messageTimestampMs(message)?new Date(messageTimestampMs(message)).toISOString():null,
+    replyToMessageId:Number(message?.replyTo?.replyToMsgId||message?.replyToMsgId||0)||0,
+    ...nexControlConversationMedia(message)
+  }));
+  return {ok:true,telegramUserId:String(runtime.account.telegramUserId),username:runtime.account.username||'',chatId:String(chatId),messages:rows};
+}
+
+export async function runtimeConversationSend(target='',payload={}){
+  const runtime=runtimeConnectionFor(target);
+  if(!runtime)throw new Error('runtime_not_active');
+  const chatId=String(payload?.chatId||'').trim();
+  if(!chatId)throw new Error('chat_id_required');
+  const peer=await nexControlResolveConversationPeer(runtime.client,chatId);
+  const text=String(payload?.text||'').slice(0,12000);
+  const replyTo=Number(payload?.replyToMessageId||0)||undefined;
+  const b64=String(payload?.fileBase64||'');
+  let sent;
+  if(b64){
+    if(b64.length>8000000)throw new Error('media_too_large');
+    const mode=String(payload?.mode||'document').toLowerCase();
+    const buffer=Buffer.from(b64,'base64');
+    sent=await runtime.client.sendFile(peer,{
+      file:buffer,
+      caption:text||'',
+      replyTo,
+      voiceNote:mode==='voice',
+      forceDocument:mode==='document'
+    });
+  }else{
+    if(!text)throw new Error('message_empty');
+    sent=await runtime.client.sendMessage(peer,{message:text,replyTo});
+  }
+  const message=Array.isArray(sent)?sent[0]:sent;
+  return {
+    ok:true,
+    telegramUserId:String(runtime.account.telegramUserId),
+    username:runtime.account.username||'',
+    chatId,
+    messageId:Number(message?.id||0),
+    text:textOf(message)||text,
+    date:messageTimestampMs(message)?new Date(messageTimestampMs(message)).toISOString():new Date().toISOString(),
+    ...nexControlConversationMedia(message)
+  };
+}
+
 export function runtimeConnectionFor(target=''){
   const q=String(target||'').trim().replace(/^@/,'').toLowerCase();
   const candidates=[...runtimes.values()].filter(r=>r?.client?.connected===true);
