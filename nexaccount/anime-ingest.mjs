@@ -1484,11 +1484,9 @@ async function previousEpisodePublication(item){
   );
 }
 function shouldShowPreviousLink(item){
-  return item?.episode!=null && (
-    item.mode==='live' ||
-    item.sourcePreviousNav===true ||
-    item.syntheticEpisodeCard===true
-  );
+  // Every published episode should link to the latest earlier episode when one
+  // exists in Otaku Nexus. Backfill/resume items must not lose navigation.
+  return item?.episode!=null;
 }
 async function publicationCaption(item){
   let body=standardizedCaption(item);
