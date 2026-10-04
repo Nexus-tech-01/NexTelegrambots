@@ -8,11 +8,12 @@ if(!/^[0-9a-f]{40}$/i.test(sha))throw new Error('NEXAI_DEPLOY_SHA invalid');
 const repo='Nexus-tech-01/NexTelegrambots';
 const current='/opt/nex/apps/public/nexai/current';
 const base=fs.realpathSync(current);
-const files=['media-send.mjs','compat.mjs','runtime.mjs'];
+const files=['media-send.mjs','reply-storage.mjs','compat.mjs','runtime.mjs'];
 const required={
   'media-send.mjs':['normalizeVideoNoteBuffer','preNormalizedVideoNoteMeta'],
-  'compat.mjs':['ensureReplyHotCacheChannel','hotCacheChannelId','hotMessageId'],
-  'runtime.mjs':['ensureReplyHotCacheChannel','loadMentionReplyHotMedia','client.sendFile(message.peerId','Reply vidéo prioritaire']
+  'reply-storage.mjs':['replyStorageJoinLink','createChatInviteLink','member_limit:1'],
+  'compat.mjs':['ensureReplyHotCacheChannel','replyStorageJoinLink','Api.messages.ImportChatInvite','hotMessageId'],
+  'runtime.mjs':['ensureReplyHotCacheChannel','replyStorageJoinLink','Api.messages.ImportChatInvite','loadMentionReplyHotMedia','client.sendFile(message.peerId','Reply vidéo prioritaire']
 };
 const stamp=new Date().toISOString().replace(/[:.]/g,'-');
 const backupDir='/var/lib/nex/runtime/public/nexaccount/deploy-backups/reply-speed-'+stamp;
