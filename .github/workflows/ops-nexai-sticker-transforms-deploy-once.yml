@@ -1,3 +1,4 @@
+# deploy native+batch sticker acceleration 2026-10-04
 # deploy accelerated sticker pipeline 2026-10-04
 # deploy engine-router with take fix 2026-10-04
 # deploy verified take completion fix 2026-10-04
@@ -36,6 +37,13 @@ jobs:
         run: |
           set -euo pipefail
           node --check nexaccount/commands.mjs
+          node --input-type=module - <<'NODE'
+          import {Api} from './nexaccount/node_modules/teleproto/index.js';
+          if(!Api?.stickers?.CreateStickerSet||!Api?.InputStickerSetItem||!Api?.InputUserSelf){
+            throw new Error('native sticker API unavailable');
+          }
+          console.log('NATIVE_STICKER_API_OK');
+          NODE
           node --check nexaccount/sticker-engine.mjs
           node --check nexaccount/sticker-transform.mjs
           node --check nexaccount/core/engine-router.mjs
@@ -61,6 +69,11 @@ jobs:
           grep -F "startPrepared" nexaccount/sticker-engine.mjs
           grep -F "traitement rapide sécurisé" nexaccount/sticker-engine.mjs
           grep -F "NEXAI_STICKER_MUTATION_GAP_MS||300" nexaccount/sticker-engine.mjs
+          grep -F "runNativeCloneJob" nexaccount/sticker-engine.mjs
+          grep -F "new Api.stickers.CreateStickerSet" nexaccount/sticker-engine.mjs
+          grep -F "createSetBatch" nexaccount/sticker-engine.mjs
+          grep -F "préparation batch" nexaccount/sticker-engine.mjs
+          grep -F "NEXAI_STICKER_DOWNLOAD_CONCURRENCY||3" nexaccount/sticker-engine.mjs
           if grep -F "MAX_CLONE" nexaccount/sticker-engine.mjs; then
             echo "legacy pack truncation still present" >&2
             exit 1
