@@ -58,7 +58,7 @@ const required={
   'commands.mjs':["C('ultratake'","C('delfilig'","C('filitake'","C('noteclone'","C('customstyle'","C('stylename'","C('menuvideo'"],
   'sticker-engine.mjs':["'ultratake'","'delfilig'","'filitake'","'noteclone'","export async function resumeStickerJobs","applyDurableStickerMutation","startPrepared","traitement rapide sécurisé","runNativeCloneJob","CreateStickerSet","createSetBatch","préparation batch"],
   'sticker-transform.mjs':['export async function addStickerWatermark','export async function removeStickerWatermark','export async function roundSticker'],
-  'runtime.mjs':['canHandleStickerCommand(parsed.name)','Sticker engine fallback','registered.hidden!==true','consumeGeneratedCommandOutput','markGeneratedCommandOutput','NEXACCOUNT_EMBEDDED_ANIME','ensureAnimePublisherOwnership','NEXACCOUNT_ANIME_FAILOVER_USERNAMES'],
+  'runtime.mjs':['canHandleStickerCommand(parsed.name)','Sticker engine fallback','registered.hidden!==true','consumeGeneratedCommandOutput','markGeneratedCommandOutput','NEXACCOUNT_EMBEDDED_ANIME','ensureAnimePublisherOwnership','NEXACCOUNT_ANIME_FAILOVER_USERNAMES','animePublisherWatchdog'],
   'anime-secondary-reader.mjs':['SECONDARY_REQUESTED','embedded_runtime_owns_sessions','animePublisher:false'],
   'core/engine-router.mjs':['outcome?.deferred!==true','await progress.done','canonicalName(cmd)','handleStickerCommand'],
   'compat.mjs':['cacheMenuMediaForBot',"name==='customstyle'","name==='menuphoto'||name==='menuvideo'",'✅ Diffusion terminée']
@@ -238,7 +238,24 @@ try{
   report.steps.health=live;
 
   if(mode==='anime-gap-skip'){
-    const anime=cli('anime-status');
+    let anime=null;
+    let accounts=null;
+    let publisher=null;
+    // Health can turn green before saved Telegram sessions finish restoring.
+    // Wait for an actual anime publisher so a "running" process is never
+    // mistaken for a functioning publication pipeline.
+    for(let i=0;i<30;i++){
+      anime=cli('anime-status');
+      accounts=cli('accounts');
+      const active=Array.isArray(accounts?.runtimes)?accounts.runtimes.filter(x=>x?.connected===true):[];
+      publisher=active.find(x=>x?.anime?.listener===true&&x?.anime?.publisher===true)||null;
+      if(
+        anime?.ok===true&&anime?.enabled===true&&
+        String(anime?.destination||'').toLowerCase()==='@theotaku_nexus'&&
+        publisher
+      )break;
+      await sleep(2000);
+    }
     if(anime?.ok!==true||anime?.enabled!==true||String(anime?.destination||'').toLowerCase()!=='@theotaku_nexus')throw new Error('anime status regression');
     report.steps.anime={
       ok:anime.ok,
@@ -247,7 +264,17 @@ try{
       interSeriesMinutes:anime.interSeriesMinutes,
       scheduler:anime.scheduler,
       queue:anime.queue,
-      published:anime.published
+      published:anime.published,
+      publisherReady:Boolean(publisher),
+      publisher:publisher?{
+        telegramUserId:String(publisher.telegramUserId||''),
+        username:String(publisher.username||''),
+        anime:publisher.anime||null
+      }:null
+    };
+    report.steps.accounts={
+      runtimeCount:Array.isArray(accounts?.runtimes)?accounts.runtimes.filter(x=>x?.connected===true).length:0,
+      publisherReady:Boolean(publisher)
     };
   }
   if(mode==='prefixless-loop'){
