@@ -4,6 +4,7 @@ name: Ops Anime Diagnostic Once
 # diagnostic refresh: 2026-10-03 anime stalled again
 # diagnostic refresh: 2026-10-04 01:35 Africa/Porto-Novo - anime stalled again
 # diagnostic refresh: 2026-10-04 15:31 Africa/Porto-Novo - harden permanent publication loop
+# diagnostic refresh: 2026-10-04 15:48 Africa/Porto-Novo - verify live publisher failover
 
 on:
   push:
