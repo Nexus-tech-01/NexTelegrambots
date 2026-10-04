@@ -1,3 +1,4 @@
+# trigger five-minute nonstop anime cadence + finish active series 2026-10-04
 # trigger metadata-stall recovery 2026-10-04
 # trigger whatsapp-stage-crash-fix 2026-10-04
 # trigger previous-link-fix 2026-10-04
@@ -50,8 +51,11 @@ jobs:
           node --check nexaccount/anime-secondary-reader.mjs
           node --check nexaccount/bootstrap.mjs
           node --check ops/deploy-nexai-safe-hotfix-live.mjs
+          node nexaccount/anime-contract.mjs
           node nexaccount/scripts/test-anime-ingest.mjs
           grep -F "and continuing with another runnable series" nexaccount/anime-ingest.mjs
+          grep -F "const INTER_SERIES_MS=5*60_000;" nexaccount/anime-ingest.mjs
+          grep -F "const GAP_RETRY_MS=5*60_000;" nexaccount/anime-ingest.mjs
           grep -F "refusing auxiliary production runtime" nexaccount/bootstrap.mjs
 
       - name: Deploy through single-runtime safe bridge
