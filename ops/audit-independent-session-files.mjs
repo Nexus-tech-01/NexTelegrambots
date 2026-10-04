@@ -34,3 +34,4 @@ const out=files.map(file=>{
   return {file,size:value.length,matches:accounts.filter(a=>a.hash===h).map(a=>({telegramUserId:a.telegramUserId,username:a.username}))};
 });
 console.log(JSON.stringify({accounts:accounts.map(a=>({telegramUserId:a.telegramUserId,username:a.username})),sessions:out}));
+process.exit(0);
