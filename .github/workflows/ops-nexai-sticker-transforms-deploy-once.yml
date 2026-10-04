@@ -1,3 +1,4 @@
+# trigger final durable sticker deployment 2026-10-04
 # deploy durable full-pack sticker queue 2026-10-04
 # deploy watermark controls 2026-10-03
 # deploy runtime sticker fallback 2026-10-03
@@ -79,12 +80,17 @@ jobs:
           steps=d.get('steps') or {}
           if steps.get('sourceValidated') is not True:
               raise SystemExit('source validation not confirmed')
-          if steps.get('registry') is not True:
-              raise SystemExit('command registry not confirmed')
-          if steps.get('transforms') is not True:
-              raise SystemExit('real transforms not confirmed')
-          health=steps.get('health') or {}
+          if steps.get('productionMarker') is not True:
+              raise SystemExit('production marker not confirmed: '+str(steps))
+          live=steps.get('live') or {}
+          if live.get('sourceValidated') is not True or live.get('syntax') is not True:
+              raise SystemExit('live sticker source/syntax not confirmed: '+str(live))
+          written=set(live.get('written') or [])
+          required={'commands.mjs','sticker-engine.mjs','sticker-transform.mjs','runtime.mjs'}
+          if not required.issubset(written):
+              raise SystemExit('production sticker files incomplete: '+str(sorted(written)))
+          health=(live.get('health') or {}).get('data') or steps.get('health') or {}
           if health.get('ok') is not True or health.get('pairingOnly') is True:
               raise SystemExit('NexAI health not confirmed: '+str(health))
-          print('NEXAI_STICKER_TRANSFORMS_PRODUCTION_OK')
+          print('NEXAI_STICKER_DURABLE_PRODUCTION_OK')
           PY
