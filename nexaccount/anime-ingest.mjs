@@ -2143,18 +2143,29 @@ async function ensureResumePresentation(d,seriesKey){
   if(existing||alreadyPublished)return existing||alreadyPublished;
 
   const meta=await animePresentationMetadata(nextEpisode.title);
-  if(!meta?.ok||!String(meta.description||'').trim())return null;
+  const priorSynopsis=await queue.findOne(
+    {
+      seriesKey,kind:'presentation',status:'published',
+      $or:[{episode:null},{episode:{$exists:false}}]
+    },
+    {sort:{publishedAt:-1,updatedAt:-1}}
+  );
+  const synopsisText=meta?.ok&&String(meta.description||'').trim()
+    ?presentationText(meta)
+    :String(priorSynopsis?.cleanedCaption||'').trim();
+  if(!synopsisText)return null;
 
   const now=new Date();
+  const resumeHead='🔄 Reprise de l’anime\\nLa publication reprend à Saison '+season+' · Épisode '+episode;
   const payload={
     dedupeKey,status:'queued',kind:'resume_presentation',seriesKey,
-    title:meta.canonicalTitle||nextEpisode.title,
-    anilistId:meta.anilistId||nextEpisode.anilistId||null,
+    title:meta?.canonicalTitle||priorSynopsis?.title||nextEpisode.title,
+    anilistId:meta?.anilistId||priorSynopsis?.anilistId||nextEpisode.anilistId||null,
     season:null,episode:null,language:'',quality:'',
-    mediaKind:'photo',cleanedCaption:resumePresentationText(meta,season,episode),
+    mediaKind:'photo',cleanedCaption:[resumeHead,synopsisText].filter(Boolean).join('\\n\\n'),
     cleanedFilename:'',originalFilename:'',confidence:1,
     destination:'@'+DESTINATION,mode:'synthetic',synthetic:true,
-    imageUrl:meta.coverImage||'',attempts:0,ingestedAt:new Date(0),
+    imageUrl:meta?.coverImage||priorSynopsis?.imageUrl||'',attempts:0,ingestedAt:new Date(0),
     resumeSeason:season,resumeEpisode:episode,
     resumePresentation:true,createdAt:now,updatedAt:now
   };
