@@ -786,15 +786,20 @@ async function runDurablePackJob({runtime,job,progress=null}){
         return {sourceIndex,doc,prepared,emoji:stickerAttr(doc)?.alt||'✨'};
       };
 
+      const startPrepared=localIndex=>prepareLocalSticker(localIndex).then(
+        value=>({ok:true,value}),
+        error=>({ok:false,error})
+      );
       let preparedAhead=null;
       for(let localIndex=localDone;localIndex<Number(part.total);localIndex++){
         const currentLocalIndex=localIndex;
-        const currentPromise=preparedAhead||prepareLocalSticker(currentLocalIndex);
-        const current=await currentPromise;
+        const currentResult=await (preparedAhead||startPrepared(currentLocalIndex));
+        if(!currentResult.ok)throw currentResult.error;
+        const current=currentResult.value;
 
         const nextLocalIndex=currentLocalIndex+1;
         preparedAhead=nextLocalIndex<Number(part.total)
-          ?prepareLocalSticker(nextLocalIndex)
+          ?startPrepared(nextLocalIndex)
           :null;
 
         const {sourceIndex,doc,prepared,emoji}=current;
