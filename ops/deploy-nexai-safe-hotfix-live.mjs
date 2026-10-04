@@ -12,6 +12,8 @@ const service='nex-nexaccount.service';
 const modes={
   'anime-gap-skip':[
     ['anime-ingest.mjs','nexaccount/anime-ingest.mjs'],
+    ['anime-contract.mjs','nexaccount/anime-contract.mjs'],
+    ['scripts/test-anime-ingest.mjs','nexaccount/scripts/test-anime-ingest.mjs'],
     ['runtime.mjs','nexaccount/runtime.mjs'],
     ['anime-secondary-reader.mjs','nexaccount/anime-secondary-reader.mjs'],
     ['bootstrap.mjs','nexaccount/bootstrap.mjs']
@@ -48,7 +50,9 @@ const files=modes[mode];
 if(!files)throw new Error('unsupported hotfix mode '+mode);
 
 const required={
-  'anime-ingest.mjs':['blockedSeriesEntries',"missing_previous_episode_without_runnable_variant",'and continuing with another runnable series','return claimNext(runtime);'],
+  'anime-ingest.mjs':['blockedSeriesEntries',"missing_previous_episode_without_runnable_variant",'and continuing with another runnable series','return claimNext(runtime);','const INTER_SERIES_MS=5*60_000;','const GAP_RETRY_MS=5*60_000;','const RESUME_AFTER_LONG_PAUSE_MS=30*60_000;','Translation is presentation quality, never a publication liveness gate.','function obsoleteLivenessBlockReason'],
+  'anime-contract.mjs':["'const INTER_SERIES_MS=5*60_000;'","'const GAP_RETRY_MS=5*60_000;'","'function obsoleteLivenessBlockReason'"],
+  'scripts/test-anime-ingest.mjs':['__test.timing.interSeriesMs,5*60_000',"2026-01-01T00:05:00.000Z"],
   'bootstrap.mjs':['refusing auxiliary production runtime','AUTH_KEY_DUPLICATED','canonicalRoot'],
   'inline-bot.mjs':['CONNECT_TUTORIAL_CALLBACK','connect:tutorial','sendConnectTutorial','storeReplyVideo'],
   'reply-storage.mjs':['filenamePrefix','safePrefix'],
@@ -221,6 +225,9 @@ try{
   }
 
   if(mode==='anime-gap-skip'){
+    const contract=run(process.execPath,[path.join(base,'anime-contract.mjs')],{cwd:base,timeout:120000});
+    if(!contract.ok)throw new Error('anime protection contract failed: '+(contract.stderr||contract.stdout).slice(-2400));
+    report.steps.animeContract=true;
     const test=run(process.execPath,[path.join(base,'scripts/test-anime-ingest.mjs')],{cwd:base,timeout:120000});
     if(!test.ok)throw new Error('anime regression tests failed: '+test.stderr.slice(-2000));
     report.steps.animeTests=true;
@@ -257,6 +264,16 @@ try{
       await sleep(2000);
     }
     if(anime?.ok!==true||anime?.enabled!==true||String(anime?.destination||'').toLowerCase()!=='@theotaku_nexus')throw new Error('anime status regression');
+    if(Number(anime?.interSeriesMinutes)!==5)throw new Error('anime cadence regression: expected 5 minutes, got '+String(anime?.interSeriesMinutes));
+    let publishNow=null;
+    if(publisher){
+      try{
+        publishNow=cli('anime-publish-now',String(publisher.username||publisher.telegramUserId||''));
+      }catch(error){
+        publishNow={ok:false,error:String(error?.message||error).slice(0,800)};
+      }
+    }
+    report.steps.publishNow=publishNow;
     report.steps.anime={
       ok:anime.ok,
       enabled:anime.enabled,
