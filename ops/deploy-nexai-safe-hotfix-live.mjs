@@ -42,6 +42,7 @@ const modes={
     ['core/engine-router.mjs','nexaccount/core/engine-router.mjs']
   ],
   'prefixless-loop':[
+    ['config.mjs','nexaccount/config.mjs'],
     ['runtime.mjs','nexaccount/runtime.mjs'],
     ['compat.mjs','nexaccount/compat.mjs']
   ]
@@ -56,6 +57,7 @@ const required={
   'bootstrap.mjs':['refusing auxiliary production runtime','AUTH_KEY_DUPLICATED','canonicalRoot'],
   'inline-bot.mjs':['CONNECT_TUTORIAL_CALLBACK','connect:tutorial','sendConnectTutorial','storeReplyVideo'],
   'reply-storage.mjs':['filenamePrefix','safePrefix'],
+  'config.mjs':["const DEFAULT_ADMIN_USERNAMES='josh_33_06';",'export function isAdminUsername',"export function isAdminIdentity"],
   'custom-style.mjs':['normalizeCustomStyle','customStyleMedia','renderCustomHeader','renderCustomCategory'],
   'store.mjs':['customStyle:normalizeCustomStyle','safe.customStyle=normalizeCustomStyle'],
   'menu.mjs':['customStyleModel','menu:customstyle','customStyleMedia(settings)','categoryPage'],
@@ -222,6 +224,16 @@ try{
     }
     report.steps.moduleGraph=true;
     if(mode==='stickers')report.steps.nativeStickerApi=true;
+  }
+
+  if(mode==='prefixless-loop'){
+    const adminProbe=run(process.execPath,['--input-type=module','-e',
+      "const c=await import('./config.mjs'); const fs=await import('node:fs'); const r=fs.readFileSync('./runtime.mjs','utf8'); if(!c.cfg.adminUsernames.includes('josh_33_06')) throw new Error('josh admin allowlist missing'); if(!c.isAdminIdentity('', '@josh_33_06')) throw new Error('josh admin identity missing'); if(!r.includes('...cfg.adminUsernames')) throw new Error('josh prefixless inheritance missing'); if(!r.includes('event?.callerOwner===true||account.nexaiPremium===true')) throw new Error('admin premium bypass missing'); console.log('NEXAI_ADMIN_ACCESS_OK');"
+    ],{cwd:base,timeout:60000});
+    if(!adminProbe.ok||!adminProbe.stdout.includes('NEXAI_ADMIN_ACCESS_OK')){
+      throw new Error('admin access validation failed: '+(adminProbe.stderr||adminProbe.stdout).slice(-1600));
+    }
+    report.steps.adminAccess={josh:true,prefixless:true,nexaiPremium:true};
   }
 
   if(mode==='anime-gap-skip'){
