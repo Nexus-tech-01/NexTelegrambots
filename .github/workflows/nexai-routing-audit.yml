@@ -12,6 +12,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Inspect repository NexAI deployment assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== repository candidate files ==="
+          find . -type f | sort | grep -Ei 'nexai|nexaccount|daemon|deploy|vps|nexcontrol' | head -500 || true
+          echo "=== repository routing hits ==="
+          grep -RniE --exclude='render-src.b64.part-*' --exclude-dir='.git'             'nex-nexaccount|/opt/nex/apps/public/nexai|daemon\.mjs|prefixless|no.?prefix|anonymous|sender_chat|senderChat|tresor20001|tresor20009|tresor20000|tresor_htn' .             | head -1200 || true
+
       - name: Rehydrate bundled source
         shell: bash
         run: |
@@ -22,12 +31,12 @@ jobs:
           done
           mkdir -p /tmp/nexus-src
           tar -xJf /tmp/nexus-bots.tar.xz -C /tmp/nexus-src
-      - name: Locate NexAI routing code
+      - name: Locate bundled routing code
         shell: bash
         run: |
           set -euo pipefail
           cd /tmp/nexus-src
-          echo "=== candidate files ==="
-          find . -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.ts' -o -name '*.cjs' \) | sort | grep -Ei 'nexai|account|telegram|command|handler|router|session' | head -250 || true
-          echo "=== prefix / owner / anonymous hits ==="
-          grep -RniE --include='*.js' --include='*.mjs' --include='*.ts' --include='*.cjs'             'no.?prefix|prefix|sender_chat|senderChat|anonymous|owner|admin|tresor2000|command' .             | grep -Ei 'nexai|account|session|command|prefix|sender_chat|anonymous|owner|admin'             | head -600 || true
+          echo "=== bundled candidate files ==="
+          find . -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.ts' -o -name '*.cjs' \) | sort | grep -Ei 'nexai|account|telegram|command|handler|router|session' | head -300 || true
+          echo "=== bundled routing hits ==="
+          grep -RniE --include='*.js' --include='*.mjs' --include='*.ts' --include='*.cjs'             'no.?prefix|prefixless|sender_chat|senderChat|anonymous|tresor20001|tresor20009|tresor20000|tresor_htn|owner|admin' .             | head -1200 || true
