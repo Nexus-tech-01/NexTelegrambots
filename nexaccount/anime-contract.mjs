@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
-const PINNED_ANIME_SHA256='b3b64216ae599a7de420cfce2f641b231b4b8c2d8814da5ad93887df4de57983';
+const PINNED_ANIME_SHA256='5faa7ed5628d0175bc95dcd9c79dd1ef138ab6a108d5fc0af0d2015fc0e2f973';
 
 const CONTRACT={
   'anime-ingest.mjs':[
@@ -17,6 +17,7 @@ const CONTRACT={
     'function episodeVariantRetryReady',
     'const LIVE_ANIME_RUNTIMES=new Map();',
     'function liveRuntimeCandidates',
+    "reason:'presentation_not_materialized'",
     "channelAccessHash:String(entity?.accessHash||'')",
     'new Api.InputChannel',
     'getDialogs({limit:500})',

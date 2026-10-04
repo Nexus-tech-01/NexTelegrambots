@@ -2742,7 +2742,20 @@ async function claimNext(runtime){
   },{projection:{_id:1,telegramMessageId:1}});
   if(!publishedGeneralPresentation){
     // Hard invariant: no episode is allowed out before the anime synopsis card.
-    return null;
+    // But a synopsis that could not be materialized must never deadlock the
+    // global publisher. Park this series briefly and continue with another
+    // runnable anime in the same publish tick.
+    const blockedEpisode=await d.collection('nexanime_queue').findOne(
+      {seriesKey,kind:'episode',status:'queued',episode:{$ne:null}},
+      {sort:{season:1,episode:1,createdAt:1},projection:{season:1,episode:1}}
+    );
+    await parkSeriesBeforeSynopsis(d,seriesKey,{
+      reason:'presentation_not_materialized',
+      season:Number(blockedEpisode?.season??1),
+      expectedEpisode:Number(blockedEpisode?.episode??1),
+      blockedEpisode:Number(blockedEpisode?.episode??1)
+    });
+    return claimNext(runtime);
   }
 
   // 3) Only real episode media can be selected after the general/resume synopsis.
