@@ -4,6 +4,7 @@
 # refresh anime candidate scan
 # runtime stall recovery
 # resume-synopsis deploy refresh
+# resume-synopsis fallback refresh
 name: Ops Anime Safe Recovery Deploy Once
 # deploy refresh 2026-10-04
 
