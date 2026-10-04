@@ -80,17 +80,18 @@ assert.equal(tagall.reduce((n,x)=>n+x.entities.length,0),130,'tagall must mentio
 assert.ok(tagall.every(x=>x.text.length<4096),'tagall chunk exceeds Telegram text limit');
 
 const hidden=await run('hidetag',['Secret']);
-assert.equal(hidden.length,3,'hidetag must split large groups into safe mention packets');
+assert.equal(hidden.length,7,'hidetag must keep one logical batch while using safe transport carriers');
 assert.ok(hidden.flatMap(x=>x.entities).every(e=>e instanceof Api.InputMessageEntityMentionName),'hidetag must use outgoing InputMessageEntityMentionName entities');
 assert.equal(hidden.reduce((n,x)=>n+x.entities.length,0),130,'hidetag must mention every member across packets');
-assert.ok(hidden.every(x=>x.entities.length<=50),'hidetag packets must stay within the conservative mention batch');
+assert.ok(hidden.every(x=>x.entities.length<=20),'hidetag transport carriers must stay within the conservative entity cap');
 assert.ok(hidden[0].text.startsWith('Secret'),'hidetag must preserve the requested visible content in the first message');
 assert.ok(hidden.every(x=>!x.text.includes('User')),'hidetag must not expose member names');
-assert.deepEqual(hidden.deleted.map(x=>x.ids),[[1001],[1002]],'hidetag must immediately delete technical follow-up packets');
+assert.deepEqual(hidden.deleted.map(x=>x.ids),[[1001],[1002],[1003],[1004],[1005],[1006]],'hidetag must remove every technical follow-up carrier');
 
 {
   const sent=[];
   const deleted=[];
+  let nextMessageId=1000;
   const source={id:42,message:'Message original à republier',entities:[]};
   const client={
     getParticipants:async()=>people,
@@ -100,8 +101,9 @@ assert.deepEqual(hidden.deleted.map(x=>x.ids),[[1001],[1002]],'hidetag must imme
       return new Api.InputPeerUser({userId:u.id,accessHash:u.accessHash});
     },
     sendMessage:async(_peer,payload)=>{
-      sent.push({text:String(payload.message||''),entities:payload.formattingEntities||[]});
-      return payload;
+      const row={id:nextMessageId++,text:String(payload.message||''),entities:payload.formattingEntities||[]};
+      sent.push(row);
+      return row;
     },
     deleteMessages:async(_peer,ids,options)=>{
       deleted.push({ids:[...ids],options});
@@ -116,14 +118,16 @@ assert.deepEqual(hidden.deleted.map(x=>x.ids),[[1001],[1002]],'hidetag must imme
     sendInline:async()=>{}
   });
   assert.equal(handled,true,'reply hidetag must be handled');
-  assert.equal(sent.length,3,'reply hidetag must split large groups into safe mention packets');
+  assert.equal(sent.length,7,'reply hidetag must keep one logical batch while using safe transport carriers');
   assert.ok(sent[0].text.startsWith(source.message),'reply hidetag must resend the replied message once');
   assert.equal(sent.reduce((n,x)=>n+x.entities.filter(e=>e instanceof Api.InputMessageEntityMentionName).length,0),130,'reply hidetag must mention every member across packets');
-  assert.deepEqual(deleted.map(x=>x.ids),[[1001],[1002],[99]],'reply hidetag must delete technical packets and the command message');
+  assert.deepEqual(deleted.map(x=>x.ids),[[1001],[1002],[1003],[1004],[1005],[1006],[99]],'reply hidetag must delete technical carriers and the command message');
 }
 assert.match(compatSource,/name==='hidetag'\?null:1000/,'hidetag must request all retrievable participants instead of stopping at 1000');
-assert.match(compatSource,/const HIDDEN_TAG_BATCH=50/,'hidetag must keep mention packets within a conservative batch size');
+assert.match(compatSource,/const HIDDEN_TAG_TRANSPORT_BATCH=20/,'hidetag must keep one logical batch while transport stays under the conservative entity cap');
 assert.match(compatSource,/deleteHiddenPacket/,'hidetag technical packets must be removed after Telegram accepts them');
+assert.doesNotMatch(compatSource,/formattingEntities:built\.entities,\s*silent:true/,'hidetag transport must never suppress mention notifications');
+assert.match(compatSource,/showTotal:true/,'hidetag participant collection must request total-count verification');
 assert.match(compatSource,/sendHiddenTaggedCopy\(client,peer,list,source\)/,'hidetag replies must use the replied-message copy path');
 assert.match(compatSource,/signature:false/,'hidetag media copies must not append Nextech branding');
 
