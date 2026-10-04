@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { Api } from 'teleproto';
 import { cfg } from './config.mjs';
 import { loadBotToken } from './secrets.mjs';
@@ -274,6 +275,107 @@ async function prepareSticker(source){
     if(b.length>512*1024)throw new Error('Sticker image > 512 Ko après conversion.');
     return {buffer:b,format:'static',filename:'sticker.webp',mime:'image/webp'};
   }finally{cleanup(input,output)}
+}
+
+
+function unavailableStickerSetError(error){
+  return /STICKERSET_INVALID|STICKERSET_NOT_FOUND|provided sticker set is invalid|sticker set.*(?:invalid|not found)|stickers not found/i
+    .test(String(error?.message||error||''));
+}
+
+async function prepareUntakeSticker(source){
+  const mime=String(source?.mime||'').toLowerCase();
+  const original=Buffer.from(source?.buffer||[]);
+  if(!original.length)throw new Error('Sticker source vide.');
+
+  if(mime.includes('tgsticker')||mime.includes('x-tgsticker')){
+    try{
+      const json=JSON.parse(gunzipSync(original).toString('utf8'));
+      json.nm=(clean(json.nm)||'NexAi')+' · '+crypto.randomBytes(5).toString('hex');
+      const buffer=gzipSync(Buffer.from(JSON.stringify(json),'utf8'),{level:9});
+      return {buffer,format:'animated',filename:'untake.tgs',mime:'application/x-tgsticker'};
+    }catch(error){
+      throw new Error('Untake TGS impossible : '+String(error?.message||error).slice(0,220));
+    }
+  }
+
+  if(mime.includes('webm')){
+    const input=tmp('webm'),output=tmp('webm');
+    fs.writeFileSync(input,original);
+    try{
+      await exec(FFMPEG,[
+        '-hide_banner','-loglevel','error','-y','-i',input,
+        '-map','0:v:0','-an','-c:v','copy',
+        '-metadata','comment=nexai-untake-'+crypto.randomBytes(6).toString('hex'),
+        output
+      ]);
+      const buffer=fs.readFileSync(output);
+      if(!buffer.length||buffer.length>1024*1024)throw new Error('sticker vidéo autonome invalide');
+      return {buffer,format:'video',filename:'untake.webm',mime:'video/webm'};
+    }finally{cleanup(input,output)}
+  }
+
+  if(mime.includes('webp')){
+    const input=tmp('webp'),output=tmp('webp');
+    fs.writeFileSync(input,original);
+    try{
+      await exec(FFMPEG,[
+        '-hide_banner','-loglevel','error','-y','-i',input,
+        '-c:v','libwebp','-lossless','1','-compression_level','6','-frames:v','1',output
+      ]);
+      let buffer=fs.readFileSync(output);
+      if(buffer.length>512*1024){
+        await exec(FFMPEG,[
+          '-hide_banner','-loglevel','error','-y','-i',input,
+          '-c:v','libwebp','-lossless','0','-q:v','92','-compression_level','6','-frames:v','1',output
+        ]);
+        buffer=fs.readFileSync(output);
+      }
+      if(!buffer.length||buffer.length>512*1024)throw new Error('sticker image autonome > 512 Ko');
+      return {buffer,format:'static',filename:'untake.webp',mime:'image/webp'};
+    }finally{cleanup(input,output)}
+  }
+
+  const prepared=await prepareSticker(source);
+  return prepareUntakeSticker({...source,buffer:prepared.buffer,mime:prepared.mime});
+}
+
+function standaloneStickerAttributes(doc,emoji='✨',fileName='untake.webp'){
+  const original=stickerAttr(doc);
+  const attrs=(Array.isArray(doc?.attributes)?doc.attributes:[])
+    .filter(attr=>!/DocumentAttributeSticker|DocumentAttributeFilename/i.test(className(attr)));
+  attrs.push(new Api.DocumentAttributeSticker({
+    mask:Boolean(original?.mask),
+    alt:clean(emoji||original?.alt)||'✨',
+    stickerset:new Api.InputStickerSetEmpty(),
+    maskCoords:original?.maskCoords||undefined
+  }));
+  attrs.push(new Api.DocumentAttributeFilename({fileName}));
+  return attrs;
+}
+
+async function sendStandaloneSticker(client,peer,prepared,sourceDoc,emoji='✨'){
+  const ext=prepared.format==='animated'?'tgs':prepared.format==='video'?'webm':'webp';
+  const filePath=tmp(ext);
+  fs.writeFileSync(filePath,prepared.buffer);
+  try{
+    const sent=await client.sendFile(peer,{
+      file:filePath,
+      fileName:prepared.filename||('untake.'+ext),
+      forceDocument:true,
+      mimeType:prepared.mime,
+      attributes:standaloneStickerAttributes(sourceDoc,emoji,prepared.filename||('untake.'+ext))
+    });
+    const message=Array.isArray(sent)?sent[0]:sent;
+    const sentDoc=documentOf(message);
+    const sentSticker=stickerAttr(sentDoc);
+    if(!sentDoc||!sentSticker)throw new Error('Telegram n’a pas conservé le média comme sticker.');
+    const setClass=className(sentSticker?.stickerset);
+    if(setClass&&!/InputStickerSetEmpty/i.test(setClass)){
+      throw new Error('Telegram a rattaché le sticker à un pack : Untake non confirmé.');
+    }
+    return sent;
+  }finally{cleanup(filePath)}
 }
 
 async function botApi(method,fields={},file=null,timeout=60000){
@@ -1503,7 +1605,13 @@ async function ensureDefaultPack(runtime,prepared,settings=null){
 async function sourceSet(client,message){
   const doc=documentOf(message),attr=stickerAttr(doc);
   if(!doc||!attr?.stickerset)return null;
-  return telegramSet(client,attr.stickerset);
+  if(/InputStickerSetEmpty/i.test(className(attr.stickerset)))return null;
+  try{
+    return await telegramSet(client,attr.stickerset);
+  }catch(error){
+    if(unavailableStickerSetError(error))return null;
+    throw error;
+  }
 }
 
 const CRC_TABLE=(()=>{
@@ -1577,7 +1685,7 @@ export function buildWastickersArchive({title='NexAi Stickers',author='NexAi',st
   return makeZip(files);
 }
 
-export const STICKER_ENGINE_COMMANDS=new Set(['sticker','stickerinfo','clonepack','take','createpack','mypacks','exportwhatsapp','ultratake','delfilig','filitake','noteclone']);
+export const STICKER_ENGINE_COMMANDS=new Set(['sticker','stickerinfo','clonepack','take','untake','untakepk','createpack','mypacks','exportwhatsapp','ultratake','delfilig','filitake','noteclone']);
 export function canHandleStickerCommand(name){return STICKER_ENGINE_COMMANDS.has(String(name||'').toLowerCase())}
 
 let stickerDiagnosticCache={at:0,value:null};
@@ -1775,9 +1883,58 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
     return true;
   }
 
+  if(name==='untake'||name==='untakepk'){
+    const firstDoc=documentOf(source),firstAttr=stickerAttr(firstDoc);
+    if(!firstDoc||!firstAttr)throw new Error('Réponds à un sticker Telegram avec /'+name+'.');
+
+    let docs=[firstDoc],sourcePackName='';
+    if(name==='untakepk'){
+      const set=await sourceSet(client,source);
+      if(!set?.documents?.length){
+        throw new Error('UntakePK exige un sticker appartenant à un pack Telegram accessible.');
+      }
+      docs=[...set.documents];
+      sourcePackName=clean(set?.set?.shortName||firstAttr?.stickerset?.shortName);
+    }
+
+    const label=name==='untakepk'?'UntakePK':'Untake';
+    const progress=externalProgress||await startProgress(client,peer,'⏳ '+label+' · 0/'+docs.length+'…');
+    let done=0;
+    for(let i=0;i<docs.length;i++){
+      const doc=docs[i];
+      const raw=await withPersistentStickerRetry(
+        runtime,
+        ()=>name==='untakepk'
+          ?downloadCloneDocument(client,doc,{sourcePackName,sourceIndex:i})
+          :downloadDocument(client,doc),
+        label+' · téléchargement '+(i+1)+'/'+docs.length,
+        {progress}
+      );
+      const prepared=await withPersistentStickerRetry(
+        runtime,
+        ()=>prepareUntakeSticker(raw),
+        label+' · préparation '+(i+1)+'/'+docs.length,
+        {progress}
+      );
+      await withPersistentStickerRetry(
+        runtime,
+        ()=>sendStandaloneSticker(client,peer,prepared,doc,stickerAttr(doc)?.alt||'✨'),
+        label+' · envoi '+(i+1)+'/'+docs.length,
+        {progress}
+      );
+      done++;
+      await safeProgress(progress,'⏳ '+label+' · '+done+'/'+docs.length+'…');
+      if(i<docs.length-1)await sleep(CLONE_MUTATION_GAP_MS);
+    }
+    await finishProgress(
+      progress,
+      '✅ '+label+' terminé · '+done+'/'+docs.length+' sticker(s) autonome(s) · aucun StickerSet exploitable'
+    );
+    return true;
+  }
+
   if(name==='clonepack'||name==='take'){
     const set=await sourceSet(client,source);
-    if(!set?.documents?.length)throw new Error('Réponds à un sticker appartenant à un pack.');
     if(account.nexaiPremium!==true){
       const quota=await consumeQuota(account.telegramUserId,'clonepack',{limit:2,windowMs:3*24*60*60*1000});
       if(!quota.allowed){
@@ -1788,15 +1945,50 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
         throw error;
       }
     }
+
     const title=clean(args.join(' '))||automaticPackTitle(account,sessionSettings);
-    const docs=[...set.documents];
-    const sourcePackName=clean(set?.set?.shortName||stickerAttr(documentOf(source))?.stickerset?.shortName);
-    if(!sourcePackName)throw new Error('Le pack source ne possède pas de nom Telegram réutilisable.');
-    const progress=externalProgress||await startProgress(client,peer,'⏳ Clone pack · 0/'+docs.length+'…');
-    const jobId=await launchClonePackJob({
-      runtime,docs,title,progress,sourcePackName,sourceSetMeta:set?.set||null
+    if(set?.documents?.length){
+      const docs=[...set.documents];
+      const sourcePackName=clean(set?.set?.shortName||stickerAttr(documentOf(source))?.stickerset?.shortName);
+      if(!sourcePackName)throw new Error('Le pack source ne possède pas de nom Telegram réutilisable.');
+      const progress=externalProgress||await startProgress(client,peer,'⏳ Clone pack · 0/'+docs.length+'…');
+      const jobId=await launchClonePackJob({
+        runtime,docs,title,progress,sourcePackName,sourceSetMeta:set?.set||null
+      });
+      return {deferred:true,jobId};
+    }
+
+    // Fallback Take: stickers autonomes/Untake ou StickerSet invalide.
+    const doc=documentOf(source),attr=stickerAttr(doc);
+    if(!doc||!attr)throw new Error('Réponds à un sticker Telegram.');
+    const progress=externalProgress||await startProgress(client,peer,'⏳ Take · récupération du sticker autonome…');
+    const raw=await withPersistentStickerRetry(
+      runtime,
+      ()=>downloadDocument(client,doc),
+      'Take · téléchargement direct',
+      {progress}
+    );
+    const prepared=await withPersistentStickerRetry(
+      runtime,
+      ()=>prepareSticker(raw),
+      'Take · préparation directe',
+      {progress}
+    );
+    const newName=packName(account.telegramUserId,title);
+    await withPersistentStickerRetry(
+      runtime,
+      ()=>queueCloneMutation(
+        ()=>createSet(account,title,newName,prepared,attr.alt||'✨'),
+        'Take direct · create'
+      ),
+      'Take · recréation du sticker',
+      {progress}
+    );
+    await rememberPack(account.telegramUserId,{
+      name:newName,title,link:packLink(newName),count:1,sourceCount:1,transform:'take-direct',durable:false,updatedAt:Date.now()
     });
-    return {deferred:true,jobId};
+    await finishProgress(progress,'✅ Take terminé · sticker récupéré\n'+packLink(newName));
+    return true;
   }
 
   const raw=await withPersistentStickerRetry(
