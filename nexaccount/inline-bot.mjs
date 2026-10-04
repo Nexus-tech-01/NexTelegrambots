@@ -853,7 +853,7 @@ async function updateCustomStyle(userId,patch={}){
 }
 
 function styleArg(ctx){
-  return String(ctx.match||'').trim();
+  return String(ctx.match??ctx.__nexaiBareArgs??'').trim();
 }
 
 async function showCustomStyle(ctx){
@@ -993,6 +993,25 @@ async function handleBareDirectCommand(ctx,text){
     await sendDirectMenu(ctx,account,'styles');
     return true;
   }
+
+  if(['customstyle','botname','stylename','styleemoji','styletagline','stylebuttons','menuphoto','menuvideo','menumedia'].includes(name)){
+    ctx.__nexaiBareArgs=args.join(' ');
+    try{
+      if(name==='customstyle')await configureCustomStyle(ctx);
+      else if(name==='botname')await configureBotName(ctx);
+      else if(name==='stylename')await configureStyleName(ctx);
+      else if(name==='styleemoji')await configureStyleEmoji(ctx);
+      else if(name==='styletagline')await configureStyleTagline(ctx);
+      else if(name==='stylebuttons')await configureStyleButtons(ctx);
+      else if(name==='menuphoto')await configureMenuMedia(ctx,'photo');
+      else if(name==='menuvideo')await configureMenuMedia(ctx,'video');
+      else if(name==='menumedia')await configureMenuMediaState(ctx);
+    }finally{
+      delete ctx.__nexaiBareArgs;
+    }
+    return true;
+  }
+
   if(['creator','about','founder','ceo'].includes(name)){await sendCreator(ctx);return true}
   if(name==='language'){await sendBareLanguage(ctx,args[0]||'');return true}
   if(name==='pair'){
