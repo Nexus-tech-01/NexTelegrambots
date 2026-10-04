@@ -1291,8 +1291,18 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
     return {deferred:true,jobId};
   }
 
-  const raw=await downloadSource(client,source);
-  const prepared=await prepareSticker(raw);
+  const raw=await withPersistentStickerRetry(
+    runtime,
+    ()=>downloadSource(client,source),
+    'Sticker · téléchargement',
+    {progress:externalProgress}
+  );
+  const prepared=await withPersistentStickerRetry(
+    runtime,
+    ()=>prepareSticker(raw),
+    'Sticker · préparation',
+    {progress:externalProgress}
+  );
 
   if(name==='createpack'){
     const title=clean(transformTitleArgs(args))||automaticPackTitle(account,sessionSettings);
@@ -1302,7 +1312,14 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
     const roundRequested=transformFlag(args,'round')||transformFlag(args,'rond');
     let finalSticker=prepared;
 
-    if(roundRequested)finalSticker=await roundSticker(raw);
+    if(roundRequested){
+      finalSticker=await withPersistentStickerRetry(
+        runtime,
+        ()=>roundSticker(raw),
+        'Createpack · forme ronde',
+        {progress:externalProgress}
+      );
+    }
 
     if(watermarkRequested){
       const text=watermarkValue||title;
@@ -1314,12 +1331,25 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
       const rotation=rotationRaw===''?null:transformNumber(rotationRaw,0,-180,180);
       const repeat=transformFlag(args,'repeat')||['repeat','tile','tiled'].includes(String(position).toLowerCase());
       const outline=!transformFlag(args,'no-outline');
-      finalSticker=await addStickerWatermark(roundRequested?finalSticker:raw,{
-        text,color,opacity,position,size,rotation,repeat,outline
-      });
+      finalSticker=await withPersistentStickerRetry(
+        runtime,
+        ()=>addStickerWatermark(roundRequested?finalSticker:raw,{
+          text,color,opacity,position,size,rotation,repeat,outline
+        }),
+        'Createpack · filigrane',
+        {progress:externalProgress}
+      );
     }
 
-    await createSet(account,title,newName,finalSticker,raw.sticker?.alt||'✨');
+    await withPersistentStickerRetry(
+      runtime,
+      ()=>queueCloneMutation(
+        ()=>createSet(account,title,newName,finalSticker,raw.sticker?.alt||'✨'),
+        'createpack '+newName
+      ),
+      'Createpack · création',
+      {progress:externalProgress}
+    );
     await rememberPack(account.telegramUserId,{
       name:newName,title,link:packLink(newName),count:1,
       watermark:watermarkRequested?true:false,
@@ -1332,10 +1362,20 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
 
   if(name==='sticker'){
     const pack=await ensureDefaultPack(runtime,prepared,sessionSettings);
-    const set=await waitTelegramSet(client,pack);
+    const set=await withPersistentStickerRetry(
+      runtime,
+      ()=>waitTelegramSet(client,pack),
+      'Sticker · synchronisation Telegram',
+      {progress:externalProgress}
+    );
     const doc=set.documents?.[set.documents.length-1];
     if(doc){
-      await sendStickerDocument(client,peer,doc);
+      await withPersistentStickerRetry(
+        runtime,
+        ()=>sendStickerDocument(client,peer,doc),
+        'Sticker · envoi',
+        {progress:externalProgress}
+      );
     }else await say('Sticker ajouté au pack : '+packLink(pack));
     return true;
   }
