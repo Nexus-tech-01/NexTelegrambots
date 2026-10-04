@@ -3,7 +3,7 @@ import { Bot, InputFile } from 'grammy';
 import { cfg, isOwnerId, isOwnerIdentity } from './config.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { commandMap } from './commands.mjs';
-import { db, accountRecord, listConnectedAccounts, settingsFor, patchSettings, saveSharedBotIdentity, nexAiPremiumState, grantNexAiPremium, acquireServiceLease, renewServiceLease, releaseServiceLease } from './store.mjs';
+import { db, accountRecord, listConnectedAccounts, settingsFor, patchSettings, saveSharedBotIdentity, nexAiPremiumState, grantNexAiPremium, acquireServiceLease, renewServiceLease, releaseServiceLease, sharedGreetingPolicy } from './store.mjs';
 import { menuModel, stylesModel, customStyleModel } from './menu.mjs';
 import { customStyleFor, normalizeCustomStyle } from './custom-style.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
@@ -48,6 +48,65 @@ let pollerSupervisorStopping=true;
 let pollerRestartAttempt=0;
 
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+
+function greetingHtmlEscape(value){
+  return String(value??'')
+    .replaceAll('&','&amp;')
+    .replaceAll('<','&lt;')
+    .replaceAll('>','&gt;');
+}
+
+function greetingBotDisplayName(user){
+  return String([user?.first_name,user?.last_name].filter(Boolean).join(' ')||user?.username||user?.id||'Membre').trim();
+}
+
+function renderBotGreeting(template,users,chatTitle){
+  const list=(Array.isArray(users)?users:[]).filter(Boolean);
+  const safeUsers=list.length?list:[{id:'',first_name:'Membre'}];
+  const names=safeUsers.map(greetingBotDisplayName);
+  const first=safeUsers[0]||{};
+  const mentions=safeUsers.map(user=>{
+    const name=greetingHtmlEscape(greetingBotDisplayName(user));
+    const id=String(user?.id||'');
+    return id?'<a href="tg://user?id='+id+'">'+name+'</a>':name;
+  }).join(', ');
+  let text=greetingHtmlEscape(String(template||''))
+    .replaceAll('{mention}',mentions)
+    .replaceAll('{name}',greetingHtmlEscape(names.join(', ')))
+    .replaceAll('{username}',first?.username?'@'+greetingHtmlEscape(String(first.username).replace(/^@/,'')):'')
+    .replaceAll('{id}',greetingHtmlEscape(String(first?.id||'')))
+    .replaceAll('{group}',greetingHtmlEscape(String(chatTitle||'ce groupe')))
+    .replaceAll('{count}',String(safeUsers.length));
+  return '<blockquote>'+text+'</blockquote>';
+}
+
+async function handleBotGreeting(ctx){
+  const chat=ctx.chat;
+  const message=ctx.message;
+  if(!chat||!message||chat.type==='private')return false;
+
+  const newcomers=(Array.isArray(message.new_chat_members)?message.new_chat_members:[])
+    .filter(user=>String(user?.id||'')!==String(ctx.me?.id||''));
+  const left=message.left_chat_member&&String(message.left_chat_member?.id||'')!==String(ctx.me?.id||'')
+    ?[message.left_chat_member]
+    :[];
+  if(!newcomers.length&&!left.length)return false;
+
+  const policy=await sharedGreetingPolicy(chat.id);
+  const isWelcome=newcomers.length>0;
+  if((isWelcome&&policy.welcome===false)||(!isWelcome&&policy.goodbye===false))return true;
+
+  const users=isWelcome?newcomers:left;
+  const template=isWelcome?policy.welcomeText:policy.goodbyeText;
+  const html=renderBotGreeting(template,users,chat.title||'ce groupe');
+  try{
+    await ctx.reply(html,{parse_mode:'HTML'});
+    console.log('[NexAI greeting-bot]',isWelcome?'welcome':'goodbye','chat='+String(chat.id),'users='+users.map(x=>x.id).join(','));
+  }catch(error){
+    console.error('[NexAI greeting-bot]',isWelcome?'welcome':'goodbye','chat='+String(chat.id),String(error?.description||error?.message||error).slice(0,500));
+  }
+  return true;
+}
 function telegramConflict409(error){
   const code=Number(error?.error_code||error?.error?.error_code||error?.error?.code||error?.code||0);
   const message=String(error?.description||error?.error?.description||error?.message||error?.error?.message||error||'');
@@ -1487,6 +1546,11 @@ export async function startInlineBot(){
   bot.command('countries',ctx=>sendOwner(ctx,'countries'));
   bot.command('languages',ctx=>sendOwner(ctx,'languages'));
   bot.command('user',ctx=>sendOwner(ctx,'user',ctx.match?String(ctx.match).trim().split(/\s+/):[]));
+
+  bot.on('message',async(ctx,next)=>{
+    if(await handleBotGreeting(ctx))return;
+    return next();
+  });
 
   bot.on('pre_checkout_query',async ctx=>{
     const q=ctx.preCheckoutQuery;
