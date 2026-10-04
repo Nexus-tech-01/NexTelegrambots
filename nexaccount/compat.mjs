@@ -3,7 +3,7 @@ import { Api } from 'teleproto';
 import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { returnBigInt } from 'teleproto/Helpers.js';
 import { cfg, isOwnerId } from './config.mjs';
-import { customEmojiLibraryStats, listConnectedAccounts, patchSettings, settingsFor } from './store.mjs';
+import { customEmojiLibraryStats, listConnectedAccounts, patchSettings, settingsFor, patchSharedGreetingPolicy } from './store.mjs';
 import { sessionsText } from './session-view.mjs';
 import { toSmallCaps } from './styles.mjs';
 import { AUDIO_LAB_COMMANDS, handleAudioLabCommand } from './audio-lab.mjs';
@@ -1171,6 +1171,9 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
 
     const value=(name==='setwelcome'||name==='setgoodbye')?argText:parseToggle(args[0],current===true);
     const p=await patchGroupPolicy(account.telegramUserId,chat,{[key]:value});
+    if(['welcome','goodbye','welcomeText','goodbyeText'].includes(key)){
+      await patchSharedGreetingPolicy(chat,{[key]:value});
+    }
     await sendText(client,peer,toSmallCaps(key)+' : '+(typeof p[key]==='boolean'?(p[key]?'ON':'OFF'):String(p[key]||'configuré')));
     return true;
   }
