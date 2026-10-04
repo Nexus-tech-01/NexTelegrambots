@@ -1971,7 +1971,7 @@ async function syncRuntimeUpdates(runtime){
 }
 
 
-const NEXCONTROL_GROUP_TELEMETRY_URL='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol-ui?route=%2Fapi%2Ftelemetry%2Fgroup-event';
+const NEXCONTROL_GROUP_TELEMETRY_URL='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol-agent?path=%2Fapi%2Fv1%2Fagent%2Fgroup-event';
 
 // NEXCONTROL_GROUP_TELEMETRY_V1
 function nexControlTelemetryChatId(message){
@@ -2016,6 +2016,7 @@ async function emitNexControlGroupEvent(runtime,event,direction='incoming'){
       method:'POST',
       headers:{
         'content-type':'application/json',
+        'x-nexcontrol-agent':'nexus-main',
         'x-nexcontrol-agent-key':String(process.env.NEXCONTROL_FLEET_KEY)
       },
       body:JSON.stringify(body),
