@@ -1621,6 +1621,7 @@ async function maybeAutoModerate(runtime,event){
   if(Array.isArray(policy.whitelist)&&policy.whitelist.map(String).includes(sender))return;
   let remove=Array.isArray(policy.blacklist)&&policy.blacklist.map(String).includes(sender);
   if(!remove&&policy.antilink&&/(?:https?:\/\/|t\.me\/|telegram\.me\/|www\.)/i.test(text))remove=true;
+  if(!remove&&policy.antiforward&&message?.fwdFrom)remove=true;
   if(!remove&&policy.antitag&&/@[A-Za-z0-9_]{3,}/.test(text))remove=true;
   if(!remove&&policy.antigroupmention&&(text.match(/@[A-Za-z0-9_]{3,}/g)||[]).length>=5)remove=true;
   if(!remove&&policy.antibadword){
@@ -1697,6 +1698,41 @@ function greetingActionUserIds(message,action,kind){
 
 function greetingDisplayName(user){
   return String([user?.firstName,user?.lastName].filter(Boolean).join(' ')||user?.username||user?.id||'Membre').trim();
+}
+
+function serviceGreetingVisualTemplate(template,isWelcome){
+  const raw=String(template||'').trim();
+  const legacyWelcome=new Set([
+    '',
+    '👋 Bienvenue {mention} dans {group} !',
+    'Bienvenue {name} dans {group}.'
+  ]);
+  const legacyGoodbye=new Set([
+    '',
+    '👋 Au revoir {mention}. À bientôt dans {group}.',
+    'Au revoir {name}.'
+  ]);
+  if(isWelcome&&legacyWelcome.has(raw)){
+    return [
+      '╭▱▱ ᴡᴇʟᴄᴏᴍᴇ ▱▱ 🎉',
+      '┃',
+      '┃ 𓆩 {mention} 𓆪',
+      '┃ ʙɪᴇɴᴠᴇɴᴜᴇ ᴅᴀɴs {group}',
+      '┃',
+      '╰▱▱▱▱▱▱▱▱▱▱▱▱▱'
+    ].join('\n');
+  }
+  if(!isWelcome&&legacyGoodbye.has(raw)){
+    return [
+      '╭▱▱ ɢᴏᴏᴅʙʏᴇ ▱▱ 🌙',
+      '┃',
+      '┃ 𓆩 {mention} 𓆪',
+      '┃ ᴀ̀ ʙɪᴇɴᴛᴏ̂ᴛ • {group}',
+      '┃',
+      '╰▱▱▱▱▱▱▱▱▱▱▱▱▱'
+    ].join('\n');
+  }
+  return raw;
 }
 
 async function greetingPeople(client,ids){
@@ -1779,9 +1815,10 @@ async function maybeServiceGreeting(runtime,event){
   const people=await greetingPeople(client,ids);
   const chat=await client.getEntity(message.peerId).catch(()=>null);
   const groupTitle=String(chat?.title||'ce groupe');
-  const template=welcome
-    ?String(policy.welcomeText||'👋 Bienvenue {mention} dans {group} !')
-    :String(policy.goodbyeText||'👋 Au revoir {mention}. À bientôt dans {group}.');
+  const template=serviceGreetingVisualTemplate(
+    welcome?policy.welcomeText:policy.goodbyeText,
+    welcome
+  );
   const rendered=await renderGreetingTemplate(client,template,people,groupTitle);
   const claimed=claimGreetingEvent(runtime,event);
   if(!claimed.ok)return;
