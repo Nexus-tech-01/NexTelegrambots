@@ -10,11 +10,21 @@ import { consumeQuota, patchSettings, settingsFor } from './store.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
 import { renderTgsToAnimatedWebp } from './lottie-renderer.mjs';
 import { addStickerWatermark, removeStickerWatermark, roundSticker } from './sticker-transform.mjs';
+import {
+  claimStickerJob,
+  completeStickerJob,
+  createStickerJob,
+  listPendingStickerJobs,
+  newStickerJobId,
+  patchStickerJob,
+  releaseStickerJob,
+  renewStickerJobLease
+} from './sticker-jobs.mjs';
 
 const FFMPEG=String(process.env.FFMPEG_PATH||'ffmpeg');
 const MAX_SOURCE_BYTES=Math.max(1024*1024,Number(process.env.NEXAI_STICKER_MAX_SOURCE_BYTES||25*1024*1024));
-const MAX_CLONE=120;
-const MAX_EXPORT=Math.max(1,Math.min(120,Number(process.env.NEXAI_STICKER_EXPORT_LIMIT||50)));
+const STICKER_PACK_PART_SIZE=Math.max(10,Math.min(120,Number(process.env.NEXAI_STICKER_PACK_PART_SIZE||120)));
+const STICKER_PERSISTENT_RETRY_MS=Math.max(5000,Math.min(10*60*1000,Number(process.env.NEXAI_STICKER_PERSISTENT_RETRY_MS||30000)));
 const CLONE_RETRY_ATTEMPTS=Math.max(2,Math.min(20,Number(process.env.NEXAI_STICKER_CLONE_RETRY_ATTEMPTS||8)));
 const CLONE_RETRY_BASE_MS=Math.max(250,Math.min(10000,Number(process.env.NEXAI_STICKER_CLONE_RETRY_BASE_MS||1200)));
 const CLONE_MUTATION_GAP_MS=Math.max(250,Math.min(5000,Number(process.env.NEXAI_STICKER_MUTATION_GAP_MS||900)));
