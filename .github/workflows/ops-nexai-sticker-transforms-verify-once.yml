@@ -44,7 +44,7 @@ jobs:
           import {commandMap} from './nexaccount/commands.mjs';
           import {canHandleStickerCommand} from './nexaccount/sticker-engine.mjs';
           const map=commandMap();
-          for(const name of ['sticker','clonepack','createpack','exportwhatsapp','ultratake','delfilig','filitake','noteclone']){
+          for(const name of ['sticker','clonepack','untake','untakepk','createpack','exportwhatsapp','ultratake','delfilig','filitake','noteclone']){
             if(!map.has(name))throw new Error('registry missing '+name);
             if(!canHandleStickerCommand(name))throw new Error('engine routing missing '+name);
           }
