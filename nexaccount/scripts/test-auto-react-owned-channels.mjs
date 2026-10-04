@@ -53,4 +53,14 @@ if(!cli.includes("case 'auto-join-all':")){
   throw new Error('CLI must expose auto-join-all');
 }
 
+if(!runtime.includes("reaction:selected.map(x=>x.reaction)")){
+  throw new Error('Multiple reactions must be sent in one Telegram reaction vector');
+}
+if(!runtime.includes("for(let size=Math.min(desired,rows.length);size>=1;size--)")){
+  throw new Error('Multi-reaction runtime must fall back to fewer reactions when Telegram rejects a batch');
+}
+if(!runtime.includes("settings.autoReact?.maxPerPost??settings.autoReact?.count??3")){
+  throw new Error('Auto-react must default to three reactions per post');
+}
+
 console.log('AUTO_REACT_OWNED_CHANNELS_CONTRACT_OK');
