@@ -102,6 +102,30 @@ begin
             'phase','health'
           )
       where id=r.deployment_id;
+
+      update public.nxc_health_checks h
+      set last_status=case
+            when coalesce((x.item->>'ok')::boolean,false) then 'healthy'
+            else 'unhealthy'
+          end,
+          last_checked_at=coalesce(r.completed_at,now()),
+          last_message=case
+            when coalesce((x.item->>'ok')::boolean,false)
+              then 'release executor local health passed'
+            else left(coalesce(x.item->>'error','release executor local health failed'),500)
+          end,
+          consecutive_failures=case
+            when coalesce((x.item->>'ok')::boolean,false) then 0
+            else h.consecutive_failures+1
+          end,
+          updated_at=now()
+      from jsonb_array_elements(coalesce(v_report->'steps'->'health','[]'::jsonb)) as x(item)
+      where h.project_id=r.project_id
+        and h.enabled=true
+        and h.name=x.item->>'name'
+        and h.check_type=x.item->>'type'
+        and h.target=x.item->>'target';
+
       update public.nxc_deployment_steps
       set status=case
         when step_key='rollback' then 'pending'
