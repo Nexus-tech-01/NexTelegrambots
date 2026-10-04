@@ -54,6 +54,23 @@ function greetingBotDisplayName(user){
   return String([user?.first_name,user?.last_name].filter(Boolean).join(' ')||user?.username||user?.id||'Membre').trim();
 }
 
+// Keep the ornamental/smallcaps welcome style, but cap real pictographic emoji
+// even when a group still has an older emoji-heavy custom template saved.
+const GREETING_EMOJI_SEQUENCE_RE=/(?:\p{Regional_Indicator}{2}|\p{Extended_Pictographic}(?:\uFE0F)?(?:[\u{1F3FB}-\u{1F3FF}])?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F)?(?:[\u{1F3FB}-\u{1F3FF}])?)*)/gu;
+function compactGreetingEmojiNoise(value,maxEmoji=2){
+  let kept=0;
+  return String(value||'')
+    .replace(GREETING_EMOJI_SEQUENCE_RE,emoji=>{
+      kept+=1;
+      return kept<=Math.max(0,Number(maxEmoji)||0)?emoji:'';
+    })
+    .split('\n')
+    .map(line=>line.replace(/[ \t]{2,}/g,' ').replace(/[ \t]+$/,''))
+    .join('\n')
+    .replace(/\n{3,}/g,'\n\n')
+    .trim();
+}
+
 function greetingVisualTemplate(template,isWelcome){
   const raw=String(template||'').trim();
   const legacyWelcome=new Set([
@@ -64,8 +81,9 @@ function greetingVisualTemplate(template,isWelcome){
     '👋 Au revoir {mention}. À bientôt dans {group}.',
     'Au revoir {name}.'
   ]);
+  let resolved=raw;
   if(isWelcome&&(!raw||legacyWelcome.has(raw))){
-    return [
+    resolved=[
       '╭▱▱ ᴡᴇʟᴄᴏᴍᴇ ▱▱ 🎉',
       '┃',
       '┃ 𓆩 {mention} 𓆪',
@@ -73,9 +91,8 @@ function greetingVisualTemplate(template,isWelcome){
       '┃',
       '╰▱▱▱▱▱▱▱▱▱▱▱▱▱'
     ].join('\n');
-  }
-  if(!isWelcome&&(!raw||legacyGoodbye.has(raw))){
-    return [
+  }else if(!isWelcome&&(!raw||legacyGoodbye.has(raw))){
+    resolved=[
       '╭▱▱ ɢᴏᴏᴅʙʏᴇ ▱▱ 🌙',
       '┃',
       '┃ 𓆩 {mention} 𓆪',
@@ -84,7 +101,7 @@ function greetingVisualTemplate(template,isWelcome){
       '╰▱▱▱▱▱▱▱▱▱▱▱▱▱'
     ].join('\n');
   }
-  return raw;
+  return compactGreetingEmojiNoise(resolved,isWelcome?2:1);
 }
 
 function renderBotGreetingText(template,users,chatTitle){
@@ -114,17 +131,29 @@ function greetingMiniAppMarkup(){
 }
 
 async function greetingProfilePhotoFileId(ctx,user){
-  const id=Number(user?.id||0);
-  if(!id)return '';
-  try{
-    const photos=await ctx.api.getUserProfilePhotos(id,{offset:0,limit:1});
-    const sizes=Array.isArray(photos?.photos?.[0])?photos.photos[0]:[];
-    // Keep Telegram's original profile framing. No canvas crop, zoom or face-cut.
-    return String(sizes.at(-1)?.file_id||sizes[0]?.file_id||'');
-  }catch(error){
-    console.warn('[NexAI greeting-avatar]',id,String(error?.description||error?.message||error).slice(0,280));
-    return '';
-  }
+  const memberId=Number(user?.id||0);
+  const botId=Number(ctx.me?.id||0);
+  const photoFor=async(id,label)=>{
+    if(!id)return '';
+    try{
+      const photos=await ctx.api.getUserProfilePhotos(id,{offset:0,limit:1});
+      const sizes=Array.isArray(photos?.photos?.[0])?photos.photos[0]:[];
+      // Keep Telegram's original profile framing. No canvas crop, zoom or face-cut.
+      return String(sizes.at(-1)?.file_id||sizes[0]?.file_id||'');
+    }catch(error){
+      console.warn('[NexAI greeting-avatar]',label,id,String(error?.description||error?.message||error).slice(0,280));
+      return '';
+    }
+  };
+
+  const memberPhoto=await photoFor(memberId,'member');
+  if(memberPhoto)return memberPhoto;
+
+  // A welcome must always keep the visual card. If the newcomer has no
+  // profile photo, use NexAi's own Telegram profile photo instead of falling
+  // back to a plain text welcome.
+  if(botId&&botId!==memberId)return photoFor(botId,'nexai-fallback');
+  return '';
 }
 
 async function greetingCaptionEntities(text){
@@ -1954,4 +1983,4 @@ export async function stopInlineBot(){
 }
 
 
-export const __test={stampMarkup,portableMarkup,inlineResult,inlineCachedPhotoResult,inlineReplyModel,telegramCommandMenu,callbackAccessAllowed};
+export const __test={stampMarkup,portableMarkup,inlineResult,inlineCachedPhotoResult,inlineReplyModel,telegramCommandMenu,callbackAccessAllowed,compactGreetingEmojiNoise,greetingVisualTemplate,greetingProfilePhotoFileId};
