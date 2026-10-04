@@ -1,4 +1,4 @@
-name: Ops NexAI Session Diagnostic 2026-10-03
+name: Ops NexAI Session Diagnostic 2026-10-04
 
 on:
   push:
@@ -15,6 +15,7 @@ jobs:
     timeout-minutes: 8
     steps:
       - name: Fleet process snapshot
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
