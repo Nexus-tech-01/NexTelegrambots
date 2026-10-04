@@ -343,19 +343,39 @@ async function currentChat(client,peer){
 }
 async function participants(client,peer,limit=null){
   try{
-    const params={};
+    const params={showTotal:true};
     if(Number.isFinite(Number(limit))&&Number(limit)>0){
       params.limit=Math.max(1,Math.min(10000,Number(limit)));
     }
-    const rows=await client.getParticipants(peer,params);
-    const seen=new Set();
-    return (rows||[]).filter(p=>{
-      const id=String(p?.id||'');
-      if(!id||seen.has(id))return false;
-      seen.add(id);
-      return true;
-    });
-  }catch{return []}
+    const seen=new Map();
+    const merge=rows=>{
+      for(const p of rows||[]){
+        const id=String(p?.id||'');
+        if(!id||p?.deleted===true||seen.has(id))continue;
+        seen.set(id,p);
+      }
+    };
+    let rows=await client.getParticipants(peer,params);
+    merge(rows);
+    if(!params.limit){
+      let expected=Math.max(Number(rows?.total||0),Number(rows?.length||0));
+      for(let attempt=0;expected>seen.size&&attempt<2;attempt++){
+        await new Promise(resolve=>setTimeout(resolve,180*(attempt+1)));
+        rows=await client.getParticipants(peer,{showTotal:true});
+        merge(rows);
+        expected=Math.max(expected,Number(rows?.total||0),Number(rows?.length||0));
+      }
+      if(expected>seen.size){
+        console.warn('[NexAccount participants] incomplete participant snapshot',{
+          expected,retrieved:seen.size
+        });
+      }
+    }
+    return [...seen.values()];
+  }catch(error){
+    console.error('[NexAccount participants]',String(error?.errorMessage||error?.message||error));
+    return [];
+  }
 }
 function isAdminParticipant(p){
   const kind=String(p?.participant?.className||p?.participant?.constructor?.name||'');
@@ -463,7 +483,7 @@ async function sendMentionList(client,peer,people,title){
     await client.sendMessage(peer,{message:built.message.trimEnd(),formattingEntities:built.entities});
   }
 }
-const HIDDEN_TAG_BATCH=50;
+const HIDDEN_TAG_TRANSPORT_BATCH=20;
 function hiddenTagPeople(people){
   const list=[];
   const seen=new Set();
@@ -478,28 +498,51 @@ function hiddenTagPeople(people){
 function hiddenTagChunks(people){
   const list=hiddenTagPeople(people);
   const chunks=[];
-  for(let i=0;i<list.length;i+=HIDDEN_TAG_BATCH)chunks.push(list.slice(i,i+HIDDEN_TAG_BATCH));
+  for(let i=0;i<list.length;i+=HIDDEN_TAG_TRANSPORT_BATCH)chunks.push(list.slice(i,i+HIDDEN_TAG_TRANSPORT_BATCH));
   return chunks;
+}
+function floodWaitDelay(error){
+  const raw=String(error?.errorMessage||error?.message||error||'');
+  const seconds=Number(error?.seconds||raw.match(/FLOOD_WAIT[_\\s]?(\\d+)/i)?.[1]||0);
+  return Number.isFinite(seconds)&&seconds>0?seconds*1000+300:0;
+}
+async function sendHiddenCarrier(client,peer,built){
+  for(let attempt=0;attempt<4;attempt++){
+    try{
+      // Deliberately NOT silent: a hidetag must produce a real mention event.
+      return await client.sendMessage(peer,{
+        message:built.message,
+        formattingEntities:built.entities
+      });
+    }catch(error){
+      const wait=floodWaitDelay(error);
+      if(!wait||attempt===3)throw error;
+      await new Promise(resolve=>setTimeout(resolve,wait));
+    }
+  }
 }
 async function deleteHiddenPacket(client,peer,sent){
   const id=Number(sent?.id||sent?.message?.id||0);
   if(!id)return false;
-  // Telegram must first accept the mention entities; then remove the technical
-  // carrier so the group is not polluted by visually empty follow-up messages.
-  await new Promise(resolve=>setTimeout(resolve,350));
-  try{
-    await client.deleteMessages(peer,[id],{revoke:true});
-    return true;
-  }catch{return false}
+  // Keep the carrier just long enough for Telegram to acknowledge the mentions,
+  // then revoke it so only the user's visible hidetag message remains.
+  await new Promise(resolve=>setTimeout(resolve,900));
+  for(let attempt=0;attempt<2;attempt++){
+    try{
+      await client.deleteMessages(peer,[id],{revoke:true});
+      return true;
+    }catch{
+      if(attempt===0)await new Promise(resolve=>setTimeout(resolve,650));
+    }
+  }
+  return false;
 }
 async function sendHiddenTagRemainder(client,peer,chunks,startIndex=1){
+  // All members belong to one logical hidetag transaction. These chunks are
+  // transport-only carriers used to stay below Telegram's entity limits.
   for(let i=startIndex;i<chunks.length;i++){
     const built=await buildMentionEntities(client,'\u2063',chunks[i],{hidden:true});
-    const sent=await client.sendMessage(peer,{
-      message:built.message,
-      formattingEntities:built.entities,
-      silent:true
-    });
+    const sent=await sendHiddenCarrier(client,peer,built);
     await deleteHiddenPacket(client,peer,sent);
   }
 }
