@@ -1,3 +1,4 @@
+# deploy bot-api greeting fallback + invalid session quarantine
 # deploy service-message welcome/goodbye fallback
 # redeploy: confirm live welcome goodbye tag hidetag broadcast
 # redeploy: remove personal style label beside bot name
@@ -50,6 +51,11 @@ jobs:
           grep -F "registered.hidden!==true" nexaccount/runtime.mjs
           grep -F "function rawServiceGreetingEvent(update)" nexaccount/runtime.mjs
           grep -F "const greetingEventsSeen=new Map();" nexaccount/runtime.mjs
+          grep -F "function isAuthKeyUnregisteredError(error)" nexaccount/runtime.mjs
+          grep -F "async function handleBotGreeting(ctx)" nexaccount/inline-bot.mjs
+          grep -F "message.new_chat_members" nexaccount/inline-bot.mjs
+          grep -F "message.left_chat_member" nexaccount/inline-bot.mjs
+          grep -F "sharedGreetingPolicy" nexaccount/store.mjs
           grep -F "cacheMenuMediaForBot" nexaccount/compat.mjs
           grep -F "bot.command('menuvideo'" nexaccount/inline-bot.mjs
           grep -F "inlineCachedMediaResult" nexaccount/inline-bot.mjs
