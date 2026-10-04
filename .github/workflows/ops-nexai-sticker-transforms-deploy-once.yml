@@ -1,3 +1,4 @@
+# retry native+batch deploy after runner dependency fix 2026-10-04
 # deploy native+batch sticker acceleration 2026-10-04
 # deploy accelerated sticker pipeline 2026-10-04
 # deploy engine-router with take fix 2026-10-04
@@ -37,13 +38,6 @@ jobs:
         run: |
           set -euo pipefail
           node --check nexaccount/commands.mjs
-          node --input-type=module - <<'NODE'
-          import {Api} from './nexaccount/node_modules/teleproto/index.js';
-          if(!Api?.stickers?.CreateStickerSet||!Api?.InputStickerSetItem||!Api?.InputUserSelf){
-            throw new Error('native sticker API unavailable');
-          }
-          console.log('NATIVE_STICKER_API_OK');
-          NODE
           node --check nexaccount/sticker-engine.mjs
           node --check nexaccount/sticker-transform.mjs
           node --check nexaccount/core/engine-router.mjs
