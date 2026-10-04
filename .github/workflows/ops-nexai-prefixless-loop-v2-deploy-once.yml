@@ -49,6 +49,12 @@ jobs:
           grep -F "isAdminIdentity(account.telegramUserId,account.username)" nexaccount/runtime.mjs
           grep -F "const callerHasNexAiPremium=event?.callerOwner===true||account.nexaiPremium===true;" nexaccount/runtime.mjs
           node nexaccount/scripts/test-premium-access.mjs
+          node nexaccount/scripts/test-group-commands.mjs
+          grep -F "const requested=Math.max(1,Math.floor(Number(args[0])||20));" nexaccount/compat.mjs
+          if grep -F "Math.min(100,Number(args[0])" nexaccount/compat.mjs; then
+            echo "Purge is still hard-capped at 100" >&2
+            exit 1
+          fi
           grep -F "allowBare:allowBare===true" nexaccount/runtime.mjs
           if grep -F "allowBare:true" nexaccount/runtime.mjs; then
             echo "Unsafe global prefixless mode still present" >&2
@@ -85,6 +91,9 @@ jobs:
               raise SystemExit('source validation not confirmed: '+str(steps))
           if steps.get('productionMarker') is not True:
               raise SystemExit('production marker not confirmed: '+str(steps))
+          purge=steps.get('live',{}).get('purge') or steps.get('purge') or {}
+          if purge.get('ready') is not True or purge.get('hardCap100') is not False:
+              raise SystemExit('purge production verification missing: '+str(steps))
           health=steps.get('health') or {}
           if health.get('ok') is not True or health.get('pairingOnly') is True:
               raise SystemExit('NexAI health not confirmed: '+str(health))
@@ -104,4 +113,4 @@ jobs:
           print('NEXAI_PREFIXLESS_LOOP_V2_PRODUCTION_OK')
           PY
 
-# trigger: add-josh-nexai-admin-premium-prefixless-20261004-v2
+# trigger: purge-live-fix-20261004-v3
