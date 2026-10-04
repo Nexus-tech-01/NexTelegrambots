@@ -905,6 +905,65 @@ async function runDurablePackJob({runtime,job,progress=null}){
         return {sourceIndex,doc,prepared,emoji:stickerAttr(doc)?.alt||'✨'};
       };
 
+      const prepareBatch=async(start,count)=>{
+        const total=Math.max(0,Math.min(Number(part.total)-start,count));
+        const out=new Array(total);
+        let cursor=0;
+        const workers=Math.min(4,total);
+        await Promise.all(Array.from({length:workers},async()=>{
+          while(true){
+            const offset=cursor++;
+            if(offset>=total)return;
+            out[offset]=await prepareLocalSticker(start+offset);
+          }
+        }));
+        return out;
+      };
+
+      // New transformed packs can be created with up to 50 initial stickers in
+      // a single Telegram Bot API request. This removes dozens of addStickerToSet
+      // round trips for noteclone/filitake/ultratake/delfilig.
+      if(!state.exists&&localDone===0&&Number(part.total)>1){
+        const batchCount=Math.min(50,Number(part.total));
+        await safeProgress(progress,'⚡ '+label+' · préparation batch 1-'+batchCount+'/'+docs.length);
+        const batchItems=await prepareBatch(0,batchCount);
+        let batchCreated=false;
+        try{
+          await queueCloneMutation(
+            ()=>createSetBatch(account,part.title,part.name,batchItems),
+            id+' '+kind+' initial batch '+batchCount
+          );
+          batchCreated=true;
+        }catch(error){
+          try{
+            const live=await destinationState(part.name);
+            if(live.exists&&Number(live.count)>=batchCount){
+              batchCreated=true;
+            }
+          }catch{}
+          if(!batchCreated){
+            console.warn('[NexAi sticker batch fallback]',id,String(error?.message||error).slice(0,300));
+          }
+        }
+        if(batchCreated){
+          state.exists=true;
+          state.count=batchCount;
+          localDone=batchCount;
+          completed+=batchCount;
+          updateActiveJob(id,{nextIndex:completed});
+          await patchStickerJob(id,{
+            status:'running',
+            nextIndex:completed,
+            currentPart:Number(part.index)||0,
+            attempts:0,
+            lastError:'',
+            retryAt:null
+          }).catch(()=>{});
+          await renewStickerJobLease(id).catch(()=>{});
+          await safeProgress(progress,'⚡ '+label+' · batch Telegram créé · '+completed+'/'+docs.length);
+        }
+      }
+
       const startPrepared=localIndex=>prepareLocalSticker(localIndex).then(
         value=>({ok:true,value}),
         error=>({ok:false,error})
