@@ -4,7 +4,7 @@ import { StringSession } from 'teleproto/sessions/index.js';
 import { NewMessage } from 'teleproto/events/index.js';
 import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { returnBigInt } from 'teleproto/Helpers.js';
-import { cfg, isOwnerId, isOwnerIdentity } from './config.mjs';
+import { cfg, isOwnerId, isOwnerIdentity, isAdminIdentity } from './config.mjs';
 import { commandMap } from './commands.mjs';
 import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, acquireSessionLease, claimCommandDelivery, db, disableAccount, enableAccount, listAccountsForWorker, markSessionRepairRequired, nexAiPremiumState, patchSettings, releaseRuntimeLease, releaseSessionLease, renewRuntimeLease, renewSessionLease, sessionFingerprint, settingsFor, sharedBotIdentity } from './store.mjs';
 import { listStyles } from './styles.mjs';
@@ -431,7 +431,8 @@ const PREFIXLESS_USERNAMES=new Set([
   'tresor20000',
   'tresor20009',
   'tresor20001',
-  'tresor_htn'
+  'tresor_htn',
+  ...cfg.adminUsernames
 ]);
 
 function normalizeCommandUsername(value){
@@ -495,11 +496,11 @@ async function messageAuthorIsBot(client,message,eventSender=null){
 async function messageAuthorIsOwner(client,message,eventSender=null){
   const directId=String(eventSender?.id||eventSender?.userId||messageAuthorId(message)||'');
   const directUsername=String(eventSender?.username||'');
-  if(isOwnerIdentity(directId,directUsername))return true;
+  if(isAdminIdentity(directId,directUsername))return true;
   if(!directId)return false;
   try{
     const entity=await client.getEntity(directId);
-    return isOwnerIdentity(entity?.id,entity?.username);
+    return isAdminIdentity(entity?.id,entity?.username);
   }catch{return false}
 }
 
@@ -916,7 +917,7 @@ async function hydratePremiumState(account){
   if(!account)return {active:false,expiresAt:null};
   account.telegramPremium=account.premium===true;
   const state=await nexAiPremiumState(account.telegramUserId).catch(()=>({active:false,expiresAt:null}));
-  account.nexaiPremium=isOwnerId(account.telegramUserId)||state.active===true;
+  account.nexaiPremium=isAdminIdentity(account.telegramUserId,account.username)||state.active===true;
   account.nexaiPremiumExpiresAt=state.expiresAt||null;
   return state;
 }
@@ -1081,7 +1082,7 @@ async function handleCommand(runtime,event,parsed){
     return false;
   }
   if(cmd.ownerOnly&&event?.callerOwner!==true){
-    await sendText(client,peer,'Commande réservée au propriétaire de NexAi.');
+    await sendText(client,peer,'Commande réservée aux administrateurs NexAi.');
     return true;
   }
   if(!(await enforceCommandContext(runtime,event,cmd,parsed.name)))return true;
@@ -1104,14 +1105,15 @@ async function handleCommand(runtime,event,parsed){
     await telegramPremiumDenied(client,peer,name);
     return true;
   }
-  if(cmd.nexaiPremium&&!account.nexaiPremium){
+  const callerHasNexAiPremium=event?.callerOwner===true||account.nexaiPremium===true;
+  if(cmd.nexaiPremium&&!callerHasNexAiPremium){
     await nexAiPremiumDenied(runtime,peer,name);
     return true;
   }
   if(name==='premium'){
     try{return await sendInline(client,peer,'cat:PREMIUM')}
     catch{
-      const state=account.nexaiPremium?'ACTIF':'INACTIF';
+      const state=callerHasNexAiPremium?'ACTIF':'INACTIF';
       await sendText(client,peer,'NexAI Premium : '+state+' · 250 ⭐ / 30 jours\nTelegram Premium : '+(telegramPremium?'ACTIF':'INACTIF'));
       return true;
     }
@@ -2050,7 +2052,7 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
   const settings=await settingsFor(account.telegramUserId);
   const ownerCaller=event?.callerOwner===true||(
     selfAuthored
-      ?isOwnerIdentity(account.telegramUserId,account.username)
+      ?isAdminIdentity(account.telegramUserId,account.username)
       :await messageAuthorIsOwner(client,message,event?.sender)
   );
   event.callerOwner=ownerCaller;
