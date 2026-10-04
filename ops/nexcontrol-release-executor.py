@@ -145,6 +145,29 @@ def run_project_command(command, release, label):
         fail("invalid_" + label + "_command")
     return run(command, cwd=release, timeout=1200)
 
+def apply_shared_paths(release, shared_paths):
+    applied = []
+    for item in shared_paths or []:
+        rel = str((item or {}).get("path") or "").strip().strip("/")
+        target = os.path.abspath(str((item or {}).get("target") or "").strip())
+        if not rel or rel.startswith(".") or ".." in pathlib.PurePosixPath(rel).parts:
+            fail("invalid_shared_path:" + rel)
+        if not target.startswith("/opt/nex/shared/"):
+            fail("unsafe_shared_target:" + target)
+        os.makedirs(target, exist_ok=True)
+        link = os.path.abspath(os.path.join(release, rel))
+        if not (link == release or link.startswith(release + os.sep)):
+            fail("unsafe_shared_link:" + rel)
+        os.makedirs(os.path.dirname(link), exist_ok=True)
+        if os.path.lexists(link):
+            if os.path.islink(link) or os.path.isfile(link):
+                os.unlink(link)
+            else:
+                shutil.rmtree(link)
+        os.symlink(target, link)
+        applied.append({"path": rel, "target": target})
+    return applied
+
 def atomic_switch(current_path, release_path):
     parent = os.path.dirname(current_path)
     os.makedirs(parent, exist_ok=True)
@@ -264,6 +287,7 @@ def main():
         report["steps"]["install"] = run_project_command(cfg.get("installCommand"), release, "install")
         report["steps"]["build"] = run_project_command(cfg.get("buildCommand"), release, "build")
         report["steps"]["validate"] = run_project_command(cfg.get("predeployCommand"), release, "predeploy")
+        report["steps"]["sharedPaths"] = apply_shared_paths(release, cfg.get("sharedPaths") or [])
 
         previous = atomic_switch(current, release)
         switched = True
