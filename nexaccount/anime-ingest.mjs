@@ -2526,7 +2526,15 @@ async function claimNext(runtime){
   if(media){
     return claimExactItem(d,media,accountId,{allowAny});
   }
-  return null;
+  const noMediaNow=new Date();
+  const noMediaUntil=new Date(noMediaNow.getTime()+TRANSIENT_VARIANT_RETRY_MS);
+  const noMediaCooldown=await interSeriesDeadline(d,seriesKey,noMediaNow);
+  const noMediaScheduler=d.collection('nexanime_config');
+  const noMediaState=await noMediaScheduler.findOne({_id:'scheduler'},{projection:{blockedSeriesEntries:1}});
+  const noMediaBlocks=(Array.isArray(noMediaState?.blockedSeriesEntries)?noMediaState.blockedSeriesEntries:[]).filter(row=>{const key=String(row?.seriesKey||'');const until=row?.until?new Date(row.until):null;return key&&key!==seriesKey&&until&&Number.isFinite(until.getTime())&&until>noMediaNow;}).concat([{seriesKey,until:noMediaUntil,reason:'no_ready_episode_variant',blockedAt:noMediaNow}]).slice(-100);
+  await noMediaScheduler.updateOne({_id:'scheduler'},{$set:{blockedSeriesKey:seriesKey,blockedSeriesUntil:noMediaUntil,blockedSeriesReason:'no_ready_episode_variant',blockedSeriesEntries:noMediaBlocks,cooldownUntil:noMediaCooldown,updatedAt:noMediaNow},$unset:{activeSeriesKey:'',activeSeriesStartedAt:'',plannedSeriesKey:'',plannedAt:'',plannedSummary:'',forcedNextSeriesKey:'',skipCooldownForForcedNext:''}},{upsert:true});
+  console.warn('[NexAnime scheduler] parked series with no ready episode variant',seriesKey,season,episode);
+  return claimNext(runtime);
 }
 async function alreadyPublished(dedupeKey){
   const d=await db();
