@@ -69,6 +69,43 @@ assert.equal(inlineReply.reply_markup.inline_keyboard[0][0].icon_custom_emoji_id
 const inlineReplyFallback=__test.inlineReplyModel('Réponse test',{customEmojiIds:{}});
 assert.match(inlineReplyFallback.reply_markup.inline_keyboard[0][0].text,/^⚡\s/,'Nextech CTA must fall back to a normal emoji');
 
+const noisyWelcome=__test.greetingVisualTemplate(
+  '🤖✨🔥🎉 ᴡᴇʟᴄᴏᴍᴇ 🤖 {mention}\nʙɪᴇɴᴠᴇɴᴜᴇ ᴅᴀɴs {group}',
+  true
+);
+assert.ok((noisyWelcome.match(/\p{Extended_Pictographic}/gu)||[]).length<=2,'welcome rendering must cap visible pictographic emojis');
+assert.ok(noisyWelcome.includes('ᴡᴇʟᴄᴏᴍᴇ'),'emoji cleanup must preserve the smallcaps welcome style');
+assert.ok(noisyWelcome.includes('{mention}'),'emoji cleanup must preserve greeting placeholders');
+
+const fallbackPhotoCalls=[];
+const fallbackPhoto=await __test.greetingProfilePhotoFileId({
+  me:{id:999},
+  api:{
+    async getUserProfilePhotos(id){
+      fallbackPhotoCalls.push(Number(id));
+      if(Number(id)===123)return {photos:[]};
+      if(Number(id)===999)return {photos:[[{file_id:'NEXAI_PROFILE_SMALL'},{file_id:'NEXAI_PROFILE_LARGE'}]]};
+      return {photos:[]};
+    }
+  }
+},{id:123});
+assert.equal(fallbackPhoto,'NEXAI_PROFILE_LARGE','welcome must use NexAi profile photo when the newcomer has no avatar');
+assert.deepEqual(fallbackPhotoCalls,[123,999],'welcome avatar lookup must try the member first, then NexAi');
+
+const memberPhotoCalls=[];
+const memberPhoto=await __test.greetingProfilePhotoFileId({
+  me:{id:999},
+  api:{
+    async getUserProfilePhotos(id){
+      memberPhotoCalls.push(Number(id));
+      if(Number(id)===123)return {photos:[[{file_id:'MEMBER_PROFILE'}]]};
+      return {photos:[[{file_id:'NEXAI_PROFILE'}]]};
+    }
+  }
+},{id:123});
+assert.equal(memberPhoto,'MEMBER_PROFILE','member avatar must stay preferred when it exists');
+assert.deepEqual(memberPhotoCalls,[123],'NexAi avatar must not be fetched when the member already has one');
+
 assert.deepEqual(
   __test.telegramCommandMenu().map(x=>x.command),
   ['start','menu','help','pair','settutorial','premium','language','creator','customstyle'],
