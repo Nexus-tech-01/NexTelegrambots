@@ -292,6 +292,66 @@ function isAdminParticipant(p){
   const kind=String(p?.participant?.className||p?.participant?.constructor?.name||'');
   return /Creator|Admin/i.test(kind)||Boolean(p?.participant?.adminRights||p?.adminRights);
 }
+function dialogIsManagedGroup(dialog){
+  const entity=dialog?.entity||dialog?.chat||dialog;
+  const kind=String(entity?.className||entity?.constructor?.name||'');
+  const group=dialog?.isGroup===true||entity?.megagroup===true||/Chat|Channel/i.test(kind)&&entity?.broadcast!==true;
+  const admin=entity?.creator===true||Boolean(entity?.adminRights)||/Creator|Admin/i.test(String(entity?.participant?.className||entity?.participant?.constructor?.name||''));
+  return group&&admin;
+}
+async function managedBroadcastTargets(client,{limit=80}={}){
+  const dialogs=await client.getDialogs({limit:500});
+  const seen=new Set(),targets=[];
+  for(const dialog of Array.isArray(dialogs)?dialogs:[]){
+    if(!dialogIsManagedGroup(dialog))continue;
+    const entity=dialog?.entity||dialog?.chat||dialog;
+    const id=String(entity?.id||dialog?.id||'');
+    if(!id||seen.has(id))continue;
+    seen.add(id);
+    targets.push({id,entity,title:String(entity?.title||dialog?.title||id)});
+    if(targets.length>=Math.max(1,Math.min(120,Number(limit)||80)))break;
+  }
+  return targets;
+}
+async function broadcastPayload(client,peer,message,argText){
+  const source=await repliedMessage(client,peer,message);
+  if(source){
+    const caption=String(argText||source?.message||source?.text||'').trim();
+    const formattingEntities=argText?[]:(Array.isArray(source?.entities)?source.entities:[]);
+    if(source?.media){
+      const buffer=await client.downloadMedia(source).catch(()=>null);
+      if(!buffer?.length)throw new Error('Impossible de lire le média répondu pour le broadcast.');
+      return {
+        kind:'media',
+        buffer:Buffer.from(buffer),
+        fileName:recoveredMediaName(source),
+        mimeType:String(source?.media?.document?.mimeType||''),
+        caption,
+        formattingEntities
+      };
+    }
+    if(caption)return {kind:'text',text:caption,formattingEntities};
+  }
+  const text=String(argText||'').trim();
+  if(!text)throw new Error('Usage : .broadcast message, ou réponds à un message/média avec .broadcast');
+  return {kind:'text',text,formattingEntities:[]};
+}
+async function sendBroadcastPayload(client,target,payload){
+  if(payload.kind==='media'){
+    return sendTelegramMedia(client,target,payload.buffer,{
+      fileName:payload.fileName,
+      caption:payload.caption,
+      mimeType:payload.mimeType,
+      kind:'auto',
+      formattingEntities:payload.formattingEntities,
+      signature:false
+    });
+  }
+  return client.sendMessage(target,{
+    message:payload.text,
+    formattingEntities:payload.formattingEntities
+  });
+}
 function displayName(p){
   return clean([p?.firstName,p?.lastName].filter(Boolean).join(' '))||p?.username||String(p?.id||'Utilisateur');
 }
@@ -927,6 +987,21 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const chat=String(event.chatId||peer?.channelId||peer?.chatId||'global');
     const key=name==='setwelcome'?'welcomeText':name==='setgoodbye'?'goodbyeText':name;
     const current=(await settingsFor(account.telegramUserId)).groupPolicies?.[chat]?.[key];
+
+    if((name==='setwelcome'||name==='setgoodbye')&&!argText){
+      const command=name==='setwelcome'?'.setwelcome':'.setgoodbye';
+      const example=name==='setwelcome'
+        ?'👋 Bienvenue {mention} dans {group} !'
+        :'👋 Au revoir {mention}. À bientôt dans {group}.';
+      await sendText(client,peer,
+        'Usage : '+command+' <message>\n'+
+        'Variables : {mention} · {name} · {username} · {id} · {group} · {count}\n'+
+        'Exemple : '+command+' '+example+'\n\n'+
+        'Actuel : '+String(current||'non défini')
+      );
+      return true;
+    }
+
     const value=(name==='setwelcome'||name==='setgoodbye')?argText:parseToggle(args[0],current===true);
     const p=await patchGroupPolicy(account.telegramUserId,chat,{[key]:value});
     await sendText(client,peer,toSmallCaps(key)+' : '+(typeof p[key]==='boolean'?(p[key]?'ON':'OFF'):String(p[key]||'configuré')));
@@ -1103,7 +1178,41 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       await sendText(client,peer,toSmallCaps(key)+' : '+next.length+' entrée(s).');return true;
     }
     if(name==='broadcast'){
-      if(!argText){await sendText(client,peer,'Usage : /Broadcast message');return true}await sendText(client,peer,argText);return true;
+      let payload;
+      try{
+        payload=await broadcastPayload(client,peer,event.message,argText);
+      }catch(error){
+        await sendText(client,peer,'Broadcast : '+String(error?.message||error));
+        return true;
+      }
+
+      const targets=await managedBroadcastTargets(client,{limit:80});
+      if(!targets.length){
+        await sendText(client,peer,'Broadcast : aucun groupe administré détecté pour ce compte.');
+        return true;
+      }
+
+      let sent=0,failed=0;
+      const failures=[];
+      for(let i=0;i<targets.length;i++){
+        const target=targets[i];
+        try{
+          await sendBroadcastPayload(client,target.entity,payload);
+          sent++;
+        }catch(error){
+          failed++;
+          failures.push(target.title+' : '+String(error?.errorMessage||error?.message||error).slice(0,100));
+        }
+        if(i<targets.length-1)await new Promise(resolve=>setTimeout(resolve,1400));
+      }
+
+      await sendText(client,peer,
+        'Broadcast terminé ✅\n'+
+        'Envoyé : '+sent+'/'+targets.length+
+        (failed?'\nÉchecs : '+failed:'')+
+        (failures.length?'\n\n'+failures.slice(0,5).join('\n'):'')
+      );
+      return true;
     }
     if(name==='cancel'){await sendText(client,peer,'Aucun flux NexAi actif à annuler dans ce chat.');return true}
     if(name==='clearwarns'){
