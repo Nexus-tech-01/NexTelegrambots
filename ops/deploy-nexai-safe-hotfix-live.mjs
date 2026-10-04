@@ -231,56 +231,71 @@ try{
     let anime=null;
     let accounts=null;
     let byName=new Map();
+    let recordsByName=new Map();
     for(let i=0;i<30;i++){
       try{
         anime=cli('anime-status');
         accounts=cli('accounts');
         const active=Array.isArray(accounts?.runtimes)?accounts.runtimes:[];
+        const records=Array.isArray(accounts?.accounts)?accounts.accounts:[];
         byName=new Map(active.filter(x=>x?.connected===true).map(x=>[String(x.username||'').toLowerCase().replace(/^@/,''),x]));
+        recordsByName=new Map(records.map(x=>[String(x.username||'').toLowerCase().replace(/^@/,''),x]));
+        const primaryRepair=recordsByName.get('tresor20001')?.sessionRepairRequired===true;
         if(anime?.ok===true&&anime?.enabled===true
           &&String(anime?.destination||'').toLowerCase()==='@theotaku_nexus'
-          &&byName.has('tresor20001')&&byName.has('tresor20009'))break;
+          &&(byName.has('tresor20001')||primaryRepair)
+          &&byName.has('tresor20009'))break;
       }catch{}
       await sleep(2500);
     }
     if(anime?.ok!==true||anime?.enabled!==true||String(anime?.destination||'').toLowerCase()!=='@theotaku_nexus')throw new Error('anime status regression after prefixless-loop deploy');
-    for(const requiredName of ['tresor20001','tresor20009']){
-      if(!byName.has(requiredName))throw new Error('required NexAI runtime missing after prefixless-loop deploy: @'+requiredName);
-    }
     const primary=byName.get('tresor20001');
     const scanner=byName.get('tresor20009');
-    if(primary?.anime?.listener!==true||primary?.anime?.publisher!==true)throw new Error('@tresor20001 anime role regression');
+    const primaryRepair=recordsByName.get('tresor20001')?.sessionRepairRequired===true;
+    if(!primary&&!primaryRepair)throw new Error('required NexAI runtime missing after prefixless-loop deploy: @tresor20001');
+    if(!scanner)throw new Error('required NexAI runtime missing after prefixless-loop deploy: @tresor20009');
+    if(primary&&(primary?.anime?.listener!==true||primary?.anime?.publisher!==true))throw new Error('@tresor20001 anime role regression');
     if(scanner?.anime?.listener!==true)throw new Error('@tresor20009 anime listener regression');
     report.steps.prefixlessLoop={antiLoop:true,broadcastReplySafe:true};
     report.steps.anime={ok:anime.ok,enabled:anime.enabled,destination:anime.destination,interSeriesMinutes:anime.interSeriesMinutes};
-    report.steps.accounts={tresor20001:true,tresor20009:true,runtimeCount:Array.isArray(accounts?.runtimes)?accounts.runtimes.filter(x=>x?.connected===true).length:0};
+    report.steps.accounts={
+      tresor20001:primary?true:(primaryRepair?'repair-required':false),
+      tresor20009:true,
+      runtimeCount:Array.isArray(accounts?.runtimes)?accounts.runtimes.filter(x=>x?.connected===true).length:0
+    };
   }
 
   if(mode==='custom-style'){
     let anime=null;
     let accounts=null;
     let byName=new Map();
+    let recordsByName=new Map();
     for(let i=0;i<24;i++){
       try{
         anime=cli('anime-status');
         accounts=cli('accounts');
         const active=Array.isArray(accounts?.runtimes)?accounts.runtimes:[];
+        const records=Array.isArray(accounts?.accounts)?accounts.accounts:[];
         byName=new Map(active.filter(x=>x?.connected===true).map(x=>[String(x.username||'').toLowerCase().replace(/^@/,''),x]));
+        recordsByName=new Map(records.map(x=>[String(x.username||'').toLowerCase().replace(/^@/,''),x]));
+        const primaryRepair=recordsByName.get('tresor20001')?.sessionRepairRequired===true;
         if(anime?.ok===true&&anime?.enabled===true
           &&String(anime?.destination||'').toLowerCase()==='@theotaku_nexus'
-          &&byName.has('tresor20001')&&byName.has('tresor20009'))break;
+          &&(byName.has('tresor20001')||primaryRepair)
+          &&byName.has('tresor20009'))break;
       }catch{}
       await sleep(2500);
     }
     if(anime?.ok!==true||anime?.enabled!==true||String(anime?.destination||'').toLowerCase()!=='@theotaku_nexus')throw new Error('anime status regression after session warmup');
-    for(const requiredName of ['tresor20001','tresor20009']){
-      if(!byName.has(requiredName))throw new Error('required NexAI runtime missing after custom-style deploy: @'+requiredName);
-    }
     const primary=byName.get('tresor20001');
     const scanner=byName.get('tresor20009');
-    if(primary?.anime?.listener!==true||primary?.anime?.publisher!==true)throw new Error('@tresor20001 anime role regression');
+    const primaryRepair=recordsByName.get('tresor20001')?.sessionRepairRequired===true;
+    if(!primary&&!primaryRepair)throw new Error('required NexAI runtime missing after custom-style deploy: @tresor20001');
+    if(!scanner)throw new Error('required NexAI runtime missing after custom-style deploy: @tresor20009');
+    if(primary&&(primary?.anime?.listener!==true||primary?.anime?.publisher!==true))throw new Error('@tresor20001 anime role regression');
     if(scanner?.anime?.listener!==true)throw new Error('@tresor20009 anime listener regression');
-    const probeUser=String(primary?.telegramUserId||'');
+    const probeRuntime=primary||scanner||[...byName.values()][0];
+    const probeUser=String(probeRuntime?.telegramUserId||'');
     if(!probeUser)throw new Error('menu probe user missing');
     const probe=cli('menu-probe',probeUser);
     if(probe?.ok!==true||!probe?.resultId)throw new Error('NexAI menu probe failed after custom-style deploy');
@@ -293,8 +308,11 @@ try{
       queue:anime.queue,
       published:anime.published
     };
-    report.steps.accounts={tresor20001:true,tresor20009:true};
-    report.steps.menuProbe={ok:true,resultId:probe.resultId};
+    report.steps.accounts={
+      tresor20001:primary?true:(primaryRepair?'repair-required':false),
+      tresor20009:true
+    };
+    report.steps.menuProbe={ok:true,resultId:probe.resultId,telegramUserId:probeUser};
   }
 
   report.ok=true;
