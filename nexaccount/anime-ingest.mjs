@@ -5,6 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { db } from './store.mjs';
 import { sendTelegramMedia } from './media-send.mjs';
+import { generateAiReply } from './ai-engine.mjs';
 
 const ENABLED=String(process.env.NEXANIME_ENABLED||'true').toLowerCase()!=='false';
 const REQUIRED_LISTENERS=['tresor20001','tresor20009','tresor20000'];
@@ -427,24 +428,66 @@ async function animePresentationMetadata(title){
   }
   return verifyAnimeTitle(title);
 }
-function presentationText(meta){
+function cleanSynopsisDescription(value=''){
+  return String(value||'')
+    .replace(/<br\\s*\\/?>(?=.)/gi,'\n')
+    .replace(/<[^>]+>/g,' ')
+    .replace(/\\\\n/g,'\n')
+    .replace(/\\(?(?:source|sources?)\\s*:\\s*[^\\n)]+\\)?/gi,'')
+    .replace(/\\[(?:source|sources?)\\s*:[^\\]]+\\]/gi,'')
+    .replace(/[ \\t]+\\n/g,'\n')
+    .replace(/\\n{3,}/g,'\n\n')
+    .replace(/[ \\t]{2,}/g,' ')
+    .trim();
+}
+function synopsisLooksFrench(text=''){
+  const s=' '+String(text||'').toLowerCase()+' ';
+  const fr=(s.match(/\\b(?:le|la|les|un|une|des|du|de|dans|avec|pour|mais|alors|sur|son|sa|ses|qui|que|est|sont|été|être|après|avant|lorsque|afin)\\b/g)||[]).length;
+  const en=(s.match(/\\b(?:the|and|with|for|from|into|after|before|when|while|his|her|their|who|that|is|are|was|were|to)\\b/g)||[]).length;
+  return fr>=Math.max(3,en);
+}
+async function frenchSynopsis(meta,seriesKey=''){
+  const raw=cleanSynopsisDescription(meta?.description||'');
+  if(!raw)return '';
+  if(synopsisLooksFrench(raw))return raw;
+  try{
+    const result=await generateAiReply({
+      accountId:'nexanime-system',
+      peer:'synopsis:'+String(seriesKey||meta?.anilistId||meta?.canonicalTitle||'anime'),
+      mode:'ai',
+      language:'fr',
+      prompt:[
+        'Traduis ce synopsis d’anime en français naturel.',
+        'Conserve fidèlement les noms propres et les faits.',
+        'Ne rajoute aucun commentaire, aucune source, aucun crédit et aucun titre.',
+        'Réponds uniquement avec le synopsis traduit.',
+        '',
+        raw
+      ].join('\n')
+    });
+    return cleanSynopsisDescription(result?.text||raw);
+  }catch{
+    return raw;
+  }
+}
+async function presentationText(meta,seriesKey=''){
   const rows=[];
   if(meta?.genres?.length)rows.push('Genres : '+meta.genres.join(' · '));
   if(meta?.studios?.length)rows.push('Studio : '+meta.studios.join(', '));
   if(meta?.episodes)rows.push('Épisodes : '+meta.episodes);
   if(meta?.format)rows.push('Format : '+meta.format);
-  const description=String(meta?.description||'').trim();
-  if(description)rows.push('Synopsis\\n'+description);
-  return rows.join('\\n');
+  const description=await frenchSynopsis(meta,seriesKey);
+  if(description)rows.push('Synopsis\n'+description);
+  return rows.join('\n');
 }
 
 function resumePresentationKey(seriesKey,season,episode){
   return [String(seriesKey||''),'resume','s'+Number(season||1),'e'+Number(episode||0)].join('|');
 }
-function resumePresentationText(meta,season,episode){
-  const head='🔄 Reprise de l’anime\\nLa publication reprend à Saison '+Number(season||1)+' · Épisode '+Number(episode||0);
-  const synopsis=presentationText(meta);
-  return [head,synopsis].filter(Boolean).join('\\n\\n');
+async function resumePresentationText(meta,seriesKey,season,episode){
+  const head='🔄 Reprise de l’anime\nLa publication reprend à Saison '+Number(season||1)+' · Épisode '+Number(episode||0);
+  const synopsis=await presentationText(meta,seriesKey);
+  return [head,synopsis].filter(Boolean).join('\n\n');
 }
 function bestAnchor(title,anchors=[]){
   const q=cleanSeriesTitle(title);
@@ -2059,7 +2102,7 @@ async function ensureGeneralPresentation(d,seriesKey){
     title:meta.canonicalTitle||episode.title,
     anilistId:meta.anilistId||episode.anilistId||null,
     season:null,episode:null,language:'',quality:'',
-    cleanedCaption:presentationText(meta)
+    cleanedCaption:await presentationText(meta,seriesKey)
   };
   const dedupeKey=presentationKey(presentation);
   const existingAny=await queue.findOne({dedupeKey});
@@ -2151,12 +2194,12 @@ async function ensureResumePresentation(d,seriesKey){
     {sort:{publishedAt:-1,updatedAt:-1}}
   );
   const synopsisText=meta?.ok&&String(meta.description||'').trim()
-    ?presentationText(meta)
-    :String(priorSynopsis?.cleanedCaption||'').trim();
+    ?await presentationText(meta,seriesKey)
+    :cleanSynopsisDescription(priorSynopsis?.cleanedCaption||'');
   if(!synopsisText)return null;
 
   const now=new Date();
-  const resumeHead='🔄 Reprise de l’anime\\nLa publication reprend à Saison '+season+' · Épisode '+episode;
+  const resumeHead='🔄 Reprise de l’anime\nLa publication reprend à Saison '+season+' · Épisode '+episode;
   const payload={
     dedupeKey,status:'queued',kind:'resume_presentation',seriesKey,
     title:meta?.canonicalTitle||priorSynopsis?.title||nextEpisode.title,
@@ -2165,10 +2208,11 @@ async function ensureResumePresentation(d,seriesKey){
     mediaKind:'photo',cleanedCaption:[resumeHead,synopsisText].filter(Boolean).join('\\n\\n'),
     cleanedFilename:'',originalFilename:'',confidence:1,
     destination:'@'+DESTINATION,mode:'synthetic',synthetic:true,
-    imageUrl:meta?.coverImage||priorSynopsis?.imageUrl||'',attempts:0,ingestedAt:new Date(0),
+    imageUrl:String(meta?.coverImage||priorSynopsis?.imageUrl||'').trim(),attempts:0,ingestedAt:new Date(0),
     resumeSeason:season,resumeEpisode:episode,
     resumePresentation:true,createdAt:now,updatedAt:now
   };
+  if(!payload.imageUrl)return null;
   await queue.insertOne(payload);
   return payload;
 }
