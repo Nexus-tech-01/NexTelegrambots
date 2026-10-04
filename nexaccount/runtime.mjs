@@ -82,75 +82,43 @@ async function replyStorageHotCachePeer(client,configured={}){
 }
 
 async function ensureReplyHotCacheChannel(client,configured={}){
-  const existing=replyHotCachePeer(configured);
-  if(existing){
-    try{
-      await client.invoke(new Api.channels.GetChannels({id:[existing]}));
-      return {
-        peer:existing,
-        ref:{
-          hotCacheChannelId:String(configured.hotCacheChannelId),
-          hotCacheAccessHash:String(configured.hotCacheAccessHash),
-          hotCacheSharedStorage:configured.hotCacheSharedStorage===true
-        }
-      };
-    }catch{}
-  }
+  let fallback=await replyStorageHotCachePeer(client,configured);
+  if(fallback)return fallback;
 
   try{
-    const created=await client.invoke(new Api.channels.CreateChannel({
-      title:'NexAI · Internal Cache',
-      about:'Private NexAI media cache for instant automatic video-note replies.',
-      broadcast:true
-    }));
-    const chat=(created?.chats||[]).find(row=>row?.id!=null&&row?.accessHash!=null);
-    if(!chat)throw new Error('canal cache NexAI impossible à créer');
-    const peer=getInputChannel(chat);
-    try{
-      const inputPeer=new Api.InputPeerChannel({channelId:chat.id,accessHash:chat.accessHash});
-      await client.invoke(new Api.folders.EditPeerFolders({
-        folderPeers:[new Api.InputFolderPeer({peer:inputPeer,folderId:1})]
-      }));
-    }catch{}
-    return {
-      peer,
-      ref:{
-        hotCacheChannelId:String(chat.id),
-        hotCacheAccessHash:String(chat.accessHash),
-        hotCacheSharedStorage:false
-      }
-    };
-  }catch(createError){
-    let fallback=await replyStorageHotCachePeer(client,configured);
-    if(fallback)return fallback;
-    try{
-      const invite=await replyStorageJoinLink();
-      const link=String(invite?.inviteLink||'');
-      const hash=(link.match(/(?:\+|joinchat\/)([A-Za-z0-9_-]+)/)||[])[1]||'';
-      if(!hash)throw new Error('lien NexAI Storage invalide');
-      const joined=await client.invoke(new Api.messages.ImportChatInvite({hash}));
-      const chat=(joined?.chats||[]).find(row=>row?.id!=null&&row?.accessHash!=null);
-      if(chat){
-        const peer=getInputChannel(chat);
-        return {
-          peer,
-          ref:{
-            hotCacheChannelId:String(chat.id),
-            hotCacheAccessHash:String(chat.accessHash),
-            hotCacheSharedStorage:true
-          }
-        };
-      }
-    }catch(joinError){
-      const text=String(joinError?.errorMessage||joinError?.message||joinError||'');
-      if(!/USER_ALREADY_PARTICIPANT/i.test(text)){
-        console.warn('[NexAccount reply hot-cache join]',text.slice(0,220));
-      }
+    const invite=await replyStorageJoinLink();
+    const link=String(invite?.inviteLink||'');
+    const hash=(link.match(/(?:\+|joinchat\/)([A-Za-z0-9_-]+)/)||[])[1]||'';
+    if(!hash)throw new Error('lien NexAI Storage invalide');
+    const joined=await client.invoke(new Api.messages.ImportChatInvite({hash}));
+    const chat=(joined?.chats||[]).find(row=>row?.id!=null&&row?.accessHash!=null);
+    if(chat){
+      const peer=getInputChannel(chat);
+      try{
+        const inputPeer=new Api.InputPeerChannel({channelId:chat.id,accessHash:chat.accessHash});
+        await client.invoke(new Api.folders.EditPeerFolders({
+          folderPeers:[new Api.InputFolderPeer({peer:inputPeer,folderId:1})]
+        }));
+      }catch{}
+      return {
+        peer,
+        ref:{
+          hotCacheChannelId:String(chat.id),
+          hotCacheAccessHash:String(chat.accessHash),
+          hotCacheSharedStorage:true
+        }
+      };
     }
-    fallback=await replyStorageHotCachePeer(client,configured);
-    if(fallback)return fallback;
-    throw createError;
+  }catch(joinError){
+    const text=String(joinError?.errorMessage||joinError?.message||joinError||'');
+    if(!/USER_ALREADY_PARTICIPANT/i.test(text)){
+      console.warn('[NexAccount reply hot-cache join]',text.slice(0,220));
+    }
   }
+
+  fallback=await replyStorageHotCachePeer(client,configured);
+  if(fallback)return fallback;
+  throw new Error('NexAI Storage inaccessible pour cette session');
 }
 
 const commands=commandMap();
@@ -1053,66 +1021,48 @@ async function warmMentionVideoReply(runtime){
   const storage=configured.storage||{};
   if(configured.enabled!==true||!storage.fileId)return configured;
 
-  let buffer=await downloadReplyVideo(storage);
-  if(!(storage.normalized===true&&storage.videoNoteMeta?.width&&storage.videoNoteMeta?.height)){
-    const normalized=await normalizeVideoNoteBuffer(buffer);
-    const replacement=await storeReplyVideo(normalized.buffer,{
+  let buffer=null;
+  if(storage.mediaType!=='video_note'||storage.normalized!==true||!storage.videoNoteMeta?.width||!storage.videoNoteMeta?.height){
+    buffer=await downloadReplyVideo(storage);
+    let readyBuffer=buffer;
+    let meta=storage.videoNoteMeta||{};
+    if(storage.normalized!==true||!meta?.width||!meta?.height){
+      const normalized=await normalizeVideoNoteBuffer(buffer);
+      readyBuffer=normalized.buffer;
+      meta={width:normalized.width,height:normalized.height,duration:normalized.duration};
+    }
+    const replacement=await storeReplyVideo(readyBuffer,{
       telegramUserId:id,
       filenamePrefix:'nexai-reply-ready',
-      caption:'NexAI Reply Media · ready'
+      videoNote:true
     });
     replacement.normalized=true;
-    replacement.videoNoteMeta={
-      width:normalized.width,
-      height:normalized.height,
-      duration:normalized.duration
-    };
+    replacement.videoNoteMeta=meta;
+    if(replacement.mediaType!=='video_note')throw new Error('coffre Telegram : note vidéo invalide');
     const next={...configured,storage:replacement,mime:'video/mp4',normalizedAt:Date.now()};
     await patchSettings(id,{mentionVideoReply:next});
     runtime.mentionVideoReplyCache=next;
     configured=next;
-    buffer=normalized.buffer;
     await deleteStoredReplyVideo(storage).catch(()=>false);
   }
 
-  runtime.mentionVideoReplyBuffer=Buffer.from(buffer);
+  const hotCache=await ensureReplyHotCacheChannel(runtime.client,configured);
+  const hotMessageId=Number(configured.storage?.messageId||0);
+  const next={
+    ...configured,
+    ...hotCache.ref,
+    hotMessageId,
+    hotPreparedAt:Date.now()
+  };
+  let hotMedia=await loadMentionReplyHotMedia(runtime,next).catch(()=>null);
+  if(!hotMessageId||!hotMedia)throw new Error('note vidéo du coffre Telegram introuvable');
+  await patchSettings(id,{mentionVideoReply:next});
+  runtime.mentionVideoReplyCache=next;
+  configured=next;
+  runtime.mentionVideoReplyHotMessageId=hotMessageId;
+  runtime.mentionVideoReplyTelegramMedia=hotMedia;
+  runtime.mentionVideoReplyBuffer=null;
   runtime.mentionVideoReplyBufferKey=mentionReplyStorageKey(configured.storage);
-
-  let hotMedia=await loadMentionReplyHotMedia(runtime,configured).catch(()=>null);
-  if(!hotMedia){
-    const hotCache=await ensureReplyHotCacheChannel(runtime.client,configured);
-    const prepared=await sendTelegramMedia(runtime.client,hotCache.peer,buffer,{
-      fileName:'nexai-reply-hot.mp4',
-      mimeType:'video/mp4',
-      kind:'video',
-      videoNote:true,
-      preNormalizedVideoNoteMeta:configured.storage?.normalized===true
-        ?configured.storage?.videoNoteMeta
-        :null,
-      signature:false,
-      silent:true,
-      workers:8
-    });
-    const hotMessageId=Number(prepared?.id||0);
-    hotMedia=mentionReplyExistingMedia(prepared);
-    if(!hotMessageId||!hotMedia)throw new Error('préparation Telegram rapide impossible');
-    const previousHotMessageId=Number(configured.hotMessageId||0);
-    const previousHotPeer=replyHotCachePeer(configured);
-    const next={
-      ...configured,
-      ...hotCache.ref,
-      hotMessageId,
-      hotPreparedAt:Date.now()
-    };
-    await patchSettings(id,{mentionVideoReply:next});
-    runtime.mentionVideoReplyCache=next;
-    configured=next;
-    runtime.mentionVideoReplyHotMessageId=hotMessageId;
-    runtime.mentionVideoReplyTelegramMedia=hotMedia;
-    if(previousHotPeer&&previousHotMessageId&&previousHotMessageId!==hotMessageId){
-      await runtime.client.deleteMessages(previousHotPeer,[previousHotMessageId],{revoke:true}).catch(()=>{});
-    }
-  }
   return configured;
 }
 
