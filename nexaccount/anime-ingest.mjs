@@ -714,7 +714,10 @@ function retainedTmpPath(prefix,item,ext='.bin'){
   return path.join(TMP_ROOT,`${prefix}-${tag}${ext}`);
 }
 async function retainedMediaFile(client,message,target){
-  await fs.mkdir(TMP_ROOT,{recursive:true});
+  // The target may live outside TMP_ROOT (notably the WhatsApp shared stage).
+  // Always create the actual parent before teleproto opens its WriteStream;
+  // otherwise an ENOENT is emitted on the stream and can terminate NexAccount.
+  await fs.mkdir(path.dirname(target),{recursive:true});
   try{
     const existing=await fs.stat(target);
     if(existing.isFile()&&existing.size>0){
@@ -771,7 +774,9 @@ async function stageAnimeForWhatsApp(runtime,item,resolved){
     return [{type:'photo',url:String(item.imageUrl),fileName:'anime-presentation.jpg',mimetype:'image/jpeg',position:0}];
   }
   if(!message?.media)return [];
-  await cleanupWhatsAppStage().catch(()=>{});
+  // Do not swallow stage-directory failures. Let the caller handle them
+  // as a mirror failure instead of attempting a download into a missing path.
+  await cleanupWhatsAppStage();
   const original=item?.cleanedFilename||item?.originalFilename||filename(message)||('anime-'+String(item?._id||Date.now()));
   const type=message?.photo?'photo':item?.mediaKind==='video'?'video':item?.mediaKind==='document'?'document':mediaKind(message);
   let ext=path.extname(original);
