@@ -249,7 +249,7 @@ function replyStorageMediaType(message={}){
   return 'unknown';
 }
 
-export async function storeReplyVideo(buffer,{telegramUserId='',filenamePrefix='nexai-reply',caption='NexAI Reply Media'}={}){
+export async function storeReplyVideo(buffer,{telegramUserId='',filenamePrefix='nexai-reply',caption='NexAI Reply Media',videoNote=false}={}){
   const media=Buffer.from(buffer||[]);
   if(!media.length)throw new Error('vidéo vide');
   if(media.length>MAX_REPLY_BYTES)throw new Error('vidéo > 20 Mo pour le coffre Telegram');
@@ -257,14 +257,21 @@ export async function storeReplyVideo(buffer,{telegramUserId='',filenamePrefix='
   const form=new FormData();
   form.append('chat_id',channel.chatId);
   const safePrefix=String(filenamePrefix||'nexai-reply').replace(/[^a-z0-9_-]+/gi,'-').replace(/^-+|-+$/g,'').slice(0,60)||'nexai-reply';
-  form.append('document',new Blob([media],{type:'video/mp4'}),safePrefix+'-'+Date.now()+'.mp4');
-  form.append('disable_notification','true');
-  form.append('protect_content','true');
-  form.append('caption',String(caption||'NexAI Reply Media').slice(0,900));
-  const message=await botApi('sendDocument',form,60000);
-  // Telegram may normalize an uploaded MP4 as document, video, video_note or
-  // animation. The storage layer only needs the reusable Bot API file_id, so
-  // never assume that sendDocument implies message.document in the response.
+  let message;
+  if(videoNote===true){
+    form.append('video_note',new Blob([media],{type:'video/mp4'}),safePrefix+'-'+Date.now()+'.mp4');
+    form.append('disable_notification','true');
+    // This private storage copy must remain reusable as existing Telegram media.
+    form.append('protect_content','false');
+    message=await botApi('sendVideoNote',form,60000);
+    if(!message?.video_note)throw new Error('Telegram n’a pas stocké la vidéo comme note vidéo');
+  }else{
+    form.append('document',new Blob([media],{type:'video/mp4'}),safePrefix+'-'+Date.now()+'.mp4');
+    form.append('disable_notification','true');
+    form.append('protect_content','true');
+    form.append('caption',String(caption||'NexAI Reply Media').slice(0,900));
+    message=await botApi('sendDocument',form,60000);
+  }
   const storedMedia=replyStorageMediaFromMessage(message);
   const fileId=String(storedMedia?.file_id||'');
   if(!fileId)throw new Error('Telegram n’a pas retourné de file_id exploitable pour la vidéo stockée');
