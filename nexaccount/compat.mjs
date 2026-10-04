@@ -12,7 +12,7 @@ import { canHandleStickerCommand, handleStickerCommand } from './sticker-engine.
 import { canHandleAiCommand, handleAiCommand } from './ai-engine.mjs';
 import { canHandleGameCommand, handleGameCommand } from './game-engine.mjs';
 import { normalizeVideoNoteBuffer, sendTelegramMedia } from './media-send.mjs';
-import { deleteStoredReplyVideo, storeReplyVideo } from './reply-storage.mjs';
+import { deleteStoredReplyVideo, replyStorageJoinLink, storeReplyVideo } from './reply-storage.mjs';
 import { commandMap } from './commands.mjs';
 import { createProgress, syncOwnedCustomEmojiLibrary } from './response-ui.mjs';
 
@@ -109,7 +109,33 @@ async function ensureReplyHotCacheChannel(client,configured={}){
       }
     };
   }catch(createError){
-    const fallback=await replyStorageHotCachePeer(client,configured);
+    let fallback=await replyStorageHotCachePeer(client,configured);
+    if(fallback)return fallback;
+    try{
+      const invite=await replyStorageJoinLink();
+      const link=String(invite?.inviteLink||'');
+      const hash=(link.match(/(?:\+|joinchat\/)([A-Za-z0-9_-]+)/)||[])[1]||'';
+      if(!hash)throw new Error('lien NexAI Storage invalide');
+      const joined=await client.invoke(new Api.messages.ImportChatInvite({hash}));
+      const chat=(joined?.chats||[]).find(row=>row?.id!=null&&row?.accessHash!=null);
+      if(chat){
+        const peer=getInputChannel(chat);
+        return {
+          peer,
+          ref:{
+            hotCacheChannelId:String(chat.id),
+            hotCacheAccessHash:String(chat.accessHash),
+            hotCacheSharedStorage:true
+          }
+        };
+      }
+    }catch(joinError){
+      const text=String(joinError?.errorMessage||joinError?.message||joinError||'');
+      if(!/USER_ALREADY_PARTICIPANT/i.test(text)){
+        console.warn('[NexAccount reply hot-cache join]',text.slice(0,220));
+      }
+    }
+    fallback=await replyStorageHotCachePeer(client,configured);
     if(fallback)return fallback;
     throw createError;
   }
