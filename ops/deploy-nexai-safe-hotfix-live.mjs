@@ -26,6 +26,8 @@ const modes={
     ['compat.mjs','nexaccount/compat.mjs'],
     ['menu.mjs','nexaccount/menu.mjs'],
     ['inline-bot.mjs','nexaccount/inline-bot.mjs'],
+    ['sticker-engine.mjs','nexaccount/sticker-engine.mjs'],
+    ['sticker-transform.mjs','nexaccount/sticker-transform.mjs'],
     ['scripts/test-menu-resilience.mjs','nexaccount/scripts/test-menu-resilience.mjs']
   ],
   'stickers':[
@@ -51,7 +53,7 @@ const required={
   'store.mjs':['customStyle:normalizeCustomStyle','safe.customStyle=normalizeCustomStyle'],
   'menu.mjs':['customStyleModel','menu:customstyle','customStyleMedia(settings)','categoryPage'],
   'commands.mjs':["C('ultratake'","C('delfilig'","C('filitake'","C('noteclone'","C('customstyle'","C('stylename'","C('menuvideo'"],
-  'sticker-engine.mjs':["'ultratake'","'delfilig'","'filitake'","'noteclone'"],
+  'sticker-engine.mjs':["'ultratake'","'delfilig'","'filitake'","'noteclone'","export async function resumeStickerJobs"],
   'sticker-transform.mjs':['export async function addStickerWatermark','export async function removeStickerWatermark','export async function roundSticker'],
   'runtime.mjs':['canHandleStickerCommand(parsed.name)','Sticker engine fallback','registered.hidden!==true','consumeGeneratedCommandOutput','markGeneratedCommandOutput','NEXACCOUNT_EMBEDDED_ANIME'],
   'compat.mjs':['cacheMenuMediaForBot',"name==='customstyle'","name==='menuphoto'||name==='menuvideo'",'✅ Diffusion terminée']
@@ -196,6 +198,16 @@ try{
     if(!ck.ok)throw new Error('node --check '+dst+': '+ck.stderr.slice(-1600));
   }
   report.steps.syntax=true;
+
+  // node --check does not resolve ESM imports/exports. Import the runtime graph
+  // before touching systemd so mismatched dependent files can never crash live.
+  if(mode==='custom-style'||mode==='stickers'||mode==='prefixless-loop'){
+    const graph=run(process.execPath,['--input-type=module','-e',"await import('./runtime.mjs'); await import('./inline-bot.mjs'); console.log('MODULE_GRAPH_OK')"],{cwd:base,timeout:90000});
+    if(!graph.ok||!graph.stdout.includes('MODULE_GRAPH_OK')){
+      throw new Error('module graph validation failed: '+(graph.stderr||graph.stdout).slice(-2200));
+    }
+    report.steps.moduleGraph=true;
+  }
 
   if(mode==='anime-gap-skip'){
     const test=run(process.execPath,[path.join(base,'scripts/test-anime-ingest.mjs')],{cwd:base,timeout:120000});
