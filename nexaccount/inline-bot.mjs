@@ -53,6 +53,39 @@ function greetingBotDisplayName(user){
   return String([user?.first_name,user?.last_name].filter(Boolean).join(' ')||user?.username||user?.id||'Membre').trim();
 }
 
+function greetingVisualTemplate(template,isWelcome){
+  const raw=String(template||'').trim();
+  const legacyWelcome=new Set([
+    '👋 Bienvenue {mention} dans {group} !',
+    'Bienvenue {name} dans {group}.'
+  ]);
+  const legacyGoodbye=new Set([
+    '👋 Au revoir {mention}. À bientôt dans {group}.',
+    'Au revoir {name}.'
+  ]);
+  if(isWelcome&&(!raw||legacyWelcome.has(raw))){
+    return [
+      '╭▱▱ 𝚆𝙴𝙻𝙲𝙾𝙼𝙴 ▱▱ 🎉',
+      '┃≫ ⛩ 👑 ⚡ {mention} ⚡ 👑 ⛩',
+      '┃≫ 🌸 🔥 ʙɪᴇɴᴠᴇɴᴜᴇ ᴅᴀɴs {group} 🔥 🌸',
+      '┃≫ 🦋 🌙 💻 🗡 🎯 🪷 🦇',
+      '╰▱▱▱▱▱▱▱▱',
+      '≪ ɴᴇxᴀɪ • {group} 👑≫'
+    ].join('\n');
+  }
+  if(!isWelcome&&(!raw||legacyGoodbye.has(raw))){
+    return [
+      '╭▱▱ 𝙶𝙾𝙾𝙳𝙱𝚈𝙴 ▱▱ 🌙',
+      '┃≫ 🦋 ⚡ {mention} ⚡ 🦋',
+      '┃≫ 🕯️ ᴀ̀ ʙɪᴇɴᴛᴏ̂ᴛ • {group} 🕯️',
+      '┃≫ 👑 🌸 🔥 🌒 🦇',
+      '╰▱▱▱▱▱▱▱▱',
+      '≪ ɴᴇxᴀɪ • {group} ⚡≫'
+    ].join('\n');
+  }
+  return raw;
+}
+
 function renderBotGreetingText(template,users,chatTitle){
   const list=(Array.isArray(users)?users:[]).filter(Boolean);
   const safeUsers=list.length?list:[{id:'',first_name:'Membre'}];
@@ -123,7 +156,8 @@ async function handleBotGreeting(ctx){
   if((isWelcome&&policy.welcome===false)||(!isWelcome&&policy.goodbye===false))return true;
 
   const users=isWelcome?newcomers:left;
-  const template=isWelcome?policy.welcomeText:policy.goodbyeText;
+  const rawTemplate=isWelcome?policy.welcomeText:policy.goodbyeText;
+  const template=greetingVisualTemplate(rawTemplate,isWelcome);
   const text=renderBotGreetingText(template,users,chat.title||'ce groupe').slice(0,1024);
   const entities=await greetingCaptionEntities(text);
   const reply_markup=greetingMiniAppMarkup();
