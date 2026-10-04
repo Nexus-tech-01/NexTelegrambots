@@ -433,8 +433,9 @@ function cleanSynopsisDescription(value=''){
     .replace(/<br\\s*\\/?>(?=.)/gi,'\n')
     .replace(/<[^>]+>/g,' ')
     .replace(/\\\\n/g,'\n')
-    .replace(/\\(?(?:source|sources?)\\s*:\\s*[^\\n)]+\\)?/gi,'')
+    .replace(/\\(\\s*(?:source|sources?)\\s*:\\s*[^)]+\\)/gi,'')
     .replace(/\\[(?:source|sources?)\\s*:[^\\]]+\\]/gi,'')
+    .replace(/^(?:source|sources?)\\s*:\\s*.*$/gim,'')
     .replace(/[ \\t]+\\n/g,'\n')
     .replace(/\\n{3,}/g,'\n\n')
     .replace(/[ \\t]{2,}/g,' ')
@@ -470,9 +471,19 @@ async function frenchSynopsis(meta,seriesKey=''){
     return raw;
   }
 }
+function frenchGenre(value=''){
+  const map={
+    'Adventure':'Aventure','Supernatural':'Surnaturel','Comedy':'Comédie',
+    'Drama':'Drame','Fantasy':'Fantastique','Sci-Fi':'Science-fiction',
+    'Slice of Life':'Tranche de vie','Mystery':'Mystère','Psychological':'Psychologique',
+    'Sports':'Sport','Horror':'Horreur','Music':'Musique','Mecha':'Mecha',
+    'Action':'Action','Romance':'Romance','Thriller':'Thriller'
+  };
+  return map[String(value||'').trim()]||String(value||'').trim();
+}
 async function presentationText(meta,seriesKey=''){
   const rows=[];
-  if(meta?.genres?.length)rows.push('Genres : '+meta.genres.join(' · '));
+  if(meta?.genres?.length)rows.push('Genres : '+meta.genres.map(frenchGenre).join(' · '));
   if(meta?.studios?.length)rows.push('Studio : '+meta.studios.join(', '));
   if(meta?.episodes)rows.push('Épisodes : '+meta.episodes);
   if(meta?.format)rows.push('Format : '+meta.format);
@@ -2205,7 +2216,7 @@ async function ensureResumePresentation(d,seriesKey){
     title:meta?.canonicalTitle||priorSynopsis?.title||nextEpisode.title,
     anilistId:meta?.anilistId||priorSynopsis?.anilistId||nextEpisode.anilistId||null,
     season:null,episode:null,language:'',quality:'',
-    mediaKind:'photo',cleanedCaption:[resumeHead,synopsisText].filter(Boolean).join('\\n\\n'),
+    mediaKind:'photo',cleanedCaption:[resumeHead,synopsisText].filter(Boolean).join('\n\n'),
     cleanedFilename:'',originalFilename:'',confidence:1,
     destination:'@'+DESTINATION,mode:'synthetic',synthetic:true,
     imageUrl:String(meta?.coverImage||priorSynopsis?.imageUrl||'').trim(),attempts:0,ingestedAt:new Date(0),
