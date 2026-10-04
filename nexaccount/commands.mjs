@@ -102,6 +102,10 @@ export const CORE_COMMANDS=[
   C('add','GROUP',{...GA,description:'Inviter un membre'}),
   C('delete','GROUP',{...GA,description:'Supprimer le message répondu'}),
   C('clean','GROUP',{...GA,description:'Nettoyer des messages'}),
+  // Keep purge as a first-class visible command. It used to exist only as a
+  // hidden Dipper alias of clean, which made owner prefixless input such as
+  // "purge 250" fail parsing before it ever reached the deletion engine.
+  C('purge','GROUP',{...GA,handler:'clean',description:'Supprimer plusieurs messages'}),
   C('grouplink','GROUP',{...GA,description:'Créer le lien du groupe'}),
   C('tagall','GROUP',{...GA,description:'Mentionner tous les membres'}),
   C('hidetag','GROUP',{...G,description:'Mention silencieuse des membres'}),
