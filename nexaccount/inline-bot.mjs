@@ -108,7 +108,7 @@ function greetingMiniAppMarkup(){
     :String(cfg.connectUrl||'https://nex-telegrambots.vercel.app/');
   return {
     inline_keyboard:[[
-      {text:'ᴄᴏɴɴᴇᴄᴛ ɴᴇxᴀɪ',url}
+      {text:'⚡ ᴏᴜᴠʀɪʀ ɴᴇxᴀɪ',url}
     ]]
   };
 }
