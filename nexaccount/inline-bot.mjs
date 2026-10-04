@@ -139,6 +139,97 @@ async function runPollerSupervisor(){
 }
 
 
+const monoUiCache=new Map();
+
+function monoUiKey(chatId){
+  return 'nexai_mono_ui:'+String(chatId);
+}
+
+async function monoUiState(chatId){
+  const key=String(chatId||'');
+  if(!key)return null;
+  if(monoUiCache.has(key))return monoUiCache.get(key);
+  try{
+    const d=await db();
+    const row=await d.collection('nexaccount_system').findOne({_id:monoUiKey(key)});
+    const state=row?.messageId?{chatId:key,messageId:Number(row.messageId)}:null;
+    monoUiCache.set(key,state);
+    return state;
+  }catch{
+    return null;
+  }
+}
+
+async function rememberMonoUi(chatId,messageId){
+  const key=String(chatId||'');
+  const id=Number(messageId||0);
+  if(!key||!id)return;
+  const state={chatId:key,messageId:id};
+  monoUiCache.set(key,state);
+  try{
+    const d=await db();
+    await d.collection('nexaccount_system').updateOne(
+      {_id:monoUiKey(key)},
+      {$set:{chatId:key,messageId:id,updatedAt:new Date()},$setOnInsert:{createdAt:new Date()}},
+      {upsert:true}
+    );
+  }catch{}
+}
+
+async function forgetMonoUi(chatId,messageId=0){
+  const key=String(chatId||'');
+  if(!key)return;
+  const current=monoUiCache.get(key);
+  if(messageId&&current?.messageId&&Number(current.messageId)!==Number(messageId))return;
+  monoUiCache.delete(key);
+  try{
+    const d=await db();
+    const filter={_id:monoUiKey(key)};
+    if(messageId)filter.messageId=Number(messageId);
+    await d.collection('nexaccount_system').deleteOne(filter);
+  }catch{}
+}
+
+async function removePreviousMonoUi(ctx,{exceptMessageId=0}={}){
+  if(ctx.chat?.type!=='private'||!ctx.chat?.id)return;
+  const state=await monoUiState(ctx.chat.id);
+  const previousId=Number(state?.messageId||0);
+  if(!previousId||previousId===Number(exceptMessageId||0))return;
+  await ctx.api.deleteMessage(ctx.chat.id,previousId).catch(()=>{});
+  await forgetMonoUi(ctx.chat.id,previousId);
+}
+
+async function monoReplyText(ctx,text,options={}){
+  if(ctx.chat?.type!=='private')return ctx.reply(text,options);
+  await removePreviousMonoUi(ctx);
+  const message=await ctx.reply(text,options);
+  await rememberMonoUi(ctx.chat.id,message?.message_id);
+  return message;
+}
+
+async function monoReplyPhoto(ctx,photo,options={}){
+  if(ctx.chat?.type!=='private')return ctx.replyWithPhoto(photo,options);
+  await removePreviousMonoUi(ctx);
+  const message=await ctx.replyWithPhoto(photo,options);
+  await rememberMonoUi(ctx.chat.id,message?.message_id);
+  return message;
+}
+
+async function monoReplyVideo(ctx,video,options={}){
+  if(ctx.chat?.type!=='private')return ctx.replyWithVideo(video,options);
+  await removePreviousMonoUi(ctx);
+  const message=await ctx.replyWithVideo(video,options);
+  await rememberMonoUi(ctx.chat.id,message?.message_id);
+  return message;
+}
+
+async function adoptCallbackMonoUi(ctx){
+  const message=ctx.callbackQuery?.message;
+  if(ctx.chat?.type==='private'&&message?.message_id){
+    await rememberMonoUi(ctx.chat.id,message.message_id);
+  }
+}
+
 function nexAiReplyArtworkInput(){
   if(!replyArtworkBuffer){
     const encoded=fs.readFileSync(new URL('./assets/nexai-reply-artwork.jpg.b64',import.meta.url),'utf8').replace(/\\s+/g,'');
@@ -342,7 +433,7 @@ async function sendConnectTutorial(ctx,lang){
       ? '🎬 NexAI · Connection tutorial\n\nFollow the video, then tap “Open Mini App”.'
       : '🎬 NexAI · Tutoriel de connexion\n\nSuis la vidéo, puis appuie sur « Ouvrir la Mini App ».';
     try{
-      return await ctx.replyWithVideo(tutorial.fileId,{
+      return await monoReplyVideo(ctx,tutorial.fileId,{
         caption,
         supports_streaming:true,
         reply_markup:{
@@ -386,7 +477,7 @@ async function sendConnectTutorial(ctx,lang){
         '',
         'N’envoie jamais ton code de connexion ou ton mot de passe 2FA dans le chat du bot.'
       ].join('\n');
-  return ctx.reply(t,{
+  return monoReplyText(ctx,t,{
     entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}],
     reply_markup:connectMarkup(lang),
     link_preview_options:{is_disabled:true}
@@ -398,7 +489,7 @@ async function sendPairLink(ctx,lang){
   const t=lang==='en'
     ? 'Connect your Telegram account without leaving Telegram.\n\n1. Tap “Open Mini App”.\n2. Enter your Telegram phone number.\n3. Enter the login code only inside the Mini App.\n4. If Telegram asks for 2FA, enter the password only inside the Mini App.\n\nNever send a login code or 2FA password in this bot chat.'
     : 'Connecte ton compte Telegram sans quitter Telegram.\n\n1. Appuie sur « Ouvrir la Mini App ».\n2. Entre ton numéro Telegram.\n3. Entre le code de connexion uniquement dans la Mini App.\n4. Si Telegram demande la 2FA, entre le mot de passe uniquement dans la Mini App.\n\nN’envoie jamais un code de connexion ou un mot de passe 2FA dans ce chat.';
-  return ctx.reply(t,{
+  return monoReplyText(ctx,t,{
     entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}],
     reply_markup:connectMarkup(lang),
     link_preview_options:{is_disabled:true}
@@ -585,7 +676,6 @@ async function modelFor(account,query){
 }
 
 async function sendModelMessage(ctx,model,accountId){
-  await sendReplyArtwork(ctx);
   const rich=stampMarkup(model.reply_markup,accountId);
   const plain=portableMarkup(rich);
   const errors=[];
@@ -601,7 +691,7 @@ async function sendModelMessage(ctx,model,accountId){
 
   for(const [kind,messageText,entities,link_preview_options,reply_markup] of attempts){
     try{
-      return await ctx.reply(messageText.slice(0,4096),{
+      return await monoReplyText(ctx,messageText.slice(0,4096),{
         entities,
         link_preview_options,
         reply_markup
@@ -703,11 +793,11 @@ async function sendBareLanguage(ctx,arg=''){
   if(value==='fr'||value==='en'){
     await patchSettings(ctx.from.id,{language:value});
     const t=value==='fr'?'🇫🇷 ʟᴀɴɢᴜᴇ • ғʀᴀɴçᴀɪѕ':'🇬🇧 ʟᴀɴɢᴜᴀɢᴇ • ᴇɴɢʟɪѕʜ';
-    return ctx.reply(t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
+    return monoReplyText(ctx,t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
   }
   const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
   const t=lang==='en'?'ᴜѕᴇ language fr ᴏʀ language en.':'ᴜᴛɪʟɪѕᴇ language fr ᴏᴜ language en.';
-  return ctx.reply(t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
+  return monoReplyText(ctx,t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
 }
 
 async function handleBareDirectCommand(ctx,text){
@@ -784,14 +874,14 @@ async function sendStart(ctx){
     : ['♰ ɴᴇxᴀɪ','','🔗 ʀᴇʟɪᴇ ᴛᴏɴ ᴄᴏᴍᴘᴛᴇ ᴛᴇʟᴇɢʀᴀᴍ','/pair','','/creator','/language'].join('\n');
 
   try{
-    return await ctx.replyWithPhoto(nexAiReplyArtworkInput(),{
+    return await monoReplyPhoto(ctx,nexAiReplyArtworkInput(),{
       caption:text,
       caption_entities:quotedEntities(text,['/pair','/creator','/language']),
       reply_markup:connectMarkup(lang)
     });
   }catch(error){
     console.warn('[NexAI start artwork]',String(error?.description||error?.message||error).slice(0,350));
-    return ctx.reply(text,{
+    return monoReplyText(ctx,text,{
       entities:quotedEntities(text,['/pair','/creator','/language']),
       reply_markup:connectMarkup(lang),
       link_preview_options:{is_disabled:true}
@@ -804,13 +894,13 @@ async function sendCreator(ctx){
   const model=creatorCaptionModel(lang);
   await recordEvent(ctx.from,'command',{source:'nexai',command:'creator',chatType:ctx.chat?.type||'private'}).catch(()=>{});
   try{
-    return await ctx.replyWithPhoto(new InputFile(creatorImagePath()),{
+    return await monoReplyPhoto(ctx,new InputFile(creatorImagePath()),{
       caption:model.text,
       caption_entities:model.entities
     });
   }catch(e){
     console.error('[NexAI creator photo]',String(e.message||e));
-    return ctx.reply(model.text,{entities:model.entities});
+    return monoReplyText(ctx,model.text,{entities:model.entities});
   }
 }
 
@@ -831,7 +921,7 @@ async function sendOwner(ctx,kind,args=[]){
   const settings=await settingsFor(ctx.from.id).catch(()=>null);
   const safe=sanitizeAnimatedEmojiText(text,settings?.customEmojiIds||{});
   await recordEvent(ctx.from,'owner_command',{source:'nexai',command:kind,chatType:ctx.chat?.type||'private'}).catch(()=>{});
-  return ctx.reply(safe,{entities:[
+  return monoReplyText(ctx,safe,{entities:[
     ...ownerEntities(safe),
     ...animatedCustomEmojiEntitySpecs(safe,settings?.customEmojiIds||{})
   ]});
@@ -933,11 +1023,11 @@ export async function startInlineBot(){
     if(arg==='fr'||arg==='en'){
       await patchSettings(ctx.from.id,{language:arg});
       const t=arg==='fr'?'🇫🇷 ʟᴀɴɢᴜᴇ • ғʀᴀɴçᴀɪѕ':'🇬🇧 ʟᴀɴɢᴜᴀɢᴇ • ᴇɴɢʟɪѕʜ';
-      return ctx.reply(t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
+      return monoReplyText(ctx,t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
     }
     const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
     const t=lang==='en'?'ᴜѕᴇ /language fr ᴏʀ /language en.':'ᴜᴛɪʟɪѕᴇ /language fr ᴏᴜ /language en.';
-    return ctx.reply(t,{entities:quotedEntities(t,['/language'])});
+    return monoReplyText(ctx,t,{entities:quotedEntities(t,['/language'])});
   });
 
   bot.command('sessions',async ctx=>{
@@ -950,7 +1040,7 @@ export async function startInlineBot(){
         :'Cette commande est réservée au propriétaire de NexAi.');
     }
     const live=await listConnectedAccounts();
-    return ctx.reply(sessionsText(live,{
+    return monoReplyText(ctx,sessionsText(live,{
       viewerTelegramUserId:ctx.from.id,
       owner:true,
       language:lang
@@ -1157,7 +1247,7 @@ export async function startInlineBot(){
     webPairUsers.delete(String(ctx.from.id));
     const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
     const t=lang==='en'?'✦ ᴄᴏɴɴᴇᴄᴛɪᴏɴ ᴘʀᴏᴍᴘᴛ ᴄʟᴏѕᴇᴅ.':'✦ ᴘᴀʀᴄᴏᴜʀѕ ᴅᴇ ᴄᴏɴɴᴇxɪᴏɴ ғᴇʀᴍé.';
-    return ctx.reply(t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
+    return monoReplyText(ctx,t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
   });
 
   bot.command('owner',ctx=>sendOwner(ctx,'owner'));
@@ -1276,6 +1366,7 @@ export async function startInlineBot(){
   });
 
   bot.on('callback_query:data',async ctx=>{
+    await adoptCallbackMonoUi(ctx);
     const raw=String(ctx.callbackQuery.data||'');
     console.log('[NexAI callback] received',raw.slice(0,120),'from='+String(ctx.from?.id||''),'inline='+String(!!ctx.callbackQuery.inline_message_id));
     if(raw===CONNECT_TUTORIAL_CALLBACK){
@@ -1335,6 +1426,9 @@ export async function startInlineBot(){
 
     try{
       const mode=await editInline(ctx,model,accountId,{replaceMedia});
+      if(ctx.chat?.type==='private'&&ctx.callbackQuery?.message?.message_id){
+        await rememberMonoUi(ctx.chat.id,ctx.callbackQuery.message.message_id);
+      }
       console.log('[NexAI callback] edited',action,'mode='+mode);
       await recordEvent(ctx.from,'callback',{source:'nexai',command:action,chatType:'inline'}).catch(()=>{});
       if(callbackText)await ctx.answerCallbackQuery({text:callbackText});
