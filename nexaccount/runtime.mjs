@@ -1466,7 +1466,9 @@ async function maybeServiceGreeting(runtime,event){
   const kind=String(action.className||action.constructor?.name||'');
   const welcome=/ChatAddUser|ChatJoinedByLink|ChatJoinedByRequest/i.test(kind);
   const goodbye=/ChatDeleteUser/i.test(kind);
-  if((welcome&&policy.welcome!==true)||(goodbye&&policy.goodbye!==true)||(!welcome&&!goodbye))return;
+  // Welcome/Goodbye are ON by default in every group.
+  // A group must explicitly store false to disable either feature.
+  if((welcome&&policy.welcome===false)||(goodbye&&policy.goodbye===false)||(!welcome&&!goodbye))return;
 
   const ids=greetingActionUserIds(message,action,kind);
   const people=await greetingPeople(client,ids);
