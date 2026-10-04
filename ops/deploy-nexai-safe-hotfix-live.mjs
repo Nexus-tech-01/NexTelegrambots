@@ -67,7 +67,7 @@ const required={
   'runtime.mjs':['canHandleStickerCommand(parsed.name)','Sticker engine fallback','registered.hidden!==true','consumeGeneratedCommandOutput','markGeneratedCommandOutput','NEXACCOUNT_EMBEDDED_ANIME','ensureAnimePublisherOwnership','NEXACCOUNT_ANIME_FAILOVER_USERNAMES','animePublisherWatchdog'],
   'anime-secondary-reader.mjs':['SECONDARY_REQUESTED','embedded_runtime_owns_sessions','animePublisher:false'],
   'core/engine-router.mjs':['outcome?.deferred!==true','await progress.done','canonicalName(cmd)','handleStickerCommand'],
-  'compat.mjs':['cacheMenuMediaForBot',"name==='customstyle'","name==='menuphoto'||name==='menuvideo'",'✅ Diffusion terminée']
+  'compat.mjs':['cacheMenuMediaForBot',"name==='customstyle'","name==='menuphoto'||name==='menuvideo'",'✅ Diffusion terminée',"const requested=Math.max(1,Math.floor(Number(args[0])||20));","await client.deleteMessages(peer,ids,{revoke:true});"]
 };
 
 const stamp=new Date().toISOString().replace(/[:.]/g,'-');
@@ -335,7 +335,13 @@ try{
     if(!scanner)throw new Error('required NexAI runtime missing after prefixless-loop deploy: @tresor20009');
     if(primary&&(primary?.anime?.listener!==true||primary?.anime?.publisher!==true))throw new Error('@tresor20001 anime role regression');
     if(scanner?.anime?.listener!==true)throw new Error('@tresor20009 anime listener regression');
+    const liveCompat=fs.readFileSync(path.join(base,'compat.mjs'),'utf8');
+    if(!liveCompat.includes("const requested=Math.max(1,Math.floor(Number(args[0])||20));")
+      ||!liveCompat.includes("await client.deleteMessages(peer,ids,{revoke:true});")){
+      throw new Error('purge production markers missing after deploy');
+    }
     report.steps.prefixlessLoop={antiLoop:true,broadcastReplySafe:true};
+    report.steps.purge={ready:true,hardCap100:false,batchSize:100};
     report.steps.anime={ok:anime.ok,enabled:anime.enabled,destination:anime.destination,interSeriesMinutes:anime.interSeriesMinutes};
     report.steps.accounts={
       tresor20001:primary?true:(primaryRepair?'repair-required':false),
