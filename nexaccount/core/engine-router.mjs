@@ -15,7 +15,7 @@ const ENGINE_LABELS={
   game:'Game',
   premium:'NexAI Premium'
 };
-const STICKER_PROGRESS=new Set(['sticker','clonepack','createpack','exportwhatsapp','ultratake','delfilig','filitake','noteclone']);
+const STICKER_PROGRESS=new Set(['sticker','clonepack','untake','untakepk','createpack','exportwhatsapp','ultratake','delfilig','filitake','noteclone']);
 function needsProgress(engine,name){
   if(engine==='download'||engine==='ai'||engine==='anime'||engine==='premium')return true;
   if(engine==='sticker')return STICKER_PROGRESS.has(String(name||''));
