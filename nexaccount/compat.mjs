@@ -26,6 +26,49 @@ function replyHotCachePeer(configured={}){
   });
 }
 
+function replyStorageChannelId(configured={}){
+  const raw=String(configured?.storage?.chatId||'').trim();
+  const botApi=raw.match(/^-100(\d+)$/);
+  if(botApi)return botApi[1];
+  return /^\d+$/.test(raw)?raw:'';
+}
+
+async function replyStorageHotCachePeer(client,configured={}){
+  const channelId=replyStorageChannelId(configured);
+  if(!channelId)return null;
+  const peerChannel=new Api.PeerChannel({channelId:returnBigInt(channelId)});
+  try{
+    const peer=getInputChannel(await client.getInputEntity(peerChannel));
+    if(peer?.channelId!=null&&peer?.accessHash!=null){
+      return {
+        peer,
+        ref:{
+          hotCacheChannelId:String(peer.channelId),
+          hotCacheAccessHash:String(peer.accessHash),
+          hotCacheSharedStorage:true
+        }
+      };
+    }
+  }catch{}
+  try{
+    const dialogs=await client.getDialogs({limit:200});
+    const match=(Array.isArray(dialogs)?dialogs:[]).find(row=>
+      String(row?.entity?.id||row?.id||'')===channelId
+    );
+    if(!match)return null;
+    const peer=getInputChannel(await client.getInputEntity(match.entity||match));
+    if(peer?.channelId==null||peer?.accessHash==null)return null;
+    return {
+      peer,
+      ref:{
+        hotCacheChannelId:String(peer.channelId),
+        hotCacheAccessHash:String(peer.accessHash),
+        hotCacheSharedStorage:true
+      }
+    };
+  }catch{return null}
+}
+
 async function ensureReplyHotCacheChannel(client,configured={}){
   const existing=replyHotCachePeer(configured);
   if(existing){
@@ -35,33 +78,41 @@ async function ensureReplyHotCacheChannel(client,configured={}){
         peer:existing,
         ref:{
           hotCacheChannelId:String(configured.hotCacheChannelId),
-          hotCacheAccessHash:String(configured.hotCacheAccessHash)
+          hotCacheAccessHash:String(configured.hotCacheAccessHash),
+          hotCacheSharedStorage:configured.hotCacheSharedStorage===true
         }
       };
     }catch{}
   }
 
-  const created=await client.invoke(new Api.channels.CreateChannel({
-    title:'NexAI · Internal Cache',
-    about:'Private NexAI media cache for instant automatic video-note replies.',
-    broadcast:true
-  }));
-  const chat=(created?.chats||[]).find(row=>row?.id!=null&&row?.accessHash!=null);
-  if(!chat)throw new Error('canal cache NexAI impossible à créer');
-  const peer=getInputChannel(chat);
   try{
-    const inputPeer=new Api.InputPeerChannel({channelId:chat.id,accessHash:chat.accessHash});
-    await client.invoke(new Api.folders.EditPeerFolders({
-      folderPeers:[new Api.InputFolderPeer({peer:inputPeer,folderId:1})]
+    const created=await client.invoke(new Api.channels.CreateChannel({
+      title:'NexAI · Internal Cache',
+      about:'Private NexAI media cache for instant automatic video-note replies.',
+      broadcast:true
     }));
-  }catch{}
-  return {
-    peer,
-    ref:{
-      hotCacheChannelId:String(chat.id),
-      hotCacheAccessHash:String(chat.accessHash)
-    }
-  };
+    const chat=(created?.chats||[]).find(row=>row?.id!=null&&row?.accessHash!=null);
+    if(!chat)throw new Error('canal cache NexAI impossible à créer');
+    const peer=getInputChannel(chat);
+    try{
+      const inputPeer=new Api.InputPeerChannel({channelId:chat.id,accessHash:chat.accessHash});
+      await client.invoke(new Api.folders.EditPeerFolders({
+        folderPeers:[new Api.InputFolderPeer({peer:inputPeer,folderId:1})]
+      }));
+    }catch{}
+    return {
+      peer,
+      ref:{
+        hotCacheChannelId:String(chat.id),
+        hotCacheAccessHash:String(chat.accessHash),
+        hotCacheSharedStorage:false
+      }
+    };
+  }catch(createError){
+    const fallback=await replyStorageHotCachePeer(client,configured);
+    if(fallback)return fallback;
+    throw createError;
+  }
 }
 
 const DL_MAP={
