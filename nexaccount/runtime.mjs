@@ -124,6 +124,7 @@ async function ensureReplyHotCacheChannel(client,configured={}){
 const commands=commandMap();
 const runtimes=new Map();
 const spamWindows=new Map();
+const greetingEventsSeen=new Map();
 const commandDeduper=createCommandDeduper();
 const generatedCommandOutputs=new Map();
 const aiAutoWindows=new Map();
@@ -1452,6 +1453,39 @@ async function maybeAutoModerate(runtime,event){
   }
 }
 
+function greetingEventKey(runtime,event){
+  const message=event?.message;
+  const peer=message?.peerId;
+  const chat=String(peer?.channelId||peer?.chatId||event?.chatId||'');
+  const id=String(message?.id||'');
+  const kind=String(message?.action?.className||message?.action?.constructor?.name||'');
+  if(!chat||!id||!kind)return '';
+  return [String(runtime?.account?.telegramUserId||''),chat,id,kind].join(':');
+}
+
+function claimGreetingEvent(runtime,event){
+  const key=greetingEventKey(runtime,event);
+  if(!key)return {ok:true,key:''};
+  const now=Date.now();
+  for(const [seenKey,at] of greetingEventsSeen){
+    if(now-at>120000)greetingEventsSeen.delete(seenKey);
+  }
+  if(greetingEventsSeen.has(key))return {ok:false,key};
+  greetingEventsSeen.set(key,now);
+  return {ok:true,key};
+}
+
+function rawServiceGreetingEvent(update){
+  if(!(update instanceof Api.UpdateNewMessage||update instanceof Api.UpdateNewChannelMessage))return null;
+  const message=update?.message;
+  if(!message?.action||!message?.peerId)return null;
+  return {
+    message,
+    chatId:message?.peerId?.channelId||message?.peerId?.chatId||null,
+    isGroup:!!(message?.peerId?.chatId||message?.peerId?.channelId)
+  };
+}
+
 function greetingActionUserIds(message,action,kind){
   const ids=[];
   if(/ChatAddUser/i.test(kind)&&Array.isArray(action?.users)){
@@ -1554,10 +1588,17 @@ async function maybeServiceGreeting(runtime,event){
     ?String(policy.welcomeText||'👋 Bienvenue {mention} dans {group} !')
     :String(policy.goodbyeText||'👋 Au revoir {mention}. À bientôt dans {group}.');
   const rendered=await renderGreetingTemplate(client,template,people,groupTitle);
-  await client.sendMessage(message.peerId,{
-    message:rendered.message,
-    formattingEntities:rendered.formattingEntities
-  }).catch(error=>console.warn('[NexAccount greeting]',String(error?.errorMessage||error?.message||error).slice(0,300)));
+  const claimed=claimGreetingEvent(runtime,event);
+  if(!claimed.ok)return;
+  try{
+    await client.sendMessage(message.peerId,{
+      message:rendered.message,
+      formattingEntities:rendered.formattingEntities
+    });
+  }catch(error){
+    if(claimed.key)greetingEventsSeen.delete(claimed.key);
+    console.warn('[NexAccount greeting]',String(error?.errorMessage||error?.message||error).slice(0,300));
+  }
 }
 
 async function maintainPresence(runtime){
@@ -2113,13 +2154,19 @@ export async function attachConnectedClient(client,account,{leaseOwned=false,ses
     }catch(e){console.error('[NexAccount incoming]',id,e)}
   },new NewMessage({incoming:true}));
 
-  // Raw fallback: process command-bearing update shapes directly. This avoids
-  // relying exclusively on NewMessage direction classification across sessions.
+  // Raw fallback: process service updates and command-bearing update shapes directly.
+  // Telegram member joins/leaves are MessageService updates and can bypass NewMessage.
   client.addEventHandler(async update=>{
     try{
+      const greetingEvent=rawServiceGreetingEvent(update);
+      if(greetingEvent){
+        markRuntimeUpdate(runtime);
+        await maybeServiceGreeting(runtime,greetingEvent);
+      }
+
       const event=rawCommandEvent(update,account);
       if(!event)return;
-      // Raw fallback is strictly for commands authored by the connected account.
+      // Raw command fallback is strictly for commands authored by the connected account.
       if(!isSelfAuthoredMessage(event.message,account))return;
       const settings=await settingsFor(id);
       const parsed=parseRuntimeCommand(textOf(event.message),settings,event);
