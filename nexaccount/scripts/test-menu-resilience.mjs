@@ -279,7 +279,7 @@ assert.equal(customHome.media?.type,'video','custom style video must be returned
 assert.equal(customHome.media?.fileId,customMediaSettings.customStyle.media.fileId,'custom media file_id must stay per user');
 assert.equal(customHome.photoUrl,'','custom Telegram media must not leak through an external artwork URL');
 assert.ok(customHome.text.includes('Nova'),'custom menu must use the chosen bot name');
-assert.ok(customHome.text.includes('Neon'),'custom menu must use the personal style name');
+assert.ok(!customHome.text.split('\n')[0].includes('Neon'),'personal style name must not appear beside the bot name');
 assert.ok(customHome.text.includes('🖤')||customHome.text.includes('⚡')||customHome.text.includes('✨'),'dominant custom emojis must appear in the menu');
 assert.ok(customHome.reply_markup.inline_keyboard.flat().some(button=>String(button.callback_data||'')==='menu:customstyle'),'home menu must expose the personal-style editor');
 
