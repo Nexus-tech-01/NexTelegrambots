@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, base64, hashlib, io, json, os, pathlib, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request
+import argparse, base64, grp, hashlib, io, json, os, pathlib, pwd, re, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request
 
 ALLOWED_ROOTS = ("/opt/nex/releases/", "/opt/nex/apps/", "/opt/nex/current/", "/opt/nex/shared/")
 IDENT = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
@@ -145,6 +145,29 @@ def run_project_command(command, release, label):
         fail("invalid_" + label + "_command")
     return run(command, cwd=release, timeout=1200)
 
+def apply_service_ownership(release, service):
+    user = run(["systemctl", "show", "--property=User", "--value", service], timeout=30)["stdout"].strip() or "root"
+    group = run(["systemctl", "show", "--property=Group", "--value", service], timeout=30)["stdout"].strip()
+    try:
+        pw = pwd.getpwnam(user)
+    except KeyError:
+        fail("service_user_not_found:" + user)
+    gid = pw.pw_gid
+    if group:
+        try:
+            gid = grp.getgrnam(group).gr_gid
+        except KeyError:
+            fail("service_group_not_found:" + group)
+    uid = pw.pw_uid
+    changed = 0
+    for root, dirs, files in os.walk(release, topdown=False, followlinks=False):
+        for name in files + dirs:
+            path = os.path.join(root, name)
+            os.chown(path, uid, gid, follow_symlinks=False)
+            changed += 1
+    os.chown(release, uid, gid, follow_symlinks=False)
+    return {"user": user, "group": group or grp.getgrgid(gid).gr_name, "entries": changed + 1}
+
 def atomic_switch(current_path, release_path):
     parent = os.path.dirname(current_path)
     os.makedirs(parent, exist_ok=True)
@@ -264,6 +287,7 @@ def main():
         report["steps"]["install"] = run_project_command(cfg.get("installCommand"), release, "install")
         report["steps"]["build"] = run_project_command(cfg.get("buildCommand"), release, "build")
         report["steps"]["validate"] = run_project_command(cfg.get("predeployCommand"), release, "predeploy")
+        report["steps"]["ownership"] = apply_service_ownership(release, service)
 
         previous = atomic_switch(current, release)
         switched = True
