@@ -75,6 +75,19 @@ try{
     case 'health':out=await call('GET','/health');break;
     case 'accounts':out=await call('GET','/accounts');break;
     case 'engines':out=await call('GET','/engines');break;
+    case 'conversation-list':
+      out=await call('GET','/conversation/list?telegramUserId='+encodeURIComponent(String(args[0]||''))+'&limit='+Math.max(1,Math.min(250,Number(args[1]||100))));
+      break;
+    case 'conversation-history':
+      if(!args[1])throw new Error('telegram user id and chat id required');
+      out=await call('GET','/conversation/history?telegramUserId='+encodeURIComponent(String(args[0]||''))+'&chatId='+encodeURIComponent(String(args[1]))+'&limit='+Math.max(1,Math.min(200,Number(args[2]||80))));
+      break;
+    case 'conversation-send-file': {
+      if(!args[0])throw new Error('payload file required');
+      const q=JSON.parse(fs.readFileSync(String(args[0]),'utf8'));
+      out=await call('POST','/conversation/send',q,180000);
+      break;
+    }
     case 'menu-probe':
       if(!args[0])throw new Error('telegram user id required');
       out=await call('POST','/diagnostics/menu',{telegramUserId:args[0],peer:args[1]||'me'});
