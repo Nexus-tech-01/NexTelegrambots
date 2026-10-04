@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
-const PINNED_ANIME_SHA256='8a30891deb9945ceecc3c417cfa1dcbbcb16c2187858d8677554ba43b3475249';
+const PINNED_ANIME_SHA256='b69c21fbb43ad5d84717e445213fe690964bfb2b74822edcf0cdb70a1236aaf3';
 
 const CONTRACT={
   'anime-ingest.mjs':[
@@ -15,6 +15,9 @@ const CONTRACT={
     'const TRANSIENT_VARIANT_RETRY_MS=Math.max(PUBLISH_MS*2,90_000);',
     'const IN_PROGRESS_TRANSIENT_PARK_ATTEMPTS=12;',
     'function episodeVariantRetryReady',
+    'const LIVE_ANIME_RUNTIMES=new Map();',
+    'function liveRuntimeCandidates',
+    'const transferRuntime=resolved?.runtime?.client?.connected===true?resolved.runtime:runtime;',
     'function queuedPresentationNeedsRepair',
     'function isNexCanalCopyMissingError',
     'async function publishDirectAnimeFallback',

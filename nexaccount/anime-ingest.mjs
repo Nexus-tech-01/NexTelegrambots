@@ -53,6 +53,38 @@ const TMP_CLEANUP_MS=Math.max(60*1000,Number(process.env.NEXANIME_TMP_CLEANUP_MS
 const SOURCE_CACHE=new Map();
 const SERIES_CACHE=new Map();
 const SYNOPSIS_FR_CACHE=new Map();
+const LIVE_ANIME_RUNTIMES=new Map();
+
+function liveAnimeRuntimeId(runtime){
+  return String(runtime?.account?.telegramUserId||'');
+}
+function registerLiveAnimeRuntime(runtime){
+  const id=liveAnimeRuntimeId(runtime);
+  if(id)LIVE_ANIME_RUNTIMES.set(id,runtime);
+}
+function unregisterLiveAnimeRuntime(runtime){
+  const id=liveAnimeRuntimeId(runtime);
+  if(id&&LIVE_ANIME_RUNTIMES.get(id)===runtime)LIVE_ANIME_RUNTIMES.delete(id);
+}
+function liveRuntimeCandidates(source,fallbackRuntime){
+  const out=[],seen=new Set();
+  const add=runtime=>{
+    const id=liveAnimeRuntimeId(runtime);
+    if(!id||seen.has(id)||runtime?.client?.connected!==true)return;
+    seen.add(id);out.push(runtime);
+  };
+  const sourceId=String(source?.accountId||'');
+  const sourceUsername=String(source?.accountUsername||'').replace(/^@/,'').toLowerCase();
+  if(sourceId)add(LIVE_ANIME_RUNTIMES.get(sourceId));
+  if(sourceUsername){
+    for(const runtime of LIVE_ANIME_RUNTIMES.values()){
+      if(String(runtime?.account?.username||'').replace(/^@/,'').toLowerCase()===sourceUsername)add(runtime);
+    }
+  }
+  add(fallbackRuntime);
+  for(const runtime of LIVE_ANIME_RUNTIMES.values())add(runtime);
+  return out;
+}
 let ANI_CHAIN=Promise.resolve();
 let ANI_LAST_AT=0;
 let indexesReady=false;
@@ -1506,36 +1538,39 @@ async function resolveSource(runtime,item,{maxSources=Infinity}={}){
       lastIdentityError=error;
       continue;
     }
-    let entity=null;
-    const username=String(source?.channelUsername||'').replace(/^@/,'');
-    if(username){
-      try{entity=await runtime.client.getEntity(username)}catch{}
-    }
-    if(!entity&&source?.channelId){
-      try{entity=await runtime.client.getEntity(BigInt(source.channelId))}catch{}
-    }
-    if(!entity)continue;
-    try{
-      const messages=await runtime.client.getMessages(entity,{ids:[Number(source.messageId)]});
-      const message=Array.isArray(messages)?messages[0]:messages;
-      if(!message)continue;
-      const resolved={source,entity,message};
-      if(item?.synthetic!==true&&item?.kind==='episode'){
-        try{
-          await validateResolvedEpisodeIdentity(item,resolved);
-        }catch(error){
-          if(String(error?.code||'')==='SOURCE_IDENTITY_MISMATCH'){
-            lastIdentityError=error;
-            continue;
-          }
-          throw error;
-        }
+    for(const readerRuntime of liveRuntimeCandidates(source,runtime)){
+      const client=readerRuntime.client;
+      let entity=null;
+      const username=String(source?.channelUsername||'').replace(/^@/,'');
+      if(username){
+        try{entity=await client.getEntity(username)}catch{}
       }
-      return resolved;
-    }catch(error){
-      if(String(error?.code||'')==='SOURCE_IDENTITY_MISMATCH'){
-        lastIdentityError=error;
-        continue;
+      if(!entity&&source?.channelId){
+        try{entity=await client.getEntity(BigInt(source.channelId))}catch{}
+      }
+      if(!entity)continue;
+      try{
+        const messages=await client.getMessages(entity,{ids:[Number(source.messageId)]});
+        const message=Array.isArray(messages)?messages[0]:messages;
+        if(!message)continue;
+        const resolved={source,entity,message,runtime:readerRuntime};
+        if(item?.synthetic!==true&&item?.kind==='episode'){
+          try{
+            await validateResolvedEpisodeIdentity(item,resolved);
+          }catch(error){
+            if(String(error?.code||'')==='SOURCE_IDENTITY_MISMATCH'){
+              lastIdentityError=error;
+              continue;
+            }
+            throw error;
+          }
+        }
+        return resolved;
+      }catch(error){
+        if(String(error?.code||'')==='SOURCE_IDENTITY_MISMATCH'){
+          lastIdentityError=error;
+          continue;
+        }
       }
     }
   }
@@ -1624,7 +1659,7 @@ async function publishPresentation(runtime,item,resolved,destination){
     const tmp=path.join(TMP_ROOT,'presentation-'+crypto.randomUUID()+'.jpg');
     await fs.mkdir(TMP_ROOT,{recursive:true});
     try{
-      const out=await runtime.client.downloadMedia(message.media,{outputFile:tmp,workers:1});
+      const out=await transferRuntime.client.downloadMedia(message.media,{outputFile:tmp,workers:1});
       const file=typeof out==='string'?out:tmp;
       return await runtime.client.sendFile(destination,{file,caption,parseMode:'html',workers:1});
     }finally{await fs.rm(tmp,{force:true}).catch(()=>{})}
@@ -2983,7 +3018,8 @@ async function publishDirectAnimeFallback(runtime,item,resolved){
 }
 async function publishViaNexCanal(runtime,item,resolved){
   const caption=await publicationCaption(item);
-  const stage=await nexCanalStageEntity(runtime);
+  const transferRuntime=resolved?.runtime?.client?.connected===true?resolved.runtime:runtime;
+  const stage=await nexCanalStageEntity(transferRuntime);
   const marker=nexCanalStageMarker(item);
   let staged=null;
   let retainedTmp='';
@@ -2993,7 +3029,7 @@ async function publishViaNexCanal(runtime,item,resolved){
   // the media so NexCanal can correlate the marker from its own incoming
   // update and store the correct Bot API message_id/from_chat_id.
   if(!(item.synthetic===true&&!item.imageUrl) && !(item.kind==='presentation'&&resolved?.message&&!resolved.message.photo)){
-    const prepared=await prepareNexCanalCopyHandoff(runtime,item,{caption,stageMarker:marker});
+    const prepared=await prepareNexCanalCopyHandoff(transferRuntime,item,{caption,stageMarker:marker});
     if(prepared.done)return prepared.result;
   }
 
@@ -3007,7 +3043,7 @@ async function publishViaNexCanal(runtime,item,resolved){
         if(!response.ok)throw new Error('presentation_image_http_'+response.status);
         const data=Buffer.from(await response.arrayBuffer());
         if(data.length>10*1024*1024)throw new Error('presentation_image_too_large');
-        staged=await sendTelegramMedia(runtime.client,stage,data,{
+        staged=await sendTelegramMedia(transferRuntime.client,stage,data,{
           fileName:'anime-presentation',mimeType:response.headers.get('content-type')||'',
           kind:'image',caption:marker,workers:1
         });
@@ -3021,14 +3057,14 @@ async function publishViaNexCanal(runtime,item,resolved){
         return enqueueNexCanalHandoff(runtime,item,{type:'text',caption});
       }
       try{
-        staged=await runtime.client.sendFile(stage,{file:message.media,caption:marker,workers:1});
+        staged=await transferRuntime.client.sendFile(stage,{file:message.media,caption:marker,workers:1});
       }catch(firstError){
         const tmp=path.join(TMP_ROOT,'presentation-stage-'+crypto.randomUUID()+'.jpg');
         await fs.mkdir(TMP_ROOT,{recursive:true});
         try{
           const out=await runtime.client.downloadMedia(message.media,{outputFile:tmp,workers:1});
           const file=typeof out==='string'?out:tmp;
-          staged=await runtime.client.sendFile(stage,{file,caption:marker,workers:1});
+          staged=await transferRuntime.client.sendFile(stage,{file,caption:marker,workers:1});
         }catch(secondError){
           console.warn('[NexAnime presentation fallback]',String(item.title||item.seriesKey||'?'),String(secondError?.message||firstError?.message||secondError).slice(0,240));
           return enqueueNexCanalHandoff(runtime,item,{type:'text',caption});
@@ -3041,7 +3077,7 @@ async function publishViaNexCanal(runtime,item,resolved){
       const message=resolved?.message;
       if(!message?.media)throw new Error('source_media_missing');
       try{
-        staged=await runtime.client.sendFile(stage,{
+        staged=await transferRuntime.client.sendFile(stage,{
           file:message.media,caption:marker,
           forceDocument:item.mediaKind==='document',
           supportsStreaming:item.mediaKind==='video'
@@ -3055,9 +3091,9 @@ async function publishViaNexCanal(runtime,item,resolved){
         const finalName=item.cleanedFilename||safeFilename(item.title,item.season,item.episode,item.language,item.quality,filename(message));
         const ext=path.extname(finalName)||'.bin';
         retainedTmp=retainedTmpPath('episode-stage',item,ext);
-        const file=await retainedMediaFile(runtime.client,message,retainedTmp);
+        const file=await retainedMediaFile(transferRuntime.client,message,retainedTmp);
         const data=await fs.readFile(file);
-        staged=await sendTelegramMedia(runtime.client,stage,data,{
+        staged=await sendTelegramMedia(transferRuntime.client,stage,data,{
           fileName:finalName,mimeType:String(message?.document?.mimeType||''),
           kind:item.mediaKind==='document'?'document':'auto',
           caption:marker,workers:1
@@ -3082,7 +3118,7 @@ async function publishViaNexCanal(runtime,item,resolved){
   }finally{
     const sourceMessageId=Number(staged?.id||staged?.messageId||0);
     if(sourceMessageId){
-      try{await runtime.client.deleteMessages(stage,[sourceMessageId],{revoke:true})}catch{}
+      try{await transferRuntime.client.deleteMessages(stage,[sourceMessageId],{revoke:true})}catch{}
     }
   }
 }
@@ -3310,7 +3346,10 @@ export async function startAnimeIngest(runtime){
   const listener=isListenerRuntime(runtime)&&runtime?.animeScanDisabled!==true;
   const publisher=isPublisherRuntime(runtime);
   if(!listener&&!publisher)return false;
-  if(runtime?.animeIngest?.enabled===true)return true;
+  if(runtime?.animeIngest?.enabled===true){
+    registerLiveAnimeRuntime(runtime);
+    return true;
+  }
 
   // A previous partial startup may have left timer handles behind. Clear them
   // before rebuilding the ingest loop so reconciliation never creates duplicates.
@@ -3319,6 +3358,7 @@ export async function startAnimeIngest(runtime){
     ...(runtime.animeIngest||{}),
     enabled:false,destination:'@'+DESTINATION,listener,publisher,mediaPolicy:await currentMediaPolicy()
   };
+  registerLiveAnimeRuntime(runtime);
 
   try{
     await ensureIndexes();
@@ -3378,6 +3418,7 @@ export async function animePublishNow(runtime){
 }
 
 export async function stopAnimeIngest(runtime){
+  unregisterLiveAnimeRuntime(runtime);
   if(!runtime?.animeIngest)return;
   if(runtime.animeIngest.discoveryTimer)clearInterval(runtime.animeIngest.discoveryTimer);
   if(runtime.animeIngest.discoveryRetryTimer)clearTimeout(runtime.animeIngest.discoveryRetryTimer);
