@@ -86,7 +86,7 @@ export function renderCustomHeader(settings={},data={}){
   const prefix=cleanText(data.prefix,4,'.');
   const count=Math.max(0,Number(data.count)||0);
   const lines=[
-    e(0)+'〔 '+bot+' • '+style.name+' 〕',
+    e(0)+'〔 '+bot+' 〕',
     '┃ '+e(1)+' '+user,
     '┃ '+e(2)+' RANK • '+rank,
     '┃ '+e(0)+' PREFIX • [ '+prefix+' ]',
