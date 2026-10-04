@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { Api } from 'teleproto';
+import { Api, InlineKeyboard } from 'teleproto';
 import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { returnBigInt } from 'teleproto/Helpers.js';
 import { cfg, isOwnerId } from './config.mjs';
@@ -512,9 +512,9 @@ async function nexAiGroupCardUi(){
     miniUrl,
     avatarUrl,
     replyMarkup:{inline_keyboard:[[{text:'⚡ ᴏᴜᴠʀɪʀ ɴᴇxᴀɪ',url:miniUrl}]]},
-    buttons:typeof Api.KeyboardButtonUrl==='function'
-      ?[[new Api.KeyboardButtonUrl({text:'⚡ ᴏᴜᴠʀɪʀ ɴᴇxᴀɪ',url:miniUrl})]]
-      :undefined
+    // Teleproto 1.229 uses KeyboardInlineButton + InlineButtonTypeUrl under
+    // the InlineKeyboard builder; legacy KeyboardButtonUrl is no longer constructable.
+    buttons:new InlineKeyboard().url('⚡ ᴏᴜᴠʀɪʀ ɴᴇxᴀɪ',miniUrl)
   };
 }
 
