@@ -1648,7 +1648,10 @@ function greetingEventKey(runtime,event){
   const id=String(message?.id||'');
   const kind=String(message?.action?.className||message?.action?.constructor?.name||'');
   if(!chat||!id||!kind)return '';
-  return [String(runtime?.account?.telegramUserId||''),chat,id,kind].join(':');
+  // A Telegram service event must be greeted at most once across every connected
+  // NexAi session in this process. Including the account id here made every
+  // connected account emit its own welcome for the exact same join event.
+  return [chat,id,kind].join(':');
 }
 
 function claimGreetingEvent(runtime,event){
@@ -1764,11 +1767,15 @@ async function maybeServiceGreeting(runtime,event){
   const kind=String(action.className||action.constructor?.name||'');
   const welcome=/ChatAddUser|ChatJoinedByLink|ChatJoinedByRequest/i.test(kind);
   const goodbye=/ChatDeleteUser/i.test(kind);
-  // Welcome/Goodbye are ON by default in every group.
-  // A group must explicitly store false to disable either feature.
-  if((welcome&&policy.welcome===false)||(goodbye&&policy.goodbye===false)||(!welcome&&!goodbye))return;
+  // Greetings are opt-in per group. A missing setting must never produce an
+  // unsolicited welcome/goodbye from newly connected NexAi sessions.
+  if((welcome&&policy.welcome!==true)||(goodbye&&policy.goodbye!==true)||(!welcome&&!goodbye))return;
 
-  const ids=greetingActionUserIds(message,action,kind);
+  // Never welcome the connected account for joining the group itself. When a
+  // service update contains several members, keep the real new members only.
+  const ids=greetingActionUserIds(message,action,kind)
+    .filter(id=>String(id)!==String(account.telegramUserId));
+  if(!ids.length)return;
   const people=await greetingPeople(client,ids);
   const chat=await client.getEntity(message.peerId).catch(()=>null);
   const groupTitle=String(chat?.title||'ce groupe');
