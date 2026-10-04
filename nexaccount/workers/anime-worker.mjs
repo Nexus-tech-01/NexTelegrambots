@@ -19,7 +19,7 @@ const PORT=Math.max(1024,Number(process.env.NEXANIME_WORKER_PORT||18130));
 const SESSION_DIR=String(process.env.NEXANIME_SESSION_DIR||'/var/lib/nex/sessions/system/nexanime');
 const PRIMARY=String(process.env.NEXANIME_PRIMARY_USERNAME||'tresor20001').replace(/^@/,'').toLowerCase();
 const SCANNERS=[...new Set(
-  String(process.env.NEXANIME_SCANNER_USERNAMES||'tresor20009')
+  String(process.env.NEXANIME_SCANNER_USERNAMES||'tresor20009,tresor20000')
     .split(',').map(x=>x.trim().replace(/^@/,'').toLowerCase()).filter(Boolean)
 )];
 const runtimes=new Map();
@@ -79,8 +79,15 @@ function status(){
     anime:anime.animeIngestStatus(runtime)
   }));
   const primary=rows.find(x=>x.username.toLowerCase()==='@'+PRIMARY);
+  const expected=['@'+PRIMARY,...SCANNERS.map(x=>'@'+x)];
+  const ready=expected.every(username=>{
+    const row=rows.find(x=>x.username.toLowerCase()===username.toLowerCase());
+    return row?.connected===true&&row?.anime?.enabled===true&&(
+      username.toLowerCase()==='@'+PRIMARY?row?.anime?.publisher===true:row?.anime?.listener===true
+    );
+  });
   return {
-    ok:stopping!==true&&primary?.connected===true&&primary?.anime?.publisher===true,
+    ok:stopping!==true&&ready,
     service:'nexanime-worker',
     independent:true,
     primary:'@'+PRIMARY,
