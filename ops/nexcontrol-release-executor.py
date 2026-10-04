@@ -160,11 +160,43 @@ def local_health(checks):
             results.append({"name": check.get("name"), "type": typ, "target": target, "ok": True, "deferred": True})
     return results
 
+def rollback_only(cfg):
+    current = safe_abs(cfg["currentPath"], "current_path")
+    previous = safe_abs(cfg["previousTarget"], "previous_target")
+    service = safe_service(cfg["service"])
+    if not os.path.isdir(previous):
+        fail("rollback_target_missing")
+    tmp_link = current + ".nxc-rollback-" + str(os.getpid())
+    if os.path.lexists(current) and not os.path.islink(current):
+        fail("current_path_not_symlink")
+    try:
+        if os.path.lexists(tmp_link):
+            os.unlink(tmp_link)
+        os.symlink(previous, tmp_link)
+        os.replace(tmp_link, current)
+    finally:
+        if os.path.lexists(tmp_link):
+            os.unlink(tmp_link)
+    run(["systemctl", "restart", service], timeout=120)
+    time.sleep(2)
+    health = local_health(cfg.get("healthChecks") or [])
+    local_required = [x for x in health if not x.get("deferred")]
+    ok = not any(not x.get("ok") for x in local_required)
+    report = {
+        "ok": ok, "operation": "rollback", "currentPath": current,
+        "previousTarget": previous, "service": service, "health": health,
+        "completedAt": time.time()
+    }
+    print(json.dumps(report, separators=(",", ":")))
+    return 0 if ok else 1
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--payload", required=True)
     args = ap.parse_args()
     cfg = b64_payload(args.payload)
+    if str(cfg.get("operation") or "deploy") == "rollback":
+        return rollback_only(cfg)
     release = safe_abs(cfg["releasePath"], "release_path")
     current = safe_abs(cfg["currentPath"], "current_path")
     service = safe_service(cfg["service"])
