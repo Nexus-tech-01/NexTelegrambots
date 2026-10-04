@@ -146,6 +146,35 @@ const single=await run('tag',['@user','Hi']);
 assert.equal(single.length,1,'tag must send one message');
 assert.equal(single[0].entities.length,1,'tag must contain one mention entity');
 
+// Regression: purge must not stop at 100 and must use <=100-message deletion batches.
+{
+  const history=Array.from({length:250},(_,i)=>({id:300-i}));
+  const deleted=[];
+  const sent=[];
+  const client={
+    getMessages:async(_peer,{limit,offsetId=0}={})=>{
+      const rows=offsetId>0?history.filter(m=>m.id<offsetId):history;
+      return rows.slice(0,limit);
+    },
+    deleteMessages:async(_peer,ids,options)=>{deleted.push({ids:[...ids],options});return true;}
+  };
+  const handled=await handleCompatCommand({
+    runtime:{client,account:{telegramUserId:'999999999'}},
+    event:{message:{peerId:'peer'}},name:'clean',args:['250'],cmd:{engine:'group'},
+    sendText:async(_client,_peer,text)=>sent.push(String(text)),sendInline:async()=>{}
+  });
+  assert.equal(handled,true,'clean/purge engine must handle large requests');
+  assert.equal(deleted.reduce((n,row)=>n+row.ids.length,0),250,'purge must delete beyond 100 messages');
+  assert.deepEqual(deleted.map(row=>row.ids.length),[100,100,50],'purge must delete in Telegram-safe batches');
+  assert.match(sent.at(-1)||'',/250 message\\(s\\) supprimé\\(s\\)/,'purge must report the full deleted count');
+}
+
+assert.match(runtimeSource,/policy\\.welcome!==true/,'welcome must be opt-in per group');
+assert.match(runtimeSource,/policy\\.goodbye!==true/,'goodbye must be opt-in per group');
+assert.match(runtimeSource,/return \\[chat,id,kind\\]\\.join\\(':'\\)/,'greeting dedupe must be shared across connected sessions');
+assert.match(runtimeSource,/String\\(id\\)!==String\\(account\\.telegramUserId\\)/,'a connected account must not welcome itself when joining');
+assert.doesNotMatch(compatSource,/Math\\.min\\(100,Number\\(args\\[0\\]\\)/,'purge must not hard-cap the requested count at 100');
+
 console.log(JSON.stringify({
   ok:true,
   groupCommands:(grouped.GROUP||[]).length,
