@@ -2221,6 +2221,26 @@ async function preflightSeriesBeforeSynopsis(runtime,d,seriesKey){
     return {ok:false,reason:'first_episode_missing',season,expectedEpisode:1,blockedEpisode:Number.isFinite(episode)?episode:null};
   }
 
+  // A series with no already queued synopsis must also have resolvable metadata.
+  // Otherwise claimNext can select it forever while ensureGeneralPresentation()
+  // silently has nothing to create, stalling the whole channel.
+  const queuedPresentation=await d.collection('nexanime_queue').findOne({
+    seriesKey,kind:'presentation',
+    $or:[{episode:null},{episode:{$exists:false}}],
+    status:{$in:['queued','publishing']}
+  },{projection:{_id:1}});
+  if(!queuedPresentation){
+    const meta=await animePresentationMetadata(first.title);
+    if(!meta?.ok||!String(meta.description||'').trim()){
+      return {
+        ok:false,
+        reason:'presentation_metadata_unavailable',
+        season,expectedEpisode:1,blockedEpisode:1,
+        lastError:'presentation_metadata_unavailable'
+      };
+    }
+  }
+
   const variants=await d.collection('nexanime_queue').find(
     {seriesKey,status:'queued',kind:'episode',season,episode:1}
   ).limit(2).toArray();
