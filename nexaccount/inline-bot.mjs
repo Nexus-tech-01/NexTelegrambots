@@ -3,7 +3,7 @@ import { Bot, InputFile } from 'grammy';
 import { cfg, isOwnerId, isOwnerIdentity } from './config.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { commandMap } from './commands.mjs';
-import { db, accountRecord, listConnectedAccounts, settingsFor, patchSettings, saveSharedBotIdentity, nexAiPremiumState, grantNexAiPremium, acquireServiceLease, renewServiceLease, releaseServiceLease, sharedGreetingPolicy } from './store.mjs';
+import { db, accountRecord, listConnectedAccounts, settingsFor, patchSettings, saveSharedBotIdentity, nexAiPremiumState, grantNexAiPremium, acquireServiceLease, renewServiceLease, releaseServiceLease, sharedGreetingPolicy, claimSharedGreetingDelivery, releaseSharedGreetingDelivery } from './store.mjs';
 import { menuModel, stylesModel, customStyleModel } from './menu.mjs';
 import { customStyleFor, normalizeCustomStyle } from './custom-style.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
@@ -158,13 +158,23 @@ function freshBotGreetingUsers(chatId,users,isWelcome){
 }
 
 async function sendBotGreetingCard(ctx,chat,users,isWelcome,policy){
+  const deliveryKind=isWelcome?'welcome':'goodbye';
+  const deliveryUsers=[];
+  for(const user of users||[]){
+    try{
+      if(await claimSharedGreetingDelivery(chat.id,user?.id,deliveryKind))deliveryUsers.push(user);
+    }catch{
+      deliveryUsers.push(user);
+    }
+  }
+  if(!deliveryUsers.length)return true;
   const rawTemplate=isWelcome?policy.welcomeText:policy.goodbyeText;
   const template=greetingVisualTemplate(rawTemplate,isWelcome);
-  const text=renderBotGreetingText(template,users,chat.title||'ce groupe').slice(0,1024);
+  const text=renderBotGreetingText(template,deliveryUsers,chat.title||'ce groupe').slice(0,1024);
   const entities=await greetingCaptionEntities(text);
   const reply_markup=greetingMiniAppMarkup();
   try{
-    const profilePhoto=isWelcome?await greetingProfilePhotoFileId(ctx,users[0]):'';
+    const profilePhoto=isWelcome?await greetingProfilePhotoFileId(ctx,deliveryUsers[0]):'';
     if(profilePhoto){
       await ctx.api.sendPhoto(chat.id,profilePhoto,{
         caption:text,
@@ -174,8 +184,11 @@ async function sendBotGreetingCard(ctx,chat,users,isWelcome,policy){
     }else{
       await ctx.api.sendMessage(chat.id,text,{entities,reply_markup});
     }
-    console.log('[NexAI greeting-bot]',isWelcome?'welcome':'goodbye','chat='+String(chat.id),'users='+users.map(x=>x.id).join(','),'profilePhoto='+Boolean(profilePhoto));
+    console.log('[NexAI greeting-bot]',isWelcome?'welcome':'goodbye','chat='+String(chat.id),'users='+deliveryUsers.map(x=>x.id).join(','),'profilePhoto='+Boolean(profilePhoto));
   }catch(error){
+    for(const user of deliveryUsers){
+      await releaseSharedGreetingDelivery(chat.id,user?.id,deliveryKind).catch(()=>{});
+    }
     try{
       await ctx.api.sendMessage(chat.id,text,{
         entities:[{type:'blockquote',offset:0,length:utf16len(text)}],
