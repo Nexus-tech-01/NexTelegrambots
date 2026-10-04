@@ -221,6 +221,7 @@ jobs:
               if len(workers)!=2:
                   raise RuntimeError('standalone worker probe incomplete: '+worker_text)
               print('NEXAI_INDEPENDENT_WORKERS_OK',[(x.get('service'),x.get('ok')) for x in workers])
+              print('NEXANIME_RUNTIME_CONTRACT_OK',[(x.get('service'),x.get('ok')) for x in workers])
 
               probe_row=by_name.get('tresor20001') or next((x for x in active if x.get('connected') is True),None)
               if not probe_row or not probe_row.get('telegramUserId'):
