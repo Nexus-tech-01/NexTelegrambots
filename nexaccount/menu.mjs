@@ -3,6 +3,7 @@ import { CATEGORY_ICONS, CATEGORY_LABELS, CATEGORY_ORDER, commandsByCategory, co
 import { getStyle, listStyles, resolveInlinePhoto, resolveStyleImage, toSmallCaps } from './styles.mjs';
 import { renderThemeHeader, renderThemeCategory, themeUi } from './theme-ui.mjs';
 import { animatedCustomEmojiEntitySpecs, sanitizeAnimatedEmojiText } from './response-ui.mjs';
+import { customStyleEnabled, customStyleFor, customStyleMedia, dominantEmoji, renderCustomHeader, renderCustomCategory } from './custom-style.mjs';
 
 const utf16len=s=>Buffer.from(String(s),'utf16le').length/2;
 const FALLBACK_EMOJI={
@@ -42,7 +43,7 @@ const STYLE_EMOJI_FALLBACK={
 const BUTTON_EMOJI_FALLBACK={
   general:'🏠',account:'👤',ai:'🧠',download:'📥',group:'👥',shield:'🔒',
   tools:'🛠️',media:'🎞️',sticker:'🎴',games:'🎮',search:'🔎',anime:'🌸',
-  premium:'👑',owner:'🔮',nextech:'⚡',news:'📰',dark:'🕯️',back:'↩️',style:'🎨'
+  premium:'👑',owner:'🔮',nextech:'⚡',news:'📰',dark:'🕯️',back:'↩️',style:'🎨',next:'➡️',custom_style:'🎨'
 };
 
 function fallbackEmojiForIcon(icon){
@@ -164,37 +165,54 @@ function displayUser(account,settings){
   return full||localized(settings,'Utilisateur Telegram','Telegram User');
 }
 
-export async function menuModel({account,settings,commands,view='home',category=null,includeArtwork=true}){
+export async function menuModel({account,settings,commands,view='home',category=null,page=0,includeArtwork=true}){
   const groups=commandsByCategory(commands);
   const style=await getStyle(settings.style||1);
   const owner=isOwnerId(account.telegramUserId);
+  const custom=customStyleFor(settings);
+  const customEnabled=customStyleEnabled(settings);
+  const media=includeArtwork?customStyleMedia(settings):null;
   const activeTheme=themeUi(style.id);
-  const menuButtonStyle=activeTheme.buttonStyle||'primary';
+  const menuButtonStyle=customEnabled?custom.buttonStyle:(activeTheme.buttonStyle||'primary');
   const visible=cmd=>!cmd.hidden&&(!cmd.ownerOnly||owner);
   const user=displayUser(account,settings);
   const telegramPremium=account.telegramPremium===true||account.premium===true;
   const nexaiPremium=owner||account.nexaiPremium===true;
   const rank=owner?'owner':nexaiPremium?'NEXAI PREMIUM':telegramPremium?'TG PREMIUM':'user';
-  const header=sanitizeAnimatedEmojiText(renderThemeHeader(style.id,{
+  const headerData={
     botName:String(settings.botDisplayName||'NEXAI').slice(0,32),
     user,
     rank,
     prefix:settings.prefix||'.',
     count:commandStats(commands).canonical
-  }),settings?.customEmojiIds||{});
+  };
+  const header=sanitizeAnimatedEmojiText(
+    customEnabled?renderCustomHeader(settings,headerData):renderThemeHeader(style.id,headerData),
+    settings?.customEmojiIds||{}
+  );
   let body=header,spans=[];
+  let categoryPage=null;
   const quoteRange={start:0,length:header.length};
 
   if(view==='category'&&category){
-    const list=(category==='PREMIUM'?premiumCommands(commands):(groups[category]||[])).filter(visible);
+    const allList=(category==='PREMIUM'?premiumCommands(commands):(groups[category]||[])).filter(visible);
+    const mediaPageSize=8;
+    const pageCount=media?Math.max(1,Math.ceil(allList.length/mediaPageSize)):1;
+    const safePage=media?Math.max(0,Math.min(pageCount-1,Number(page)||0)):0;
+    const list=media?allList.slice(safePage*mediaPageSize,(safePage+1)*mediaPageSize):allList;
+    if(media)categoryPage={page:safePage,count:pageCount,total:allList.length};
     const label=toSmallCaps(CATEGORY_LABELS[category]||category);
-    const themedLabel=(FALLBACK_EMOJI[category]||'')+(FALLBACK_EMOJI[category]?' ':'')+label;
-    const themed=renderThemeCategory(style.id,themedLabel);
+    const categoryGlyph=customEnabled?dominantEmoji(settings,'category:'+category):(FALLBACK_EMOJI[category]||'');
+    const themedLabel=(categoryGlyph||'')+(categoryGlyph?' ':'')+label;
+    const themed=customEnabled?renderCustomCategory(settings,themedLabel):renderThemeCategory(style.id,themedLabel);
     const themedTitle=sanitizeAnimatedEmojiText(themed.title,settings?.customEmojiIds||{});
     const themedBullet=sanitizeAnimatedEmojiText(themed.bullet,settings?.customEmojiIds||{});
     const themedFooter=sanitizeAnimatedEmojiText(themed.footer,settings?.customEmojiIds||{});
     body=header+'\n'+themedTitle+'\n';
-    body+=toSmallCaps(localized(settings,'Commandes','Commands'))+' • '+list.length+'\n';
+    body+=toSmallCaps(localized(settings,'Commandes','Commands'))+' • '+(media?allList.length:list.length)+'\n';
+    if(categoryPage&&categoryPage.count>1){
+      body+=toSmallCaps(localized(settings,'Page','Page'))+' '+(categoryPage.page+1)+'/'+categoryPage.count+'\n';
+    }
     if(category==='PREMIUM'){
       body+=toSmallCaps(localized(
         settings,
@@ -246,7 +264,10 @@ export async function menuModel({account,settings,commands,view='home',category=
         return button(label,'cat:'+cat,menuButtonStyle,CATEGORY_ICONS[cat],settings);
       }));
     }
-    buttons.push([button(toSmallCaps(localized(settings,'Styles','Styles')),'menu:styles',menuButtonStyle,'style',settings)]);
+    buttons.push([
+      button(toSmallCaps(localized(settings,'Styles','Styles')),'menu:styles',menuButtonStyle,'style',settings),
+      button(toSmallCaps(localized(settings,'Mon style','My style')),'menu:customstyle',menuButtonStyle,'custom_style',settings)
+    ]);
 
     const primaryLinks=[];
     if(cfg.nextechUrl)primaryLinks.push(urlButton('ɴᴇxᴛᴇᴄʜ',cfg.nextechUrl,'success','nextech',settings));
@@ -254,6 +275,12 @@ export async function menuModel({account,settings,commands,view='home',category=
     if(primaryLinks.length)buttons.push(primaryLinks);
     if(cfg.darkUniverseUrl)buttons.push([urlButton('ᴅᴀʀᴋ ᴜɴɪᴠᴇʀѕᴇ',cfg.darkUniverseUrl,'success','dark',settings)]);
   }else{
+    if(categoryPage&&categoryPage.count>1){
+      const nav=[];
+      if(categoryPage.page>0)nav.push(button('‹ '+toSmallCaps(localized(settings,'Précédent','Previous')),'cat:'+category+':'+(categoryPage.page-1),'primary','back',settings));
+      if(categoryPage.page<categoryPage.count-1)nav.push(button(toSmallCaps(localized(settings,'Suivant','Next'))+' ›','cat:'+category+':'+(categoryPage.page+1),'primary','next',settings));
+      if(nav.length)buttons.push(nav);
+    }
     if(category==='PREMIUM'&&!nexaiPremium){
       buttons.push([button(toSmallCaps(localized(settings,'Activer NexAI Premium · 250 ⭐','Activate NexAI Premium · 250 ⭐')),'premium:buy','success','premium',settings)]);
     }
@@ -269,25 +296,35 @@ export async function menuModel({account,settings,commands,view='home',category=
       ...animatedCustomEmojiEntitySpecs(text,settings?.customEmojiIds||{})
     ],
     reply_markup:{inline_keyboard:buttons},
-    // Artwork is a link preview above an editable text message, so categories
-    // keep the same image/header alignment without the 1024-char media-caption limit.
-    photoUrl:includeArtwork?await menuArtwork(settings,style.id):''
+    // Built-in themes keep the editable text + link-preview architecture.
+    // A personal photo/video is a Telegram cached media file, so media-mode
+    // categories are paginated above to remain safely under caption limits.
+    photoUrl:media?'':(includeArtwork?await menuArtwork(settings,style.id):''),
+    media
   };
 }
 
 export async function stylesModel({account,settings}){
   const styles=(await listStyles()).filter(s=>s.id>0);
   const displayName=toSmallCaps(String(settings?.botDisplayName||'NEXAI').slice(0,32));
+  const media=customStyleMedia(settings);
+  const custom=customStyleFor(settings);
   let text='🔮 '+displayName+' • ᴅɪᴘᴘᴇʀ • ѕᴛʏʟᴇѕ\n\n',spans=[];
-  for(const s of styles){
-    const command='/Style'+s.id;
-    const start=text.length;
-    text+=command;
-    spans.push({start,text:command});
-    text+=' • '+toSmallCaps(s.name)+(Number(settings.style)===s.id?' • '+toSmallCaps(localized(settings,'Actif','Active')):'')+'\n';
+  if(media){
+    text+=toSmallCaps(localized(settings,'Style personnel actif','Personal style active'))+' • '+custom.name+'\n';
+    text+=custom.emojis.join(' ')+'\n\n';
+    text+=toSmallCaps(localized(settings,'Choisis une base ci-dessous ou ouvre Mon style pour la modifier.','Choose a base below or open My style to edit it.'));
+  }else{
+    for(const s of styles){
+      const command='/Style'+s.id;
+      const start=text.length;
+      text+=command;
+      spans.push({start,text:command});
+      text+=' • '+toSmallCaps(s.name)+(Number(settings.style)===s.id?' • '+toSmallCaps(localized(settings,'Actif','Active')):'')+'\n';
+    }
+    text+='\n'+toSmallCaps(localized(settings,'Choisis un style ci-dessous ou utilise /Style<numéro>.','Choose a style below or use /Style<number>.'))+
+      '\n♛ '+displayName+' • ᴅɪᴘᴘᴇʀ × ɴᴇxᴛᴇᴄʜ ♛';
   }
-  text+='\n'+toSmallCaps(localized(settings,'Choisis un style ci-dessous ou utilise /Style<numéro>.','Choose a style below or use /Style<number>.'))+
-    '\n♛ '+displayName+' • ᴅɪᴘᴘᴇʀ × ɴᴇxᴛᴇᴄʜ ♛';
 
   const keyboard=[];
   for(let i=0;i<styles.length;i+=2){
@@ -299,6 +336,7 @@ export async function stylesModel({account,settings}){
       return button(prefix+String(s.id).padStart(2,'0')+' · '+toSmallCaps(short),'style:set:'+s.id,active?'success':'primary',icon,settings);
     }));
   }
+  keyboard.push([button(toSmallCaps(localized(settings,'Mon style','My style')),'menu:customstyle',custom.enabled?'success':'primary','custom_style',settings)]);
   keyboard.push([button(toSmallCaps(localized(settings,'Menu','Menu')),'menu:home','primary','back',settings)]);
   if(cfg.nextechUrl)keyboard.push([urlButton('ɴᴇxᴛᴇᴄʜ',cfg.nextechUrl,'success','nextech',settings)]);
 
@@ -309,7 +347,70 @@ export async function stylesModel({account,settings}){
       ...animatedCustomEmojiEntitySpecs(text,settings?.customEmojiIds||{})
     ],
     reply_markup:{inline_keyboard:keyboard},
-    photoUrl:await menuArtwork(settings,settings.style||1)
+    photoUrl:media?'':await menuArtwork(settings,settings.style||1),
+    media
+  };
+}
+
+export async function customStyleModel({account,settings}){
+  const style=customStyleFor(settings);
+  const media=customStyleMedia(settings);
+  const prefix=String(settings?.prefix||'.');
+  const enabled=style.enabled===true;
+  const lang=String(settings?.language||'fr').toLowerCase().startsWith('en')?'en':'fr';
+  const text=(lang==='en'?[ 
+    '🎨 '+toSmallCaps('My NexAI style'),
+    '',
+    'Status • '+(enabled?'ON':'OFF'),
+    'Name • '+style.name,
+    'Bot • '+String(settings?.botDisplayName||'NexAi'),
+    'Emojis • '+style.emojis.join(' '),
+    'Media • '+(style.media.type||'none'),
+    'Buttons • '+style.buttonStyle,
+    style.tagline?'Tagline • '+style.tagline:'',
+    '',
+    '/customstyle on · /customstyle off · /customstyle reset',
+    '/botname <name> · /stylename <name>',
+    '/styleemoji ✨ ⚡ 🖤 · /styletagline <text>',
+    '/stylebuttons primary|success|danger',
+    '/menuphoto (reply to a photo)',
+    '/menuvideo (reply to a video) · /menumedia off',
+    '',
+    'Connected-account prefix • '+prefix
+  ]:[
+    '🎨 '+toSmallCaps('Mon style NexAI'),
+    '',
+    'État • '+(enabled?'ON':'OFF'),
+    'Nom • '+style.name,
+    'Bot • '+String(settings?.botDisplayName||'NexAi'),
+    'Emojis • '+style.emojis.join(' '),
+    'Média • '+(style.media.type||'aucun'),
+    'Boutons • '+style.buttonStyle,
+    style.tagline?'Signature • '+style.tagline:'',
+    '',
+    '/customstyle on · /customstyle off · /customstyle reset',
+    '/botname <nom> · /stylename <nom>',
+    '/styleemoji ✨ ⚡ 🖤 · /styletagline <texte>',
+    '/stylebuttons primary|success|danger',
+    '/menuphoto (réponds à une photo)',
+    '/menuvideo (réponds à une vidéo) · /menumedia off',
+    '',
+    'Préfixe du compte connecté • '+prefix
+  ]).filter(Boolean).join('\n');
+  const buttons=[
+    [
+      button(toSmallCaps(lang==='en'?'Enable':'Activer'),'custom:on',enabled?'success':'primary','custom_style',settings),
+      button(toSmallCaps(lang==='en'?'Disable':'Désactiver'),'custom:off',!enabled?'success':'danger','back',settings)
+    ],
+    [button(toSmallCaps(lang==='en'?'Preview menu':'Aperçu menu'),'menu:home','primary','general',settings)],
+    [button(toSmallCaps(lang==='en'?'Built-in styles':'Styles NexAI'),'menu:styles','primary','style',settings)]
+  ];
+  return {
+    text:text.slice(0,1000),
+    entities:[...animatedCustomEmojiEntitySpecs(text.slice(0,1000),settings?.customEmojiIds||{})],
+    reply_markup:{inline_keyboard:buttons},
+    photoUrl:'',
+    media
   };
 }
 
@@ -321,7 +422,8 @@ function emojiId(logical,settings=null){
 
 function button(text,data,style='primary',icon,settings=null){
   const id=emojiId(icon,settings);
-  const fallback=!id?fallbackEmojiForIcon(icon):'';
+  const customFallback=dominantEmoji(settings,String(icon||data||text));
+  const fallback=!id?(customFallback||fallbackEmojiForIcon(icon)):'';
   const b={text:(fallback?fallback+' ':'')+String(text),callback_data:data,style};
   if(id)b.icon_custom_emoji_id=id;
   return b;
@@ -329,7 +431,8 @@ function button(text,data,style='primary',icon,settings=null){
 
 function urlButton(text,url,style='success',icon,settings=null){
   const id=emojiId(icon,settings);
-  const fallback=!id?fallbackEmojiForIcon(icon):'';
+  const customFallback=dominantEmoji(settings,String(icon||url||text));
+  const fallback=!id?(customFallback||fallbackEmojiForIcon(icon)):'';
   const b={text:(fallback?fallback+' ':'')+String(text),url,style};
   if(id)b.icon_custom_emoji_id=id;
   return b;
