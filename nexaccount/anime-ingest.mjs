@@ -48,6 +48,7 @@ const TMP_RETENTION_MS=Math.max(60*60*1000,Number(process.env.NEXANIME_TMP_RETEN
 const TMP_CLEANUP_MS=Math.max(60*1000,Number(process.env.NEXANIME_TMP_CLEANUP_MS||15*60*1000));
 const SOURCE_CACHE=new Map();
 const SERIES_CACHE=new Map();
+const SYNOPSIS_FR_CACHE=new Map();
 let ANI_CHAIN=Promise.resolve();
 let ANI_LAST_AT=0;
 let indexesReady=false;
@@ -451,6 +452,8 @@ async function frenchSynopsis(meta,seriesKey=''){
   const raw=cleanSynopsisDescription(meta?.description||'');
   if(!raw)return '';
   if(synopsisLooksFrench(raw))return raw;
+  const cacheKey=crypto.createHash('sha256').update(raw).digest('hex');
+  if(SYNOPSIS_FR_CACHE.has(cacheKey))return SYNOPSIS_FR_CACHE.get(cacheKey);
   try{
     const result=await generateAiReply({
       accountId:'nexanime-system',
@@ -466,9 +469,12 @@ async function frenchSynopsis(meta,seriesKey=''){
         raw
       ].join('\n')
     });
-    return cleanSynopsisDescription(result?.text||raw);
+    const translated=cleanSynopsisDescription(result?.text||'');
+    if(!translated||!synopsisLooksFrench(translated))return '';
+    SYNOPSIS_FR_CACHE.set(cacheKey,translated);
+    return translated;
   }catch{
-    return raw;
+    return '';
   }
 }
 function frenchGenre(value=''){
@@ -488,7 +494,8 @@ async function presentationText(meta,seriesKey=''){
   if(meta?.episodes)rows.push('Épisodes : '+meta.episodes);
   if(meta?.format)rows.push('Format : '+meta.format);
   const description=await frenchSynopsis(meta,seriesKey);
-  if(description)rows.push('Synopsis\n'+description);
+  if(!description)return '';
+  rows.push('Synopsis\n'+description);
   return rows.join('\n');
 }
 
@@ -2115,6 +2122,7 @@ async function ensureGeneralPresentation(d,seriesKey){
     season:null,episode:null,language:'',quality:'',
     cleanedCaption:await presentationText(meta,seriesKey)
   };
+  if(!presentation.cleanedCaption)return;
   const dedupeKey=presentationKey(presentation);
   const existingAny=await queue.findOne({dedupeKey});
   const target=existingAny||existingQueue;
@@ -2164,13 +2172,13 @@ async function ensureResumePresentation(d,seriesKey){
     {seriesKey,kind:'episode',status:'queued',episode:{$ne:null}},
     {sort:{season:1,episode:1,createdAt:1}}
   );
-  if(!nextEpisode?.title)return null;
+  if(!nextEpisode?.title)return {required:false};
 
   const previousSeriesEpisode=await publications.findOne(
     {seriesKey,kind:'episode',telegramMessageId:{$gt:0},purgedAt:{$exists:false}},
     {sort:{publishedAt:-1,_id:-1}}
   );
-  if(!previousSeriesEpisode)return null;
+  if(!previousSeriesEpisode)return {required:false};
 
   // Ignore stale queued copies that point at an episode already public.
   if(await publications.findOne({
@@ -2178,7 +2186,7 @@ async function ensureResumePresentation(d,seriesKey){
     season:Number(nextEpisode.season??1),
     episode:Number(nextEpisode.episode),
     purgedAt:{$exists:false}
-  },{projection:{_id:1}}))return null;
+  },{projection:{_id:1}}))return {required:false};
 
   const latestGlobal=await publications.findOne(
     {telegramMessageId:{$gt:0},purgedAt:{$exists:false}},
@@ -2187,14 +2195,14 @@ async function ensureResumePresentation(d,seriesKey){
   const lastSeriesAt=new Date(previousSeriesEpisode.publishedAt||0).getTime();
   const resumedAfterOtherSeries=Boolean(latestGlobal?.seriesKey&&String(latestGlobal.seriesKey)!==String(seriesKey));
   const resumedAfterLongPause=Number.isFinite(lastSeriesAt)&&Date.now()-lastSeriesAt>=INTER_SERIES_MS;
-  if(!resumedAfterOtherSeries&&!resumedAfterLongPause)return null;
+  if(!resumedAfterOtherSeries&&!resumedAfterLongPause)return {required:false};
 
   const season=Number(nextEpisode.season??1);
   const episode=Number(nextEpisode.episode);
   const dedupeKey=resumePresentationKey(seriesKey,season,episode);
   const existing=await queue.findOne({dedupeKey,status:{$in:['queued','publishing','published']}});
   const alreadyPublished=await publications.findOne({dedupeKey,purgedAt:{$exists:false}},{projection:{_id:1}});
-  if(existing||alreadyPublished)return existing||alreadyPublished;
+  if(existing||alreadyPublished)return {required:true,ready:true,item:existing||alreadyPublished,season,episode};
 
   const meta=await animePresentationMetadata(nextEpisode.title);
   const priorSynopsis=await queue.findOne(
@@ -2207,7 +2215,7 @@ async function ensureResumePresentation(d,seriesKey){
   const synopsisText=meta?.ok&&String(meta.description||'').trim()
     ?await presentationText(meta,seriesKey)
     :cleanSynopsisDescription(priorSynopsis?.cleanedCaption||'');
-  if(!synopsisText)return null;
+  if(!synopsisText)return {required:true,ready:false,reason:'resume_synopsis_unavailable',season,episode};
 
   const now=new Date();
   const resumeHead='🔄 Reprise de l’anime\nLa publication reprend à Saison '+season+' · Épisode '+episode;
@@ -2223,9 +2231,9 @@ async function ensureResumePresentation(d,seriesKey){
     resumeSeason:season,resumeEpisode:episode,
     resumePresentation:true,createdAt:now,updatedAt:now
   };
-  if(!payload.imageUrl)return null;
+  if(!payload.imageUrl)return {required:true,ready:false,reason:'resume_cover_unavailable',season,episode};
   await queue.insertOne(payload);
-  return payload;
+  return {required:true,ready:true,item:payload,season,episode};
 }
 
 async function ensureLiveEpisodePresentation(){
@@ -2386,6 +2394,15 @@ async function preflightSeriesBeforeSynopsis(runtime,d,seriesKey){
         lastError:'presentation_metadata_unavailable'
       };
     }
+    const localizedPresentation=await presentationText(meta,seriesKey);
+    if(!localizedPresentation){
+      return {
+        ok:false,
+        reason:'presentation_translation_unavailable',
+        season,expectedEpisode:1,blockedEpisode:1,
+        lastError:'presentation_translation_unavailable'
+      };
+    }
   }
 
   const variants=await d.collection('nexanime_queue').find(
@@ -2508,7 +2525,16 @@ async function claimNext(runtime){
   if(!seriesKey)return null;
 
   await ensureGeneralPresentation(d,seriesKey);
-  await ensureResumePresentation(d,seriesKey);
+  const resumeState=await ensureResumePresentation(d,seriesKey);
+  if(resumeState?.required===true&&resumeState?.ready!==true){
+    await parkSeriesBeforeSynopsis(d,seriesKey,{
+      reason:String(resumeState.reason||'resume_presentation_unavailable'),
+      season:Number(resumeState.season??1),
+      expectedEpisode:Number(resumeState.episode??1),
+      blockedEpisode:Number(resumeState.episode??1)
+    });
+    return claimNext(runtime);
+  }
 
   // Legacy/source "Episode N" poster cards are not episode media. Remove them
   // from the runnable queue so a restart can never resume publishing them.
