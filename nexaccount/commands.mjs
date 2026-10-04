@@ -181,7 +181,7 @@ export const CORE_COMMANDS=[
   C('stickerinfo','STICKERS',{engine:'sticker',description:'Informations d’un sticker',}),
   C('clonepack','STICKERS',{selfOnly:true,engine:'sticker',description:'Cloner un pack',}),
   C('untake','STICKERS',{selfOnly:true,engine:'sticker',description:'Rendre un sticker autonome sans StickerSet exploitable',}),
-  C('untakepk','STICKERS',{selfOnly:true,engine:'sticker',description:'Rendre tous les stickers d’un pack autonomes sans StickerSet exploitable',}),
+  C('untakepk','STICKERS',{selfOnly:true,engine:'sticker',hidden:true,description:'Rendre tous les stickers d’un pack autonomes sans StickerSet exploitable',}),
   C('ultratake','STICKERS',{selfOnly:true,engine:'sticker',description:'Retirer un filigrane et recréer le sticker ou le pack',}),
   C('delfilig','STICKERS',{selfOnly:true,engine:'sticker',description:'Supprimer le filigrane d’un sticker ou d’un pack',}),
   C('filitake','STICKERS',{selfOnly:true,engine:'sticker',description:'Filigraner tout un pack et le renommer',}),
