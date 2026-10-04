@@ -1376,17 +1376,110 @@ async function maybeAutoModerate(runtime,event){
   }
 }
 
+function greetingActionUserIds(message,action,kind){
+  const ids=[];
+  if(/ChatAddUser/i.test(kind)&&Array.isArray(action?.users)){
+    for(const id of action.users)if(id!=null)ids.push(id);
+  }
+  if(/ChatDeleteUser/i.test(kind)&&action?.userId!=null)ids.push(action.userId);
+  if((/ChatJoinedByLink|ChatJoinedByRequest/i.test(kind)||!ids.length)&&message?.fromId?.userId!=null){
+    ids.push(message.fromId.userId);
+  }
+  const seen=new Set();
+  return ids.filter(id=>{
+    const key=String(id||'');
+    if(!key||seen.has(key))return false;
+    seen.add(key);
+    return true;
+  }).slice(0,10);
+}
+
+function greetingDisplayName(user){
+  return String([user?.firstName,user?.lastName].filter(Boolean).join(' ')||user?.username||user?.id||'Membre').trim();
+}
+
+async function greetingPeople(client,ids){
+  const out=[];
+  for(const id of ids){
+    try{
+      const user=await client.getEntity(id);
+      if(user?.bot===true)continue;
+      out.push(user);
+    }catch{
+      out.push({id});
+    }
+  }
+  return out;
+}
+
+async function renderGreetingTemplate(client,template,people,chatTitle){
+  const users=people.length?people:[{id:'',firstName:'Membre'}];
+  const names=users.map(greetingDisplayName);
+  const first=users[0]||{};
+  const username=first?.username?'@'+String(first.username).replace(/^@/,''):'';
+  let raw=String(template||'')
+    .replaceAll('{name}',names.join(', '))
+    .replaceAll('{username}',username)
+    .replaceAll('{id}',String(first?.id||''))
+    .replaceAll('{group}',String(chatTitle||'ce groupe'))
+    .replaceAll('{count}',String(users.length));
+
+  const entities=[];
+  let output='';
+  let cursor=0;
+  const token='{mention}';
+  while(true){
+    const at=raw.indexOf(token,cursor);
+    if(at<0){
+      output+=raw.slice(cursor);
+      break;
+    }
+    output+=raw.slice(cursor,at);
+    for(let i=0;i<users.length;i++){
+      if(i)output+=', ';
+      const user=users[i];
+      const name=names[i]||'Membre';
+      const offset=Buffer.from(output,'utf16le').length/2;
+      output+=name;
+      try{
+        const input=await client.getInputEntity(user?.id||user);
+        entities.push(new Api.InputMessageEntityMentionName({
+          offset,
+          length:Buffer.from(name,'utf16le').length/2,
+          userId:getInputUser(input)
+        }));
+      }catch{}
+    }
+    cursor=at+token.length;
+  }
+  return {message:output,formattingEntities:entities};
+}
+
 async function maybeServiceGreeting(runtime,event){
-  const {client,account}=runtime;const message=event.message,action=message?.action;if(!action)return;
+  const {client,account}=runtime;
+  const message=event.message,action=message?.action;
+  if(!action||!message?.peerId)return;
+
   const settings=await settingsFor(account.telegramUserId);
   const chatId=String(event.chatId||message.chatId||message.peerId?.channelId||message.peerId?.chatId||'global');
   const policy=settings.groupPolicies?.[chatId]||{};
   const kind=String(action.className||action.constructor?.name||'');
-  if(/ChatAddUser|ChatJoinedByLink|ChatJoinedByRequest/i.test(kind)&&policy.welcome){
-    await sendText(client,message.peerId,String(policy.welcomeText||'Bienvenue dans le groupe.')).catch(()=>{});
-  }else if(/ChatDeleteUser/i.test(kind)&&policy.goodbye){
-    await sendText(client,message.peerId,String(policy.goodbyeText||'À bientôt.')).catch(()=>{});
-  }
+  const welcome=/ChatAddUser|ChatJoinedByLink|ChatJoinedByRequest/i.test(kind);
+  const goodbye=/ChatDeleteUser/i.test(kind);
+  if((welcome&&policy.welcome!==true)||(goodbye&&policy.goodbye!==true)||(!welcome&&!goodbye))return;
+
+  const ids=greetingActionUserIds(message,action,kind);
+  const people=await greetingPeople(client,ids);
+  const chat=await client.getEntity(message.peerId).catch(()=>null);
+  const groupTitle=String(chat?.title||'ce groupe');
+  const template=welcome
+    ?String(policy.welcomeText||'👋 Bienvenue {mention} dans {group} !')
+    :String(policy.goodbyeText||'👋 Au revoir {mention}. À bientôt dans {group}.');
+  const rendered=await renderGreetingTemplate(client,template,people,groupTitle);
+  await client.sendMessage(message.peerId,{
+    message:rendered.message,
+    formattingEntities:rendered.formattingEntities
+  }).catch(error=>console.warn('[NexAccount greeting]',String(error?.errorMessage||error?.message||error).slice(0,300)));
 }
 
 async function maintainPresence(runtime){
