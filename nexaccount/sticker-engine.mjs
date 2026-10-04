@@ -33,6 +33,7 @@ const activeCloneJobs=new Map();
 let stickerMutationTail=Promise.resolve();
 let stickerMutationNextAt=0;
 const cloneDownloadTails=new Map();
+const rememberPackTails=new Map();
 
 const clean=v=>String(v??'').trim();
 const randomLong=()=>BigInt.asIntN(64,BigInt('0x'+crypto.randomBytes(8).toString('hex')));
@@ -790,10 +791,20 @@ async function addToSet(account,name,prepared,emoji='✨'){
   },{field:'sticker_file',buffer:prepared.buffer,mime:prepared.mime,filename:prepared.filename});
 }
 async function rememberPack(accountId,pack){
-  const s=await settingsFor(accountId);
-  const list=Array.isArray(s.stickerPacks)?s.stickerPacks:[];
-  const next=[pack,...list.filter(x=>x?.name!==pack.name)].slice(0,100);
-  await patchSettings(accountId,{stickerPacks:next});
+  const key=String(accountId||'');
+  const previous=rememberPackTails.get(key)||Promise.resolve();
+  const task=previous.then(async()=>{
+    const s=await settingsFor(key);
+    const list=Array.isArray(s.stickerPacks)?s.stickerPacks:[];
+    const next=[pack,...list.filter(x=>x?.name!==pack.name)].slice(0,100);
+    await patchSettings(key,{stickerPacks:next});
+  });
+  const tail=task.catch(()=>{});
+  rememberPackTails.set(key,tail);
+  tail.finally(()=>{
+    if(rememberPackTails.get(key)===tail)rememberPackTails.delete(key);
+  });
+  return task;
 }
 async function telegramSet(client,stickerSetInput){
   if(!stickerSetInput)return null;
@@ -830,9 +841,11 @@ function packLink(name){return 'https://t.me/addstickers/'+name}
 async function ensureDefaultPack(runtime,prepared,settings=null){
   const {account}=runtime;
   const name=defaultPackName(account.telegramUserId);
-  const existing=await packExists(name);
-  if(existing)await addToSet(account,name,prepared);
-  else await createSet(account,automaticPackTitle(account,settings),name,prepared);
+  await withPersistentStickerRetry(runtime,async()=>{
+    const existing=await destinationState(name);
+    if(existing.exists)await queueCloneMutation(()=>addToSet(account,name,prepared),'sticker default add');
+    else await queueCloneMutation(()=>createSet(account,automaticPackTitle(account,settings),name,prepared),'sticker default create');
+  },'Sticker · ajout');
   await rememberPack(account.telegramUserId,{name,title:automaticPackTitle(account,settings),link:packLink(name),updatedAt:Date.now()});
   return name;
 }
