@@ -2485,6 +2485,80 @@ export async function reconnectRuntime(telegramUserId){
   return connectSavedAccount({telegramUserId:id});
 }
 
+async function animePublisherWatchdog(runtime){
+  if(!runtime||runtime?.sessionInvalidated===true||runtime?.client?.connected!==true)return {ok:false,reason:'runtime_unavailable'};
+  if(runtime?.animeIngest?.publisher!==true)return {ok:false,reason:'not_publisher'};
+
+  const now=Date.now();
+  const lastAttempt=Date.parse(String(runtime.animePublisherWatchdogLastAttemptAt||''));
+  if(Number.isFinite(lastAttempt)&&now-lastAttempt<60_000)return {ok:true,skipped:'rate_limit'};
+  runtime.animePublisherWatchdogLastAttemptAt=new Date();
+
+  // A publisher without its 30 s timer is not healthy even if the process and
+  // Telegram transport still look connected. Rebuild the ingest loop in-place.
+  if(!runtime.animeIngest?.publishTimer){
+    await stopAnimeIngest(runtime).catch(()=>{});
+    const restarted=await startAnimeIngest(runtime);
+    if(!restarted)return {ok:false,reason:'publisher_timer_restart_refused'};
+    runtime.animePublisherWatchdogLastRestartAt=new Date();
+    console.warn('[NexAnime watchdog]',String(runtime.account?.telegramUserId||''),'publisher timer restored');
+  }
+
+  const d=await db();
+  const [queued,lastPublication,scheduler]=await Promise.all([
+    d.collection('nexanime_queue').countDocuments({status:'queued'}),
+    d.collection('nexanime_publications').findOne(
+      {purgedAt:{$exists:false}},
+      {sort:{publishedAt:-1,_id:-1},projection:{publishedAt:1,seriesKey:1,season:1,episode:1,kind:1}}
+    ),
+    d.collection('nexanime_config').findOne(
+      {_id:'scheduler'},
+      {projection:{cooldownUntil:1,blockedSeriesUntil:1,activeSeriesKey:1,plannedSeriesKey:1}}
+    )
+  ]);
+  if(queued<=0)return {ok:true,skipped:'empty_queue'};
+
+  const cooldownMs=scheduler?.cooldownUntil?new Date(scheduler.cooldownUntil).getTime():NaN;
+  if(Number.isFinite(cooldownMs)&&cooldownMs>now)return {ok:true,skipped:'scheduler_cooldown',until:new Date(cooldownMs)};
+
+  const lastPublishedMs=lastPublication?.publishedAt?new Date(lastPublication.publishedAt).getTime():NaN;
+  // Once normal cross-series cooldown has elapsed, two minutes with queued
+  // work and no confirmed public post is treated as a silent stall.
+  if(Number.isFinite(lastPublishedMs)&&now-lastPublishedMs<120_000)return {ok:true,skipped:'recent_publication'};
+
+  try{
+    const result=await animePublishNow(runtime);
+    runtime.animePublisherWatchdogLastResult={
+      at:new Date(),
+      published:result?.published===true,
+      queued,
+      previousPublicationAt:lastPublication?.publishedAt||null
+    };
+    if(result?.published===true){
+      console.log('[NexAnime watchdog]',String(runtime.account?.telegramUserId||''),'recovered stalled publication');
+    }
+    return {ok:true,published:result?.published===true};
+  }catch(error){
+    runtime.animePublisherWatchdogLastError=telegramRuntimeErrorText(error).slice(0,500);
+    runtime.animePublisherWatchdogLastErrorAt=new Date();
+    if(isAuthKeyDuplicatedError(error)){
+      await quarantineAuthKeyDuplicated(runtime,error,'anime-publisher-watchdog').catch(()=>{});
+      return {ok:false,reason:'auth_key_duplicated_failover'};
+    }
+    if(isAuthKeyUnregisteredError(error)){
+      await quarantineInvalidAuthKey(runtime,error,'anime-publisher-watchdog').catch(()=>{});
+      return {ok:false,reason:'auth_key_unregistered_failover'};
+    }
+    if(isReconnectableTelegramTransportError(error)){
+      console.warn('[NexAnime watchdog]',String(runtime.account?.telegramUserId||''),'transport recycle',runtime.animePublisherWatchdogLastError);
+      try{await runtime.client?.disconnect?.()}catch{}
+      return {ok:false,reason:'transport_recycle'};
+    }
+    console.error('[NexAnime watchdog]',String(runtime.account?.telegramUserId||''),runtime.animePublisherWatchdogLastError);
+    return {ok:false,reason:'publish_error'};
+  }
+}
+
 async function reconcileRuntimeAutomations(){
   const repaired=[];
   const now=Date.now();
@@ -2493,11 +2567,25 @@ async function reconcileRuntimeAutomations(){
       console.error('[NexAnime failover reconcile]',String(error?.message||error).slice(0,320));
       return null;
     });
-    if(selected)repaired.push({
-      telegramUserId:String(selected.account?.telegramUserId||''),
-      username:animeRuntimeUsername(selected),
-      automation:'anime-publisher'
-    });
+    if(selected){
+      repaired.push({
+        telegramUserId:String(selected.account?.telegramUserId||''),
+        username:animeRuntimeUsername(selected),
+        automation:'anime-publisher'
+      });
+      const watchdog=await animePublisherWatchdog(selected).catch(error=>({
+        ok:false,
+        reason:String(error?.message||error).slice(0,320)
+      }));
+      if(watchdog?.published===true||watchdog?.reason==='publisher_timer_restart_refused'){
+        repaired.push({
+          telegramUserId:String(selected.account?.telegramUserId||''),
+          username:animeRuntimeUsername(selected),
+          automation:'anime-watchdog',
+          ...watchdog
+        });
+      }
+    }
   }
   for(const [id,runtime] of runtimes.entries()){
     if(runtime?.sessionInvalidated===true||runtime?.client?.connected!==true)continue;
