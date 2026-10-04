@@ -1286,12 +1286,44 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     return true;
   }
   if(name==='clean'){
-    const n=Math.max(1,Math.min(100,Number(args[0])||20));
+    // Telegram deletion endpoints are safest in batches. Do not cap the user
+    // request at 100: page through history and delete each page in <=100 ids.
+    const requested=Math.max(1,Math.floor(Number(args[0])||20));
+    let remaining=requested,deleted=0,failed=0,offsetId=0,rounds=0;
     try{
-      const msgs=await client.getMessages(peer,{limit:n});
-      const ids=msgs.filter(m=>m?.id).map(m=>m.id);
-      if(ids.length)await client.deleteMessages(peer,ids,{revoke:true});
-      await sendText(client,peer,ids.length+' message(s) traités.');
+      while(remaining>0){
+        const pageSize=Math.min(100,remaining);
+        const options={limit:pageSize};
+        if(offsetId>0)options.offsetId=offsetId;
+        const msgs=await client.getMessages(peer,options);
+        const ids=[...new Set((Array.isArray(msgs)?msgs:[])
+          .filter(m=>m?.id!=null)
+          .map(m=>Number(m.id))
+          .filter(id=>Number.isFinite(id)&&id>0))];
+        if(!ids.length)break;
+
+        // Keep the pagination cursor from the fetched page before deleting it.
+        offsetId=Math.min(...ids);
+        try{
+          await client.deleteMessages(peer,ids,{revoke:true});
+          deleted+=ids.length;
+        }catch(batchError){
+          // A single undeletable service message must not abort a large purge.
+          for(const id of ids){
+            try{await client.deleteMessages(peer,[id],{revoke:true});deleted++}
+            catch{failed++}
+          }
+        }
+
+        remaining=Math.max(0,requested-deleted-failed);
+        rounds++;
+        if(ids.length<pageSize||rounds>=10000)break;
+      }
+      await sendText(client,peer,
+        deleted+' message(s) supprimé(s).'+
+        (failed?' '+failed+' échec(s).':'')+
+        (deleted+failed<requested?' Historique disponible épuisé.':'')
+      );
     }catch(e){await sendText(client,peer,'Nettoyage impossible : '+String(e.errorMessage||e.message||e))}
     return true;
   }
@@ -1361,7 +1393,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     const key=name==='setwelcome'?'welcomeText':name==='setgoodbye'?'goodbyeText':name;
     const stored=(await settingsFor(account.telegramUserId)).groupPolicies?.[chat]?.[key];
     const current=(name==='welcome'||name==='goodbye')
-      ? stored!==false
+      ? stored===true
       : stored;
 
     if((name==='setwelcome'||name==='setgoodbye')&&!argText){
@@ -1600,7 +1632,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
     if(['config','status','permissions'].includes(name)){
       const c=await currentChat(client,peer);let extra='';
       if(name==='permissions')extra='\nLes actions utilisent les permissions réelles du compte Telegram connecté.';
-      await sendText(client,peer,'NexAi · '+name+'\nChat : '+(c?.title||c?.username||chat)+'\nID : '+chat+'\nAnti-link : '+(policy.antilink?'ON':'OFF')+'\nAnti-forward : '+(policy.antiforward?'ON':'OFF')+'\nAnti-spam : '+(policy.antispam?'ON':'OFF')+'\nAnti-tag : '+(policy.antitag?'ON':'OFF')+'\nAnti-mention massive : '+(policy.antigroupmention?'ON':'OFF')+'\nFiltre de mots : '+(policy.antibadword?'ON':'OFF')+'\nWelcome : '+(policy.welcome!==false?'ON':'OFF')+'\nGoodbye : '+(policy.goodbye!==false?'ON':'OFF')+extra);return true;
+      await sendText(client,peer,'NexAi · '+name+'\nChat : '+(c?.title||c?.username||chat)+'\nID : '+chat+'\nAnti-link : '+(policy.antilink?'ON':'OFF')+'\nAnti-forward : '+(policy.antiforward?'ON':'OFF')+'\nAnti-spam : '+(policy.antispam?'ON':'OFF')+'\nAnti-tag : '+(policy.antitag?'ON':'OFF')+'\nAnti-mention massive : '+(policy.antigroupmention?'ON':'OFF')+'\nFiltre de mots : '+(policy.antibadword?'ON':'OFF')+'\nWelcome : '+(policy.welcome===true?'ON':'OFF')+'\nGoodbye : '+(policy.goodbye===true?'ON':'OFF')+extra);return true;
     }
     if(name==='id'){await sendText(client,peer,'Chat ID : '+chat+'\nCompte : '+account.telegramUserId);return true}
     if(name==='kickall'){
