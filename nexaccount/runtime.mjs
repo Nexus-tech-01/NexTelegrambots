@@ -6,7 +6,7 @@ import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { returnBigInt } from 'teleproto/Helpers.js';
 import { cfg, isOwnerId, isOwnerIdentity } from './config.mjs';
 import { commandMap } from './commands.mjs';
-import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, acquireSessionLease, claimCommandDelivery, disableAccount, enableAccount, listAccountsForWorker, markSessionRepairRequired, nexAiPremiumState, patchSettings, releaseRuntimeLease, releaseSessionLease, renewRuntimeLease, renewSessionLease, sessionFingerprint, settingsFor, sharedBotIdentity } from './store.mjs';
+import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, acquireSessionLease, claimCommandDelivery, db, disableAccount, enableAccount, listAccountsForWorker, markSessionRepairRequired, nexAiPremiumState, patchSettings, releaseRuntimeLease, releaseSessionLease, renewRuntimeLease, renewSessionLease, sessionFingerprint, settingsFor, sharedBotIdentity } from './store.mjs';
 import { listStyles } from './styles.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { recordEvent } from './analytics.mjs';
@@ -19,7 +19,7 @@ import { parseCommand, textOf } from './core/command-parser.mjs';
 import { createCommandDeduper } from './core/command-deduper.mjs';
 import { createRuntimeContext, clearRuntimeTimers } from './core/runtime-context.mjs';
 import { routeEngineCommand } from './core/engine-router.mjs';
-import { animeBeginRebuild, animeDedupePublishedEpisodeVariants, animeDiscoverNow, animeIngestStatus, animePublishNow, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
+import { animeBeginRebuild, animeDedupePublishedEpisodeVariants, animeDiscoverNow, animeIngestStatus, animePublishNow, handleAnimeIngestEvent, isListenerRuntime, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 import { normalizeVideoNoteBuffer, sendTelegramMedia } from './media-send.mjs';
 import { deleteStoredReplyVideo, downloadReplyVideo, replyStorageJoinLink, storeReplyVideo } from './reply-storage.mjs';
 import { ensureEmojiLibraryPalette, ensurePremiumEmojiPalette, sanitizeAnimatedEmojiText, sendBrandedText, syncOwnedCustomEmojiLibrary } from './response-ui.mjs';
@@ -132,6 +132,12 @@ let reconcilingRuntimes=false;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const ANIME_PRIMARY_PUBLISHER_ENABLED=true;
 const ANIME_PRIMARY_PUBLISHER_USERNAME=String(process.env.NEXACCOUNT_ANIME_PUBLISHER_USERNAME||'tresor20001').trim().replace(/^@/,'').toLowerCase();
+const ANIME_PUBLISHER_FAILOVER_USERNAMES=[...new Set(
+  String(process.env.NEXACCOUNT_ANIME_FAILOVER_USERNAMES||'tresor20009,tresor20000')
+    .split(',').map(x=>x.trim().replace(/^@/,'').toLowerCase()).filter(Boolean)
+)];
+let animePublisherRuntimeId='';
+let animePublisherElectionPromise=null;
 const EMBEDDED_ANIME_ENABLED=!/^(?:0|false|no|off)$/i.test(String(process.env.NEXACCOUNT_EMBEDDED_ANIME||'true').trim());
 const EMBEDDED_LITEAPK_ENABLED=!/^(?:0|false|no|off)$/i.test(String(process.env.NEXACCOUNT_EMBEDDED_LITEAPK||'true').trim());
 const ANIME_WORKER_URL=String(process.env.NEXANIME_WORKER_URL||'http://127.0.0.1:18130').replace(/\/+$/,'');
@@ -180,6 +186,7 @@ async function quarantineInvalidAuthKey(runtime,error,source='runtime'){
     await markSessionRepairRequired(id,'AUTH_KEY_UNREGISTERED').catch(e=>console.error('[NexAccount session]',id,'repair_flag_failed',String(e?.message||e).slice(0,180)));
     if(runtime.sessionFingerprint)await releaseSessionLease(runtime.sessionFingerprint,id).catch(()=>{});
     await releaseRuntimeLease(id).catch(()=>{});
+    await ensureAnimePublisherOwnership('auth-key-unregistered').catch(()=>{});
     return true;
   })();
   return runtime.authKeyQuarantinePromise;
@@ -202,6 +209,7 @@ async function quarantineAuthKeyDuplicated(runtime,error,source='runtime'){
     await markSessionRepairRequired(id,'AUTH_KEY_DUPLICATED').catch(e=>console.error('[NexAccount session]',id,'repair_flag_failed',String(e?.message||e).slice(0,180)));
     if(runtime.sessionFingerprint)await releaseSessionLease(runtime.sessionFingerprint,id).catch(()=>{});
     await releaseRuntimeLease(id).catch(()=>{});
+    await ensureAnimePublisherOwnership('auth-key-duplicated').catch(()=>{});
     return true;
   })();
   return runtime.authKeyQuarantinePromise;
@@ -211,6 +219,106 @@ function isPrimaryAnimePublisher(account){
   if(!ANIME_PRIMARY_PUBLISHER_ENABLED||!ANIME_PRIMARY_PUBLISHER_USERNAME)return false;
   const username=String(account?.username||'').trim().replace(/^@/,'').toLowerCase();
   return Boolean(username&&username===ANIME_PRIMARY_PUBLISHER_USERNAME);
+}
+
+function animeRuntimeUsername(runtime){
+  return String(runtime?.account?.username||'').trim().replace(/^@/,'').toLowerCase();
+}
+function healthyAnimePublisherCandidates(){
+  return [...runtimes.values()].filter(runtime=>
+    runtime?.sessionInvalidated!==true&&
+    runtime?.client?.connected===true&&
+    isListenerRuntime(runtime)
+  );
+}
+function preferredAnimePublisher(){
+  const candidates=healthyAnimePublisherCandidates();
+  if(!candidates.length)return null;
+  const primary=candidates.find(runtime=>isPrimaryAnimePublisher(runtime.account));
+  if(primary)return primary;
+  for(const username of ANIME_PUBLISHER_FAILOVER_USERNAMES){
+    const runtime=candidates.find(row=>animeRuntimeUsername(row)===username);
+    if(runtime)return runtime;
+  }
+  return candidates[0];
+}
+async function expireAnimePublisherLock(ownerId){
+  const owner=String(ownerId||'');
+  if(!owner)return;
+  try{
+    const d=await db();
+    await d.collection('nexanime_locks').updateOne(
+      {_id:'publisher',owner},
+      {$set:{expiresAt:new Date(0),updatedAt:new Date(),releasedReason:'publisher_failover'}}
+    );
+  }catch(error){
+    console.warn('[NexAnime failover] publisher lock release failed',owner,String(error?.message||error).slice(0,220));
+  }
+}
+async function ensureAnimePublisherOwnership(source='runtime'){
+  if(!EMBEDDED_ANIME_ENABLED)return null;
+  if(animePublisherElectionPromise)return animePublisherElectionPromise;
+  animePublisherElectionPromise=(async()=>{
+    const desired=preferredAnimePublisher();
+    const nextId=String(desired?.account?.telegramUserId||'');
+    const current=animePublisherRuntimeId?runtimes.get(animePublisherRuntimeId):[...runtimes.values()].find(r=>r?.animePublisher===true);
+
+    // Do not hand the role away while a healthy publisher is in the middle of
+    // sending media. The next reconcile pass will perform the handoff cleanly.
+    if(
+      current&&nextId&&String(current.account?.telegramUserId||'')!==nextId&&
+      current?.animeIngest?.publishing===true&&current?.client?.connected===true&&
+      current?.sessionInvalidated!==true
+    ){
+      return current;
+    }
+
+    const previousId=String(current?.account?.telegramUserId||animePublisherRuntimeId||'');
+    if(previousId&&previousId!==nextId)await expireAnimePublisherLock(previousId);
+
+    for(const runtime of runtimes.values()){
+      const shouldPublish=Boolean(nextId&&String(runtime.account?.telegramUserId||'')===nextId);
+      const roleChanged=runtime.animePublisher!==shouldPublish;
+      runtime.animePublisher=shouldPublish;
+      if(roleChanged&&runtime.animeIngest?.enabled===true){
+        await stopAnimeIngest(runtime).catch(()=>{});
+        if(runtime?.client?.connected===true&&runtime?.sessionInvalidated!==true){
+          await startAnimeIngest(runtime).catch(error=>
+            console.error('[NexAnime failover]',String(runtime.account?.telegramUserId||''),'restart failed',String(error?.message||error).slice(0,320))
+          );
+        }
+      }
+    }
+
+    animePublisherRuntimeId=nextId;
+    try{
+      const d=await db();
+      await d.collection('nexanime_config').updateOne(
+        {_id:'publisher-election'},
+        {$set:{
+          publisherAccountId:nextId,
+          publisherUsername:animeRuntimeUsername(desired),
+          primaryUsername:ANIME_PRIMARY_PUBLISHER_USERNAME,
+          failoverUsernames:ANIME_PUBLISHER_FAILOVER_USERNAMES,
+          source:String(source||'runtime'),
+          healthyCandidates:healthyAnimePublisherCandidates().map(r=>({
+            telegramUserId:String(r.account?.telegramUserId||''),
+            username:animeRuntimeUsername(r)
+          })),
+          updatedAt:new Date()
+        }},
+        {upsert:true}
+      );
+    }catch{}
+
+    if(desired){
+      console.log('[NexAnime failover] publisher @'+animeRuntimeUsername(desired)+' selected source='+String(source||'runtime'));
+    }else{
+      console.warn('[NexAnime failover] no healthy publisher candidate source='+String(source||'runtime'));
+    }
+    return desired;
+  })().finally(()=>{animePublisherElectionPromise=null;});
+  return animePublisherElectionPromise;
 }
 
 
@@ -2263,6 +2371,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false,ses
 
   if(EMBEDDED_ANIME_ENABLED){
     await startAnimeIngest(runtime).catch(e=>console.error('[NexAnime start]',id,String(e?.message||e)));
+    await ensureAnimePublisherOwnership('attach').catch(e=>console.error('[NexAnime failover attach]',id,String(e?.message||e)));
   }
   if(EMBEDDED_LITEAPK_ENABLED){
     await startEmbeddedLiteApkScanner(runtime).catch(e=>console.error('[NexAccount LiteAPK start]',id,String(e?.message||e)));
@@ -2322,6 +2431,7 @@ export async function detachRuntime(telegramUserId,{releaseLease=true}={}){
     }
   }
   if(releaseLease)await releaseRuntimeLease(id).catch(()=>{});
+  if(EMBEDDED_ANIME_ENABLED)await ensureAnimePublisherOwnership('detach').catch(()=>{});
   return true;
 }
 
@@ -2378,6 +2488,17 @@ export async function reconnectRuntime(telegramUserId){
 async function reconcileRuntimeAutomations(){
   const repaired=[];
   const now=Date.now();
+  if(EMBEDDED_ANIME_ENABLED){
+    const selected=await ensureAnimePublisherOwnership('reconcile').catch(error=>{
+      console.error('[NexAnime failover reconcile]',String(error?.message||error).slice(0,320));
+      return null;
+    });
+    if(selected)repaired.push({
+      telegramUserId:String(selected.account?.telegramUserId||''),
+      username:animeRuntimeUsername(selected),
+      automation:'anime-publisher'
+    });
+  }
   for(const [id,runtime] of runtimes.entries()){
     if(runtime?.sessionInvalidated===true||runtime?.client?.connected!==true)continue;
 
@@ -2496,13 +2617,16 @@ export async function animeRuntimePublishNow(target=''){
   if(!EMBEDDED_ANIME_ENABLED){
     return animeWorkerRequest('/publish-now',{username:String(target||'')});
   }
+  await ensureAnimePublisherOwnership('publish-now').catch(()=>{});
   const q=String(target||'').replace(/^@/,'').toLowerCase();
-  const candidates=[...runtimes.values()].filter(r=>
+  const exact=[...runtimes.values()].filter(r=>
     !q||
     String(r.account.telegramUserId)===q||
     String(r.account.username||'').toLowerCase()===q
   );
-  const runtime=candidates.find(r=>r?.animeIngest?.publisher===true);
+  const runtime=
+    exact.find(r=>r?.animeIngest?.publisher===true&&r?.client?.connected===true)||
+    [...runtimes.values()].find(r=>r?.animeIngest?.publisher===true&&r?.client?.connected===true);
   if(!runtime)throw new Error('anime_publisher_runtime_not_active');
   return animePublishNow(runtime);
 }
