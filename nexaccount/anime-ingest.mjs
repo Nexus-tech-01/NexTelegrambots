@@ -21,10 +21,11 @@ const NEXCANAL_HANDOFF_TIMEOUT_MS=Math.max(15_000,Number(process.env.NEXANIME_NE
 const DISCOVERY_MS=Math.max(15*60*1000,Number(process.env.NEXANIME_DISCOVERY_MS||6*60*60*1000));
 // Publication cadence is a product invariant, not an environment override:
 // - same anime: another publication opportunity every 30s (<= 1 min)
-// - different anime: exactly 15 min from the previous series' last confirmed publication
-// Fixed values prevent stale VPS env settings from restoring the old 5m/1h delays.
+// - different anime: exactly 5 min from the previous series' last confirmed publication
+// The active anime is drained first; only a genuinely unrunnable frontier may be parked.
 const PUBLISH_MS=30_000;
-const INTER_SERIES_MS=15*60_000;
+const INTER_SERIES_MS=5*60_000;
+const RESUME_AFTER_LONG_PAUSE_MS=30*60_000;
 // A broken or incomplete series must never freeze the entire anime feed.
 // It is parked temporarily, while episode order inside that series stays strict.
 const GAP_RETRY_MS=Math.max(5*60_000,Number(process.env.NEXANIME_GAP_RETRY_MS||15*60_000));
@@ -470,11 +471,18 @@ async function frenchSynopsis(meta,seriesKey=''){
       ].join('\n')
     });
     const translated=cleanSynopsisDescription(result?.text||'');
-    if(!translated||!synopsisLooksFrench(translated))return '';
+    if(!translated||!synopsisLooksFrench(translated)){
+      // Translation is presentation quality, never a publication liveness gate.
+      // Keep the cleaned source synopsis so the anime can continue.
+      SYNOPSIS_FR_CACHE.set(cacheKey,raw);
+      return raw;
+    }
     SYNOPSIS_FR_CACHE.set(cacheKey,translated);
     return translated;
   }catch{
-    return '';
+    // AI/translation outages must not pause the anime feed.
+    SYNOPSIS_FR_CACHE.set(cacheKey,raw);
+    return raw;
   }
 }
 function frenchGenre(value=''){
@@ -1950,6 +1958,8 @@ async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
       seriesKey:current.activeSeriesKey,
       status:{$in:['queued','publishing']}
     });
+    // Finish the anime in progress before selecting a new series.
+    // Do not let normal candidate exclusions steal ownership while work remains.
     if(remaining>0)return current.activeSeriesKey;
 
     let next='';
@@ -2194,7 +2204,7 @@ async function ensureResumePresentation(d,seriesKey){
   );
   const lastSeriesAt=new Date(previousSeriesEpisode.publishedAt||0).getTime();
   const resumedAfterOtherSeries=Boolean(latestGlobal?.seriesKey&&String(latestGlobal.seriesKey)!==String(seriesKey));
-  const resumedAfterLongPause=Number.isFinite(lastSeriesAt)&&Date.now()-lastSeriesAt>=INTER_SERIES_MS;
+  const resumedAfterLongPause=Number.isFinite(lastSeriesAt)&&Date.now()-lastSeriesAt>=RESUME_AFTER_LONG_PAUSE_MS;
   if(!resumedAfterOtherSeries&&!resumedAfterLongPause)return {required:false};
 
   const season=Number(nextEpisode.season??1);
