@@ -3295,7 +3295,7 @@ async function runtimeConversationPeer(client,target=''){
   return client.getInputEntity(new Api.PeerUser({userId:returnBigInt(normalized)}));
 }
 
-export async function runtimeConversationSend(telegramUserId,{chatId,text='',fileBase64='',fileName='media',mimeType='',mode='auto',replyToMessageId=0}={}){
+async function runtimeConversationSendLegacy(telegramUserId,{chatId,text='',fileBase64='',fileName='media',mimeType='',mode='auto',replyToMessageId=0}={}){
   const id=String(telegramUserId||'').trim();
   const runtime=id?runtimes.get(id):([...runtimes.values()].find(r=>r?.client?.connected===true)||null);
   if(!runtime||runtime.client?.connected!==true)throw new Error('runtime_not_active');
