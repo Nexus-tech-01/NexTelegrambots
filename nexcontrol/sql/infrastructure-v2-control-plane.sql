@@ -347,8 +347,8 @@ begin
     set status='deploying',started_at=coalesce(started_at,now()),previous_deployment_id=v_prev,
         metadata=(metadata-'waitingReason') || jsonb_build_object(
           'phase','deploy','hostJobId',v_job,'planId',v_plan,
-          'executorCommit','7c9eaf9b3ed50798c8bac4cfe813465fc3f27bde',
-          'executorSha256','91163617a2019d97637baf477c161460fab2faf10ec643a6d45456a12e5ca903'
+          'executorCommit','80192919b1256c34791883581313a755e1d0626e',
+          'executorSha256','b93f0d40603b63e2ce06d78a218c4c208e9987087e9eef45ab9626f010888896'
         )
     where id=r.id;
 
@@ -388,9 +388,9 @@ begin
     'set -euo pipefail; D=/opt/nex/control; F=$D/nexcontrol-release-executor.py; T=$D/.executor.tmp; '||
     'mkdir -p "$D"; '||
     'curl -fsSL --retry 3 --connect-timeout 10 '||
-    'https://raw.githubusercontent.com/Nexus-tech-01/NexTelegrambots/7c9eaf9b3ed50798c8bac4cfe813465fc3f27bde/ops/nexcontrol-release-executor.py '||
+    'https://raw.githubusercontent.com/Nexus-tech-01/NexTelegrambots/80192919b1256c34791883581313a755e1d0626e/ops/nexcontrol-release-executor.py '||
     '-o "$T"; '||
-    'echo "91163617a2019d97637baf477c161460fab2faf10ec643a6d45456a12e5ca903  $T" | sha256sum -c - >/dev/null; '||
+    'echo "b93f0d40603b63e2ce06d78a218c4c208e9987087e9eef45ab9626f010888896  $T" | sha256sum -c - >/dev/null; '||
     'install -m 0755 "$T" "$F"; rm -f "$T"; '||
     'python3 "$F" --payload '||quote_literal(v_b64);
 end
