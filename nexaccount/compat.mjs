@@ -1349,13 +1349,13 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       try{
         payload=await broadcastPayload(client,peer,event.message,argText);
       }catch(error){
-        await sendText(client,peer,'Broadcast : '+String(error?.message||error));
+        await sendText(client,peer,'❌ Diffusion impossible : '+String(error?.message||error));
         return true;
       }
 
       const targets=await managedBroadcastTargets(client,{limit:80});
       if(!targets.length){
-        await sendText(client,peer,'Broadcast : aucun groupe administré détecté pour ce compte.');
+        await sendText(client,peer,'📣 Aucun groupe administré détecté pour ce compte.');
         return true;
       }
 
@@ -1374,7 +1374,7 @@ export async function handleCompatCommand({runtime,event,name,args,cmd,sendText,
       }
 
       await sendText(client,peer,
-        'Broadcast terminé ✅\n'+
+        '✅ Diffusion terminée\n'+
         'Envoyé : '+sent+'/'+targets.length+
         (failed?'\nÉchecs : '+failed:'')+
         (failures.length?'\n\n'+failures.slice(0,5).join('\n'):'')
