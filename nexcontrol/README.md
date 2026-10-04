@@ -51,6 +51,33 @@ Les tables internes suivantes sont protégées par RLS et n’accordent aucun DM
 
 Les fonctions `SECURITY DEFINER` internes de routage de jobs ne sont exécutables que par `service_role`.
 
+## Infrastructure v2
+
+La route administrateur `/infrastructure` est servie par la passerelle `nexcontrol-ui` sous la même session sécurisée que le reste de NexControl.
+
+Elle agrège actuellement :
+
+- les nœuds/VPS enregistrés et leurs métriques récentes ;
+- les projets associés à un nœud et à un dépôt GitHub ;
+- plusieurs connexions/comptes GitHub simultanés ;
+- les watchers de branches GitHub ;
+- les health states, alertes, profils de déploiement et plans de release ;
+- l'état Auto Deploy par projet.
+
+Le poll GitHub existant reste l'unique watcher (`nexcontrol-github-watch-v2`, toutes les 5 minutes). Les checks de santé et de validation de source continuent dans les jobs existants.
+
+### Garde-fous Auto Deploy
+
+L'interface refuse l'activation d'Auto Deploy si l'un des points suivants n'est pas valide :
+
+- watcher GitHub absent, inactif ou bloqué ;
+- bundle/source non vérifié ;
+- dérive runtime détectée ;
+- stratégie de release non atomique ;
+- rollback non prêt.
+
+Le watcher ne crée une entrée de déploiement que si le dépôt est non bloqué **et** que le projet a explicitement `auto_deploy=true`.
+
 ## Fonctions principales
 
 - Dashboard global
