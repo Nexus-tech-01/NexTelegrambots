@@ -28,7 +28,7 @@ const INTER_SERIES_MS=5*60_000;
 const RESUME_AFTER_LONG_PAUSE_MS=30*60_000;
 // A broken or incomplete series must never freeze the entire anime feed.
 // It is parked temporarily, while episode order inside that series stays strict.
-const GAP_RETRY_MS=Math.max(5*60_000,Number(process.env.NEXANIME_GAP_RETRY_MS||15*60_000));
+const GAP_RETRY_MS=5*60_000;
 const TRANSIENT_VARIANT_RETRY_MS=Math.max(PUBLISH_MS*2,90_000);
 const PUBLISHER_LEASE_GRACE_MS=Math.max(INTER_SERIES_MS+60_000,Number(process.env.NEXANIME_PUBLISHER_LEASE_GRACE_MS||INTER_SERIES_MS+5*60*1000));
 const POLL_MS=Math.max(30000,Number(process.env.NEXANIME_POLL_MS||60000));
@@ -2222,22 +2222,31 @@ async function ensureResumePresentation(d,seriesKey){
     },
     {sort:{publishedAt:-1,updatedAt:-1}}
   );
+  const priorPublishedPresentation=await publications.findOne(
+    {
+      seriesKey,kind:'presentation',
+      $or:[{episode:null},{episode:{$exists:false}}],
+      purgedAt:{$exists:false}
+    },
+    {sort:{publishedAt:-1,_id:-1}}
+  );
+  const priorPresentation=priorSynopsis||priorPublishedPresentation||null;
   const synopsisText=meta?.ok&&String(meta.description||'').trim()
     ?await presentationText(meta,seriesKey)
-    :cleanSynopsisDescription(priorSynopsis?.cleanedCaption||'');
+    :cleanSynopsisDescription(priorPresentation?.cleanedCaption||'');
   if(!synopsisText)return {required:true,ready:false,reason:'resume_synopsis_unavailable',season,episode};
 
   const now=new Date();
   const resumeHead='🔄 Reprise de l’anime\nLa publication reprend à Saison '+season+' · Épisode '+episode;
   const payload={
     dedupeKey,status:'queued',kind:'resume_presentation',seriesKey,
-    title:meta?.canonicalTitle||priorSynopsis?.title||nextEpisode.title,
-    anilistId:meta?.anilistId||priorSynopsis?.anilistId||nextEpisode.anilistId||null,
+    title:meta?.canonicalTitle||priorPresentation?.title||nextEpisode.title,
+    anilistId:meta?.anilistId||priorPresentation?.anilistId||nextEpisode.anilistId||null,
     season:null,episode:null,language:'',quality:'',
     mediaKind:'photo',cleanedCaption:[resumeHead,synopsisText].filter(Boolean).join('\n\n'),
     cleanedFilename:'',originalFilename:'',confidence:1,
     destination:'@'+DESTINATION,mode:'synthetic',synthetic:true,
-    imageUrl:String(meta?.coverImage||priorSynopsis?.imageUrl||'').trim(),attempts:0,ingestedAt:new Date(0),
+    imageUrl:String(meta?.coverImage||priorPresentation?.imageUrl||'').trim(),attempts:0,ingestedAt:new Date(0),
     resumeSeason:season,resumeEpisode:episode,
     resumePresentation:true,createdAt:now,updatedAt:now
   };
