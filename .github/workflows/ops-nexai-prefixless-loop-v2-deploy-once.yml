@@ -113,4 +113,4 @@ jobs:
           print('NEXAI_PREFIXLESS_LOOP_V2_PRODUCTION_OK')
           PY
 
-# trigger: purge-live-fix-20261004-v3
+# trigger: purge-live-fix-20261004-v4-store-bundle
