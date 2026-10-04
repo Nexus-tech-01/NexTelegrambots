@@ -4,7 +4,8 @@ import { cfg, isOwnerId, isOwnerIdentity } from './config.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { commandMap } from './commands.mjs';
 import { db, accountRecord, listConnectedAccounts, settingsFor, patchSettings, saveSharedBotIdentity, nexAiPremiumState, grantNexAiPremium, acquireServiceLease, renewServiceLease, releaseServiceLease } from './store.mjs';
-import { menuModel, stylesModel } from './menu.mjs';
+import { menuModel, stylesModel, customStyleModel } from './menu.mjs';
+import { customStyleFor, normalizeCustomStyle } from './custom-style.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { getInlineResponse } from './inline-response-store.mjs';
 import { observeUser, recordEvent } from './analytics.mjs';
@@ -553,6 +554,22 @@ function textInputContent(model,entities,disableArtwork=false){
   };
 }
 
+function inlineCachedMediaResult(model,accountId,id,portable=false){
+  const media=model?.media||{};
+  const type=String(media.type||'');
+  const fileId=String(media.fileId||'');
+  if(!['photo','video'].includes(type)||!fileId)return null;
+  const stamped=stampMarkup(model.reply_markup,accountId);
+  const reply_markup=portable?portableMarkup(stamped):stamped;
+  const safeModel=portable?noEmojiPortableModel(model,1024):model;
+  const caption=String(safeModel.text||'').slice(0,1024);
+  const caption_entities=(portable?safeModel.entities:model.entities).filter(e=>e.offset+e.length<=caption.length);
+  if(type==='photo'){
+    return {type:'photo',id,photo_file_id:fileId,caption,caption_entities,reply_markup};
+  }
+  return {type:'video',id,video_file_id:fileId,title:'NexAI',caption,caption_entities,reply_markup};
+}
+
 function inlineCachedPhotoResult(model,accountId,id,fileId,portable=false){
   const stamped=stampMarkup(model.reply_markup,accountId);
   const reply_markup=portable?portableMarkup(stamped):stamped;
@@ -668,6 +685,7 @@ async function modelFor(account,query){
     return inlineReplyModelFromLibrary(row.text,settings);
   }
   if(q==='styles'||q==='style')return stylesModel({account,settings});
+  if(q==='customstyle'||q==='custom-style')return customStyleModel({account,settings});
   if(q.startsWith('cat:')){
     const [,catRaw,pageRaw='0']=q.split(':');
     return menuModel({account,settings,commands,view:'category',category:String(catRaw||'').toUpperCase(),page:Number(pageRaw)||0});
@@ -677,6 +695,19 @@ async function modelFor(account,query){
 
 async function sendModelMessage(ctx,model,accountId){
   const rich=stampMarkup(model.reply_markup,accountId);
+  const media=model?.media||{};
+  const mediaType=String(media.type||'');
+  const mediaFileId=String(media.fileId||'');
+  if(mediaFileId&&['photo','video'].includes(mediaType)){
+    const caption=String(model.text||'').slice(0,1024);
+    const options={
+      caption,
+      caption_entities:(model.entities||[]).filter(e=>e.offset+e.length<=caption.length),
+      reply_markup:rich
+    };
+    if(mediaType==='photo')return monoReplyPhoto(ctx,mediaFileId,options);
+    return monoReplyVideo(ctx,mediaFileId,options);
+  }
   const plain=portableMarkup(rich);
   const errors=[];
   const preview=model.photoUrl
@@ -798,6 +829,140 @@ async function sendBareLanguage(ctx,arg=''){
   const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
   const t=lang==='en'?'ᴜѕᴇ language fr ᴏʀ language en.':'ᴜᴛɪʟɪѕᴇ language fr ᴏᴜ language en.';
   return monoReplyText(ctx,t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
+}
+
+
+async function connectedAccountForStyle(ctx){
+  const account=await accountRecord(ctx.from.id);
+  if(account?.enabled===true)return account;
+  const lang=await preferredLanguage(ctx.from.id,ctx.from.language_code);
+  await sendPairLink(ctx,lang);
+  return null;
+}
+
+async function updateCustomStyle(userId,patch={}){
+  const settings=await settingsFor(userId);
+  const current=customStyleFor(settings);
+  const next=normalizeCustomStyle({
+    ...current,
+    ...patch,
+    media:patch.media===undefined?current.media:patch.media
+  });
+  await patchSettings(userId,{customStyle:next});
+  return next;
+}
+
+function styleArg(ctx){
+  return String(ctx.match||'').trim();
+}
+
+async function showCustomStyle(ctx){
+  const account=await connectedAccountForStyle(ctx);
+  if(!account)return;
+  return sendDirectMenu(ctx,account,'customstyle');
+}
+
+async function configureCustomStyle(ctx){
+  const account=await connectedAccountForStyle(ctx);
+  if(!account)return;
+  const action=styleArg(ctx).toLowerCase();
+  if(!action)return sendDirectMenu(ctx,account,'customstyle');
+  if(action==='on'){
+    await updateCustomStyle(ctx.from.id,{enabled:true});
+  }else if(action==='off'){
+    await updateCustomStyle(ctx.from.id,{enabled:false});
+  }else if(action==='reset'){
+    await patchSettings(ctx.from.id,{customStyle:normalizeCustomStyle({})});
+  }else{
+    return ctx.reply('Usage : /customstyle on | off | reset');
+  }
+  return sendDirectMenu(ctx,account,'customstyle');
+}
+
+async function configureBotName(ctx){
+  const account=await connectedAccountForStyle(ctx);
+  if(!account)return;
+  const value=styleArg(ctx).slice(0,32);
+  if(!value)return ctx.reply('Usage : /botname <nom>');
+  await patchSettings(ctx.from.id,{botDisplayName:value});
+  return sendDirectMenu(ctx,account,'customstyle');
+}
+
+async function configureStyleName(ctx){
+  const account=await connectedAccountForStyle(ctx);
+  if(!account)return;
+  const value=styleArg(ctx).slice(0,32);
+  if(!value)return ctx.reply('Usage : /stylename <nom>');
+  await updateCustomStyle(ctx.from.id,{enabled:true,name:value});
+  return sendDirectMenu(ctx,account,'customstyle');
+}
+
+async function configureStyleEmoji(ctx){
+  const account=await connectedAccountForStyle(ctx);
+  if(!account)return;
+  const values=styleArg(ctx).split(/\s+/).map(x=>x.trim()).filter(Boolean).slice(0,6);
+  if(!values.length)return ctx.reply('Usage : /styleemoji ✨ ⚡ 🖤');
+  const valid=values.filter(x=>{
+    try{return /\p{Extended_Pictographic}|\p{Emoji_Presentation}/u.test(x)}catch{return /[^\x00-\x7F]/.test(x)}
+  });
+  if(!valid.length)return ctx.reply('Ajoute au moins un emoji valide.');
+  await updateCustomStyle(ctx.from.id,{enabled:true,emojis:valid});
+  return sendDirectMenu(ctx,account,'customstyle');
+}
+
+async function configureStyleTagline(ctx){
+  const account=await connectedAccountForStyle(ctx);
+  if(!account)return;
+  const value=styleArg(ctx).slice(0,96);
+  await updateCustomStyle(ctx.from.id,{enabled:true,tagline:value});
+  return sendDirectMenu(ctx,account,'customstyle');
+}
+
+async function configureStyleButtons(ctx){
+  const account=await connectedAccountForStyle(ctx);
+  if(!account)return;
+  const value=styleArg(ctx).toLowerCase();
+  if(!['primary','success','danger'].includes(value)){
+    return ctx.reply('Usage : /stylebuttons primary | success | danger');
+  }
+  await updateCustomStyle(ctx.from.id,{enabled:true,buttonStyle:value});
+  return sendDirectMenu(ctx,account,'customstyle');
+}
+
+function repliedPhotoFile(message){
+  const photos=Array.isArray(message?.reply_to_message?.photo)?message.reply_to_message.photo:[];
+  const photo=photos.at(-1);
+  return photo?{fileId:String(photo.file_id||''),fileUniqueId:String(photo.file_unique_id||'')} : null;
+}
+
+function repliedVideoFile(message){
+  const video=message?.reply_to_message?.video;
+  return video?{fileId:String(video.file_id||''),fileUniqueId:String(video.file_unique_id||'')} : null;
+}
+
+async function configureMenuMedia(ctx,type){
+  const account=await connectedAccountForStyle(ctx);
+  if(!account)return;
+  const file=type==='photo'?repliedPhotoFile(ctx.message):repliedVideoFile(ctx.message);
+  if(!file?.fileId){
+    return ctx.reply(type==='photo'
+      ?'Réponds à une photo avec /menuphoto.'
+      :'Réponds à une vidéo avec /menuvideo.');
+  }
+  await updateCustomStyle(ctx.from.id,{
+    enabled:true,
+    media:{type,fileId:file.fileId,fileUniqueId:file.fileUniqueId}
+  });
+  return sendDirectMenu(ctx,account,'menu');
+}
+
+async function configureMenuMediaState(ctx){
+  const account=await connectedAccountForStyle(ctx);
+  if(!account)return;
+  const value=styleArg(ctx).toLowerCase();
+  if(value!=='off'&&value!=='none'&&value!=='reset')return ctx.reply('Usage : /menumedia off');
+  await updateCustomStyle(ctx.from.id,{media:{type:'',fileId:'',fileUniqueId:''}});
+  return sendDirectMenu(ctx,account,'customstyle');
 }
 
 async function handleBareDirectCommand(ctx,text){
@@ -939,7 +1104,8 @@ function telegramCommandMenu(){
     {command:'settutorial',description:'Définir la vidéo tutoriel (owner)'},
     {command:'premium',description:'NexAI Premium / Telegram Premium'},
     {command:'language',description:'Changer la langue'},
-    {command:'creator',description:'Afficher le créateur'}
+    {command:'creator',description:'Afficher le créateur'},
+    {command:'customstyle',description:'Créer ou modifier mon style de menu'}
   ];
 }
 
@@ -1050,6 +1216,15 @@ export async function startInlineBot(){
     return sendStart(ctx);
   });
   bot.command('premium',ctx=>premiumPanel(ctx));
+  bot.command('customstyle',ctx=>configureCustomStyle(ctx));
+  bot.command('botname',ctx=>configureBotName(ctx));
+  bot.command('stylename',ctx=>configureStyleName(ctx));
+  bot.command('styleemoji',ctx=>configureStyleEmoji(ctx));
+  bot.command('styletagline',ctx=>configureStyleTagline(ctx));
+  bot.command('stylebuttons',ctx=>configureStyleButtons(ctx));
+  bot.command('menuphoto',ctx=>configureMenuMedia(ctx,'photo'));
+  bot.command('menuvideo',ctx=>configureMenuMedia(ctx,'video'));
+  bot.command('menumedia',ctx=>configureMenuMediaState(ctx));
   for(const name of ['creator','about','founder','ceo'])bot.command(name,ctx=>sendCreator(ctx));
 
   bot.command('language',async ctx=>{
@@ -1377,7 +1552,11 @@ export async function startInlineBot(){
     const cachedPhotoId=model.photoUrl
       ?await cachePhotoFileId(model.photoUrl,account.telegramUserId)
       :'';
+    const customMediaResult=inlineCachedMediaResult(model,account.telegramUserId,resultId,false);
+    const customMediaPortable=inlineCachedMediaResult(model,account.telegramUserId,resultId,true);
     const attempts=[
+      ...(customMediaResult?[['custom-media-rich',customMediaResult]]:[]),
+      ...(customMediaPortable?[['custom-media-portable',customMediaPortable]]:[]),
       ...(cachedPhotoId?[['cached-photo-rich',inlineCachedPhotoResult(model,account.telegramUserId,resultId,cachedPhotoId,false)]]:[]),
       ['photo-rich',inlineResult(model,account.telegramUserId,resultId,false,false)],
       ['article-rich',inlineResult(model,account.telegramUserId,resultId,true,false)],
@@ -1442,6 +1621,21 @@ export async function startInlineBot(){
       replaceMedia=true;
     }else if(action==='menu:styles'){
       model=await modelFor(account,'styles');
+      replaceMedia=true;
+    }else if(action==='menu:customstyle'){
+      model=await modelFor(account,'customstyle');
+      replaceMedia=true;
+    }else if(action==='custom:on'||action==='custom:off'||action==='custom:reset'){
+      if(action==='custom:reset'){
+        await patchSettings(accountId,{customStyle:normalizeCustomStyle({})});
+        callbackText='Style personnel réinitialisé';
+      }else{
+        const current=customStyleFor(settings);
+        const enabled=action==='custom:on';
+        await patchSettings(accountId,{customStyle:normalizeCustomStyle({...current,enabled})});
+        callbackText=enabled?'Style personnel activé':'Style personnel désactivé · le prochain /menu retire le média';
+      }
+      model=await modelFor(account,'customstyle');
       replaceMedia=true;
     }else if(action.startsWith('style:set:')){
       const styleId=Number(action.slice('style:set:'.length));
