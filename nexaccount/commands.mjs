@@ -129,6 +129,7 @@ export const CORE_COMMANDS=[
 
   // PROTECTION.
   C('antilink','PROTECTION',{...GA,description:'Anti-liens'}),
+  C('antiforward','PROTECTION',{...GA,description:'Anti-transfert'}),
   C('antispam','PROTECTION',{...GA,description:'Anti-spam'}),
   C('antiraid','PROTECTION',{...GA,description:'Anti-raid'}),
   C('antitag','PROTECTION',{...GA,description:'Anti-mention'}),
@@ -374,7 +375,7 @@ export const LEGACY_ALIASES={
   groupconfig:'config',perms:'permissions',saveconfig:'backup',loadconfig:'restore',
 
   // Protection shortcuts.
-  nolink:'antilink',nospam:'antispam',noraid:'antiraid',notag:'antitag',
+  nolink:'antilink',noforward:'antiforward',nospam:'antispam',noraid:'antiraid',notag:'antitag',
   nomention:'antigroupmention',nobadword:'antibadword',badwords:'blacklist',
   allowwords:'whitelist',security:'risk',
 
