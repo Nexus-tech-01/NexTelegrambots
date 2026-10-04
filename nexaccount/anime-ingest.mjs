@@ -2012,6 +2012,7 @@ async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
   if(current?.activeSeriesKey){
     const remaining=await d.collection('nexanime_queue').countDocuments({
       seriesKey:current.activeSeriesKey,
+      kind:'episode',
       status:{$in:['queued','publishing']}
     });
     // Finish the anime in progress before selecting a new series.
@@ -3149,7 +3150,7 @@ async function purgePublishedEpisodeImageCards(runtime){
       const repairNow=new Date();
       const activeKey=String(schedulerState?.activeSeriesKey||'');
       const activeRemaining=activeKey?await queue.countDocuments({
-        seriesKey:activeKey,status:{$in:['queued','publishing']}
+        seriesKey:activeKey,kind:'episode',status:{$in:['queued','publishing']}
       }):0;
       if(activeKey&&activeKey!==repairSeries&&activeRemaining>0){
         // Recovery work must never interrupt the series currently being
