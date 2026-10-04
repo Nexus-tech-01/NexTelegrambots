@@ -319,10 +319,12 @@ function packName(accountId,label='nexai'){
   const head=safeBase(label,Math.max(4,maxPrefix-tail.length));
   return (head+tail).slice(0,maxPrefix)+suffix;
 }
-function defaultPackName(accountId){
+function defaultPackName(accountId,part=1){
   const suffix=packSuffix();
   const maxPrefix=Math.max(4,64-suffix.length);
-  return ('nexai_'+safeBase(String(accountId).slice(-16),16)).slice(0,maxPrefix)+suffix;
+  const base='nexai_'+safeBase(String(accountId).slice(-16),16);
+  const partSuffix=Number(part)>1?'_p'+Math.max(2,Number(part)||2):'';
+  return (base+partSuffix).slice(0,maxPrefix)+suffix;
 }
 
 function accountDisplayName(account){
@@ -1108,13 +1110,23 @@ function packLink(name){return 'https://t.me/addstickers/'+name}
 
 async function ensureDefaultPack(runtime,prepared,settings=null){
   const {account}=runtime;
-  const name=defaultPackName(account.telegramUserId);
-  await withPersistentStickerRetry(runtime,async()=>{
-    const existing=await destinationState(name);
-    if(existing.exists)await queueCloneMutation(()=>addToSet(account,name,prepared),'sticker default add');
-    else await queueCloneMutation(()=>createSet(account,automaticPackTitle(account,settings),name,prepared),'sticker default create');
+  const title=automaticPackTitle(account,settings);
+  const name=await withPersistentStickerRetry(runtime,async()=>{
+    for(let part=1;part<=100;part++){
+      const candidate=defaultPackName(account.telegramUserId,part);
+      const existing=await destinationState(candidate);
+      if(existing.exists&&Number(existing.count)>=STICKER_PACK_PART_SIZE)continue;
+      if(existing.exists){
+        await queueCloneMutation(()=>addToSet(account,candidate,prepared),'sticker default add p'+part);
+      }else{
+        const partTitle=part>1?(title+' · '+part).slice(0,64):title;
+        await queueCloneMutation(()=>createSet(account,partTitle,candidate,prepared),'sticker default create p'+part);
+      }
+      return candidate;
+    }
+    throw new Error('Limite de packs automatiques atteinte.');
   },'Sticker · ajout');
-  await rememberPack(account.telegramUserId,{name,title:automaticPackTitle(account,settings),link:packLink(name),updatedAt:Date.now()});
+  await rememberPack(account.telegramUserId,{name,title,link:packLink(name),updatedAt:Date.now()});
   return name;
 }
 
