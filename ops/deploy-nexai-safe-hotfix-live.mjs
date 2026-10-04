@@ -34,7 +34,8 @@ const modes={
     ['commands.mjs','nexaccount/commands.mjs'],
     ['sticker-engine.mjs','nexaccount/sticker-engine.mjs'],
     ['sticker-transform.mjs','nexaccount/sticker-transform.mjs'],
-    ['runtime.mjs','nexaccount/runtime.mjs']
+    ['runtime.mjs','nexaccount/runtime.mjs'],
+    ['core/engine-router.mjs','nexaccount/core/engine-router.mjs']
   ],
   'prefixless-loop':[
     ['runtime.mjs','nexaccount/runtime.mjs'],
@@ -56,6 +57,7 @@ const required={
   'sticker-engine.mjs':["'ultratake'","'delfilig'","'filitake'","'noteclone'","export async function resumeStickerJobs"],
   'sticker-transform.mjs':['export async function addStickerWatermark','export async function removeStickerWatermark','export async function roundSticker'],
   'runtime.mjs':['canHandleStickerCommand(parsed.name)','Sticker engine fallback','registered.hidden!==true','consumeGeneratedCommandOutput','markGeneratedCommandOutput','NEXACCOUNT_EMBEDDED_ANIME'],
+  'core/engine-router.mjs':['outcome?.deferred!==true','await progress.done','canonicalName(cmd)','handleStickerCommand'],
   'compat.mjs':['cacheMenuMediaForBot',"name==='customstyle'","name==='menuphoto'||name==='menuvideo'",'✅ Diffusion terminée']
 };
 
