@@ -1,3 +1,4 @@
+# trigger direct anime fallback after 25s handoff timeout 2026-10-04
 # trigger resume latest incomplete anime + publish diagnostics 2026-10-04
 # trigger five-minute nonstop anime cadence + finish active series 2026-10-04
 # trigger metadata-stall recovery 2026-10-04
