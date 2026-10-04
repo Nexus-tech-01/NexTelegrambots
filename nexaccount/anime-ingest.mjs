@@ -430,21 +430,21 @@ async function animePresentationMetadata(title){
 }
 function cleanSynopsisDescription(value=''){
   return String(value||'')
-    .replace(/<br\\s*\\/?>(?=.)/gi,'\n')
+    .replace(/<br\s*\/?>/gi,'\n')
     .replace(/<[^>]+>/g,' ')
-    .replace(/\\\\n/g,'\n')
-    .replace(/\\(\\s*(?:source|sources?)\\s*:\\s*[^)]+\\)/gi,'')
-    .replace(/\\[(?:source|sources?)\\s*:[^\\]]+\\]/gi,'')
-    .replace(/^(?:source|sources?)\\s*:\\s*.*$/gim,'')
-    .replace(/[ \\t]+\\n/g,'\n')
-    .replace(/\\n{3,}/g,'\n\n')
-    .replace(/[ \\t]{2,}/g,' ')
+    .replace(/\\n/g,'\n')
+    .replace(/\(\s*(?:source|sources?)\s*:\s*[^)]+\)/gi,'')
+    .replace(/\[(?:source|sources?)\s*:[^\]]+\]/gi,'')
+    .replace(/^(?:source|sources?)\s*:\s*.*$/gim,'')
+    .replace(/[ \t]+\n/g,'\n')
+    .replace(/\n{3,}/g,'\n\n')
+    .replace(/[ \t]{2,}/g,' ')
     .trim();
 }
 function synopsisLooksFrench(text=''){
   const s=' '+String(text||'').toLowerCase()+' ';
-  const fr=(s.match(/\\b(?:le|la|les|un|une|des|du|de|dans|avec|pour|mais|alors|sur|son|sa|ses|qui|que|est|sont|été|être|après|avant|lorsque|afin)\\b/g)||[]).length;
-  const en=(s.match(/\\b(?:the|and|with|for|from|into|after|before|when|while|his|her|their|who|that|is|are|was|were|to)\\b/g)||[]).length;
+  const fr=(s.match(/\b(?:le|la|les|un|une|des|du|de|dans|avec|pour|mais|alors|sur|son|sa|ses|qui|que|est|sont|été|être|après|avant|lorsque|afin)\b/g)||[]).length;
+  const en=(s.match(/\b(?:the|and|with|for|from|into|after|before|when|while|his|her|their|who|that|is|are|was|were|to)\b/g)||[]).length;
   return fr>=Math.max(3,en);
 }
 async function frenchSynopsis(meta,seriesKey=''){
