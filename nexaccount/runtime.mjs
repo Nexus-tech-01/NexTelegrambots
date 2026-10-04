@@ -1513,36 +1513,115 @@ async function sendConfiguredReaction(runtime,peer,messageId,settings,target='')
     recordAutoReact(runtime,{ok:false,target,messageId,error:connection.error});
     return {ok:false,target,messageId:Number(messageId),error:connection.error};
   }
+
   const inputPeer=await client.getInputEntity(peer);
-  const configured=Array.isArray(settings.autoReact?.reactions)&&settings.autoReact.reactions.length?settings.autoReact.reactions:['🔥','❤️','👍'];
+  const configured=Array.isArray(settings.autoReact?.reactions)&&settings.autoReact.reactions.length
+    ?settings.autoReact.reactions
+    :['🔥','❤️','👍'];
   const policy=await ensureReactionPolicy(runtime,inputPeer,configured);
+
   let candidates=preferredStandardReactions(configured,policy.global||[]);
   if(policy.mode==='some'){
     const allowed=new Set((policy.emoticons||[]).map(reactionCanonical));
     candidates=candidates.filter(x=>allowed.has(reactionCanonical(x)));
   }else if(policy.mode==='none')candidates=[];
-  let lastError=policy.error||'';
+
+  const rows=[];
+  const seen=new Set();
   for(const emoticon of candidates){
-    try{
-      await client.invoke(new Api.messages.SendReaction({peer:inputPeer,msgId:Number(messageId),reaction:[new Api.ReactionEmoji({emoticon})]}));
-      recordAutoReact(runtime,{ok:true,target,messageId,reaction:emoticon,animated:false});
-      console.log('[NexAccount auto-react]',String(account.telegramUserId),'ok',target||'unknown','msg='+String(messageId),'reaction='+emoticon,'policy='+policy.mode);
-      return {ok:true,target,messageId:Number(messageId),reaction:emoticon,animated:false,policy:policy.mode,reactionsEnabledByNexAi:policy.enabledByNexAi===true};
-    }catch(error){lastError=telegramRuntimeErrorText(error)}
+    const key='emoji:'+reactionCanonical(emoticon);
+    if(seen.has(key))continue;
+    seen.add(key);
+    rows.push({
+      label:emoticon,
+      animated:false,
+      reaction:new Api.ReactionEmoji({emoticon})
+    });
   }
-  if(account.premium===true&&Array.isArray(policy.customIds)){
+
+  if(
+    account.premium===true&&
+    typeof Api.ReactionCustomEmoji==='function'&&
+    Array.isArray(policy.customIds)
+  ){
     for(const documentId of policy.customIds){
-      try{
-        await client.invoke(new Api.messages.SendReaction({peer:inputPeer,msgId:Number(messageId),reaction:[new Api.ReactionCustomEmoji({documentId:BigInt(documentId)})]}));
-        recordAutoReact(runtime,{ok:true,target,messageId,reaction:'custom:'+documentId,animated:true});
-        return {ok:true,target,messageId:Number(messageId),reaction:'custom',animated:true,policy:policy.mode};
-      }catch(error){lastError=telegramRuntimeErrorText(error)}
+      const id=String(documentId||'').trim();
+      if(!/^\d{5,30}$/.test(id))continue;
+      const key='custom:'+id;
+      if(seen.has(key))continue;
+      seen.add(key);
+      rows.push({
+        label:key,
+        animated:true,
+        reaction:new Api.ReactionCustomEmoji({documentId:BigInt(id)})
+      });
     }
   }
+
+  const rawCount=Number(settings.autoReact?.maxPerPost??settings.autoReact?.count??3);
+  const desired=Number.isFinite(rawCount)
+    ?Math.max(1,Math.min(3,Math.trunc(rawCount)))
+    :3;
+
+  let lastError=policy.error||'';
+  for(let size=Math.min(desired,rows.length);size>=1;size--){
+    const selected=rows.slice(0,size);
+    try{
+      await client.invoke(new Api.messages.SendReaction({
+        peer:inputPeer,
+        msgId:Number(messageId),
+        reaction:selected.map(x=>x.reaction)
+      }));
+
+      const labels=selected.map(x=>x.label);
+      const label=labels.join(' ');
+      const animated=selected.some(x=>x.animated===true);
+      recordAutoReact(runtime,{ok:true,target,messageId,reaction:label,animated});
+      console.log(
+        '[NexAccount auto-react]',
+        String(account.telegramUserId),
+        'ok',
+        target||'unknown',
+        'msg='+String(messageId),
+        'reactions='+label,
+        'count='+String(labels.length),
+        'policy='+policy.mode
+      );
+      return {
+        ok:true,
+        target,
+        messageId:Number(messageId),
+        reaction:label,
+        reactions:labels,
+        reactionCount:labels.length,
+        animated,
+        policy:policy.mode,
+        reactionsEnabledByNexAi:policy.enabledByNexAi===true
+      };
+    }catch(error){
+      lastError=telegramRuntimeErrorText(error);
+      console.warn(
+        '[NexAccount auto-react]',
+        String(account.telegramUserId),
+        'batch_failed',
+        target||'unknown',
+        'count='+String(size),
+        String(lastError).slice(0,220)
+      );
+    }
+  }
+
   const error=String(lastError||('no_allowed_reaction policy='+policy.mode)).slice(0,300);
   recordAutoReact(runtime,{ok:false,target,messageId,error});
   console.error('[NexAccount auto-react]',String(account.telegramUserId),'failed',target||'unknown',error);
-  return {ok:false,target,messageId:Number(messageId),error,policy:policy.mode,allowed:policy.emoticons||[]};
+  return {
+    ok:false,
+    target,
+    messageId:Number(messageId),
+    error,
+    policy:policy.mode,
+    allowed:policy.emoticons||[]
+  };
 }
 
 function isWildcardAutoReactTarget(value){
