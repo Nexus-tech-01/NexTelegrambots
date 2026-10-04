@@ -5,14 +5,23 @@ import { NewMessage } from 'teleproto/events/index.js';
 import { cfg } from './config.mjs';
 import { animeIngestStatus, handleAnimeIngestEvent, startAnimeIngest, stopAnimeIngest } from './anime-ingest.mjs';
 
-const SECONDARY_ENABLED=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXANIME_SECONDARY_ENABLED||'false').trim());
+const SECONDARY_REQUESTED=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXANIME_SECONDARY_ENABLED||'false').trim());
+const EMBEDDED_ANIME_ENABLED=!/^(?:0|false|no|off)$/i.test(String(process.env.NEXACCOUNT_EMBEDDED_ANIME||'true').trim());
+// Never open a second MTProto connection with a NexAccount-owned session while
+// embedded anime is active. Reusing the same auth key from two processes causes
+// AUTH_KEY_DUPLICATED and Telegram invalidates the session.
+const SECONDARY_ENABLED=SECONDARY_REQUESTED&&!EMBEDDED_ANIME_ENABLED;
 const SESSION_FILE=String(process.env.NEXANIME_SECONDARY_SESSION_FILE||'').trim();
 const EXPECTED_USERNAME=String(process.env.NEXANIME_SECONDARY_EXPECTED_USERNAME||'tresor20009').trim().replace(/^@/,'').toLowerCase();
 let runtime=null;
 let starting=null;
 
 export async function startSecondaryAnimeReader(){
-  if(!SECONDARY_ENABLED)return {enabled:false,connected:false,reason:'disabled'};
+  if(!SECONDARY_ENABLED)return {
+    enabled:false,
+    connected:false,
+    reason:SECONDARY_REQUESTED&&EMBEDDED_ANIME_ENABLED?'embedded_runtime_owns_sessions':'disabled'
+  };
   if(!SESSION_FILE)return {enabled:false,connected:false,reason:'session_file_not_configured'};
   if(runtime?.client?.connected===true)return secondaryAnimeStatus();
   if(starting)return starting;
@@ -48,7 +57,7 @@ export async function startSecondaryAnimeReader(){
       },
       startedAt:new Date(),
       secondaryAnimeReader:true,
-      nexCanalHandoffWorker:true,
+      animePublisher:false,
       animeScanDisabled:false
     };
     const started=await startAnimeIngest(local);
@@ -92,7 +101,11 @@ export async function stopSecondaryAnimeReader(){
 
 export function secondaryAnimeStatus(){
   if(!SECONDARY_ENABLED){
-    return {enabled:false,connected:false,reason:'disabled'};
+    return {
+      enabled:false,
+      connected:false,
+      reason:SECONDARY_REQUESTED&&EMBEDDED_ANIME_ENABLED?'embedded_runtime_owns_sessions':'disabled'
+    };
   }
   if(!runtime){
     return {enabled:true,connected:false,sessionFile:SESSION_FILE||null};
