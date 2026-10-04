@@ -686,7 +686,8 @@ function normalizeMedia(input){
     const resolvedLocal=rawLocal?path.resolve(rawLocal):'';
     const localPath=resolvedLocal&&(
       resolvedLocal.startsWith('/var/lib/nex/tmp/internal-automation/')||
-      resolvedLocal.startsWith('/var/lib/nex/tmp/shared-whatsapp/')
+      resolvedLocal.startsWith('/var/lib/nex/tmp/shared-whatsapp/')||
+      resolvedLocal.startsWith('/var/lib/nex/tmp/public/nexai/nextech-channel-mirror/')
     )?resolvedLocal:'';
     const meta=mediaMeta(
       String(m?.fileName||m?.original_name||m?.filename||`media-${i+1}`),
@@ -996,6 +997,7 @@ async function connectWhatsApp({freshPairing=false}={}){
       try{await resolveChannel();}catch(e){state.lastError=`channel: ${e?.message||e}`;}
       try{await resolveOtakuChannel();}catch(e){state.lastError=`otaku-channel: ${e?.message||e}`;}
       try{await resolveStickGoodChannel();}catch(e){state.lastError=`stick-good-channel: ${e?.message||e}`;}
+      try{await resolveSecondaryApkGroup();}catch(e){state.lastError=`secondary-apk-group: ${e?.message||e}`;}
       fetch(STICK_GOOD_MANAGER_URL+'/kick',{method:'POST',signal:AbortSignal.timeout(5000)})
         .catch(error=>logger.warn({error:String(error?.message||error)},'Stick Good immediate-start kick failed'));
       processQueue().catch(()=>{});
