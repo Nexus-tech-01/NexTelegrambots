@@ -131,6 +131,22 @@ let reconcilingRuntimes=false;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const ANIME_PRIMARY_PUBLISHER_ENABLED=true;
 const ANIME_PRIMARY_PUBLISHER_USERNAME=String(process.env.NEXACCOUNT_ANIME_PUBLISHER_USERNAME||'tresor20001').trim().replace(/^@/,'').toLowerCase();
+const EMBEDDED_ANIME_ENABLED=!/^(?:0|false|no|off)$/i.test(String(process.env.NEXACCOUNT_EMBEDDED_ANIME||'true').trim());
+const EMBEDDED_LITEAPK_ENABLED=!/^(?:0|false|no|off)$/i.test(String(process.env.NEXACCOUNT_EMBEDDED_LITEAPK||'true').trim());
+const ANIME_WORKER_URL=String(process.env.NEXANIME_WORKER_URL||'http://127.0.0.1:18130').replace(/\/+$/,'');
+
+async function animeWorkerRequest(pathname,payload=null){
+  const url=ANIME_WORKER_URL+pathname;
+  const options=payload===null
+    ?{signal:AbortSignal.timeout(15_000)}
+    :{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(120_000)};
+  const response=await fetch(url,options);
+  const text=await response.text();
+  let data;
+  try{data=JSON.parse(text)}catch{data={ok:false,error:text||('HTTP '+response.status)}}
+  if(!response.ok||data?.ok===false)throw new Error(String(data?.error||('NexAnime worker HTTP '+response.status)));
+  return data;
+}
 
 function telegramRuntimeErrorText(error){
   return String(error?.errorMessage||error?.message||error||'');
@@ -2087,7 +2103,7 @@ export async function attachConnectedClient(client,account,{leaseOwned=false,ses
       // l'envoi lorsqu'un compte connecté est mentionné.
       const mentionVideoReplied=await maybeMentionVideoReply(runtime,event);
 
-      if(await handleAnimeIngestEvent(runtime,event))return;
+      if(EMBEDDED_ANIME_ENABLED&&await handleAnimeIngestEvent(runtime,event))return;
       await handlePremiumPowerEvent(runtime,event);
       await maybeAutoModerate(runtime,event);
       await maybeServiceGreeting(runtime,event);
@@ -2122,8 +2138,12 @@ export async function attachConnectedClient(client,account,{leaseOwned=false,ses
     }
   });
 
-  await startAnimeIngest(runtime).catch(e=>console.error('[NexAnime start]',id,String(e?.message||e)));
-  await startEmbeddedLiteApkScanner(runtime).catch(e=>console.error('[NexAccount LiteAPK start]',id,String(e?.message||e)));
+  if(EMBEDDED_ANIME_ENABLED){
+    await startAnimeIngest(runtime).catch(e=>console.error('[NexAnime start]',id,String(e?.message||e)));
+  }
+  if(EMBEDDED_LITEAPK_ENABLED){
+    await startEmbeddedLiteApkScanner(runtime).catch(e=>console.error('[NexAccount LiteAPK start]',id,String(e?.message||e)));
+  }
   await startPremiumPowers(runtime).catch(e=>console.error('[NexAI Premium start]',id,String(e?.message||e)));
 
   runAutoJoin(runtime).catch(()=>{});
@@ -2239,7 +2259,7 @@ async function reconcileRuntimeAutomations(){
     if(runtime?.sessionInvalidated===true||runtime?.client?.connected!==true)continue;
 
     const username=String(runtime.account?.username||'').trim().replace(/^@/,'').toLowerCase();
-    if(username===LITEAPK_SCANNER_USERNAME){
+    if(EMBEDDED_LITEAPK_ENABLED&&username===LITEAPK_SCANNER_USERNAME){
       if(runtime.liteApksScannerPromise){
         const started=Date.parse(String(runtime.liteApksScannerStartedAt||''));
         if(Number.isFinite(started)&&now-started>=10*60*1000&&Number(runtime.liteApksScannerExitCount||0)>0){
@@ -2265,7 +2285,7 @@ async function reconcileRuntimeAutomations(){
       }
     }
 
-    if(runtime.animeIngest?.enabled!==true){
+    if(EMBEDDED_ANIME_ENABLED&&runtime.animeIngest?.enabled!==true){
       const lastAttempt=Date.parse(String(runtime.animeIngestRestartAttemptAt||''));
       if(!Number.isFinite(lastAttempt)||now-lastAttempt>=60*1000){
         runtime.animeIngestRestartAttemptAt=new Date();
@@ -2329,6 +2349,9 @@ export async function loadSavedRuntimes(){
 }
 
 export async function animeRuntimeDiscover(target=''){
+  if(!EMBEDDED_ANIME_ENABLED){
+    return animeWorkerRequest('/discover',{username:String(target||'')});
+  }
   const q=String(target||'').replace(/^@/,'').toLowerCase();
   const runtime=[...runtimes.values()].find(r=>
     !q||
@@ -2347,6 +2370,9 @@ export async function animeRuntimeDiscover(target=''){
 }
 
 export async function animeRuntimePublishNow(target=''){
+  if(!EMBEDDED_ANIME_ENABLED){
+    return animeWorkerRequest('/publish-now',{username:String(target||'')});
+  }
   const q=String(target||'').replace(/^@/,'').toLowerCase();
   const candidates=[...runtimes.values()].filter(r=>
     !q||
@@ -2359,6 +2385,9 @@ export async function animeRuntimePublishNow(target=''){
 }
 
 export async function animeRuntimeRebuild(target='',deadline=null){
+  if(!EMBEDDED_ANIME_ENABLED){
+    return animeWorkerRequest('/rebuild',{username:String(target||''),deadline});
+  }
   const q=String(target||'').replace(/^@/,'').toLowerCase();
   const runtime=[...runtimes.values()].find(r=>
     !q||
@@ -2371,6 +2400,9 @@ export async function animeRuntimeRebuild(target='',deadline=null){
 
 
 export async function animeRuntimeDedupe(target='',execute=false){
+  if(!EMBEDDED_ANIME_ENABLED){
+    return animeWorkerRequest('/dedupe',{username:String(target||''),execute:execute===true});
+  }
   const q=String(target||'').replace(/^@/,'').toLowerCase();
   const candidates=[...runtimes.values()].filter(r=>
     !q||
