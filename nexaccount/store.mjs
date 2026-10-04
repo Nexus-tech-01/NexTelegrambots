@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { MongoClient } from 'mongodb';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { cfg, sessionKey } from './config.mjs';
+import { normalizeCustomStyle } from './custom-style.mjs';
 
 let clientPromise;
 let indexesReady=false;
@@ -143,6 +144,7 @@ export async function saveAccount({me,session,phone,enabled=true}){
       menuImageUrl:'',
       menuImageStyle:0,
       customEmojiIds:{},
+      customStyle:normalizeCustomStyle({}),
       autoReact:{enabled:true,mode:'smart',targets:[...cfg.autoReactTargets],reactions:['🔥','❤️','👍']},
       autoJoin:{enabled:cfg.autoJoin,targets:[...cfg.autoJoinTargets]},
       welcome:{enabled:true,text:preferredLanguage==='fr'?'Bienvenue {name} dans {group}.':'Welcome {name} to {group}.'},
@@ -657,10 +659,10 @@ export async function customEmojiLibraryStats(sourceUsername='tresor20001'){
 export async function settingsFor(telegramUserId){
   const d=await db();
   const row=await d.collection('nexaccount_settings').findOne({telegramUserId:String(telegramUserId)});
-  if(row)return {...row,accessMode:row.accessMode==='public'?'public':'private'};
+  if(row)return {...row,accessMode:row.accessMode==='public'?'public':'private',customStyle:normalizeCustomStyle(row.customStyle)};
   return {
     telegramUserId:String(telegramUserId),language:'fr',style:cfg.defaultStyle,prefix:'.',accessMode:'private',
-    botDisplayName:'NexAi',menuImageUrl:'',menuImageStyle:0,customEmojiIds:{},
+    botDisplayName:'NexAi',menuImageUrl:'',menuImageStyle:0,customEmojiIds:{},customStyle:normalizeCustomStyle({}),
     autoReact:{enabled:cfg.autoReact,mode:'smart',targets:[...cfg.autoReactTargets],reactions:['🔥','❤️','👍']},
     autoJoin:{enabled:cfg.autoJoin,targets:[...cfg.autoJoinTargets]},
     welcome:{enabled:true,text:'Bienvenue {name} dans {group}.'},
@@ -681,6 +683,7 @@ export async function patchSettings(telegramUserId,patch){
     safe.menuImageUrl=/^https?:\/\//i.test(url)?url.slice(0,1000):'';
   }
   if(safe.menuImageStyle!==undefined)safe.menuImageStyle=Math.max(0,Math.min(31,Number(safe.menuImageStyle)||0));
+  if(safe.customStyle!==undefined)safe.customStyle=normalizeCustomStyle(safe.customStyle);
   if(safe.customEmojiIds!==undefined){
     const normalized={};
     for(const [key,value] of Object.entries(safe.customEmojiIds&&typeof safe.customEmojiIds==='object'?safe.customEmojiIds:{})){
