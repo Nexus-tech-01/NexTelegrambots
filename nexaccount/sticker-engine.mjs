@@ -601,6 +601,24 @@ async function destinationState(name){
   }
 }
 
+async function verifyDestinationPart(runtime,part,{jobId='',progress=null,label='Clone pack'}={}){
+  const expected=Math.max(0,Number(part?.total)||0);
+  const state=await withPersistentStickerRetry(
+    runtime,
+    ()=>destinationState(part?.name),
+    label+' · vérification Telegram partie '+(Number(part?.index||0)+1),
+    {jobId,progress}
+  );
+  if(!state.exists){
+    throw new Error(label+' non confirmé : pack destination absent sur Telegram.');
+  }
+  const actual=Math.max(0,Number(state.count)||0);
+  if(actual!==expected){
+    throw new Error(label+' non confirmé : '+actual+'/'+expected+' sticker(s) présents dans '+String(part?.name||'le pack')+'.');
+  }
+  return {state,actual,expected};
+}
+
 function sourceDocsForJob(set,job){
   const docs=Array.isArray(set?.documents)?set.documents:[];
   const ids=Array.isArray(job?.sourceDocumentIds)?job.sourceDocumentIds.map(String):[];
@@ -665,9 +683,14 @@ async function runDurablePackJob({runtime,job,progress=null}){
     if(docs.length!==Number(claimed.total)){
       throw new Error('Pack source incomplet: '+docs.length+'/'+claimed.total);
     }
+    if(!docs.length){
+      throw new Error(label+' impossible : le pack source ne contient aucun sticker.');
+    }
+    await safeProgress(progress,'⏳ '+label+' · démarrage confirmé · 0/'+docs.length);
     const transform=transformFromSpec(claimed.transformSpec||{kind});
 
     let completed=0;
+    let verifiedTotal=0;
     const outputPacks=[];
     for(const part of parts){
       const state=await withPersistentStickerRetry(
@@ -765,14 +788,21 @@ async function runDurablePackJob({runtime,job,progress=null}){
         }
       }
 
+      const verified=await verifyDestinationPart(runtime,part,{
+        jobId:id,progress,label
+      });
+      verifiedTotal+=verified.actual;
+      await safeProgress(progress,'⏳ '+label+' · vérification Telegram · '+verifiedTotal+'/'+docs.length+' confirmé(s)');
+
       const packRecord={
         name:part.name,
         title:part.title,
         link:packLink(part.name),
-        count:Number(part.total)||0,
+        count:verified.actual,
         sourceCount:docs.length,
         transform:kind==='clonepack'?undefined:kind,
         durable:true,
+        verifiedAt:Date.now(),
         updatedAt:Date.now()
       };
       await rememberPack(account.telegramUserId,packRecord);
@@ -782,8 +812,13 @@ async function runDurablePackJob({runtime,job,progress=null}){
     if(completed!==docs.length){
       throw new Error(label+' incomplet: '+completed+'/'+docs.length);
     }
+    if(verifiedTotal!==docs.length){
+      throw new Error(label+' non confirmé sur Telegram: '+verifiedTotal+'/'+docs.length);
+    }
     await completeStickerJob(id,{
       nextIndex:docs.length,
+      verifiedTotal,
+      verifiedAt:new Date(),
       outputPacks:outputPacks.map(x=>({name:x.name,title:x.title,link:x.link,count:x.count}))
     });
     const links=outputPacks.map(x=>x.link).join('\n');
@@ -987,6 +1022,7 @@ async function launchClonePackJob({runtime,docs,title,progress,sourcePackName=''
     transformSpec:{kind:'clonepack'},
     parts:plannedPackParts(accountId,title,docs.length)
   });
+  await safeProgress(progress,'⏳ Clone pack · job enregistré · 0/'+docs.length+' · démarrage…');
   startDurableStickerJob(runtime,job,progress);
   return id;
 }
