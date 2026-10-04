@@ -510,14 +510,73 @@ function ncPage(s:any,route:URL){
         const list=ordered.map((c:any)=>'<a style="display:flex;justify-content:space-between;gap:12px;padding:13px;border-bottom:1px solid var(--line)" class="chatItem" href="/infrastructure/bot-view?bot='+encodeURIComponent(b.slug)+'&tab=conversations&chat='+encodeURIComponent(c.id)+'"><div><b>'+infraEsc(c.title||c.id)+'</b><div class="tiny">'+infraEsc(c.type)+' · '+c.count+' message(s)</div></div><time class="tiny">'+infraEsc(infraAgo(c.last))+'</time></a>').join("");
         const messages=thread.map((e:any)=>{const mine=e.direction==="out"||e.direction==="outgoing";return '<div style="max-width:78%;align-self:'+(mine?"flex-end":"flex-start")+';background:'+(mine?"#19152a":"#11151b")+';border:1px solid var(--line);border-radius:18px;padding:11px 13px"><div class="tiny">'+infraEsc(mine?(b.display_name||b.slug):(e.username?"@"+e.username:(e.user_id||e.chat_title||"Utilisateur")))+'</div><div style="white-space:pre-wrap;margin-top:5px">'+infraEsc(e.text||((e.payload?.mediaType||e.payload?.hasMedia)?"["+(e.payload?.mediaType||"média")+"]":"(événement)"))+'</div><time class="tiny">'+infraEsc(new Date(e.created_at).toLocaleString("fr-FR"))+'</time></div>'}).join("");
         const sessionSel=b.slug==="nexai"?'<select id="composeSession"><option value="">Session NexAi automatique</option></select>':"";
-        const composer=activeChat?'<div style="border-top:1px solid var(--line);padding:14px;display:grid;gap:8px">'+sessionSel+'<textarea id="composeText" placeholder="Écrire un message…" style="width:100%;min-height:72px;background:#0c0e13;color:#fff;border:1px solid var(--line);border-radius:14px;padding:12px"></textarea><div class="actions"><label class="btn">Média<input id="composeFile" type="file" accept="image/*,video/*,audio/*,.pdf,.zip" hidden></label><button class="btn" id="recordVoice">Vocal</button><button class="btn primary" id="sendCompose">Envoyer</button></div><div class="tiny" id="composeState">Envoi via '+infraEsc(b.display_name||b.slug)+'</div></div>':'<div class="empty">Choisis une conversation.</div>';
-        body=head+'<section><div class="botChatLayout" style="display:grid;grid-template-columns:minmax(240px,32%) 1fr;min-height:68vh;border:1px solid var(--line);border-radius:20px;overflow:hidden"><aside style="border-right:1px solid var(--line);overflow:auto"><div style="padding:10px"><input id="chatSearch" placeholder="Rechercher une conversation" style="width:100%;background:#0c0e13;color:#fff;border:1px solid var(--line);border-radius:12px;padding:10px"></div>'+(list||'<div class="empty">Aucune conversation capturée pour ce bot.</div>')+'</aside><main style="display:flex;flex-direction:column;min-width:0"><div style="padding:14px;border-bottom:1px solid var(--line)"><b>'+infraEsc((chats[activeChat] as any)?.title||activeChat||"Conversation")+'</b><div class="tiny">'+infraEsc(activeChat)+'</div></div><div id="messageList" style="display:flex;flex-direction:column;gap:8px;padding:14px;overflow:auto;flex:1;max-height:58vh">'+(messages||'<div class="empty">Aucun message enregistré.</div>')+'</div>'+composer+'</main></div></section>';
+        const composer=(activeChat||b.slug==="nexai")?'<div style="border-top:1px solid var(--line);padding:14px;display:grid;gap:8px">'+sessionSel+'<textarea id="composeText" placeholder="Écrire un message…" style="width:100%;min-height:72px;background:#0c0e13;color:#fff;border:1px solid var(--line);border-radius:14px;padding:12px"></textarea><div class="actions"><label class="btn">Média<input id="composeFile" type="file" accept="image/*,video/*,audio/*,.pdf,.zip" hidden></label><button class="btn" id="recordVoice">Vocal</button><button class="btn primary" id="sendCompose">Envoyer</button></div><div class="tiny" id="composeState">Envoi via '+infraEsc(b.display_name||b.slug)+'</div></div>':'<div class="empty">Choisis une conversation.</div>';
+        body=head+'<section><div class="botChatLayout" style="display:grid;grid-template-columns:minmax(240px,32%) 1fr;min-height:68vh;border:1px solid var(--line);border-radius:20px;overflow:hidden"><aside id="chatSidebar" style="border-right:1px solid var(--line);overflow:auto"><div style="padding:10px;display:grid;gap:8px">'+(b.slug==="nexai"?'<select id="liveSession" style="width:100%"><option value="">Choisir une session Telegram…</option></select><div class="tiny" id="liveSessionState">Chargement des sessions…</div>':"")+'<input id="chatSearch" placeholder="Rechercher une conversation" style="width:100%;background:#0c0e13;color:#fff;border:1px solid var(--line);border-radius:12px;padding:10px"></div><div id="chatList">'+(list||'<div class="empty">Aucune conversation capturée pour ce bot.</div>')+'</div></aside><main style="display:flex;flex-direction:column;min-width:0"><div style="padding:14px;border-bottom:1px solid var(--line)"><b id="activeChatTitle">'+infraEsc((chats[activeChat] as any)?.title||activeChat||"Conversation")+'</b><div class="tiny" id="activeChatId">'+infraEsc(activeChat)+'</div></div><div id="messageList" style="display:flex;flex-direction:column;gap:8px;padding:14px;overflow:auto;flex:1;max-height:58vh">'+(messages||'<div class="empty">Aucun message enregistré.</div>')+'</div>'+composer+'</main></div></section>';
         extra+='const qs=document.getElementById("chatSearch");if(qs)qs.oninput=()=>{const v=qs.value.toLowerCase();document.querySelectorAll(".chatItem").forEach(x=>x.style.display=x.textContent.toLowerCase().includes(v)?"flex":"none")};';
-        if(activeChat){
+        if(activeChat||b.slug==="nexai"){
           extra+='let recordedBlob=null,recorder=null,chunks=[];const rb=document.getElementById("recordVoice");if(rb)rb.onclick=async()=>{if(recorder&&recorder.state==="recording"){recorder.stop();rb.textContent="Vocal";return}try{const st=await navigator.mediaDevices.getUserMedia({audio:true});chunks=[];recorder=new MediaRecorder(st);recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};recorder.onstop=()=>{recordedBlob=new Blob(chunks,{type:recorder.mimeType||"audio/webm"});st.getTracks().forEach(t=>t.stop());document.getElementById("composeState").textContent="Vocal prêt"};recorder.start();rb.textContent="Stop"}catch(e){document.getElementById("composeState").textContent="Micro inaccessible"}};';
           extra+='function to64(blob){return new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(",")[1]||"");r.onerror=no;r.readAsDataURL(blob)})}';
-          extra+='const sb=document.getElementById("sendCompose");if(sb)sb.onclick=async()=>{const state=document.getElementById("composeState"),text=document.getElementById("composeText").value,file=document.getElementById("composeFile").files[0],media=recordedBlob||file;try{sb.disabled=true;state.textContent="Envoi…";const payload={chatId:'+JSON.stringify(activeChat)+',text,sessionId:document.getElementById("composeSession")?.value||""};if(media){if(media.size>6000000)throw new Error("Média trop lourd pour ce composeur (6 Mo max)");payload.fileBase64=await to64(media);payload.fileName=file?.name||(recordedBlob?"voice.webm":"media");payload.mimeType=media.type||"application/octet-stream";payload.mode=recordedBlob?"voice":(media.type.startsWith("image/")?"photo":media.type.startsWith("video/")?"video":media.type.startsWith("audio/")?"audio":"document")}const r=await fetch("/api/admin/infrastructure/bots/'+encodeURIComponent(b.slug)+'/send",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)}),j=await r.json();if(!r.ok)throw new Error(j.message||j.error||"Envoi échoué");state.textContent="Envoyé";setTimeout(()=>location.reload(),650)}catch(e){state.textContent=e.message}finally{sb.disabled=false}};';
-          if(b.slug==="nexai")extra+='fetch("/api/admin/infrastructure/bots/nexai/sessions").then(r=>r.json()).then(j=>{const s=document.getElementById("composeSession");for(const x of j.runtimes||[]){if(!x.connected)continue;const o=document.createElement("option");o.value=x.telegramUserId;o.textContent=(x.username?"@"+x.username:(x.firstName||x.telegramUserId))+" · "+x.telegramUserId;s.appendChild(o)}}).catch(()=>{});';
+          extra+='const sb=document.getElementById("sendCompose");if(sb)sb.onclick=async()=>{const state=document.getElementById("composeState"),text=document.getElementById("composeText").value,file=document.getElementById("composeFile").files[0],media=recordedBlob||file;try{sb.disabled=true;state.textContent="Envoi…";const payload={chatId:(window.nxcActiveChat||'+JSON.stringify(activeChat)+'),text,sessionId:document.getElementById("composeSession")?.value||document.getElementById("liveSession")?.value||""};if(media){if(media.size>6000000)throw new Error("Média trop lourd pour ce composeur (6 Mo max)");payload.fileBase64=await to64(media);payload.fileName=file?.name||(recordedBlob?"voice.webm":"media");payload.mimeType=media.type||"application/octet-stream";payload.mode=recordedBlob?"voice":(media.type.startsWith("image/")?"photo":media.type.startsWith("video/")?"video":media.type.startsWith("audio/")?"audio":"document")}const r=await fetch("/api/admin/infrastructure/bots/'+encodeURIComponent(b.slug)+'/send",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)}),j=await r.json();if(!r.ok)throw new Error(j.message||j.error||"Envoi échoué");state.textContent="Envoyé";setTimeout(()=>location.reload(),650)}catch(e){state.textContent=e.message}finally{sb.disabled=false}};';
+          if(b.slug==="nexai")extra+=`
+(function(){
+  const esc=v=>String(v==null?"":v).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\\\"":"&quot;"}[c]));
+  const live=document.getElementById("liveSession"),compose=document.getElementById("composeSession"),state=document.getElementById("liveSessionState"),list=document.getElementById("chatList"),messages=document.getElementById("messageList"),title=document.getElementById("activeChatTitle"),chatIdEl=document.getElementById("activeChatId");
+  let dialogs=[];
+  function time(v){try{return v?new Date(v).toLocaleString("fr-FR"):""}catch{return ""}}
+  function mediaLabel(m){if(!m||!m.hasMedia)return "";return "["+String(m.mediaType||"média")+"]"}
+  function renderDialogs(rows){
+    dialogs=Array.isArray(rows)?rows:[];
+    if(!list)return;
+    if(!dialogs.length){list.innerHTML='<div class="empty">Aucune conversation disponible pour cette session.</div>';return}
+    list.innerHTML=dialogs.map(d=>'<button class="liveChatItem" data-chat="'+esc(d.chatId)+'" style="width:100%;text-align:left;display:flex;justify-content:space-between;gap:12px;padding:13px;border:0;border-bottom:1px solid var(--line);background:transparent;color:inherit;cursor:pointer"><div style="min-width:0"><b>'+esc(d.title||d.chatId)+'</b><div class="tiny">'+esc(d.type||"chat")+(d.unreadCount?' · '+esc(d.unreadCount)+' non lu(s)':'')+'</div><div class="tiny" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px">'+esc(d.lastMessage||mediaLabel(d.media)||"")+'</div></div><time class="tiny">'+esc(time(d.lastMessageAt))+'</time></button>').join("");
+    list.querySelectorAll(".liveChatItem").forEach(btn=>btn.onclick=()=>loadHistory(btn.dataset.chat));
+  }
+  function renderMessages(rows){
+    if(!messages)return;
+    const m=Array.isArray(rows)?rows:[];
+    messages.innerHTML=m.length?m.map(x=>'<div style="max-width:78%;align-self:'+(x.out?"flex-end":"flex-start")+';background:'+(x.out?"#19152a":"#11151b")+';border:1px solid var(--line);border-radius:18px;padding:11px 13px"><div style="white-space:pre-wrap">'+esc(x.text||mediaLabel(x)||"(événement)")+'</div><time class="tiny">'+esc(time(x.date))+'</time></div>').join(""):'<div class="empty">Aucun message dans cette conversation.</div>';
+    messages.scrollTop=messages.scrollHeight;
+  }
+  async function loadHistory(chat){
+    if(!live?.value||!chat)return;
+    window.nxcActiveChat=String(chat);
+    const d=dialogs.find(x=>String(x.chatId)===String(chat));
+    if(title)title.textContent=d?.title||chat;if(chatIdEl)chatIdEl.textContent=chat;
+    if(messages)messages.innerHTML='<div class="empty">Chargement des messages…</div>';
+    try{
+      const r=await fetch("/api/admin/infrastructure/bots/nexai/history?sessionId="+encodeURIComponent(live.value)+"&chatId="+encodeURIComponent(chat)+"&limit=120"),j=await r.json();
+      if(!r.ok)throw new Error(j.message||j.error||"history_failed");
+      renderMessages(j.messages||[]);
+    }catch(e){if(messages)messages.innerHTML='<div class="empty">Erreur: '+esc(e.message)+'</div>'}
+  }
+  async function loadDialogs(){
+    if(!live?.value)return;
+    if(state)state.textContent="Synchronisation Telegram…";
+    if(compose)compose.value=live.value;
+    try{
+      const r=await fetch("/api/admin/infrastructure/bots/nexai/conversations?sessionId="+encodeURIComponent(live.value)+"&limit=180"),j=await r.json();
+      if(!r.ok)throw new Error(j.message||j.error||"conversation_load_failed");
+      renderDialogs(j.dialogs||[]);
+      if(state)state.textContent=(j.dialogs||[]).length+" conversation(s) · @"+(j.username||"session");
+      const preferred=(j.dialogs||[]).find(d=>String(d.chatId)===String(window.nxcActiveChat||""))||(j.dialogs||[])[0];
+      if(preferred)loadHistory(preferred.chatId);
+    }catch(e){if(state)state.textContent="Erreur: "+e.message}
+  }
+  fetch("/api/admin/infrastructure/bots/nexai/sessions").then(r=>r.json()).then(j=>{
+    const active=(j.runtimes||[]).filter(x=>x.connected);
+    const preferred=active.find(x=>x.premium)||active.find(x=>String(x.username||"").toLowerCase()==="tresor20001")||active[0];
+    for(const x of active){
+      const label=(x.username?"@"+x.username:(x.firstName||x.telegramUserId))+" · "+x.telegramUserId+(x.premium?" · Premium":"");
+      for(const sel of [live,compose])if(sel){const o=document.createElement("option");o.value=x.telegramUserId;o.textContent=label;sel.appendChild(o)}
+    }
+    if(preferred&&live){live.value=String(preferred.telegramUserId);if(compose)compose.value=live.value;loadDialogs()}
+    else if(state)state.textContent="Aucune session Telegram active.";
+  }).catch(e=>{if(state)state.textContent="Erreur sessions: "+e.message});
+  if(live)live.onchange=()=>{window.nxcActiveChat="";loadDialogs()};
+  const search=document.getElementById("chatSearch");
+  if(search)search.oninput=()=>{const v=search.value.toLowerCase();document.querySelectorAll(".liveChatItem").forEach(x=>x.style.display=x.textContent.toLowerCase().includes(v)?"flex":"none")};
+})();
+`;
         }
       }else if(tab==="sessions"&&b.slug==="nexai"){
         body=head+section("Sessions Telegram connectées","Comptes stockés, runtimes actifs, worker, synchronisation, réparation et automatisations. Les numéros restent masqués.",'<div id="sessionGrid" class="grid"><div class="empty">Chargement des sessions live…</div></div>');
@@ -686,6 +745,27 @@ async function ncNexAiSessions(){
   if(result?.ok===false||Number(result?.code||0)!==0)throw new Error(result?.stderr||"session_inventory_failed");
   return ncLastJson(result?.stdout);
 }
+async function ncNexAiConversations(sessionId:any,limit:any=120){
+  const sid=String(sessionId||"").trim();
+  if(!sid)throw new Error("session_id_required");
+  const lim=Math.max(1,Math.min(250,Number(limit)||120));
+  const id=await ncQueueAgentJob("runtime.exec",{root:"nexai",command:"node",args:["cli.mjs","conversation-list",sid,String(lim)],timeoutMs:45000});
+  const result=await ncWaitAgentJob(id,55000);
+  if(result?.pending)throw new Error("conversation_list_timeout");
+  if(result?.ok===false||Number(result?.code||0)!==0)throw new Error(result?.stderr||result?.stdout||"conversation_list_failed");
+  return ncLastJson(result?.stdout);
+}
+async function ncNexAiHistory(sessionId:any,chatId:any,limit:any=100){
+  const sid=String(sessionId||"").trim(),chat=String(chatId||"").trim();
+  if(!sid)throw new Error("session_id_required");
+  if(!chat)throw new Error("chat_id_required");
+  const lim=Math.max(1,Math.min(200,Number(limit)||100));
+  const id=await ncQueueAgentJob("runtime.exec",{root:"nexai",command:"node",args:["cli.mjs","conversation-history",sid,chat,String(lim)],timeoutMs:45000});
+  const result=await ncWaitAgentJob(id,55000);
+  if(result?.pending)throw new Error("conversation_history_timeout");
+  if(result?.ok===false||Number(result?.code||0)!==0)throw new Error(result?.stderr||result?.stdout||"conversation_history_failed");
+  return ncLastJson(result?.stdout);
+}
 async function ncSendNexAiMessage(q:any){
   const payload={chatId:String(q.chatId||""),telegramUserId:String(q.sessionId||q.telegramUserId||""),text:String(q.text||"").slice(0,12000),fileBase64:String(q.fileBase64||""),fileName:String(q.fileName||"media").slice(0,180),mimeType:String(q.mimeType||"").slice(0,120),mode:String(q.mode||"auto").slice(0,40),replyToMessageId:Number(q.replyToMessageId||0)||0};
   if(!payload.chatId)throw new Error("chat_id_required");
@@ -759,6 +839,12 @@ async function handleInfrastructure(req:Request,route:URL,origin:string|null){
 
     if(req.method==="GET"&&route.pathname==="/api/admin/infrastructure/bots/nexai/sessions"){
       return infraJson(await ncNexAiSessions(),200,origin)
+    }
+    if(req.method==="GET"&&route.pathname==="/api/admin/infrastructure/bots/nexai/conversations"){
+      return infraJson(await ncNexAiConversations(route.searchParams.get("sessionId"),route.searchParams.get("limit")||120),200,origin)
+    }
+    if(req.method==="GET"&&route.pathname==="/api/admin/infrastructure/bots/nexai/history"){
+      return infraJson(await ncNexAiHistory(route.searchParams.get("sessionId"),route.searchParams.get("chatId"),route.searchParams.get("limit")||100),200,origin)
     }
     m=route.pathname.match(/^\/api\/admin\/infrastructure\/bots\/([A-Za-z0-9._-]+)\/send$/);
     if(req.method==="POST"&&m){const q=await req.json().catch(()=>({}));return infraJson(await ncSendBotMessage(m[1],q),200,origin)}
