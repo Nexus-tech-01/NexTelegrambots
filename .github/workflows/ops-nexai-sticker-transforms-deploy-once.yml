@@ -1,3 +1,4 @@
+# deploy verified take completion fix 2026-10-04
 # deploy take bare-alias fix 2026-10-04
 # trigger final durable sticker deployment 2026-10-04
 # deploy durable full-pack sticker queue 2026-10-04
@@ -44,6 +45,9 @@ jobs:
           grep -F "take:'clonepack'" nexaccount/commands.mjs
           grep -F "'clonepack','take'" nexaccount/sticker-engine.mjs
           grep -F "if(name==='clonepack'||name==='take')" nexaccount/sticker-engine.mjs
+          grep -F "verifyDestinationPart" nexaccount/sticker-engine.mjs
+          grep -F "verifiedTotal" nexaccount/sticker-engine.mjs
+          grep -F "démarrage confirmé" nexaccount/sticker-engine.mjs
           grep -F "Sticker engine fallback" nexaccount/runtime.mjs
           grep -F "nexaccount_sticker_jobs" nexaccount/sticker-engine.mjs
           grep -F "export async function resumeStickerJobs" nexaccount/sticker-engine.mjs
