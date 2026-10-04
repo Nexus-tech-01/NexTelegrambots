@@ -32,6 +32,7 @@ function inlineCustomEmojiEntities(text,settings={}){
 const webPairUsers=new Map();
 const photoFileIdCache=new Map();
 const photoCachePending=new Map();
+const botGreetingSeen=new Map();
 let bot;
 let replyArtworkBuffer=null;
 const NEXAI_PREMIUM_STARS=250;
@@ -139,6 +140,77 @@ async function greetingCaptionEntities(text){
   ];
 }
 
+function freshBotGreetingUsers(chatId,users,isWelcome){
+  const now=Date.now();
+  for(const [key,at] of botGreetingSeen){
+    if(now-at>20_000)botGreetingSeen.delete(key);
+  }
+  const out=[];
+  for(const user of users||[]){
+    const id=String(user?.id||'');
+    if(!id)continue;
+    const key=[String(chatId),id,isWelcome?'welcome':'goodbye'].join(':');
+    if(botGreetingSeen.has(key))continue;
+    botGreetingSeen.set(key,now);
+    out.push(user);
+  }
+  return out;
+}
+
+async function sendBotGreetingCard(ctx,chat,users,isWelcome,policy){
+  const rawTemplate=isWelcome?policy.welcomeText:policy.goodbyeText;
+  const template=greetingVisualTemplate(rawTemplate,isWelcome);
+  const text=renderBotGreetingText(template,users,chat.title||'ce groupe').slice(0,1024);
+  const entities=await greetingCaptionEntities(text);
+  const reply_markup=greetingMiniAppMarkup();
+  try{
+    const profilePhoto=isWelcome?await greetingProfilePhotoFileId(ctx,users[0]):'';
+    if(profilePhoto){
+      await ctx.api.sendPhoto(chat.id,profilePhoto,{
+        caption:text,
+        caption_entities:entities,
+        reply_markup
+      });
+    }else{
+      await ctx.api.sendMessage(chat.id,text,{entities,reply_markup});
+    }
+    console.log('[NexAI greeting-bot]',isWelcome?'welcome':'goodbye','chat='+String(chat.id),'users='+users.map(x=>x.id).join(','),'profilePhoto='+Boolean(profilePhoto));
+  }catch(error){
+    try{
+      await ctx.api.sendMessage(chat.id,text,{
+        entities:[{type:'blockquote',offset:0,length:utf16len(text)}],
+        reply_markup
+      });
+    }catch{}
+    console.error('[NexAI greeting-bot]',isWelcome?'welcome':'goodbye','chat='+String(chat.id),String(error?.description||error?.message||error).slice(0,500));
+  }
+  return true;
+}
+
+function chatMemberIsPresent(member){
+  const status=String(member?.status||'');
+  if(['creator','administrator','member'].includes(status))return true;
+  if(status==='restricted')return member?.is_member===true;
+  return false;
+}
+
+async function handleBotChatMember(ctx){
+  const update=ctx.update?.chat_member;
+  const chat=update?.chat;
+  if(!update||!chat||chat.type==='private')return false;
+  const before=chatMemberIsPresent(update.old_chat_member);
+  const after=chatMemberIsPresent(update.new_chat_member);
+  if(before===after)return false;
+  const user=update.new_chat_member?.user||update.old_chat_member?.user;
+  if(!user||String(user.id||'')===String(ctx.me?.id||''))return false;
+  const isWelcome=!before&&after;
+  const policy=await sharedGreetingPolicy(chat.id);
+  if((isWelcome&&policy.welcome===false)||(!isWelcome&&policy.goodbye===false))return true;
+  const users=freshBotGreetingUsers(chat.id,[user],isWelcome);
+  if(!users.length)return true;
+  return sendBotGreetingCard(ctx,chat,users,isWelcome,policy);
+}
+
 async function handleBotGreeting(ctx){
   const chat=ctx.chat;
   const message=ctx.message;
@@ -155,32 +227,9 @@ async function handleBotGreeting(ctx){
   const isWelcome=newcomers.length>0;
   if((isWelcome&&policy.welcome===false)||(!isWelcome&&policy.goodbye===false))return true;
 
-  const users=isWelcome?newcomers:left;
-  const rawTemplate=isWelcome?policy.welcomeText:policy.goodbyeText;
-  const template=greetingVisualTemplate(rawTemplate,isWelcome);
-  const text=renderBotGreetingText(template,users,chat.title||'ce groupe').slice(0,1024);
-  const entities=await greetingCaptionEntities(text);
-  const reply_markup=greetingMiniAppMarkup();
-
-  try{
-    const profilePhoto=isWelcome?await greetingProfilePhotoFileId(ctx,users[0]):'';
-    if(profilePhoto){
-      await ctx.replyWithPhoto(profilePhoto,{
-        caption:text,
-        caption_entities:entities,
-        reply_markup
-      });
-    }else{
-      await ctx.reply(text,{entities,reply_markup});
-    }
-    console.log('[NexAI greeting-bot]',isWelcome?'welcome':'goodbye','chat='+String(chat.id),'users='+users.map(x=>x.id).join(','),'profilePhoto='+Boolean(profilePhoto));
-  }catch(error){
-    try{
-      await ctx.reply(text,{entities:[{type:'blockquote',offset:0,length:utf16len(text)}],reply_markup});
-    }catch{}
-    console.error('[NexAI greeting-bot]',isWelcome?'welcome':'goodbye','chat='+String(chat.id),String(error?.description||error?.message||error).slice(0,500));
-  }
-  return true;
+  const users=freshBotGreetingUsers(chat.id,isWelcome?newcomers:left,isWelcome);
+  if(!users.length)return true;
+  return sendBotGreetingCard(ctx,chat,users,isWelcome,policy);
 }
 function telegramConflict409(error){
   const code=Number(error?.error_code||error?.error?.error_code||error?.error?.code||error?.code||0);
@@ -1654,6 +1703,10 @@ export async function startInlineBot(){
   bot.on('message',async(ctx,next)=>{
     if(await handleBotGreeting(ctx))return;
     return next();
+  });
+
+  bot.on('chat_member',async ctx=>{
+    await handleBotChatMember(ctx);
   });
 
   bot.on('pre_checkout_query',async ctx=>{
