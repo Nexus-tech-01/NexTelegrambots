@@ -928,6 +928,23 @@ async function mediaReuploadAllowed(){
   const p=await currentMediaPolicy();
   return p==='authorized'||p==='allow'||p==='allowed';
 }
+async function recoverAwaitingRightsIfAuthorized(d){
+  if(!(await mediaReuploadAllowed()))return 0;
+  const now=new Date();
+  const result=await d.collection('nexanime_queue').updateMany(
+    {kind:'episode',status:'awaiting_rights'},
+    {$set:{
+      status:'queued',
+      attempts:0,
+      recoveredAt:now,
+      recoveredReason:'media_policy_authorized',
+      updatedAt:now
+    },$unset:{
+      lastError:'',claimAt:'',claimBy:'',retryAfter:'',lastTransientAt:''
+    }}
+  );
+  return Number(result?.modifiedCount||0);
+}
 
 async function ensureIndexes(){
   if(indexesReady)return;
@@ -2451,6 +2468,16 @@ async function preflightSeriesBeforeSynopsis(runtime,d,seriesKey){
   if(!Number.isFinite(episode)||episode!==1){
     return {ok:false,reason:'first_episode_missing',season,expectedEpisode:1,blockedEpisode:Number.isFinite(episode)?episode:null};
   }
+  if(!(await mediaReuploadAllowed())){
+    return {
+      ok:false,
+      reason:'media_reupload_not_authorized',
+      season,
+      expectedEpisode:episode,
+      blockedEpisode:episode,
+      lastError:'media_reupload_requires_authorized_policy'
+    };
+  }
 
   // A series with no already queued synopsis must also have resolvable metadata.
   // Otherwise claimNext can select it forever while ensureGeneralPresentation()
@@ -2592,6 +2619,7 @@ async function claimNext(runtime){
   await ensureIndexes();
   await reconcileStalePublishing();
   const d=await db();
+  await recoverAwaitingRightsIfAuthorized(d);
   const accountId=String(runtime.account.telegramUserId);
   const allowAny=isPublisherRuntime(runtime);
   // Skip every temporarily unrunnable series inside the same publish tick.
