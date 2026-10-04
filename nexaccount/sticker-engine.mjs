@@ -1151,14 +1151,21 @@ function packLink(name){return 'https://t.me/addstickers/'+name}
 async function ensureDefaultPack(runtime,prepared,settings=null){
   const {account}=runtime;
   const title=automaticPackTitle(account,settings);
+  let pending=null;
   const name=await withPersistentStickerRetry(runtime,async()=>{
     for(let part=1;part<=100;part++){
       const candidate=defaultPackName(account.telegramUserId,part);
       const existing=await destinationState(candidate);
+      if(pending?.name===candidate){
+        if(pending.mode==='create'&&existing.exists)return candidate;
+        if(pending.mode==='add'&&existing.exists&&Number(existing.count)>Number(pending.beforeCount))return candidate;
+      }
       if(existing.exists&&Number(existing.count)>=STICKER_PACK_PART_SIZE)continue;
       if(existing.exists){
+        pending={name:candidate,mode:'add',beforeCount:Number(existing.count)||0};
         await queueCloneMutation(()=>addToSet(account,candidate,prepared),'sticker default add p'+part);
       }else{
+        pending={name:candidate,mode:'create',beforeCount:0};
         const partTitle=part>1?(title+' · '+part).slice(0,64):title;
         await queueCloneMutation(()=>createSet(account,partTitle,candidate,prepared),'sticker default create p'+part);
       }
