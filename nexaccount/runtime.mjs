@@ -6,7 +6,7 @@ import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { returnBigInt } from 'teleproto/Helpers.js';
 import { cfg, isOwnerId, isOwnerIdentity, isAdminIdentity } from './config.mjs';
 import { commandMap } from './commands.mjs';
-import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, acquireSessionLease, claimCommandDelivery, db, disableAccount, enableAccount, listAccountsForWorker, markSessionRepairRequired, nexAiPremiumState, patchSettings, releaseRuntimeLease, releaseSessionLease, renewRuntimeLease, renewSessionLease, sessionFingerprint, settingsFor, sharedBotIdentity } from './store.mjs';
+import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, acquireSessionLease, claimCommandDelivery, claimSharedGreetingDelivery, db, disableAccount, enableAccount, listAccountsForWorker, markSessionRepairRequired, nexAiPremiumState, patchSettings, releaseRuntimeLease, releaseSessionLease, releaseSharedGreetingDelivery, renewRuntimeLease, renewSessionLease, sessionFingerprint, settingsFor, sharedBotIdentity } from './store.mjs';
 import { listStyles } from './styles.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
 import { recordEvent } from './analytics.mjs';
@@ -1812,7 +1812,20 @@ async function maybeServiceGreeting(runtime,event){
   const ids=greetingActionUserIds(message,action,kind)
     .filter(id=>String(id)!==String(account.telegramUserId));
   if(!ids.length)return;
-  const people=await greetingPeople(client,ids);
+  const discovered=await greetingPeople(client,ids);
+  // Prefer the richer Bot API Welcome when @NexAi is present. If it is absent,
+  // the connected session remains a fallback for groups that explicitly enable greetings.
+  await new Promise(resolve=>setTimeout(resolve,500));
+  const deliveryKind=welcome?'welcome':'goodbye';
+  const people=[];
+  for(const person of discovered){
+    try{
+      if(await claimSharedGreetingDelivery(chatId,person?.id,deliveryKind))people.push(person);
+    }catch{
+      people.push(person);
+    }
+  }
+  if(!people.length)return;
   const chat=await client.getEntity(message.peerId).catch(()=>null);
   const groupTitle=String(chat?.title||'ce groupe');
   const template=serviceGreetingVisualTemplate(
@@ -1829,6 +1842,9 @@ async function maybeServiceGreeting(runtime,event){
     });
   }catch(error){
     if(claimed.key)greetingEventsSeen.delete(claimed.key);
+    for(const person of people){
+      await releaseSharedGreetingDelivery(chatId,person?.id,deliveryKind).catch(()=>{});
+    }
     console.warn('[NexAccount greeting]',String(error?.errorMessage||error?.message||error).slice(0,300));
   }
 }
