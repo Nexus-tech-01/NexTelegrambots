@@ -38,6 +38,18 @@ jobs:
           grep -F "✅ Mode PUBLIC activé" nexaccount/compat.mjs
           grep -F "consumeGeneratedCommandOutput" nexaccount/runtime.mjs
           grep -F "markGeneratedCommandOutput" nexaccount/runtime.mjs
+          grep -F "const PREFIXLESS_USERNAME_ALLOWLIST=Object.freeze([" nexaccount/runtime.mjs
+          grep -F "'tresor20001'" nexaccount/runtime.mjs
+          grep -F "'tresor20009'" nexaccount/runtime.mjs
+          grep -F "'tresor20000'" nexaccount/runtime.mjs
+          grep -F "'tresor_htn'" nexaccount/runtime.mjs
+          grep -F "allowBare:allowBare===true" nexaccount/runtime.mjs
+          if grep -F "allowBare:true" nexaccount/runtime.mjs; then
+            echo "Global prefixless parsing is forbidden" >&2
+            exit 1
+          fi
+          grep -F "if(anonymousAdminCommand)event.anonymousGroupAdmin=true;" nexaccount/runtime.mjs
+          grep -F "message?.fromId?.channelId&&!anonymousAdminCommand" nexaccount/runtime.mjs
 
       - name: Deploy anti-loop hotfix to NexAI VPS
         shell: bash
@@ -76,13 +88,15 @@ jobs:
           anti=live.get('prefixlessLoop') or {}
           if anti.get('antiLoop') is not True or anti.get('broadcastReplySafe') is not True:
               raise SystemExit('anti-loop production verification missing: '+str(live))
+          if anti.get('restrictedPrefixless') is not True or anti.get('anonymousAdminRouting') is not True:
+              raise SystemExit('identity-routing production verification missing: '+str(live))
           anime=live.get('anime') or {}
           if anime.get('ok') is not True or anime.get('enabled') is not True:
               raise SystemExit('NexAnime regression check failed: '+str(anime))
           accounts=live.get('accounts') or {}
           if accounts.get('tresor20001') is not True or accounts.get('tresor20009') is not True:
               raise SystemExit('critical NexAI sessions not confirmed: '+str(accounts))
-          print('NEXAI_PREFIXLESS_LOOP_V2_PRODUCTION_OK')
+          print('NEXAI_PREFIX_IDENTITY_ROUTING_PRODUCTION_OK')
           PY
 
-# trigger: hidetag-fullgroup-20261004-v3
+# trigger: anonymous-prefix-routing-20261004-v1
