@@ -997,6 +997,40 @@ export async function startInlineBot(){
 
   bot.use(async(ctx,next)=>{
     if(ctx.from)await observeUser(ctx.from,{source:'nexai'}).catch(()=>{});
+
+    // Global monomessage guard for private chats: every visible NexAI reply
+    // replaces the previous bot UI message instead of stacking another one.
+    if(ctx.chat?.type==='private'){
+      if(ctx.callbackQuery?.message?.message_id){
+        await rememberMonoUi(ctx.chat.id,ctx.callbackQuery.message.message_id);
+      }
+
+      const originalReply=ctx.reply.bind(ctx);
+      const originalReplyWithPhoto=ctx.replyWithPhoto.bind(ctx);
+      const originalReplyWithVideo=ctx.replyWithVideo.bind(ctx);
+
+      ctx.reply=async(text,options={})=>{
+        await removePreviousMonoUi(ctx);
+        const message=await originalReply(text,options);
+        await rememberMonoUi(ctx.chat.id,message?.message_id);
+        return message;
+      };
+
+      ctx.replyWithPhoto=async(photo,options={})=>{
+        await removePreviousMonoUi(ctx);
+        const message=await originalReplyWithPhoto(photo,options);
+        await rememberMonoUi(ctx.chat.id,message?.message_id);
+        return message;
+      };
+
+      ctx.replyWithVideo=async(video,options={})=>{
+        await removePreviousMonoUi(ctx);
+        const message=await originalReplyWithVideo(video,options);
+        await rememberMonoUi(ctx.chat.id,message?.message_id);
+        return message;
+      };
+    }
+
     return next();
   });
 
@@ -1381,7 +1415,11 @@ export async function startInlineBot(){
     const action=raw.slice(0,cut),accountId=raw.slice(cut+1);
     if(action==='premium:buy'){
       try{
-        await sendNexAiPremiumInvoice(ctx.from.id);
+        await removePreviousMonoUi(ctx);
+        const invoice=await sendNexAiPremiumInvoice(ctx.from.id);
+        if(ctx.chat?.type==='private'&&invoice?.message_id){
+          await rememberMonoUi(ctx.chat.id,invoice.message_id);
+        }
         await ctx.answerCallbackQuery({text:'Facture NexAI Premium envoyée en privé.'});
       }catch(error){
         console.error('[NexAI premium invoice]',String(error?.description||error?.message||error).slice(0,500));
