@@ -1064,7 +1064,6 @@ async function runWithClient(c,{ownsReader=false,signal=null,expectedUsername=ex
   try{
     await recoverMissedApks(c,nextechEntity,st,sources);
     kickWorkers(c,publisher,destination,st,sources);
-    await withTimeout(recoverRecentNextechApkMirrors(c,nextechEntity,st),Math.max(opTimeoutMs,largeDownloadTimeoutMs),'initial Nextech APK WhatsApp recovery');
     await withTimeout(pollNextechChannelMirror(c,nextechEntity,st),opTimeoutMs,'initial Nextech WhatsApp mirror');
     await withTimeout(discover(c,st,sources),opTimeoutMs,'initial source discovery');
   }catch(e){
@@ -1073,6 +1072,10 @@ async function runWithClient(c,{ownsReader=false,signal=null,expectedUsername=ex
     throw e;
   }
   log('watching', [...sources.keys()].join(', '),'-> @'+dst,'poll',poll+'ms');
+  // Recovery may need to download very large APKs. Run it after readiness so
+  // startup/deploy health checks never time out while a historical file streams.
+  void recoverRecentNextechApkMirrors(c,nextechEntity,st)
+    .catch(error=>warn('Nextech APK WhatsApp recovery failed',String(error?.message||error).slice(0,300)));
 
   while(!signal?.aborted){
     if(ownsReader){
