@@ -512,7 +512,9 @@ async function nexAiGroupCardUi(){
     miniUrl,
     avatarUrl,
     replyMarkup:{inline_keyboard:[[{text:'⚡ ᴏᴜᴠʀɪʀ ɴᴇxᴀɪ',url:miniUrl}]]},
-    buttons:[[new Api.KeyboardButtonUrl({text:'⚡ ᴏᴜᴠʀɪʀ ɴᴇxᴀɪ',url:miniUrl})]]
+    buttons:typeof Api.KeyboardButtonUrl==='function'
+      ?[[new Api.KeyboardButtonUrl({text:'⚡ ᴏᴜᴠʀɪʀ ɴᴇxᴀɪ',url:miniUrl})]]
+      :undefined
   };
 }
 
@@ -617,8 +619,7 @@ async function sendStyledTagAll({runtime,event,people,requestedMessage,sendInlin
       await client.sendMessage(peer,{
         message:part.text,
         formattingEntities:part.mtEntities,
-        buttons:ui.buttons,
-        linkPreview:index===0&&ui.avatarUrl?ui.avatarUrl:undefined
+        ...(ui.buttons?{buttons:ui.buttons}:{})
       });
     }
   }
