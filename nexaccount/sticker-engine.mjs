@@ -27,7 +27,7 @@ const cloneDownloadTails=new Map();
 const rememberPackTails=new Map();
 
 const STICKER_JOB_ACTIVE_STATUSES=['queued','running','retrying'];
-const STICKER_JOB_LEASE_MS=Math.max(5*60_000,Number(process.env.NEXAI_STICKER_JOB_LEASE_MS||30*60*1000));
+const STICKER_JOB_LEASE_MS=Math.max(2*60_000,Number(process.env.NEXAI_STICKER_JOB_LEASE_MS||5*60*1000));
 let stickerJobIndexesReady=false;
 
 async function stickerJobCollection(){
@@ -627,7 +627,13 @@ async function runDurablePackJob({runtime,job,progress=null}){
     console.warn('[NexAi sticker job claim]',id,String(error?.message||error).slice(0,280));
     return null;
   });
-  if(!claimed)return false;
+  if(!claimed){
+    if(runtime?.client?.connected!==false){
+      const timer=setTimeout(()=>resumeStickerJobs(runtime).catch(()=>{}),60_000);
+      timer.unref?.();
+    }
+    return false;
+  }
 
   const kind=String(claimed.kind||'clonepack');
   const label=jobLabel(kind);
@@ -798,7 +804,13 @@ async function runDurableExportJob({runtime,job,progress=null}){
   const id=String(job?.id||job?._id||'');
   if(!id)return false;
   const claimed=await claimStickerJob(id,account.telegramUserId).catch(()=>null);
-  if(!claimed)return false;
+  if(!claimed){
+    if(runtime?.client?.connected!==false){
+      const timer=setTimeout(()=>resumeStickerJobs(runtime).catch(()=>{}),60_000);
+      timer.unref?.();
+    }
+    return false;
+  }
 
   const label=jobLabel('exportwhatsapp');
   activeCloneJobs.set(id,{
