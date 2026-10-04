@@ -58,7 +58,7 @@ const required={
   'commands.mjs':["C('ultratake'","C('delfilig'","C('filitake'","C('noteclone'","C('customstyle'","C('stylename'","C('menuvideo'"],
   'sticker-engine.mjs':["'ultratake'","'delfilig'","'filitake'","'noteclone'","export async function resumeStickerJobs","applyDurableStickerMutation","startPrepared","traitement rapide sécurisé","runNativeCloneJob","CreateStickerSet","createSetBatch","préparation batch"],
   'sticker-transform.mjs':['export async function addStickerWatermark','export async function removeStickerWatermark','export async function roundSticker'],
-  'runtime.mjs':['canHandleStickerCommand(parsed.name)','Sticker engine fallback','registered.hidden!==true','consumeGeneratedCommandOutput','markGeneratedCommandOutput','NEXACCOUNT_EMBEDDED_ANIME','ensureAnimePublisherOwnership','NEXACCOUNT_ANIME_FAILOVER_USERNAMES','animePublisherWatchdog'],
+  'runtime.mjs':['canHandleStickerCommand(parsed.name)','Sticker engine fallback','registered.hidden!==true','consumeGeneratedCommandOutput','markGeneratedCommandOutput','PREFIXLESS_USERNAME_ALLOWLIST','prefixlessUsernameAllowed','anonymousGroupAdmin','NEXACCOUNT_EMBEDDED_ANIME','ensureAnimePublisherOwnership','NEXACCOUNT_ANIME_FAILOVER_USERNAMES','animePublisherWatchdog'],
   'anime-secondary-reader.mjs':['SECONDARY_REQUESTED','embedded_runtime_owns_sessions','animePublisher:false'],
   'core/engine-router.mjs':['outcome?.deferred!==true','await progress.done','canonicalName(cmd)','handleStickerCommand'],
   'compat.mjs':['cacheMenuMediaForBot',"name==='customstyle'","name==='menuphoto'||name==='menuvideo'",'✅ Diffusion terminée']
@@ -306,7 +306,7 @@ try{
     if(!scanner)throw new Error('required NexAI runtime missing after prefixless-loop deploy: @tresor20009');
     if(primary&&(primary?.anime?.listener!==true||primary?.anime?.publisher!==true))throw new Error('@tresor20001 anime role regression');
     if(scanner?.anime?.listener!==true)throw new Error('@tresor20009 anime listener regression');
-    report.steps.prefixlessLoop={antiLoop:true,broadcastReplySafe:true};
+    report.steps.prefixlessLoop={antiLoop:true,broadcastReplySafe:true,restrictedPrefixless:true,anonymousAdminRouting:true};
     report.steps.anime={ok:anime.ok,enabled:anime.enabled,destination:anime.destination,interSeriesMinutes:anime.interSeriesMinutes};
     report.steps.accounts={
       tresor20001:primary?true:(primaryRepair?'repair-required':false),
