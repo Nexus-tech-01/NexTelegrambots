@@ -33,6 +33,10 @@ const modes={
     ['sticker-engine.mjs','nexaccount/sticker-engine.mjs'],
     ['sticker-transform.mjs','nexaccount/sticker-transform.mjs'],
     ['runtime.mjs','nexaccount/runtime.mjs']
+  ],
+  'prefixless-loop':[
+    ['runtime.mjs','nexaccount/runtime.mjs'],
+    ['compat.mjs','nexaccount/compat.mjs']
   ]
 };
 const files=modes[mode];
@@ -49,8 +53,8 @@ const required={
   'commands.mjs':["C('ultratake'","C('delfilig'","C('filitake'","C('noteclone'","C('customstyle'","C('stylename'","C('menuvideo'"],
   'sticker-engine.mjs':["'ultratake'","'delfilig'","'filitake'","'noteclone'"],
   'sticker-transform.mjs':['export async function addStickerWatermark','export async function removeStickerWatermark','export async function roundSticker'],
-  'runtime.mjs':['canHandleStickerCommand(parsed.name)','Sticker engine fallback','registered.hidden!==true'],
-  'compat.mjs':['cacheMenuMediaForBot',"name==='customstyle'","name==='menuphoto'||name==='menuvideo'"]
+  'runtime.mjs':['canHandleStickerCommand(parsed.name)','Sticker engine fallback','registered.hidden!==true','consumeGeneratedCommandOutput','markGeneratedCommandOutput','NEXACCOUNT_EMBEDDED_ANIME'],
+  'compat.mjs':['cacheMenuMediaForBot',"name==='customstyle'","name==='menuphoto'||name==='menuvideo'",'✅ Diffusion terminée']
 };
 
 const stamp=new Date().toISOString().replace(/[:.]/g,'-');
@@ -223,6 +227,35 @@ try{
       published:anime.published
     };
   }
+  if(mode==='prefixless-loop'){
+    let anime=null;
+    let accounts=null;
+    let byName=new Map();
+    for(let i=0;i<30;i++){
+      try{
+        anime=cli('anime-status');
+        accounts=cli('accounts');
+        const active=Array.isArray(accounts?.runtimes)?accounts.runtimes:[];
+        byName=new Map(active.filter(x=>x?.connected===true).map(x=>[String(x.username||'').toLowerCase().replace(/^@/,''),x]));
+        if(anime?.ok===true&&anime?.enabled===true
+          &&String(anime?.destination||'').toLowerCase()==='@theotaku_nexus'
+          &&byName.has('tresor20001')&&byName.has('tresor20009'))break;
+      }catch{}
+      await sleep(2500);
+    }
+    if(anime?.ok!==true||anime?.enabled!==true||String(anime?.destination||'').toLowerCase()!=='@theotaku_nexus')throw new Error('anime status regression after prefixless-loop deploy');
+    for(const requiredName of ['tresor20001','tresor20009']){
+      if(!byName.has(requiredName))throw new Error('required NexAI runtime missing after prefixless-loop deploy: @'+requiredName);
+    }
+    const primary=byName.get('tresor20001');
+    const scanner=byName.get('tresor20009');
+    if(primary?.anime?.listener!==true||primary?.anime?.publisher!==true)throw new Error('@tresor20001 anime role regression');
+    if(scanner?.anime?.listener!==true)throw new Error('@tresor20009 anime listener regression');
+    report.steps.prefixlessLoop={antiLoop:true,broadcastReplySafe:true};
+    report.steps.anime={ok:anime.ok,enabled:anime.enabled,destination:anime.destination,interSeriesMinutes:anime.interSeriesMinutes};
+    report.steps.accounts={tresor20001:true,tresor20009:true,runtimeCount:Array.isArray(accounts?.runtimes)?accounts.runtimes.filter(x=>x?.connected===true).length:0};
+  }
+
   if(mode==='custom-style'){
     let anime=null;
     let accounts=null;
