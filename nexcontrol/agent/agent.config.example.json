@@ -161,6 +161,36 @@
         "stop",
         "restart"
       ]
+    },
+    "nexai-core": {
+      "unit": "nex-nexaccount.service",
+      "description": "NexAI Core / Telegram command runtime",
+      "healthUrl": "http://127.0.0.1:18120/health",
+      "actions": [
+        "start",
+        "stop",
+        "restart"
+      ]
+    },
+    "nexanime": {
+      "unit": "nex-anime.service",
+      "description": "Independent NexAnime listener and publisher worker",
+      "healthUrl": "http://127.0.0.1:18130/health",
+      "actions": [
+        "start",
+        "stop",
+        "restart"
+      ]
+    },
+    "nexapk": {
+      "unit": "nex-apk.service",
+      "description": "Independent LiteAPK scan and publication worker",
+      "healthUrl": "http://127.0.0.1:18131/health",
+      "actions": [
+        "start",
+        "stop",
+        "restart"
+      ]
     }
   }
 }
