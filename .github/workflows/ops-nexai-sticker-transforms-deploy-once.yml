@@ -1,3 +1,4 @@
+# deploy untake + untakepk + take standalone fallback 2026-10-04
 # retry native+batch deploy after runner dependency fix 2026-10-04
 # deploy native+batch sticker acceleration 2026-10-04
 # deploy accelerated sticker pipeline 2026-10-04
@@ -46,6 +47,10 @@ jobs:
           grep -F "C('delfilig'" nexaccount/commands.mjs
           grep -F "C('filitake'" nexaccount/commands.mjs
           grep -F "C('noteclone'" nexaccount/commands.mjs
+          grep -F "C('untake'" nexaccount/commands.mjs
+          grep -F "C('untakepk'" nexaccount/commands.mjs
+          grep -F "'untake','untakepk'" nexaccount/sticker-engine.mjs
+          grep -F "Fallback Take: stickers autonomes/Untake ou StickerSet invalide." nexaccount/sticker-engine.mjs
           grep -F "take:'clonepack'" nexaccount/commands.mjs
           grep -F "'clonepack','take'" nexaccount/sticker-engine.mjs
           grep -F "if(name==='clonepack'||name==='take')" nexaccount/sticker-engine.mjs
