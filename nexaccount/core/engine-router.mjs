@@ -15,7 +15,7 @@ const ENGINE_LABELS={
   game:'Game',
   premium:'NexAI Premium'
 };
-const STICKER_PROGRESS=new Set(['sticker','clonepack','createpack','exportwhatsapp']);
+const STICKER_PROGRESS=new Set(['sticker','clonepack','createpack','exportwhatsapp','ultratake','delfilig','filitake','noteclone']);
 function needsProgress(engine,name){
   if(engine==='download'||engine==='ai'||engine==='anime'||engine==='premium')return true;
   if(engine==='sticker')return STICKER_PROGRESS.has(String(name||''));
@@ -56,8 +56,8 @@ async function guarded({label,name,sendText,client,peer,run,progressEnabled=true
     }
   }
   try{
-    await run(progress);
-    if(progress&&!progress.finished)await progress.done(label+' · '+name+' terminé');
+    const outcome=await run(progress);
+    if(progress&&!progress.finished&&outcome?.deferred!==true)await progress.done(label+' · '+name+' terminé');
   }catch(error){
     const reason=String(error?.message||error).replace(/\s+/g,' ').slice(0,500);
     if(error?.code==='NEXAI_PREMIUM_REQUIRED'&&typeof onNexAiPremiumRequired==='function'){
