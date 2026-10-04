@@ -427,9 +427,41 @@ function isKnownRuntimeCommand(name,settings,event){
   return Boolean(custom&&Object.prototype.hasOwnProperty.call(custom,key));
 }
 
-function parseRuntimeCommand(text,settings,event){
+const PREFIXLESS_USERNAMES=new Set([
+  'tresor20000',
+  'tresor20009',
+  'tresor20001',
+  'tresor_htn'
+]);
+
+function normalizeCommandUsername(value){
+  return String(value||'').trim().replace(/^@/,'').toLowerCase();
+}
+
+function canUsePrefixlessUsername(username){
+  return PREFIXLESS_USERNAMES.has(normalizeCommandUsername(username));
+}
+
+async function messageAuthorCanUsePrefixless(client,message,account,eventSender=null,selfAuthoredHint=null){
+  const selfAuthored=selfAuthoredHint===null
+    ?isSelfAuthoredMessage(message,account)
+    :Boolean(selfAuthoredHint);
+  if(selfAuthored)return canUsePrefixlessUsername(account?.username);
+
+  const direct=normalizeCommandUsername(eventSender?.username||'');
+  if(direct)return canUsePrefixlessUsername(direct);
+
+  const id=String(eventSender?.id||eventSender?.userId||messageAuthorId(message)||'');
+  if(!id)return false;
+  try{
+    const entity=await client.getEntity(id);
+    return canUsePrefixlessUsername(entity?.username);
+  }catch{return false}
+}
+
+function parseRuntimeCommand(text,settings,event,{allowBare=false}={}){
   return parseCommand(text,settings?.prefix||'.',{
-    allowBare:true,
+    allowBare:allowBare===true,
     isKnownCommand:name=>isKnownRuntimeCommand(name,settings,event)
   });
 }
@@ -1965,7 +1997,8 @@ async function maybeHandleSelfCommand(runtime,event,source='event'){
   );
   event.callerOwner=ownerCaller;
   const accessMode=settings.accessMode==='public'?'public':'private';
-  const parsed=parseRuntimeCommand(textOf(message),settings,event);
+  const allowBare=await messageAuthorCanUsePrefixless(client,message,account,event?.sender,selfAuthored);
+  const parsed=parseRuntimeCommand(textOf(message),settings,event,{allowBare});
   if(!parsed)return false;
 
   // Bare commands ("sessions", "menu", ...) are convenient, but unlike an
@@ -2078,7 +2111,8 @@ async function pollRecentCommands(runtime){
       const accessMode=settings.accessMode==='public'?'public':'private';
       const raw=textOf(message);
       const pollEvent={message,isGroup};
-      const parsed=parseRuntimeCommand(raw,settings,pollEvent);
+      const allowBare=await messageAuthorCanUsePrefixless(client,message,account,null,selfAuthored);
+      const parsed=parseRuntimeCommand(raw,settings,pollEvent,{allowBare});
       if(!parsed)return;
 
       // Prefixless/slash commands are recovered only from a very recent gap.
@@ -2114,9 +2148,11 @@ async function pollRecentCommands(runtime){
 
       const topRaw=textOf(top);
       const topEvent={message:top,isGroup:dialog?.isGroup===true};
-      const topParsed=parseRuntimeCommand(topRaw,settings,topEvent);
+      const topSelfAuthored=isSelfAuthoredMessage(top,account);
+      const topAllowBare=await messageAuthorCanUsePrefixless(client,top,account,null,topSelfAuthored);
+      const topParsed=parseRuntimeCommand(topRaw,settings,topEvent,{allowBare:topAllowBare});
       const topIsOwnCommand=
-        (isSelfAuthoredMessage(top,account)||settings.accessMode==='public')&&
+        (topSelfAuthored||settings.accessMode==='public')&&
         !!topParsed;
 
       // Only a handful of recent chats need a history tail. Limiting these
@@ -2353,7 +2389,9 @@ export async function attachConnectedClient(client,account,{leaseOwned=false,ses
       // Raw command fallback is strictly for commands authored by the connected account.
       if(!isSelfAuthoredMessage(event.message,account))return;
       const settings=await settingsFor(id);
-      const parsed=parseRuntimeCommand(textOf(event.message),settings,event);
+      const parsed=parseRuntimeCommand(textOf(event.message),settings,event,{
+        allowBare:canUsePrefixlessUsername(account.username)
+      });
       if(!parsed)return;
       console.log(
         '[NexAccount raw-command]',
@@ -2828,7 +2866,9 @@ export async function runtimeCommandTest(telegramUserId,text='.menu',peer='me'){
   if(!runtime)throw new Error('runtime_not_active');
   const {account}=runtime;
   const settings=await settingsFor(id);
-  const parsed=parseRuntimeCommand(String(text||''),settings,{message:{peerId:peer||'me'}});
+  const parsed=parseRuntimeCommand(String(text||''),settings,{message:{peerId:peer||'me'}},{
+    allowBare:canUsePrefixlessUsername(account.username)
+  });
   if(!parsed)throw new Error('command_not_parsed');
   await handleCommand(runtime,{
     message:{
