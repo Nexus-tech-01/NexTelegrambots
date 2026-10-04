@@ -8,6 +8,7 @@
 # formatted-resume-synopsis refresh
 # synopsis-sanitizer fix refresh
 # mandatory-resume-card refresh
+# deploy localized resume synopsis with cover
 name: Ops Anime Safe Recovery Deploy Once
 # deploy refresh 2026-10-04
 
