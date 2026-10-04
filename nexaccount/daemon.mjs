@@ -169,6 +169,23 @@ async function route(req,res){
     if(req.method==='GET'&&url.pathname==='/engines'){
       return json(res,200,await engineStatus());
     }
+    if(req.method==='GET'&&url.pathname==='/conversation/list'){
+      return json(res,200,await runtimeConversationList(
+        url.searchParams.get('telegramUserId')||url.searchParams.get('username')||'',
+        Number(url.searchParams.get('limit')||100)
+      ));
+    }
+    if(req.method==='GET'&&url.pathname==='/conversation/history'){
+      return json(res,200,await runtimeConversationHistory(
+        url.searchParams.get('telegramUserId')||url.searchParams.get('username')||'',
+        url.searchParams.get('chatId')||'',
+        Number(url.searchParams.get('limit')||80)
+      ));
+    }
+    if(req.method==='POST'&&url.pathname==='/conversation/send'){
+      const q=await body(req);
+      return json(res,200,await runtimeConversationSend(q.telegramUserId||q.username||'',q));
+    }
     if(req.method==='GET'&&url.pathname==='/anime/status'){
       if(!EMBEDDED_ANIME_ENABLED)return json(res,200,await standaloneAnimeStatus());
       return json(res,200,{...(await animeSystemStatus()),secondaryReader:secondaryAnimeStatus()});
