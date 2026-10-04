@@ -210,6 +210,18 @@ def local_health(checks):
             results.append({"name": check.get("name"), "type": typ, "target": target, "ok": True, "deferred": True})
     return results
 
+def wait_local_health(checks, attempts=15, interval=2):
+    attempts = max(1, min(60, int(attempts)))
+    last = []
+    for attempt in range(1, attempts + 1):
+        last = local_health(checks)
+        required = [x for x in last if not x.get("deferred")]
+        if not any(not x.get("ok") for x in required):
+            return last, attempt
+        if attempt < attempts:
+            time.sleep(interval)
+    return last, attempts
+
 def rollback_only(cfg):
     current = safe_abs(cfg["currentPath"], "current_path")
     previous = safe_abs(cfg["previousTarget"], "previous_target")
@@ -228,14 +240,13 @@ def rollback_only(cfg):
         if os.path.lexists(tmp_link):
             os.unlink(tmp_link)
     run(["systemctl", "restart", service], timeout=120)
-    time.sleep(2)
-    health = local_health(cfg.get("healthChecks") or [])
+    health, health_attempts = wait_local_health(cfg.get("healthChecks") or [], attempts=15, interval=2)
     local_required = [x for x in health if not x.get("deferred")]
     ok = not any(not x.get("ok") for x in local_required)
     report = {
         "ok": ok, "operation": "rollback", "currentPath": current,
         "previousTarget": previous, "service": service, "health": health,
-        "completedAt": time.time()
+        "healthAttempts": health_attempts, "completedAt": time.time()
     }
     print(json.dumps(report, separators=(",", ":")))
     return 0 if ok else 1
@@ -297,9 +308,9 @@ def main():
         run(["systemctl", "restart", service], timeout=120)
         report["steps"]["restart"] = {"ok": True}
 
-        time.sleep(2)
-        health = local_health(cfg.get("healthChecks") or [])
+        health, health_attempts = wait_local_health(cfg.get("healthChecks") or [], attempts=15, interval=2)
         report["steps"]["health"] = health
+        report["healthAttempts"] = health_attempts
         local_required = [x for x in health if not x.get("deferred")]
         if any(not x.get("ok") for x in local_required):
             fail("local_health_failed")
