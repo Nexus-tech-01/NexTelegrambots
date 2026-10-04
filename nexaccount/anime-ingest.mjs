@@ -1859,11 +1859,19 @@ async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
     blockedSeriesKey='';
     blockedSeriesUntil=null;
   }else if(blockActive&&current?.activeSeriesKey===blockedSeriesKey){
+    const clearForced=String(current?.forcedNextSeriesKey||'')===blockedSeriesKey;
     await scheduler.updateOne(
       {_id:'scheduler'},
-      {$unset:{activeSeriesKey:'',activeSeriesStartedAt:''},$set:{updatedAt:now}}
+      {$unset:{
+        activeSeriesKey:'',activeSeriesStartedAt:'',
+        ...(clearForced?{forcedNextSeriesKey:'',skipCooldownForForcedNext:''}:{})
+      },$set:{updatedAt:now}}
     );
-    current={...(current||{}),activeSeriesKey:'',activeSeriesStartedAt:null};
+    current={
+      ...(current||{}),
+      activeSeriesKey:'',activeSeriesStartedAt:null,
+      ...(clearForced?{forcedNextSeriesKey:''}:{})
+    };
   }
 
   if(current?.activeSeriesKey){
