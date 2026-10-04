@@ -102,3 +102,5 @@ jobs:
               raise SystemExit('NexAI menu probe failed: '+str(probe))
           print('NEXAI_CUSTOM_STYLE_PRODUCTION_OK')
           PY
+
+# trigger: prefixless-loop-v2-via-supported-custom-style-mode
