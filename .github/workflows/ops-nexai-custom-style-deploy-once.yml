@@ -1,3 +1,4 @@
+# deploy coherent runtime graph for greetings
 # redeploy latest HEAD after greeting/session-state fix
 # deploy bot-api greeting fallback + invalid session quarantine
 # deploy service-message welcome/goodbye fallback
@@ -46,6 +47,9 @@ jobs:
           node --check nexaccount/compat.mjs
           node --check nexaccount/menu.mjs
           node --check nexaccount/inline-bot.mjs
+          node --check nexaccount/sticker-engine.mjs
+          node --check nexaccount/sticker-transform.mjs
+          node --input-type=module -e "await import('./nexaccount/runtime.mjs'); await import('./nexaccount/inline-bot.mjs'); console.log('MODULE_GRAPH_OK')"
           node nexaccount/scripts/test-menu-resilience.mjs
           grep -F "customStyleModel" nexaccount/menu.mjs
           grep -F "C('customstyle'" nexaccount/commands.mjs
@@ -57,6 +61,7 @@ jobs:
           grep -F "message.new_chat_members" nexaccount/inline-bot.mjs
           grep -F "message.left_chat_member" nexaccount/inline-bot.mjs
           grep -F "sharedGreetingPolicy" nexaccount/store.mjs
+          grep -F "export async function resumeStickerJobs" nexaccount/sticker-engine.mjs
           grep -F "cacheMenuMediaForBot" nexaccount/compat.mjs
           grep -F "bot.command('menuvideo'" nexaccount/inline-bot.mjs
           grep -F "inlineCachedMediaResult" nexaccount/inline-bot.mjs
