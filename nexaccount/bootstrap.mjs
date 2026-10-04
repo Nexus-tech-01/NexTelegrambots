@@ -97,12 +97,17 @@ if(await healthy()&&!restart){
   process.exit(0);
 }
 
-try{
-  const animeGate=await assertAnimeRuntimeContract(here);
-  console.log('[NexAnime protection] NEXANIME_PROTECTION_GATE_V1 ok files='+animeGate.files.length);
-}catch(error){
-  console.error('[NexAnime protection] refusing start/restart before stopping the healthy runtime:',String(error?.message||error));
-  process.exit(1);
+const embeddedAnimeEnabled=!/^(?:0|false|no|off)$/i.test(String(process.env.NEXACCOUNT_EMBEDDED_ANIME||'true').trim());
+if(embeddedAnimeEnabled){
+  try{
+    const animeGate=await assertAnimeRuntimeContract(here);
+    console.log('[NexAnime protection] NEXANIME_PROTECTION_GATE_V1 ok files='+animeGate.files.length);
+  }catch(error){
+    console.error('[NexAnime protection] refusing start/restart before stopping the healthy runtime:',String(error?.message||error));
+    process.exit(1);
+  }
+}else{
+  console.log('[NexAccount] embedded NexAnime disabled; standalone worker owns anime runtime');
 }
 
 async function pidAlive(pid){
