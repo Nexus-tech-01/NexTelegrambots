@@ -1,3 +1,4 @@
+# deploy durable full-pack sticker queue 2026-10-04
 # deploy watermark controls 2026-10-03
 # deploy runtime sticker fallback 2026-10-03
 # sync ultratake+delfilig production v2
@@ -32,12 +33,23 @@ jobs:
           node --check nexaccount/commands.mjs
           node --check nexaccount/sticker-engine.mjs
           node --check nexaccount/sticker-transform.mjs
+          node --check nexaccount/core/engine-router.mjs
           node --check nexaccount/runtime.mjs
           grep -F "C('ultratake'" nexaccount/commands.mjs
           grep -F "C('delfilig'" nexaccount/commands.mjs
           grep -F "C('filitake'" nexaccount/commands.mjs
           grep -F "C('noteclone'" nexaccount/commands.mjs
           grep -F "Sticker engine fallback" nexaccount/runtime.mjs
+          grep -F "nexaccount_sticker_jobs" nexaccount/sticker-engine.mjs
+          grep -F "export async function resumeStickerJobs" nexaccount/sticker-engine.mjs
+          grep -F "STICKER_PACK_PART_SIZE" nexaccount/sticker-engine.mjs
+          grep -F "sourceDocumentIds" nexaccount/sticker-engine.mjs
+          grep -F "resumeStickerJobs(runtime)" nexaccount/runtime.mjs
+          grep -F "outcome?.deferred!==true" nexaccount/core/engine-router.mjs
+          if grep -F "MAX_CLONE" nexaccount/sticker-engine.mjs; then
+            echo "legacy pack truncation still present" >&2
+            exit 1
+          fi
 
       - name: Deploy only sticker transform files to NexAI VPS
         shell: bash
