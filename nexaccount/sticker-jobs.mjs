@@ -3,7 +3,7 @@ import { cfg } from './config.mjs';
 import { db } from './store.mjs';
 
 const ACTIVE_STATUSES=['queued','running','retrying'];
-const DEFAULT_LEASE_MS=Math.max(60_000,Number(process.env.NEXAI_STICKER_JOB_LEASE_MS||5*60*1000));
+const DEFAULT_LEASE_MS=Math.max(5*60_000,Number(process.env.NEXAI_STICKER_JOB_LEASE_MS||30*60*1000));
 let indexesReady=false;
 
 async function jobs(){
