@@ -13,6 +13,18 @@ import { secondaryAnimeStatus, startSecondaryAnimeReader, stopSecondaryAnimeRead
 
 assertCoreConfig();
 const PAIRING_ONLY=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXACCOUNT_PAIRING_ONLY||'').trim());
+const EMBEDDED_ANIME_ENABLED=!/^(?:0|false|no|off)$/i.test(String(process.env.NEXACCOUNT_EMBEDDED_ANIME||'true').trim());
+const ANIME_WORKER_URL=String(process.env.NEXANIME_WORKER_URL||'http://127.0.0.1:18130').replace(/\/+$/,'');
+
+async function standaloneAnimeStatus(){
+  try{
+    const response=await fetch(ANIME_WORKER_URL+'/health',{signal:AbortSignal.timeout(5000)});
+    const data=await response.json();
+    return {...data,httpStatus:response.status};
+  }catch(error){
+    return {ok:false,service:'nexanime-worker',independent:true,error:String(error?.message||error)};
+  }
+}
 
 function json(res,status,data){
   const body=JSON.stringify(data);
@@ -158,6 +170,7 @@ async function route(req,res){
       return json(res,200,await engineStatus());
     }
     if(req.method==='GET'&&url.pathname==='/anime/status'){
+      if(!EMBEDDED_ANIME_ENABLED)return json(res,200,await standaloneAnimeStatus());
       return json(res,200,{...(await animeSystemStatus()),secondaryReader:secondaryAnimeStatus()});
     }
     if(req.method==='POST'&&url.pathname==='/anime/discover'){
