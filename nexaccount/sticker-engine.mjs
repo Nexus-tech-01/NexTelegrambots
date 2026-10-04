@@ -1209,45 +1209,63 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
     if(scope==='pack'&&!set?.documents?.length){
       throw new Error('Ce sticker n’appartient pas à un pack accessible. Utilise --one pour traiter seulement ce sticker.');
     }
-    const docs=(scope==='pack'?set.documents:[documentOf(source)]).filter(Boolean).slice(0,MAX_CLONE);
+    const docs=(scope==='pack'?set.documents:[documentOf(source)]).filter(Boolean);
     if(!docs.length)throw new Error('Aucun sticker à transformer.');
 
     const sourceTitle=clean(set?.set?.title)||automaticPackTitle(account,sessionSettings);
     const sourcePackName=clean(set?.set?.shortName||stickerAttr(documentOf(source))?.stickerset?.shortName);
     const requestedTitle=transformTitleArgs(args);
     let title='';
-    let kind=name;
-    let transform=null;
 
     if(name==='filitake'){
       if(!requestedTitle){
         throw new Error('Utilise /filitake NomDuFiligrane en répondant à un sticker. Options : --color=#FFFFFF --opacity=12 --position=bottom --size=28 --rotation=-20 --repeat.');
       }
       title=requestedTitle;
-      const color=transformArg(args,'color','#FFFFFF');
-      const opacity=transformOpacity(transformArg(args,'opacity','18'),0.18);
-      const position=transformArg(args,'position','bottom')||'bottom';
-      const size=transformNumber(transformArg(args,'size','0'),0,0,96);
-      const rotationRaw=transformArg(args,'rotation','');
-      const rotation=rotationRaw===''?null:transformNumber(rotationRaw,0,-180,180);
-      const repeat=transformFlag(args,'repeat')||['repeat','tile','tiled'].includes(String(position).toLowerCase());
-      const outline=!transformFlag(args,'no-outline');
-      transform=raw=>addStickerWatermark(raw,{text:title,color,opacity,position,size,rotation,repeat,outline});
     }else if(name==='ultratake'||name==='delfilig'){
       title=requestedTitle||(sourceTitle+(name==='delfilig'?' Clean':' Ultra')).slice(0,64);
-      const zone=transformArg(args,'zone','bottom')||'bottom';
-      transform=raw=>removeStickerWatermark(raw,{zone});
     }else{
       title=requestedTitle||(sourceTitle+' Note').slice(0,64);
-      transform=raw=>roundSticker(raw);
     }
 
-    const newName=packName(account.telegramUserId,title);
-    const label=name==='filitake'?'Filitake':name==='delfilig'?'Delfilig':name==='ultratake'?'Ultratake':'Noteclone';
+    const label=jobLabel(name);
     const progress=externalProgress||await startProgress(client,peer,'⏳ '+label+' · 0/'+docs.length+'…');
-    launchTransformPackJob({
-      runtime,docs,title,newName,progress,sourcePackName,kind,transform
+    const transformSpec=transformSpecFromArgs(name,args,title);
+
+    if(sourcePackName){
+      const jobId=await launchTransformPackJob({
+        runtime,docs,title,progress,sourcePackName,kind:name,transformSpec
+      });
+      return {deferred:true,jobId};
+    }
+
+    const transform=transformFromSpec(transformSpec);
+    const raw=await withPersistentStickerRetry(
+      runtime,
+      ()=>downloadDocument(client,docs[0]),
+      label+' · téléchargement 1/1',
+      {progress}
+    );
+    const prepared=await withPersistentStickerRetry(
+      runtime,
+      ()=>transform(raw,{index:0,doc:docs[0]}),
+      label+' · traitement 1/1',
+      {progress}
+    );
+    const newName=packName(account.telegramUserId,title);
+    await withPersistentStickerRetry(
+      runtime,
+      ()=>queueCloneMutation(
+        ()=>createSet(account,title,newName,prepared,stickerAttr(docs[0])?.alt||'✨'),
+        label+' create single'
+      ),
+      label+' · création',
+      {progress}
+    );
+    await rememberPack(account.telegramUserId,{
+      name:newName,title,link:packLink(newName),count:1,sourceCount:1,transform:name,durable:false,updatedAt:Date.now()
     });
+    await finishProgress(progress,'✅ '+label+' terminé · 1/1 sticker\n'+packLink(newName));
     return true;
   }
 
@@ -1265,12 +1283,12 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
       }
     }
     const title=clean(args.join(' '))||automaticPackTitle(account,sessionSettings);
-    const newName=packName(account.telegramUserId,title);
     const docs=[...set.documents];
     const sourcePackName=clean(set?.set?.shortName||stickerAttr(documentOf(source))?.stickerset?.shortName);
+    if(!sourcePackName)throw new Error('Le pack source ne possède pas de nom Telegram réutilisable.');
     const progress=externalProgress||await startProgress(client,peer,'⏳ Clone pack · 0/'+docs.length+'…');
-    launchClonePackJob({runtime,docs,title,newName,progress,sourcePackName});
-    return true;
+    const jobId=await launchClonePackJob({runtime,docs,title,progress,sourcePackName});
+    return {deferred:true,jobId};
   }
 
   const raw=await downloadSource(client,source);
