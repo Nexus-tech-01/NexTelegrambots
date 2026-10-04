@@ -111,7 +111,7 @@ export const CORE_COMMANDS=[
   C('unmutechat','GROUP',{...GA,description:'Ouvrir le groupe en écriture'}),
   C('setrules','GROUP',{...GA,engine:'group',localOnly:true,description:'Définir les règles'}),
   C('setcommand','GROUP',{...GA,engine:'group',localOnly:true,description:'Créer une commande personnalisée'}),
-  C('broadcast','GROUP',{...GA,engine:'group',localOnly:true,description:'Publier une annonce dans le groupe'}),
+  C('broadcast','GROUP',{selfOnly:true,engine:'group',localOnly:true,description:'Diffuser une annonce dans les groupes administrés par le compte connecté'}),
   C('config','GROUP',{...GA,engine:'group',localOnly:true,description:'Configuration du groupe'}),
   C('permissions','GROUP',{...GA,engine:'group',localOnly:true,description:'Permissions du compte'}),
   C('backup','GROUP',{...GA,engine:'group',localOnly:true,description:'Sauvegarder la configuration du groupe'}),
