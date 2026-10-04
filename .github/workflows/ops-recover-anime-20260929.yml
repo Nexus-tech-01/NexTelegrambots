@@ -1,3 +1,4 @@
+# live recovery trigger: 2026-10-04 16:07 Africa/Porto-Novo - force current anime under 5m cadence
 name: Ops Recover Anime Publishing 2026-09-29
 # live recovery trigger: 2026-10-03 09:01 Africa/Porto-Novo
 
@@ -118,7 +119,7 @@ jobs:
           report={
               'startedAt':datetime.now(timezone.utc).isoformat(),
               'target':'@theotaku_nexus',
-              'rules':{'sameAnimeMaxSeconds':60,'differentAnimeMinutes':15},
+              'rules':{'sameAnimeMaxSeconds':60,'differentAnimeMinutes':5},
               'steps':{}
           }
 
