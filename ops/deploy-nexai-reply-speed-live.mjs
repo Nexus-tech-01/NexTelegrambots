@@ -40,7 +40,42 @@ function copyMeta(src,dst){
   fs.chmodSync(dst,st.mode&0o777);
   try{fs.chownSync(dst,st.uid,st.gid)}catch{}
 }
-function restore(){
+function nexAccountPidFromHealth(data){
+  const raw=String(data?.worker?.id||'');
+  const m=raw.match(/nexaccount:(\d+)/);
+  return m?Number(m[1]):0;
+}
+function pidLooksLikeNexAi(pid){
+  if(!Number.isInteger(pid)||pid<=1)return false;
+  try{
+    const cmd=fs.readFileSync('/proc/'+pid+'/cmdline').toString().split('\0').filter(Boolean).join(' ');
+    return /\/nexai\/(?:current|releases\/[^/]+)\/daemon\.mjs|\/nexaccount\/daemon\.mjs/.test(cmd);
+  }catch{return false}
+}
+async function stopOldWorker(pid){
+  if(!pidLooksLikeNexAi(pid))return false;
+  try{process.kill(pid,'SIGTERM')}catch{return false}
+  for(let i=0;i<30;i++){
+    if(!pidLooksLikeNexAi(pid))return true;
+    await sleep(200);
+  }
+  if(pidLooksLikeNexAi(pid))try{process.kill(pid,'SIGKILL')}catch{}
+  return true;
+}
+async function controlledRestart(){
+  let oldPid=0;
+  try{
+    const r=await fetch('http://127.0.0.1:18120/health',{signal:AbortSignal.timeout(3000)});
+    if(r.ok)oldPid=nexAccountPidFromHealth(await r.json().catch(()=>null));
+  }catch{}
+  run('systemctl',['stop','nex-nexaccount.service'],{cwd:'/',timeout:60000});
+  await sleep(1500);
+  if(oldPid)await stopOldWorker(oldPid);
+  const start=run('systemctl',['start','nex-nexaccount.service'],{cwd:'/',timeout:60000});
+  if(!start.ok)throw new Error('systemctl start: '+start.stderr.slice(-1200));
+  return {oldPid};
+}
+async function restore(){
   for(const file of files){
     const src=path.join(backupDir,file),dst=path.join(base,file);
     if(fs.existsSync(src)){
@@ -48,7 +83,7 @@ function restore(){
       fs.copyFileSync(src,tmp);copyMeta(dst,tmp);fs.renameSync(tmp,dst);
     }
   }
-  run('systemctl',['restart','nex-nexaccount.service'],{cwd:'/'});
+  await controlledRestart();
 }
 async function health(timeoutMs=80000){
   const end=Date.now()+timeoutMs;
@@ -61,7 +96,8 @@ async function health(timeoutMs=80000){
       const r=await fetch('http://127.0.0.1:18120/health',{signal:AbortSignal.timeout(4000)});
       const data=await r.json().catch(()=>null);
       last={props,status:r.status,data};
-      if(r.ok&&data?.ok===true&&data?.service==='nexaccount'&&data?.pairingOnly!==true&&Number(data?.runtimeCount||0)>0&&props.ActiveState==='active'&&props.SubState==='running')return last;
+      const workerPid=nexAccountPidFromHealth(data);
+      if(r.ok&&data?.ok===true&&data?.service==='nexaccount'&&data?.pairingOnly!==true&&Number(data?.runtimeCount||0)>0&&props.ActiveState==='active'&&props.SubState==='running'&&workerPid>1&&String(workerPid)===String(props.MainPID||''))return last;
     }catch(e){last={props,error:String(e?.message||e)}}
     await sleep(2500);
   }
@@ -107,9 +143,8 @@ try{
   if(!media.ok)throw new Error('media tests: '+media.stderr.slice(-1600));
   report.steps.mediaTest=true;
 
-  const restart=run('systemctl',['restart','nex-nexaccount.service'],{cwd:'/',timeout:60000});
-  if(!restart.ok)throw new Error('systemctl restart: '+restart.stderr.slice(-1200));
-  report.steps.restart=true;
+  const restart=await controlledRestart();
+  report.steps.restart={ok:true,oldPid:restart.oldPid||0};
 
   const live=await health();
   report.steps.health=live;
