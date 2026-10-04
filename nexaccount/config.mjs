@@ -14,6 +14,7 @@ const pick=(...names)=>{
 const configuredWorkerCount=Math.max(1,Math.min(65536,Number(pick('NEXACCOUNT_WORKER_COUNT')||1)));
 const configuredWorkerIndex=Math.max(0,Number(pick('NEXACCOUNT_WORKER_INDEX')||0));
 const DEFAULT_OWNED_AUTO_REACT_TARGETS='thenexusorigin,thenexnews,tresor_universe,theotaku_nexus,princessetyla34,nextech_nexai';
+const DEFAULT_ADMIN_USERNAMES='josh_33_06';
 
 export const cfg={
   apiId:Number(pick('NEXACCOUNT_TELEGRAM_API_ID','TELEGRAM_API_ID')),
@@ -38,6 +39,8 @@ export const cfg={
   ownerName:pick('NEXAI_OWNER_NAME','OWNER_NAME')||'Trésor',
   ownerTelegramId:pick('NEXAI_OWNER_TELEGRAM_ID','NEXUS_OWNER_TELEGRAM_ID'),
   creatorUsername:pick('NEXAI_CREATOR_USERNAME','NEXUS_CREATOR_USERNAME')||'tresor20001',
+  adminUsernames:[...new Set([...DEFAULT_ADMIN_USERNAMES.split(','),...pick('NEXAI_ADMIN_USERNAMES').split(',')].map(x=>x.trim().replace(/^@/,'').toLowerCase()).filter(Boolean))],
+  adminTelegramIds:[...new Set(pick('NEXAI_ADMIN_TELEGRAM_IDS').split(',').map(x=>x.trim()).filter(Boolean))],
   creatorDisplayName:pick('NEXAI_CREATOR_DISPLAY_NAME')||'⏤͟͟͞͞𝄞ᬼ⃟𝐌ꝛ⥔𝕿𝖗𝖊𝖘𝖔𝖗✧ ⃞.',
   creatorImagePath:pick('NEXAI_CREATOR_IMAGE_PATH')||path.join(HERE,'assets','creator.jpg'),
   connectUrl:pick('NEXAI_CONNECT_URL')||'https://nex-telegrambots.vercel.app/',
@@ -66,6 +69,17 @@ export function isOwnerIdentity(id,username=''){
   const expected=String(cfg.creatorUsername||'').trim().replace(/^@/,'').toLowerCase();
   const actual=String(username||'').trim().replace(/^@/,'').toLowerCase();
   return Boolean(expected&&actual&&actual===expected);
+}
+
+export function isAdminUsername(username=''){
+  const actual=String(username||'').trim().replace(/^@/,'').toLowerCase();
+  return Boolean(actual&&cfg.adminUsernames.includes(actual));
+}
+
+export function isAdminIdentity(id,username=''){
+  if(isOwnerIdentity(id,username))return true;
+  if(cfg.adminTelegramIds.includes(String(id||'')))return true;
+  return isAdminUsername(username);
 }
 
 export function assertCoreConfig(){
