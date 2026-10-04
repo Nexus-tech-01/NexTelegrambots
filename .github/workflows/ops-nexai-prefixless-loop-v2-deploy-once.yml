@@ -1,0 +1,86 @@
+name: Ops NexAI Prefixless Loop V2 Deploy Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ops-nexai-prefixless-loop-v2-deploy-once.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ops-nexai-prefixless-loop-v2-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate anti-loop source
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix nexaccount --ignore-scripts
+          node --check nexaccount/runtime.mjs
+          node --check nexaccount/compat.mjs
+          grep -F "function messageLooksGeneratedByNexAi(message)" nexaccount/runtime.mjs
+          grep -F ".replace(/\\s+by nextech\\s*$/i,'')" nexaccount/runtime.mjs
+          grep -F "if(selfAuthored&&messageLooksGeneratedByNexAi(message))return false;" nexaccount/runtime.mjs
+          grep -F "✅ Mode PUBLIC activé" nexaccount/compat.mjs
+          grep -F "consumeGeneratedCommandOutput" nexaccount/runtime.mjs
+          grep -F "markGeneratedCommandOutput" nexaccount/runtime.mjs
+
+      - name: Deploy anti-loop hotfix to NexAI VPS
+        shell: bash
+        env:
+          DEPLOY_ENDPOINT: https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-agent-hotfix-bridge
+        run: |
+          set -euo pipefail
+          OIDC_JSON="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=nxc-nexai-custom-style-deploy")"
+          OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"$OIDC_JSON")"
+          test -n "$OIDC_TOKEN"
+
+          curl --fail-with-body --silent --show-error --max-time 420 \
+            -X POST "$DEPLOY_ENDPOINT" \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "{\"sha\":\"${GITHUB_SHA}\",\"mode\":\"prefixless-loop\"}" \
+            | tee /tmp/nexai-prefixless-loop-deploy.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('/tmp/nexai-prefixless-loop-deploy.json').read_text())
+          if d.get('ok') is not True:
+              raise SystemExit('deployment failed: '+str(d))
+          steps=d.get('steps') or {}
+          if steps.get('sourceValidated') is not True:
+              raise SystemExit('source validation not confirmed: '+str(steps))
+          if steps.get('productionMarker') is not True:
+              raise SystemExit('production marker not confirmed: '+str(steps))
+          health=steps.get('health') or {}
+          if health.get('ok') is not True or health.get('pairingOnly') is True:
+              raise SystemExit('NexAI health not confirmed: '+str(health))
+          live=steps.get('live') or {}
+          anti=live.get('prefixlessLoop') or {}
+          if anti.get('antiLoop') is not True or anti.get('broadcastReplySafe') is not True:
+              raise SystemExit('anti-loop production verification missing: '+str(live))
+          anime=live.get('anime') or {}
+          if anime.get('ok') is not True or anime.get('enabled') is not True:
+              raise SystemExit('NexAnime regression check failed: '+str(anime))
+          accounts=live.get('accounts') or {}
+          if accounts.get('tresor20001') is not True or accounts.get('tresor20009') is not True:
+              raise SystemExit('critical NexAI sessions not confirmed: '+str(accounts))
+          print('NEXAI_PREFIXLESS_LOOP_V2_PRODUCTION_OK')
+          PY
