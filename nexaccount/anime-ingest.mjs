@@ -1904,6 +1904,9 @@ async function interSeriesDeadline(d,seriesKey,now=new Date()){
   );
   return interSeriesDeadlineFrom(last?.publishedAt,now);
 }
+function obsoleteLivenessBlockReason(reason=''){
+  return /(?:presentation_translation_unavailable|resume_synopsis_unavailable)/i.test(String(reason||''));
+}
 async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
   const scheduler=d.collection('nexanime_config');
   const now=new Date();
@@ -1913,7 +1916,10 @@ async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
   const blockedSeriesEntries=rawBlockedEntries.filter(row=>{
     const key=String(row?.seriesKey||'');
     const until=row?.until?new Date(row.until):null;
-    return Boolean(key&&until&&Number.isFinite(until.getTime())&&until>now);
+    return Boolean(
+      key&&until&&Number.isFinite(until.getTime())&&until>now&&
+      !obsoleteLivenessBlockReason(row?.reason)
+    );
   });
   const persistedBlockedKeys=[...new Set(blockedSeriesEntries.map(row=>String(row.seriesKey)))];
   if(blockedSeriesEntries.length!==rawBlockedEntries.length){
@@ -1924,7 +1930,8 @@ async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
   let blockedSeriesUntil=current?.blockedSeriesUntil?new Date(current.blockedSeriesUntil):null;
   let blockActive=Boolean(
     blockedSeriesKey&&blockedSeriesUntil&&
-    Number.isFinite(blockedSeriesUntil.getTime())&&blockedSeriesUntil>now
+    Number.isFinite(blockedSeriesUntil.getTime())&&blockedSeriesUntil>now&&
+    !obsoleteLivenessBlockReason(current?.blockedSeriesReason)
   );
 
   // Expired blocks are retried automatically. While a block is active, never
