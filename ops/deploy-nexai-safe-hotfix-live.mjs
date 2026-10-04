@@ -12,6 +12,8 @@ const service='nex-nexaccount.service';
 const modes={
   'anime-gap-skip':[
     ['anime-ingest.mjs','nexaccount/anime-ingest.mjs'],
+    ['runtime.mjs','nexaccount/runtime.mjs'],
+    ['anime-secondary-reader.mjs','nexaccount/anime-secondary-reader.mjs'],
     ['bootstrap.mjs','nexaccount/bootstrap.mjs']
   ],
   'inline-tutorial':[
@@ -56,7 +58,8 @@ const required={
   'commands.mjs':["C('ultratake'","C('delfilig'","C('filitake'","C('noteclone'","C('customstyle'","C('stylename'","C('menuvideo'"],
   'sticker-engine.mjs':["'ultratake'","'delfilig'","'filitake'","'noteclone'","export async function resumeStickerJobs","applyDurableStickerMutation","startPrepared","traitement rapide sécurisé","runNativeCloneJob","CreateStickerSet","createSetBatch","préparation batch"],
   'sticker-transform.mjs':['export async function addStickerWatermark','export async function removeStickerWatermark','export async function roundSticker'],
-  'runtime.mjs':['canHandleStickerCommand(parsed.name)','Sticker engine fallback','registered.hidden!==true','consumeGeneratedCommandOutput','markGeneratedCommandOutput','NEXACCOUNT_EMBEDDED_ANIME'],
+  'runtime.mjs':['canHandleStickerCommand(parsed.name)','Sticker engine fallback','registered.hidden!==true','consumeGeneratedCommandOutput','markGeneratedCommandOutput','NEXACCOUNT_EMBEDDED_ANIME','ensureAnimePublisherOwnership','NEXACCOUNT_ANIME_FAILOVER_USERNAMES'],
+  'anime-secondary-reader.mjs':['SECONDARY_REQUESTED','embedded_runtime_owns_sessions','animePublisher:false'],
   'core/engine-router.mjs':['outcome?.deferred!==true','await progress.done','canonicalName(cmd)','handleStickerCommand'],
   'compat.mjs':['cacheMenuMediaForBot',"name==='customstyle'","name==='menuphoto'||name==='menuvideo'",'✅ Diffusion terminée']
 };
@@ -203,10 +206,12 @@ try{
 
   // node --check does not resolve ESM imports/exports. Import the runtime graph
   // before touching systemd so mismatched dependent files can never crash live.
-  if(mode==='custom-style'||mode==='stickers'||mode==='prefixless-loop'){
-    const graphCode=mode==='stickers'
-      ?"const {Api}=await import('teleproto'); if(!Api?.stickers?.CreateStickerSet||!Api?.InputStickerSetItem||!Api?.InputUserSelf) throw new Error('native sticker API unavailable'); await import('./runtime.mjs'); await import('./inline-bot.mjs'); console.log('MODULE_GRAPH_OK')"
-      :"await import('./runtime.mjs'); await import('./inline-bot.mjs'); console.log('MODULE_GRAPH_OK')";
+  if(mode==='anime-gap-skip'||mode==='custom-style'||mode==='stickers'||mode==='prefixless-loop'){
+    const graphCode=mode==='anime-gap-skip'
+      ?"await import('./runtime.mjs'); await import('./anime-secondary-reader.mjs'); console.log('MODULE_GRAPH_OK')"
+      :mode==='stickers'
+        ?"const {Api}=await import('teleproto'); if(!Api?.stickers?.CreateStickerSet||!Api?.InputStickerSetItem||!Api?.InputUserSelf) throw new Error('native sticker API unavailable'); await import('./runtime.mjs'); await import('./inline-bot.mjs'); console.log('MODULE_GRAPH_OK')"
+        :"await import('./runtime.mjs'); await import('./inline-bot.mjs'); console.log('MODULE_GRAPH_OK')";
     const graph=run(process.execPath,['--input-type=module','-e',graphCode],{cwd:base,timeout:90000});
     if(!graph.ok||!graph.stdout.includes('MODULE_GRAPH_OK')){
       throw new Error('module graph validation failed: '+(graph.stderr||graph.stdout).slice(-2200));
