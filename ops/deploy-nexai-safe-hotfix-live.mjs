@@ -43,6 +43,7 @@ const modes={
   ],
   'prefixless-loop':[
     ['config.mjs','nexaccount/config.mjs'],
+    ['store.mjs','nexaccount/store.mjs'],
     ['runtime.mjs','nexaccount/runtime.mjs'],
     ['compat.mjs','nexaccount/compat.mjs']
   ]
