@@ -1,3 +1,4 @@
+# durable-sticker-jobs-v1
 name: Ops NexAI Sticker Transforms Verify Once
 
 on:
@@ -34,17 +35,31 @@ jobs:
           set -euo pipefail
           node --check nexaccount/sticker-transform.mjs
           node --check nexaccount/sticker-engine.mjs
+          node --check nexaccount/sticker-jobs.mjs
+          node --check nexaccount/core/engine-router.mjs
+          node --check nexaccount/runtime.mjs
           node --check nexaccount/commands.mjs
           node --input-type=module - <<'NODE'
           import {commandMap} from './nexaccount/commands.mjs';
           import {canHandleStickerCommand} from './nexaccount/sticker-engine.mjs';
           const map=commandMap();
-          for(const name of ['ultratake','filitake','noteclone']){
+          for(const name of ['sticker','clonepack','createpack','exportwhatsapp','ultratake','delfilig','filitake','noteclone']){
             if(!map.has(name))throw new Error('registry missing '+name);
             if(!canHandleStickerCommand(name))throw new Error('engine routing missing '+name);
           }
           console.log('NEXAI_STICKER_COMMANDS_OK');
           NODE
+          grep -F "export async function resumeStickerJobs" nexaccount/sticker-engine.mjs
+          grep -F "sourceDocumentIds" nexaccount/sticker-engine.mjs
+          grep -F "STICKER_PACK_PART_SIZE" nexaccount/sticker-engine.mjs
+          grep -F "listPendingStickerJobs" nexaccount/sticker-jobs.mjs
+          grep -F "outcome?.deferred!==true" nexaccount/core/engine-router.mjs
+          grep -F "resumeStickerJobs(runtime)" nexaccount/runtime.mjs
+          if grep -F "MAX_CLONE" nexaccount/sticker-engine.mjs; then
+            echo "legacy MAX_CLONE truncation still present" >&2
+            exit 1
+          fi
+
 
       - name: Execute real static sticker transforms
         shell: bash
