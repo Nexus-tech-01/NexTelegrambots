@@ -8,6 +8,8 @@ const CLAIM_MS=Math.max(8*60_000,Number(process.env.NEXANIME_JOB_CLAIM_MS||18*60
 const MAX_ATTEMPTS=Math.max(1,Math.min(3,Number(process.env.NEXANIME_JOB_MAX_ATTEMPTS||2)));
 const UPLOAD_TIMEOUT_MS=Math.max(3*60_000,Number(process.env.NEXANIME_JOB_UPLOAD_TIMEOUT_MS||12*60_000));
 const PROGRESS_MIN_MS=Math.max(5000,Number(process.env.NEXANIME_PROGRESS_MIN_MS||9000));
+const PROGRESS_RELAY_ENABLED=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXANIME_PROGRESS_RELAY||'').trim());
+const CACHE_MIGRATION_ID='nexanime_cache_purge_20261005_v1';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 let running=false;
@@ -15,6 +17,20 @@ let loopPromise=null;
 let activeJob=null;
 let lastProgress='';
 let lastError='';
+
+async function migrateLegacyCache(){
+  const d=await db();
+  const marker=await d.collection('nexaccount_system').findOne({_id:CACHE_MIGRATION_ID},{projection:{_id:1}}).catch(()=>null);
+  if(marker)return false;
+  await d.collection('nexanime_bot_cache').deleteMany({});
+  await d.collection('nexaccount_system').updateOne(
+    {_id:CACHE_MIGRATION_ID},
+    {$set:{doneAt:new Date(),reason:'invalidate legacy webhook placeholder cache'}},
+    {upsert:true}
+  );
+  console.log('[NexAnime worker] legacy webhook cache purged');
+  return true;
+}
 
 async function recoverStaleJobs({startup=false}={}){
   const d=await db();
@@ -112,7 +128,9 @@ async function processJob(job){
     if(now-lastNotifyAt<PROGRESS_MIN_MS&&info?.force!==true)return;
     lastNotifyAt=now;
     lastNotifyText=text;
-    await notifyBot('#NXA_PROGRESS:'+job.claim+'\n'+text).catch(()=>{});
+    if(PROGRESS_RELAY_ENABLED){
+      await notifyBot('#NXA_PROGRESS:'+job.claim+'\n'+text).catch(()=>{});
+    }
   };
 
   try{
@@ -144,7 +162,9 @@ async function processJob(job){
   }catch(error){
     const willRetry=await markRetry(job,error).catch(()=>false);
     if(willRetry){
-      await notifyBot('#NXA_PROGRESS:'+job.claim+'\nNouvelle tentative automatique après un échec temporaire…').catch(()=>{});
+      if(PROGRESS_RELAY_ENABLED){
+        await notifyBot('#NXA_PROGRESS:'+job.claim+'\nNouvelle tentative automatique après un échec temporaire…').catch(()=>{});
+      }
     }else{
       await notifyBot('#NXA_FAIL:'+job.claim+'\n'+String(error?.message||error).slice(0,300)).catch(()=>{});
     }
@@ -154,6 +174,7 @@ async function processJob(job){
 }
 
 async function loop(){
+  await migrateLegacyCache().catch(error=>console.warn('[NexAnime worker] cache migration',String(error?.message||error).slice(0,300)));
   // Any processing job left in MongoDB at process startup belongs to the old
   // worker instance and must be resumed immediately, not 30 minutes later.
   await recoverStaleJobs({startup:true}).catch(()=>{});
@@ -213,6 +234,7 @@ export function nexAnimeWorkerStatus(){
     username:BOT_USERNAME,
     uploaderReady:Boolean(uploaderRuntime()?.client),
     lastProgress,
-    lastError
+    lastError,
+    progressRelayEnabled:PROGRESS_RELAY_ENABLED
   };
 }
