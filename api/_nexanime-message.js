@@ -1,7 +1,7 @@
 import {tg} from './_nexanime-telegram.js';
 import {searchAnime,posterOf} from './_nexanime-franime.js';
 import {resultKeyboard,esc} from './_nexanime-ui.js';
-import {jobByClaim,completeJob,failJob} from './_nexanime-jobs.js';
+import {jobByClaim,updateJobProgress,completeJob,failJob} from './_nexanime-jobs.js';
 
 const clean=v=>String(v??'').trim();
 
@@ -18,7 +18,25 @@ async function sendSearch(chatId,q){
 
 async function handleUploaderMessage(message){
   const caption=clean(message?.caption||message?.text);
-  let m=caption.match(/^#NXA_CACHE:([0-9a-f-]{20,})/i);
+  let m=caption.match(/^#NXA_PROGRESS:([0-9a-f-]{20,})\s*\n?([\s\S]*)/i);
+  if(m){
+    const job=await jobByClaim(m[1]);
+    if(job){
+      const progress=clean(m[2]).slice(0,500)||'Téléchargement en cours…';
+      await updateJobProgress(job,progress).catch(()=>{});
+      if(job.statusMessageId){
+        await tg('editMessageText',{
+          chat_id:job.chatId,
+          message_id:job.statusMessageId,
+          text:'⏳ '+String(job.caption||'NexAnime')+'\n'+progress
+        }).catch(()=>{});
+      }
+    }
+    await tg('deleteMessage',{chat_id:message.chat.id,message_id:message.message_id}).catch(()=>{});
+    return true;
+  }
+
+  m=caption.match(/^#NXA_CACHE:([0-9a-f-]{20,})/i);
   if(m){
     const job=await jobByClaim(m[1]);
     if(!job)return true;
