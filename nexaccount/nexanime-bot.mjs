@@ -57,7 +57,7 @@ function nxaDownloadProgressText({host='source',attempt=1,percent=0,downloaded=0
   const p=Math.max(0,Math.min(100,Number(percent)||0));
   const remaining=total>0?Math.max(0,total-downloaded):0;
   const rows=[
-    '⬇️ Source '+attempt+' · '+host,
+    '⬇️ Téléchargement en cours',
     '['+nxaProgressBar(p)+'] '+p.toFixed(p>=10?1:2)+'%',
     'Téléchargé : '+nxaHumanBytes(downloaded)+(total>0?' / '+nxaHumanBytes(total):''),
     'Restant : '+(total>0?nxaHumanBytes(remaining):'calcul…')
@@ -450,7 +450,7 @@ async function normalizeWatcherQuality(file,work,quality,check,{onProgress=null}
   if(typeof onProgress==='function'){
     try{Promise.resolve(onProgress({
       stage:'normalize-quality',
-      message:'Source Telegram trouvée en '+height+'p · conversion vers '+wanted+'p…',
+      message:'Conversion de la vidéo vers '+wanted+'p…',
       force:true
     })).catch(()=>{})}catch{}
   }
@@ -910,7 +910,7 @@ async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=nul
 
   emit({
     stage:'resolve',
-    message:'Lecteurs trouvés : '+urls.length+(wrappers.length?' · fallback navigateur disponible':''),
+    message:'Téléchargement prêt à démarrer…',
     force:true
   });
 
@@ -929,13 +929,13 @@ async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=nul
     let host='source';
     try{host=new URL(candidate.url).hostname.replace(/^www\./,'')}catch{}
     if(badHosts.has(host)){
-      emit({stage:'skip',message:'Lecteur '+host+' déjà identifié comme invalide, passage au suivant…',force:true});
+      emit({stage:'skip',message:'Une méthode a échoué · nouvelle tentative…',force:true});
       return '';
     }
 
     emit({
       stage:'download',
-      message:'Source '+sourceAttempt+' · '+host+' · préparation du téléchargement…',
+      message:'Préparation du téléchargement…',
       force:true
     });
 
@@ -985,13 +985,13 @@ async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=nul
       const file=await selectDownloadedFile(work,printed);
       if(!file)throw new Error('reader-produced-no-file');
 
-      emit({stage:'validate',message:'Vérification du fichier reçu depuis '+host+'…',force:true});
+      emit({stage:'validate',message:'Vérification de la vidéo…',force:true});
       const check=await validateEpisodeMedia(file);
       if(!check.ok){
         rejectedMedia++;
         if(['no-audio-placeholder','too-short','too-small','no-video'].includes(check.reason))badHosts.add(host);
         console.warn('[NexAnime] rejected '+candidate.via+' media',check.reason,'bytes='+String(check.size||0),'duration='+String(check.duration??'n/a'));
-        emit({stage:'reject',message:'Lecteur '+host+' invalide ('+check.reason+'). Passage au suivant…',force:true});
+        emit({stage:'reject',message:'Vidéo invalide reçue · nouvelle tentative…',force:true});
         throw new Error('invalid-reader-media:'+check.reason);
       }
 
@@ -1003,7 +1003,7 @@ async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=nul
       const message=String(error?.message||error);
       if(/timeout yt-dlp|episode-timeout/i.test(message)){
         timedOutSources++;
-        emit({stage:'timeout',message:'Le lecteur '+host+' est trop lent pour yt-dlp · essai du flux direct…',force:true});
+        emit({stage:'timeout',message:'Téléchargement trop lent · changement de méthode…',force:true});
       }
       const directish=/\.(?:m3u8|mpd|mp4|webm|mkv)(?:$|[?#])/i.test(String(candidate?.url||''))||['http','browser','direct'].includes(String(candidate?.via||''));
       if(directish&&remainingMs()>45_000){
@@ -1028,7 +1028,7 @@ async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=nul
   for(let i=0;i<Math.min(urls.length,16);i++){
     ensureTime();
     const url=urls[i];
-    emit({stage:'extract',message:'Analyse du lecteur '+(i+1)+'/'+Math.min(urls.length,16)+'…',force:true});
+    emit({stage:'extract',message:'Recherche de la meilleure méthode de téléchargement…',force:true});
     const candidates=await expandedDownloadCandidates(url);
     for(const candidate of candidates){
       ensureTime();
@@ -1041,10 +1041,10 @@ async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=nul
   const browserTargets=[...wrappers,...urls].slice(0,10);
   for(let i=0;i<browserTargets.length;i++){
     ensureTime();
-    emit({stage:'browser',message:'Fallback navigateur '+(i+1)+'/'+browserTargets.length+' · observation du réseau…',force:true});
+    emit({stage:'browser',message:'Recherche avancée du flux vidéo…',force:true});
     const candidates=await browserNetworkCandidates(browserTargets[i]);
     if(!candidates.length){
-      emit({stage:'browser',message:'Aucun flux capturé sur ce lecteur. Passage au suivant…',force:true});
+      emit({stage:'browser',message:'Méthode indisponible · nouvelle tentative…',force:true});
       continue;
     }
     for(const candidate of candidates){
@@ -1205,7 +1205,7 @@ async function downloadEpisodeFromTelegramWatchers(anime,lang,s,e,quality,{onPro
 
   emit({
     stage:'telegram-fallback',
-    message:'Fallback Telegram · recherche exacte dans les canaux de @tresor20001 et @tresor20009…',
+    message:'Recherche d’une copie alternative de l’épisode…',
     force:true
   });
 
@@ -1250,9 +1250,7 @@ async function downloadEpisodeFromTelegramWatchers(anime,lang,s,e,quality,{onPro
 
     emit({
       stage:'telegram-fallback',
-      message:'Fallback Telegram · candidat vérifié via @'+accountUsername+
-        ' · S'+wantedSeason+'E'+wantedEpisode+' · '+wantedLanguage+
-        (declared?' · '+declared:'')+' · téléchargement…',
+      message:'Épisode correspondant trouvé · téléchargement…',
       force:true
     });
 
@@ -1274,7 +1272,7 @@ async function downloadEpisodeFromTelegramWatchers(anime,lang,s,e,quality,{onPro
         emit({
           stage:'telegram-download',
           message:nxaDownloadProgressText({
-            host:'Telegram @'+accountUsername,attempt:1,percent,
+            host:'Téléchargement',attempt:1,percent,
             downloaded,total:full,speed:'',eta:''
           })
         });
@@ -1296,7 +1294,7 @@ async function downloadEpisodeFromTelegramWatchers(anime,lang,s,e,quality,{onPro
       accepted=true;
       emit({
         stage:'ready',
-        message:'Fallback Telegram validé · titre, saison, épisode, langue et média vérifiés · préparation de l’envoi…',
+        message:'Épisode vérifié · préparation de l’envoi…',
         force:true
       });
       return {
@@ -1351,7 +1349,7 @@ async function downloadEpisodeFromTelegramWatchers(anime,lang,s,e,quality,{onPro
   // episodes that the watcher parser/indexer missed.
   emit({
     stage:'telegram-search',
-    message:'Index insuffisant · recherche directe dans les chaînes anime vérifiées…',
+    message:'Recherche approfondie de l’épisode…',
     force:true
   });
   const aliases=[displayTitle(anime),...titlesOf(anime)].map(clean).filter(Boolean);
@@ -1416,8 +1414,8 @@ export async function downloadEpisode(anime,lang,s,e,quality,options={}){
     return await downloadEpisodeFromTelegramWatchers(anime,lang,s,e,quality,options);
   }catch(watcherError){
     const a=String(franimeError?.message||franimeError||'échec FRAnime').slice(0,360);
-    const b=String(watcherError?.message||watcherError||'échec Telegram').slice(0,360);
-    throw new Error('FRAnime: '+a+' · Fallback Telegram: '+b);
+    const b=String(watcherError?.message||watcherError||'échec alternatif').slice(0,360);
+    throw new Error('Téléchargement principal: '+a+' · Recherche alternative: '+b);
   }
 }
 
