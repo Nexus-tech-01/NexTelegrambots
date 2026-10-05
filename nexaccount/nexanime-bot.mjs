@@ -8,7 +8,6 @@ import {Bot, InlineKeyboard} from 'grammy';
 import {db} from './store.mjs';
 import {runtimeConnectionFor} from './runtime.mjs';
 import {loadNexAnimeBotToken} from './nexanime-secrets.mjs';
-import {sourcePriority} from './nexanime-source-registry.mjs';
 
 const API=String(process.env.NEXANIME_FRANIME_API||'https://api.franime.fr').replace(/\/+$/,'');
 const SITE=String(process.env.NEXANIME_FRANIME_SITE||'https://franime.fr').replace(/\/+$/,'');
@@ -34,6 +33,17 @@ const VIDEO_PROVIDERS=[
 ];
 const WATCHER_FALLBACK_USERS=['tresor20001','tresor20009'];
 const WATCHER_VIDEO_EXT_RE=/\.(?:mp4|mkv|avi|mov|webm|m4v|ts)$/i;
+
+function preferredSourcePriority(input={},capability=''){
+  const raw=[
+    input?.name,input?.title,input?.username,input?.channelTitle,input?.channelUsername
+  ].filter(Boolean).join(' ')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  const kind=String(capability||'').toLowerCase();
+  if(kind==='anime'&&(raw.includes('anime sama')||raw.includes('animesama')))return 1000;
+  return 0;
+}
 
 
 function nxaFiniteNumber(value){
@@ -1376,7 +1386,7 @@ async function downloadEpisodeFromTelegramWatchers(anime,lang,s,e,quality,{onPro
       const anchorScore=Math.max(0,...anchors.map(a=>Math.max(
         watcherTitleScore(a?.raw||'',anime),watcherTitleScore(a?.canonicalTitle||'',anime)
       )));
-      const preferredSourcePriority=sourcePriority({
+      const preferredSourcePriority=preferredSourcePriority({
         title:row?.title,
         username:row?.username,
         channelTitle:row?.title,
