@@ -261,18 +261,27 @@ function collectUrls(value,out=new Set()){
 }
 
 async function viewerCandidates(animeId,s,e,lang){
-  const endpoint=API+'/api/anime/'+encodeURIComponent(animeId)+'/'+s+'/'+e+'/'+encodeURIComponent(lang)+'/0';
-  const r=await fetch(endpoint,{headers:{'user-agent':USER_AGENT,'referer':SITE+'/'},signal:AbortSignal.timeout(25000)});
-  if(!r.ok)throw new Error('Lecteur FRAnime HTTP '+r.status);
-  const text=await r.text();
   const urls=new Set();
-  try{collectUrls(JSON.parse(text),urls)}catch{collectUrls(text,urls)}
+  const failures=[];
+  for(let reader=0;reader<6;reader++){
+    const endpoint=API+'/api/anime/'+encodeURIComponent(animeId)+'/'+s+'/'+e+'/'+encodeURIComponent(lang)+'/'+reader;
+    try{
+      const r=await fetch(endpoint,{headers:{'user-agent':USER_AGENT,'referer':SITE+'/'},signal:AbortSignal.timeout(25000)});
+      if(!r.ok){failures.push(reader+':HTTP '+r.status);continue}
+      const text=(await r.text()).trim();
+      if(!text)continue;
+      try{collectUrls(JSON.parse(text),urls)}catch{collectUrls(text,urls)}
+      if(/^https?:\/\//i.test(text))urls.add(text);
+    }catch(error){
+      failures.push(reader+':'+String(error?.message||error).slice(0,120));
+    }
+  }
   const ranked=[...urls].filter(x=>/^https?:\/\//i.test(x)).sort((a,b)=>{
-    const score=u=>(/\.m3u8|\.mp4/i.test(u)?5:0)+(/sibnet|sendvid|stream|vid/i.test(u)?3:0);
+    const score=u=>(/\.m3u8|\.mp4/i.test(u)?8:0)+(/sibnet|sendvid|stream|vid/i.test(u)?3:0)-(/franime\.fr\/watch2/i.test(u)?1:0);
     return score(b)-score(a);
   });
-  if(/^https?:\/\//i.test(text.trim()))ranked.unshift(text.trim());
-  return [...new Set(ranked)];
+  if(!ranked.length&&failures.length)throw new Error('Aucun lecteur FRAnime disponible');
+  return ranked;
 }
 
 export async function downloadEpisode(anime,lang,s,e,quality){
@@ -299,7 +308,14 @@ export async function downloadEpisode(anime,lang,s,e,quality){
       if(found)return {file:found,work};
     }catch(error){lastError=error}
   }
-  throw lastError||new Error('Téléchargement impossible');
+  if(lastError){
+    const message=String(lastError?.message||lastError);
+    if(/403|Cloudflare|Forbidden/i.test(message)){
+      throw new Error('Tous les lecteurs FRAnime disponibles sont temporairement bloqués ou indisponibles. Réessaie dans quelques instants.');
+    }
+    throw new Error(message.slice(-700));
+  }
+  throw new Error('Téléchargement impossible pour cet épisode.');
 }
 
 export function uploaderRuntime(){
