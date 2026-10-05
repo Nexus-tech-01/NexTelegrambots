@@ -46,6 +46,11 @@ const modes={
     ['store.mjs','nexaccount/store.mjs'],
     ['runtime.mjs','nexaccount/runtime.mjs'],
     ['compat.mjs','nexaccount/compat.mjs']
+  ],
+  'nexanime-search-bot':[
+    ['daemon.mjs','nexaccount/daemon.mjs'],
+    ['nexanime-bot.mjs','nexaccount/nexanime-bot.mjs'],
+    ['nexanime-secrets.mjs','nexaccount/nexanime-secrets.mjs']
   ]
 };
 const files=modes[mode];
@@ -68,7 +73,10 @@ const required={
   'runtime.mjs':['canHandleStickerCommand(parsed.name)','Sticker engine fallback','registered.hidden!==true','consumeGeneratedCommandOutput','markGeneratedCommandOutput','NEXACCOUNT_EMBEDDED_ANIME','ensureAnimePublisherOwnership','NEXACCOUNT_ANIME_FAILOVER_USERNAMES','animePublisherWatchdog'],
   'anime-secondary-reader.mjs':['SECONDARY_REQUESTED','embedded_runtime_owns_sessions','animePublisher:false'],
   'core/engine-router.mjs':['outcome?.deferred!==true','await progress.done','canonicalName(cmd)','handleStickerCommand'],
-  'compat.mjs':['cacheMenuMediaForBot',"name==='customstyle'","name==='menuphoto'||name==='menuvideo'",'✅ Diffusion terminée',"const requested=Math.max(1,Math.floor(Number(args[0])||20));","await client.deleteMessages(peer,ids,{revoke:true});"]
+  'compat.mjs':['cacheMenuMediaForBot',"name==='customstyle'","name==='menuphoto'||name==='menuvideo'",'✅ Diffusion terminée',"const requested=Math.max(1,Math.floor(Number(args[0])||20));","await client.deleteMessages(peer,ids,{revoke:true});"],
+  'daemon.mjs':['startNexAnimeBot','stopNexAnimeBot','nexAnimeBotStatus'],
+  'nexanime-bot.mjs':['export async function startNexAnimeBot','api.franime.fr','NexAnime01_bot','uploadForFileId','nexanime_bot_cache'],
+  'nexanime-secrets.mjs':['saveNexAnimeBotToken','loadNexAnimeBotToken','nexanime_bot_token']
 };
 
 const stamp=new Date().toISOString().replace(/[:.]/g,'-');
@@ -213,12 +221,14 @@ try{
 
   // node --check does not resolve ESM imports/exports. Import the runtime graph
   // before touching systemd so mismatched dependent files can never crash live.
-  if(mode==='anime-gap-skip'||mode==='custom-style'||mode==='stickers'||mode==='prefixless-loop'){
+  if(mode==='anime-gap-skip'||mode==='custom-style'||mode==='stickers'||mode==='prefixless-loop'||mode==='nexanime-search-bot'){
     const graphCode=mode==='anime-gap-skip'
       ?"await import('./runtime.mjs'); await import('./anime-secondary-reader.mjs'); console.log('MODULE_GRAPH_OK')"
       :mode==='stickers'
         ?"const {Api}=await import('teleproto'); if(!Api?.stickers?.CreateStickerSet||!Api?.InputStickerSetItem||!Api?.InputUserSelf) throw new Error('native sticker API unavailable'); await import('./runtime.mjs'); await import('./inline-bot.mjs'); console.log('MODULE_GRAPH_OK')"
-        :"await import('./runtime.mjs'); await import('./inline-bot.mjs'); console.log('MODULE_GRAPH_OK')";
+        :mode==='nexanime-search-bot'
+          ?"await import('./nexanime-bot.mjs'); console.log('MODULE_GRAPH_OK')"
+          :"await import('./runtime.mjs'); await import('./inline-bot.mjs'); console.log('MODULE_GRAPH_OK')";
     const graph=run(process.execPath,['--input-type=module','-e',graphCode],{cwd:base,timeout:90000});
     if(!graph.ok||!graph.stdout.includes('MODULE_GRAPH_OK')){
       throw new Error('module graph validation failed: '+(graph.stderr||graph.stdout).slice(-2200));
