@@ -233,7 +233,10 @@ async function ensureYtDlp(){
   const local=path.join(BIN_ROOT,'yt-dlp');
   if(fs.existsSync(local))return local;
   const tmp=local+'.tmp-'+process.pid;
-  const r=await fetch('https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp',{
+  const binaryUrl=process.arch==='arm64'
+    ? 'https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp_linux_aarch64'
+    : 'https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp_linux';
+  const r=await fetch(binaryUrl,{
     headers:{'user-agent':'NexAnime/1.0'},signal:AbortSignal.timeout(60000)
   });
   if(!r.ok)throw new Error('yt-dlp download HTTP '+r.status);
@@ -285,6 +288,7 @@ export async function downloadEpisode(anime,lang,s,e,quality){
     try{
       const r=await run(ytdlp,[
         '--no-playlist','--no-warnings','--retries','4','--fragment-retries','4',
+        '--extractor-args','generic:impersonate',
         '--user-agent',USER_AGENT,'--referer',SITE+'/',
         '-f',fmt,'--merge-output-format','mp4','--print','after_move:filepath',
         '-o',outTpl,url
