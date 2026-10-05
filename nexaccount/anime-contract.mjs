@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
-const PINNED_ANIME_SHA256='4d627a7841dc6ea88847764b70e4b6c0bf253f7a627a6ead7560253c5b21cbde';
+const PINNED_ANIME_SHA256='855a07b5901c5d88900ceb3c70fc20fd17d688d2b2ad22ec2442df1a12e488e8';
 
 const CONTRACT={
   'anime-ingest.mjs':[
@@ -16,6 +16,8 @@ const CONTRACT={
     'async function restoreLastPublishedSeriesOwnership',
     'async function seriesConfirmedComplete',
     'async function requestFrontierRefresh',
+    'async function holdActiveSeriesForFrontierRecovery',
+    'async function parkActiveSeriesAfterFrontierFailure',
     'const TRANSIENT_VARIANT_RETRY_MS=Math.max(PUBLISH_MS*2,90_000);',
     'const IN_PROGRESS_TRANSIENT_PARK_ATTEMPTS=12;',
     'function episodeVariantRetryReady',
