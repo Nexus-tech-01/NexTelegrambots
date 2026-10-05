@@ -1386,15 +1386,15 @@ async function downloadEpisodeFromTelegramWatchers(anime,lang,s,e,quality,{onPro
       const anchorScore=Math.max(0,...anchors.map(a=>Math.max(
         watcherTitleScore(a?.raw||'',anime),watcherTitleScore(a?.canonicalTitle||'',anime)
       )));
-      const preferredSourcePriority=preferredSourcePriority({
+      const ownedPriority=preferredSourcePriority({
         title:row?.title,
         username:row?.username,
         channelTitle:row?.title,
         channelUsername:row?.username
       },'anime');
-      return {row,anchorScore,preferredSourcePriority};
+      return {row,anchorScore,ownedPriority};
     }).sort((a,b)=>
-      b.preferredSourcePriority-a.preferredSourcePriority||
+      b.ownedPriority-a.ownedPriority||
       b.anchorScore-a.anchorScore||
       Number(b.row?.selected||0)-Number(a.row?.selected||0)||
       Number(b.row?.confidence||0)-Number(a.row?.confidence||0)
