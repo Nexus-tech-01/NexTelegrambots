@@ -396,9 +396,12 @@ async function validateEpisodeMedia(file){
     if(Number.isFinite(duration)&&duration>0&&duration<MIN_MEDIA_DURATION_SECONDS){
       return {ok:false,reason:'too-short',size:stat.size,duration};
     }
+    const audioStream=streams.find(x=>x?.codec_type==='audio');
     return {
       ok:true,size:stat.size,duration,hasVideo,hasAudio,
-      width:Number(videoStream?.width||0),height:Number(videoStream?.height||0)
+      width:Number(videoStream?.width||0),height:Number(videoStream?.height||0),
+      videoCodec:String(videoStream?.codec_name||'').toLowerCase(),
+      audioCodec:String(audioStream?.codec_name||'').toLowerCase()
     };
   }catch(error){
     const message=String(error?.message||error);
@@ -422,7 +425,7 @@ async function ffmpegCandidateDownload(candidate,work,quality,{timeout=10*60_000
     if(typeof onProgress!=='function')return;
     try{Promise.resolve(onProgress({stage:'ffmpeg-fallback',message:text,force:true})).catch(()=>{})}catch{}
   };
-  emit('Fallback flux direct · '+host+' · tentative ffmpeg…');
+  emit('Optimisation du téléchargement…');
   const base=[
     '-y','-hide_banner','-loglevel','error',
     '-headers',headers,'-i',String(candidate?.url||''),
@@ -436,7 +439,7 @@ async function ffmpegCandidateDownload(candidate,work,quality,{timeout=10*60_000
     if(check.ok)return out;
   }catch{}
   await fsp.rm(out,{force:true}).catch(()=>{});
-  emit('Fallback flux direct · '+host+' · remux impossible, transcodage de secours…');
+  emit('Préparation alternative de la vidéo…');
   try{
     await run('ffmpeg',[
       ...base,
@@ -454,27 +457,50 @@ async function ffmpegCandidateDownload(candidate,work,quality,{timeout=10*60_000
 async function normalizeWatcherQuality(file,work,quality,check,{onProgress=null}={}){
   const wanted=Number(quality)||0;
   const height=Number(check?.height||0);
-  if(!wanted||!height)return file;
+  if(!wanted||!height)return '';
   if(height<wanted*0.72)return '';
-  if(height<=wanted+32&&height>=wanted*0.80)return file;
+
+  const ext=path.extname(file).toLowerCase();
+  const codecOk=String(check?.videoCodec||'')==='h264'&&['aac','mp3'].includes(String(check?.audioCodec||''));
+  const resolutionOk=height<=wanted+32&&height>=wanted*0.80;
+  const containerOk=ext==='.mp4';
+
+  // Even if the source resolution is correct, Telegram must receive a real
+  // streamable MP4. MKV/WEBM or unsupported codecs otherwise show up as a
+  // generic 0:00 file in the client.
+  if(resolutionOk&&containerOk&&codecOk){
+    const out=path.join(work,'episode-ready-'+wanted+'p.mp4');
+    try{
+      await run('ffmpeg',[
+        '-y','-hide_banner','-loglevel','error','-i',file,
+        '-map','0:v:0','-map','0:a:0?',
+        '-c','copy','-movflags','+faststart',out
+      ],{timeout:10*60_000});
+      const verified=await validateEpisodeMedia(out);
+      if(verified.ok&&Number(verified.duration||0)>0)return out;
+    }catch{}
+    await fsp.rm(out,{force:true}).catch(()=>{});
+  }
+
   const out=path.join(work,'episode-'+wanted+'p.mp4');
   if(typeof onProgress==='function'){
     try{Promise.resolve(onProgress({
       stage:'normalize-quality',
-      message:'Conversion de la vidéo vers '+wanted+'p…',
+      message:'Préparation de la vidéo pour Telegram…',
       force:true
     })).catch(()=>{})}catch{}
   }
   try{
+    const vf=resolutionOk?[]:['-vf','scale=-2:'+wanted+':force_original_aspect_ratio=decrease'];
     await run('ffmpeg',[
       '-y','-hide_banner','-loglevel','error','-i',file,
       '-map','0:v:0','-map','0:a:0?',
-      '-vf','scale=-2:'+wanted+':force_original_aspect_ratio=decrease',
+      ...vf,
       '-c:v','libx264','-preset','veryfast','-crf','23',
       '-c:a','aac','-b:a','128k','-movflags','+faststart',out
     ],{timeout:30*60_000});
     const verified=await validateEpisodeMedia(out);
-    if(verified.ok)return out;
+    if(verified.ok&&Number(verified.duration||0)>0&&String(verified.videoCodec||'')==='h264')return out;
   }catch{}
   await fsp.rm(out,{force:true}).catch(()=>{});
   return '';
@@ -589,7 +615,7 @@ async function resolveFranimeWrapper(url){
 
   // Cloudflare may answer 403 after redirect. We only reject after attempting
   // every token from the original and final URLs.
-  if(r&&!r.ok)throw new Error('Lecteur FRAnime HTTP '+r.status);
+  if(r&&!r.ok)throw new Error('Méthode FRAnime HTTP '+r.status);
   return [];
 }
 
@@ -1081,7 +1107,7 @@ async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=nul
       throw new Error('Tous les lecteurs FRAnime disponibles sont temporairement bloqués ou indisponibles. Réessaie dans quelques instants.');
     }
     if(/Unsupported URL|franime\.fr\/watch2|[?&](?:z|d|e)=/i.test(message)){
-      throw new Error('Le lecteur FRAnime a répondu, mais son flux vidéo n’a pas pu être extrait.');
+      throw new Error('La méthode FRAnime a répondu, mais son flux vidéo n’a pas pu être extrait.');
     }
     throw new Error('Le téléchargement de cet épisode a échoué sur tous les lecteurs disponibles.');
   }
@@ -1581,9 +1607,13 @@ async function onUploadMessage(ctx){
 
 function setupHandlers(target){
   target.command('start',async ctx=>{
+    const kb=new InlineKeyboard()
+      .text('🎬 Animes','home:anime').row()
+      .text('📚 Mangas & Scans','home:read').row()
+      .text('📱 Webtoon & Manhwa','home:read');
     await ctx.reply(
-      '🎬 <b>NexAnime</b>\n\nEnvoie simplement le nom d’un anime. Je chercherai sur FRAnime et je te proposerai les titres les plus proches.\n\nExemple : <code>Blue Lock</code>',
-      {parse_mode:'HTML'}
+      '🎬📚 <b>NexAnime</b>\n\nChoisis ce que tu veux rechercher :\n\n• Anime : épisode, saison ou série complète\n• Manga / Scan\n• Webtoon / Manhwa',
+      {parse_mode:'HTML',reply_markup:kb}
     );
   });
   target.command('search',async ctx=>{
