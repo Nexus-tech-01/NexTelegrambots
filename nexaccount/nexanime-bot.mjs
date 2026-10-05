@@ -17,6 +17,9 @@ const BIN_ROOT=String(process.env.NEXANIME_BIN_DIR||path.join(os.tmpdir(),'nexan
 const MAX_DOWNLOADS=Math.max(1,Math.min(4,Number(process.env.NEXANIME_DOWNLOAD_CONCURRENCY||2)));
 const CATALOG_TTL_MS=10*60_000;
 const UPLOAD_TIMEOUT_MS=20*60_000;
+const CACHE_VERSION='v2-valid-media';
+const MIN_MEDIA_BYTES=Math.max(256*1024,Number(process.env.NEXANIME_MIN_MEDIA_BYTES||1024*1024));
+const MIN_MEDIA_DURATION_SECONDS=Math.max(10,Number(process.env.NEXANIME_MIN_DURATION_SECONDS||45));
 const USER_AGENT='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36';
 const SITE_REFERER=SITE+'/anime/watch';
 const VIDEO_PROVIDERS=[
@@ -212,7 +215,7 @@ function qualityKeyboard(id,lang,s,e){
     .row().text('◀️ Épisodes','s:'+id+':'+lang+':'+s);
 }
 
-function cacheKey(id,lang,s,e,q){return [id,lang,s,e,q].join(':')}
+function cacheKey(id,lang,s,e,q){return [CACHE_VERSION,id,lang,s,e,q].join(':')}
 
 async function cacheGet(key){
   try{
@@ -265,6 +268,74 @@ async function ensureYtDlp(){
   await fsp.writeFile(tmp,Buffer.from(await r.arrayBuffer()),{mode:0o755});
   await fsp.rename(tmp,local);
   return local;
+}
+
+async function clearDownloadWorkdir(work){
+  let names=[];
+  try{names=await fsp.readdir(work)}catch{return}
+  await Promise.all(names.map(name=>fsp.rm(path.join(work,name),{recursive:true,force:true}).catch(()=>{})));
+}
+
+async function selectDownloadedFile(work,printedPath=''){
+  const printed=clean(printedPath);
+  if(printed&&fs.existsSync(printed)){
+    try{
+      const st=await fsp.stat(printed);
+      if(st.isFile())return printed;
+    }catch{}
+  }
+  const names=await fsp.readdir(work).catch(()=>[]);
+  const rows=[];
+  for(const name of names){
+    const file=path.join(work,name);
+    try{
+      const st=await fsp.stat(file);
+      if(!st.isFile())continue;
+      if(/\.(?:part|ytdl|json|vtt|srt|ass|jpg|jpeg|png|webp|gif)$/i.test(name))continue;
+      rows.push({file,size:st.size});
+    }catch{}
+  }
+  rows.sort((a,b)=>b.size-a.size);
+  return rows[0]?.file||'';
+}
+
+async function validateEpisodeMedia(file){
+  let stat;
+  try{stat=await fsp.stat(file)}catch{return {ok:false,reason:'missing-file'}}
+  if(!stat.isFile())return {ok:false,reason:'not-a-file'};
+  if(stat.size<MIN_MEDIA_BYTES)return {ok:false,reason:'too-small',size:stat.size};
+
+  try{
+    const probe=await run('ffprobe',[
+      '-v','error',
+      '-show_entries','format=duration,size:stream=codec_type,codec_name,width,height',
+      '-of','json',
+      file
+    ],{timeout:30000});
+    const meta=JSON.parse(probe.stdout||'{}');
+    const streams=Array.isArray(meta?.streams)?meta.streams:[];
+    const hasVideo=streams.some(x=>x?.codec_type==='video'&&Number(x?.width||0)>=160&&Number(x?.height||0)>=90);
+    const hasAudio=streams.some(x=>x?.codec_type==='audio');
+    const duration=Number(meta?.format?.duration||0);
+    if(!hasVideo)return {ok:false,reason:'no-video',size:stat.size,duration};
+    // Telegram labels short silent MP4 placeholders as GIFs. A real anime
+    // episode must carry an audio stream.
+    if(!hasAudio)return {ok:false,reason:'no-audio-placeholder',size:stat.size,duration};
+    if(Number.isFinite(duration)&&duration>0&&duration<MIN_MEDIA_DURATION_SECONDS){
+      return {ok:false,reason:'too-short',size:stat.size,duration};
+    }
+    return {ok:true,size:stat.size,duration,hasVideo,hasAudio};
+  }catch(error){
+    const message=String(error?.message||error);
+    // If ffprobe is not installed, fall back to a conservative size/type
+    // check instead of accepting tiny host placeholders.
+    if(/ENOENT|spawn ffprobe/i.test(message)){
+      if(stat.size<5*1024*1024)return {ok:false,reason:'probe-missing-small-file',size:stat.size};
+      if(/\.(?:gif|webp|png|jpe?g|html?)$/i.test(file))return {ok:false,reason:'probe-missing-nonvideo',size:stat.size};
+      return {ok:true,size:stat.size,duration:null,probeFallback:true};
+    }
+    return {ok:false,reason:'invalid-media',size:stat.size};
+  }
 }
 
 function collectUrls(value,out=new Set(),base=SITE+'/'){
@@ -424,7 +495,10 @@ export async function downloadEpisode(anime,lang,s,e,quality){
   if(!urls.length)throw new Error('Aucune source vidéo trouvée pour cet épisode');
   const fmt='bv*[height<='+quality+']+ba/b[height<='+quality+']/best[height<='+quality+']/best';
   let lastError=null;
+  let rejectedMedia=0;
+
   for(const url of urls.slice(0,10)){
+    await clearDownloadWorkdir(work);
     try{
       const r=await run(ytdlp,[
         '--no-playlist','--no-warnings','--retries','4','--fragment-retries','4',
@@ -433,14 +507,36 @@ export async function downloadEpisode(anime,lang,s,e,quality){
         '-f',fmt,'--merge-output-format','mp4','--print','after_move:filepath',
         '-o',outTpl,url
       ],{timeout:25*60_000,cwd:work});
-      const file=String(r.stdout||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean).at(-1);
-      if(file&&fs.existsSync(file))return {file,work};
-      const found=(await fsp.readdir(work)).map(x=>path.join(work,x)).find(x=>fs.statSync(x).isFile());
-      if(found)return {file:found,work};
-    }catch(error){lastError=error}
+
+      const printed=String(r.stdout||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean).at(-1)||'';
+      const file=await selectDownloadedFile(work,printed);
+      if(!file){
+        lastError=new Error('reader-produced-no-file');
+        continue;
+      }
+
+      const check=await validateEpisodeMedia(file);
+      if(!check.ok){
+        rejectedMedia++;
+        console.warn('[NexAnime] rejected reader media',check.reason,'bytes='+String(check.size||0),'duration='+String(check.duration??'n/a'));
+        lastError=new Error('invalid-reader-media:'+check.reason);
+        await clearDownloadWorkdir(work);
+        continue;
+      }
+
+      console.log('[NexAnime] accepted episode media','bytes='+check.size,'duration='+String(check.duration??'n/a'));
+      return {file,work};
+    }catch(error){
+      lastError=error;
+      await clearDownloadWorkdir(work);
+    }
   }
+
   if(lastError){
     const message=String(lastError?.message||lastError);
+    if(rejectedMedia>0||/invalid-reader-media/i.test(message)){
+      throw new Error('Les lecteurs FRAnime ont répondu, mais les médias reçus étaient indisponibles ou invalides. Le bot les a rejetés au lieu d’envoyer un faux épisode.');
+    }
     if(/403|Cloudflare|Forbidden/i.test(message)){
       throw new Error('Tous les lecteurs FRAnime disponibles sont temporairement bloqués ou indisponibles. Réessaie dans quelques instants.');
     }
