@@ -1,0 +1,9 @@
+{
+  "name": "nex-telegrambots-web",
+  "private": true,
+  "type": "module",
+  "engines": {"node": "24.x"},
+  "dependencies": {
+    "mongodb": "6.9.0"
+  }
+}
