@@ -2,18 +2,43 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "rewrites": [
-    { "source": "/about", "destination": "/index.html" },
-    { "source": "/projects", "destination": "/index.html" },
-    { "source": "/ateliers", "destination": "/index.html" },    { "source": "/contact", "destination": "/index.html" },
-    { "source": "/privacy", "destination": "/index.html" }
+    {
+      "source": "/about",
+      "destination": "/"
+    },
+    {
+      "source": "/projects",
+      "destination": "/"
+    },
+    {
+      "source": "/ateliers",
+      "destination": "/"
+    },
+    {
+      "source": "/contact",
+      "destination": "/"
+    },
+    {
+      "source": "/privacy",
+      "destination": "/"
+    }
   ],
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" }
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=()"
+        }
       ]
     }
   ]
