@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
-const PINNED_ANIME_SHA256='5faa7ed5628d0175bc95dcd9c79dd1ef138ab6a108d5fc0af0d2015fc0e2f973';
+const PINNED_ANIME_SHA256='6d3f108abc27258bb6c18c0d441b9d49659c5db969c1e34c56d5f9b79680aef4';
 
 const CONTRACT={
   'anime-ingest.mjs':[
