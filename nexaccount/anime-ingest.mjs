@@ -2306,86 +2306,30 @@ async function ensureGeneralPresentation(d,seriesKey){
 }
 
 async function ensureResumePresentation(d,seriesKey){
+  // Resume synopsis cards are deliberately disabled.
+  // A series gets exactly one general synopsis before Episode 1. If publication
+  // pauses or another anime runs in between, we continue directly with the next
+  // verified episode instead of posting another synopsis that may be left alone.
   const queue=d.collection('nexanime_queue');
-  const publications=d.collection('nexanime_publications');
-
-  const nextEpisode=await queue.findOne(
-    {seriesKey,kind:'episode',status:'queued',episode:{$ne:null}},
-    {sort:{season:1,episode:1,createdAt:1}}
-  );
-  if(!nextEpisode?.title)return {required:false};
-
-  const previousSeriesEpisode=await publications.findOne(
-    {seriesKey,kind:'episode',telegramMessageId:{$gt:0},purgedAt:{$exists:false}},
-    {sort:{publishedAt:-1,_id:-1}}
-  );
-  if(!previousSeriesEpisode)return {required:false};
-
-  // Ignore stale queued copies that point at an episode already public.
-  if(await publications.findOne({
-    seriesKey,kind:'episode',
-    season:Number(nextEpisode.season??1),
-    episode:Number(nextEpisode.episode),
-    purgedAt:{$exists:false}
-  },{projection:{_id:1}}))return {required:false};
-
-  const latestGlobal=await publications.findOne(
-    {telegramMessageId:{$gt:0},purgedAt:{$exists:false}},
-    {sort:{publishedAt:-1,_id:-1},projection:{seriesKey:1,publishedAt:1,kind:1}}
-  );
-  const lastSeriesAt=new Date(previousSeriesEpisode.publishedAt||0).getTime();
-  const resumedAfterOtherSeries=Boolean(latestGlobal?.seriesKey&&String(latestGlobal.seriesKey)!==String(seriesKey));
-  const resumedAfterLongPause=Number.isFinite(lastSeriesAt)&&Date.now()-lastSeriesAt>=RESUME_AFTER_LONG_PAUSE_MS;
-  if(!resumedAfterOtherSeries&&!resumedAfterLongPause)return {required:false};
-
-  const season=Number(nextEpisode.season??1);
-  const episode=Number(nextEpisode.episode);
-  const dedupeKey=resumePresentationKey(seriesKey,season,episode);
-  const existing=await queue.findOne({dedupeKey,status:{$in:['queued','publishing','published']}});
-  const alreadyPublished=await publications.findOne({dedupeKey,purgedAt:{$exists:false}},{projection:{_id:1}});
-  if(existing||alreadyPublished)return {required:true,ready:true,item:existing||alreadyPublished,season,episode};
-
-  const meta=await animePresentationMetadata(nextEpisode.title);
-  const priorSynopsis=await queue.findOne(
-    {
-      seriesKey,kind:'presentation',status:'published',
-      $or:[{episode:null},{episode:{$exists:false}}]
-    },
-    {sort:{publishedAt:-1,updatedAt:-1}}
-  );
-  const priorPublishedPresentation=await publications.findOne(
-    {
-      seriesKey,kind:'presentation',
-      $or:[{episode:null},{episode:{$exists:false}}],
-      purgedAt:{$exists:false}
-    },
-    {sort:{publishedAt:-1,_id:-1}}
-  );
-  const priorPresentation=priorSynopsis||priorPublishedPresentation||null;
-  const synopsisText=meta?.ok&&String(meta.description||'').trim()
-    ?await presentationText(meta,seriesKey)
-    :cleanSynopsisDescription(priorPresentation?.cleanedCaption||'');
-  if(!synopsisText)return {required:true,ready:false,reason:'resume_synopsis_unavailable',season,episode};
-
   const now=new Date();
-  const resumeHead='🔄 Reprise de l’anime\nLa publication reprend à Saison '+season+' · Épisode '+episode;
-  const payload={
-    dedupeKey,status:'queued',kind:'resume_presentation',seriesKey,
-    title:meta?.canonicalTitle||priorPresentation?.title||nextEpisode.title,
-    anilistId:meta?.anilistId||priorPresentation?.anilistId||nextEpisode.anilistId||null,
-    season:null,episode:null,language:'',quality:'',
-    mediaKind:'photo',cleanedCaption:[resumeHead,synopsisText].filter(Boolean).join('\n\n'),
-    cleanedFilename:'',originalFilename:'',confidence:1,
-    destination:'@'+DESTINATION,mode:'synthetic',synthetic:true,
-    imageUrl:String(meta?.coverImage||priorPresentation?.imageUrl||'').trim(),attempts:0,ingestedAt:new Date(0),
-    resumeSeason:season,resumeEpisode:episode,
-    resumePresentation:true,createdAt:now,updatedAt:now
-  };
-  if(!payload.imageUrl)return {required:true,ready:false,reason:'resume_cover_unavailable',season,episode};
-  await queue.insertOne(payload);
-  return {required:true,ready:true,item:payload,season,episode};
+  await queue.updateMany(
+    {
+      seriesKey,
+      kind:'resume_presentation',
+      status:{$in:['queued','publishing']}
+    },
+    {
+      $set:{
+        status:'superseded',
+        supersededAt:now,
+        supersededReason:'resume_synopsis_disabled',
+        updatedAt:now
+      },
+      $unset:{claimAt:'',claimBy:'',retryAfter:'',lastTransientAt:'',lastError:''}
+    }
+  );
+  return {required:false,ready:true,disabled:true};
 }
-
 async function ensureLiveEpisodePresentation(){
   // Kept as a compatibility shim for older callers. Per-episode presentation
   // cards are intentionally disabled: one series synopsis is enough.
@@ -2503,7 +2447,9 @@ async function preferredEpisodeVariant(d,seriesKey,season,episode){
 }
 
 async function preflightSeriesBeforeSynopsis(runtime,d,seriesKey){
-  const publishedPresentation=await d.collection('nexanime_publications').findOne(
+  const publications=d.collection('nexanime_publications');
+  const queue=d.collection('nexanime_queue');
+  const publishedPresentation=await publications.findOne(
     {
       seriesKey,kind:'presentation',
       $or:[{episode:null},{episode:{$exists:false}}],
@@ -2512,19 +2458,58 @@ async function preflightSeriesBeforeSynopsis(runtime,d,seriesKey){
     },
     {projection:{_id:1}}
   );
-  if(publishedPresentation)return {ok:true,alreadyPresented:true};
 
-  const first=await d.collection('nexanime_queue').findOne(
-    {seriesKey,status:'queued',kind:'episode',episode:{$ne:null}},
-    {sort:{season:1,episode:1,createdAt:1}}
-  );
-  if(!first)return {ok:false,reason:'no_episode_available'};
+  // Always preflight the NEXT unpublished episode, even when this anime
+  // already has a synopsis in the channel. Previously the published synopsis
+  // short-circuited this function, allowing a resume card to go out before we
+  // knew that the following episode could actually be fetched.
+  const candidates=await queue.find(
+    {seriesKey,status:'queued',kind:'episode',episode:{$ne:null}}
+  ).sort({season:1,episode:1,createdAt:1}).limit(50).toArray();
+
+  let first=null;
+  for(const candidate of candidates){
+    const already=await publications.findOne({
+      seriesKey,kind:'episode',
+      season:Number(candidate.season??1),
+      episode:Number(candidate.episode),
+      purgedAt:{$exists:false}
+    },{projection:{_id:1}});
+    if(!already){first=candidate;break}
+  }
+  if(!first)return {ok:false,reason:'no_unpublished_episode_available'};
 
   const season=Number(first.season??1);
   const episode=Number(first.episode);
-  if(!Number.isFinite(episode)||episode!==1){
-    return {ok:false,reason:'first_episode_missing',season,expectedEpisode:1,blockedEpisode:Number.isFinite(episode)?episode:null};
+  const initialPresentationNeeded=!publishedPresentation;
+
+  if(initialPresentationNeeded&&(!Number.isFinite(episode)||episode!==1)){
+    return {
+      ok:false,reason:'first_episode_missing',season,
+      expectedEpisode:1,
+      blockedEpisode:Number.isFinite(episode)?episode:null
+    };
   }
+
+  // For an anime already in progress, never resume at E(N) if E(N-1) is
+  // neither public nor queued. This check happens before any presentation.
+  if(!initialPresentationNeeded&&Number.isInteger(episode)&&episode>1){
+    const previousEpisode=episode-1;
+    const previousPublished=await publications.findOne({
+      seriesKey,kind:'episode',season,episode:previousEpisode,purgedAt:{$exists:false}
+    },{projection:{_id:1}});
+    const previousQueued=previousPublished?null:await queue.findOne({
+      seriesKey,kind:'episode',season,episode:previousEpisode,
+      status:{$in:['queued','publishing']}
+    },{projection:{_id:1}});
+    if(!previousPublished&&!previousQueued){
+      return {
+        ok:false,reason:'missing_previous_episode',
+        season,expectedEpisode:previousEpisode,blockedEpisode:episode
+      };
+    }
+  }
+
   if(!(await mediaReuploadAllowed())){
     return {
       ok:false,
@@ -2536,43 +2521,44 @@ async function preflightSeriesBeforeSynopsis(runtime,d,seriesKey){
     };
   }
 
-  // A series with no already queued synopsis must also have resolvable metadata.
-  // Otherwise claimNext can select it forever while ensureGeneralPresentation()
-  // silently has nothing to create, stalling the whole channel.
-  const queuedPresentation=await d.collection('nexanime_queue').findOne({
-    seriesKey,kind:'presentation',
-    $or:[{episode:null},{episode:{$exists:false}}],
-    status:{$in:['queued','publishing']}
-  },{projection:{_id:1}});
-  if(!queuedPresentation){
-    const meta=await animePresentationMetadata(first.title);
-    if(!meta?.ok||!String(meta.description||'').trim()){
-      return {
-        ok:false,
-        reason:'presentation_metadata_unavailable',
-        season,expectedEpisode:1,blockedEpisode:1,
-        lastError:'presentation_metadata_unavailable'
-      };
-    }
-    const localizedPresentation=await presentationText(meta,seriesKey);
-    if(!localizedPresentation){
-      return {
-        ok:false,
-        reason:'presentation_translation_unavailable',
-        season,expectedEpisode:1,blockedEpisode:1,
-        lastError:'presentation_translation_unavailable'
-      };
+  // A brand-new anime may get its one general synopsis only if both its
+  // metadata and Episode 1 are genuinely ready.
+  if(initialPresentationNeeded){
+    const queuedPresentation=await queue.findOne({
+      seriesKey,kind:'presentation',
+      $or:[{episode:null},{episode:{$exists:false}}],
+      status:{$in:['queued','publishing']}
+    },{projection:{_id:1}});
+    if(!queuedPresentation){
+      const meta=await animePresentationMetadata(first.title);
+      if(!meta?.ok||!String(meta.description||'').trim()){
+        return {
+          ok:false,
+          reason:'presentation_metadata_unavailable',
+          season,expectedEpisode:episode,blockedEpisode:episode,
+          lastError:'presentation_metadata_unavailable'
+        };
+      }
+      const localizedPresentation=await presentationText(meta,seriesKey);
+      if(!localizedPresentation){
+        return {
+          ok:false,
+          reason:'presentation_translation_unavailable',
+          season,expectedEpisode:episode,blockedEpisode:episode,
+          lastError:'presentation_translation_unavailable'
+        };
+      }
     }
   }
 
-  const variants=await d.collection('nexanime_queue').find(
-    {seriesKey,status:'queued',kind:'episode',season,episode:1}
-  ).limit(2).toArray();
+  const variants=await queue.find(
+    {seriesKey,status:'queued',kind:'episode',season,episode}
+  ).limit(4).toArray();
   variants.sort((a,b)=>episodeVariantScore(b)-episodeVariantScore(a)||new Date(a.createdAt||0)-new Date(b.createdAt||0));
 
   let lastError='';
   let sawTransient=false;
-  const preflightDeadline=Date.now()+20_000;
+  const preflightDeadline=Date.now()+25_000;
   for(const item of variants){
     if(Date.now()>=preflightDeadline){
       sawTransient=true;
@@ -2580,14 +2566,19 @@ async function preflightSeriesBeforeSynopsis(runtime,d,seriesKey){
       break;
     }
     try{
-      const resolved=await resolveSource(runtime,item,{maxSources:2});
-      if(resolved)return {ok:true,season,episode:1,dedupeKey:item.dedupeKey};
+      const resolved=await resolveSource(runtime,item,{maxSources:3});
+      if(resolved){
+        return {
+          ok:true,season,episode,dedupeKey:item.dedupeKey,
+          alreadyPresented:Boolean(publishedPresentation)
+        };
+      }
       sawTransient=true;
     }catch(error){
       const message=String(error?.message||error).slice(0,500);
       lastError=message;
       if(String(error?.code||'')==='SOURCE_IDENTITY_MISMATCH'){
-        await d.collection('nexanime_queue').updateOne(
+        await queue.updateOne(
           {_id:item._id,status:'queued'},
           {
             $set:{
@@ -2606,10 +2597,12 @@ async function preflightSeriesBeforeSynopsis(runtime,d,seriesKey){
       sawTransient=true;
     }
   }
+
+  const prefix=initialPresentationNeeded?'first_episode':'next_episode';
   return {
     ok:false,
-    reason:sawTransient?'first_episode_unreachable':'first_episode_invalid',
-    season,expectedEpisode:1,blockedEpisode:1,lastError
+    reason:sawTransient?(prefix+'_unreachable'):(prefix+'_invalid'),
+    season,expectedEpisode:episode,blockedEpisode:episode,lastError
   };
 }
 async function parkSeriesBeforeSynopsis(d,seriesKey,probe={}){
@@ -2712,17 +2705,10 @@ async function claimNext(runtime){
     }}
   );
 
-  // 1) When returning to an anime that was already published earlier,
-  // send a fresh synopsis/reprise card before the next episode.
-  const resumePresentation=await d.collection('nexanime_queue').findOne(
-    {seriesKey,status:'queued',kind:'resume_presentation'},
-    {sort:{createdAt:1}}
-  );
-  if(resumePresentation){
-    return claimExactItem(d,resumePresentation,accountId,{allowAny});
-  }
+  // Resume synopsis cards are disabled. A series keeps its original synopsis
+  // and continues directly with its next verified episode after any pause.
 
-  // 2) Exactly one initial general anime presentation/synopsis is allowed.
+  // Exactly one initial general anime presentation/synopsis is allowed.
   const generalPresentation=await d.collection('nexanime_queue').findOne(
     {
       seriesKey,status:'queued',kind:'presentation',
@@ -2758,7 +2744,7 @@ async function claimNext(runtime){
     return claimNext(runtime);
   }
 
-  // 3) Only real episode media can be selected after the general/resume synopsis.
+  // Only real episode media can be selected after the single general synopsis.
   const nextEpisode=await d.collection('nexanime_queue').findOne(
     {
       seriesKey,status:'queued',
