@@ -18,6 +18,14 @@ const MAX_DOWNLOADS=Math.max(1,Math.min(4,Number(process.env.NEXANIME_DOWNLOAD_C
 const CATALOG_TTL_MS=10*60_000;
 const UPLOAD_TIMEOUT_MS=20*60_000;
 const USER_AGENT='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36';
+const SITE_REFERER=SITE+'/anime/watch';
+const VIDEO_PROVIDERS=[
+  'sibnet.ru','sendvid.com','vidmoly','filemoon','streamtape','doodstream',
+  'smoothpre','uqload','voe.sx','yourupload','vidoza','oneupload','ok.ru',
+  'vk.com','vkvideo','dailymotion','youtube','playtube','mail.ru','embed4me',
+  'minochinos','dingtezuni','bingezove','movearnpre','bysedikamoum',
+  'weneverbeenfree','vmwesa.online','lpayer'
+];
 
 let bot=null;
 let polling=false;
@@ -95,8 +103,22 @@ function titleScore(query,title){
   return score;
 }
 
+function franimeHeaders({json=false}={}){
+  return {
+    'user-agent':USER_AGENT,
+    'accept':json?'application/json, text/plain, */*':'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'accept-language':'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+    'referer':SITE_REFERER,
+    'origin':SITE,
+    'sec-fetch-dest':json?'empty':'document',
+    'sec-fetch-mode':json?'cors':'navigate',
+    'sec-fetch-site':json?'same-site':'same-origin',
+    'upgrade-insecure-requests':'1'
+  };
+}
+
 async function fetchJson(url){
-  const r=await fetch(url,{headers:{'user-agent':USER_AGENT,'referer':SITE+'/'},signal:AbortSignal.timeout(25000)});
+  const r=await fetch(url,{headers:franimeHeaders({json:true}),signal:AbortSignal.timeout(25000)});
   if(!r.ok)throw new Error('FRAnime HTTP '+r.status);
   return r.json();
 }
@@ -260,14 +282,51 @@ function collectUrls(value,out=new Set(),base=SITE+'/'){
   return out;
 }
 
+function isKnownVideoProvider(url){
+  const u=String(url||'').toLowerCase();
+  return VIDEO_PROVIDERS.some(provider=>u.includes(provider));
+}
+
+function decodeWatchToken(value){
+  try{
+    const normalized=String(value||'').trim().replace(/-/g,'+').replace(/_/g,'/');
+    const hex=Buffer.from(normalized,'base64').toString('utf8').trim();
+    if(!hex||!/^[0-9a-f]+$/i.test(hex)||hex.length%2!==0)return '';
+    const encrypted=Buffer.from(hex,'hex');
+    for(let key=0;key<256;key++){
+      const decoded=Buffer.allocUnsafe(encrypted.length);
+      for(let i=0;i<encrypted.length;i++)decoded[i]=encrypted[i]^key;
+      const text=decoded.toString('utf8');
+      if(/^https?:\/\//i.test(text)&&isKnownVideoProvider(text))return text;
+    }
+  }catch{}
+  return '';
+}
+
+function decodeWatchUrl(url){
+  try{
+    const u=new URL(url);
+    const params=[...u.searchParams.entries()];
+    const ordered=[
+      ...params.filter(([k])=>k==='b'),
+      ...params.filter(([k])=>k!=='b')
+    ];
+    for(const [,value] of ordered){
+      const decoded=decodeWatchToken(value);
+      if(decoded)return decoded;
+    }
+  }catch{}
+  return '';
+}
+
 function viewerUrlScore(url){
   const u=String(url||'');
   let score=0;
-  if(/\.(?:m3u8|mp4|mkv|webm)(?:$|[?#])/i.test(u))score+=20;
-  if(/sibnet|sendvid|vidmoly|filemoon|smoothpre|vkvideo|(?:^|\.)vk\.com|dailymotion|youtube|yourupload|ok\.ru|playtube|mail\.ru|tomacloud|embed4me|dingtezuni|callistanise|minochinos/i.test(u))score+=10;
-  if(/\/(?:embed|player|video|shell\.php)(?:[/?#]|$)/i.test(u))score+=4;
-  if(/franime\.fr\/watch2/i.test(u))score-=30;
-  if(/\.(?:js|css|png|jpe?g|gif|svg|ico|woff2?)(?:$|[?#])/i.test(u))score-=20;
+  if(/\.(?:m3u8|mp4|mkv|webm)(?:$|[?#])/i.test(u))score+=30;
+  if(isKnownVideoProvider(u))score+=20;
+  if(/\/(?:embed|player|video|shell\.php)(?:[/?#]|$)/i.test(u))score+=6;
+  if(/franime\.fr\/watch2/i.test(u))score-=40;
+  if(/\.(?:js|css|png|jpe?g|gif|svg|ico|woff2?)(?:$|[?#])/i.test(u))score-=30;
   return score;
 }
 
@@ -279,21 +338,40 @@ function isFranimeWrapper(url){
 }
 
 async function resolveFranimeWrapper(url){
+  const immediate=decodeWatchUrl(url);
+  if(immediate)return [immediate];
+
   const r=await fetch(url,{
     redirect:'follow',
-    headers:{
-      'user-agent':USER_AGENT,
-      'referer':SITE+'/',
-      'accept':'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8'
-    },
+    headers:franimeHeaders(),
     signal:AbortSignal.timeout(25000)
   });
-  if(!r.ok)throw new Error('Lecteur protégé HTTP '+r.status);
-  const text=await r.text();
-  const base=r.url||url;
-  const found=collectUrls(text,new Set(),base);
-  if(base&&base!==url)found.add(base);
-  return [...found].filter(x=>/^https?:\/\//i.test(x)&&x!==url);
+
+  const finalUrl=r.url||url;
+  const redirected=decodeWatchUrl(finalUrl);
+  if(redirected)return [redirected];
+
+  let text='';
+  try{text=await r.text()}catch{}
+  const found=collectUrls(text,new Set(),finalUrl);
+  const resolved=new Set();
+
+  for(const candidate of found){
+    if(isFranimeWrapper(candidate)){
+      const decoded=decodeWatchUrl(candidate);
+      if(decoded)resolved.add(decoded);
+    }else if(/^https?:\/\//i.test(candidate)&&viewerUrlScore(candidate)>0){
+      resolved.add(candidate);
+    }
+  }
+
+  if(resolved.size)return [...resolved];
+
+  // Cloudflare peut répondre 403 après la redirection. L'URL finale est
+  // néanmoins exploitable si elle contient le token chiffré; on ne rejette
+  // donc le statut qu'après avoir tenté le décodage ci-dessus.
+  if(!r.ok)throw new Error('Lecteur FRAnime HTTP '+r.status);
+  return [];
 }
 
 async function viewerCandidates(animeId,s,e,lang){
@@ -302,7 +380,7 @@ async function viewerCandidates(animeId,s,e,lang){
   for(let reader=0;reader<6;reader++){
     const endpoint=API+'/api/anime/'+encodeURIComponent(animeId)+'/'+s+'/'+e+'/'+encodeURIComponent(lang)+'/'+reader;
     try{
-      const r=await fetch(endpoint,{headers:{'user-agent':USER_AGENT,'referer':SITE+'/'},signal:AbortSignal.timeout(25000)});
+      const r=await fetch(endpoint,{headers:franimeHeaders({json:true}),signal:AbortSignal.timeout(25000)});
       if(!r.ok){failures.push(reader+':HTTP '+r.status);continue}
       const text=(await r.text()).trim();
       if(!text)continue;
@@ -351,7 +429,7 @@ export async function downloadEpisode(anime,lang,s,e,quality){
       const r=await run(ytdlp,[
         '--no-playlist','--no-warnings','--retries','4','--fragment-retries','4',
         '--extractor-args','generic:impersonate',
-        '--user-agent',USER_AGENT,'--referer',SITE+'/',
+        '--user-agent',USER_AGENT,'--referer',SITE_REFERER,
         '-f',fmt,'--merge-output-format','mp4','--print','after_move:filepath',
         '-o',outTpl,url
       ],{timeout:25*60_000,cwd:work});
