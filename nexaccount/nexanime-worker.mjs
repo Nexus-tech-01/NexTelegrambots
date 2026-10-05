@@ -144,7 +144,10 @@ async function processJob(job){
       Number(job.season),
       Number(job.episode),
       Number(job.quality),
-      {onProgress:relayProgress}
+      {
+        onProgress:relayProgress,
+        preResolvedUrls:Array.isArray(job.sourceUrls)?job.sourceUrls:[]
+      }
     );
     work=dl.work;
 
