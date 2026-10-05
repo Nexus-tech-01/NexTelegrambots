@@ -368,7 +368,12 @@ function decodeWatchToken(value){
       const decoded=Buffer.allocUnsafe(encrypted.length);
       for(let i=0;i<encrypted.length;i++)decoded[i]=encrypted[i]^key;
       const text=decoded.toString('utf8');
-      if(/^https?:\/\//i.test(text)&&isKnownVideoProvider(text))return text;
+      if(/^https?:\/\//i.test(text)){
+        try{
+          const u=new URL(text);
+          if(/^https?:$/.test(u.protocol)&&u.hostname)return text;
+        }catch{}
+      }
     }
   }catch{}
   return '';
@@ -599,7 +604,7 @@ async function browserNetworkCandidates(targetUrl){
   const profile=await fsp.mkdtemp(path.join(os.tmpdir(),'nexanime-chrome-'));
   const child=spawn(browser,[
     '--headless=new','--no-sandbox','--disable-gpu','--disable-dev-shm-usage',
-    '--autoplay-policy=no-user-gesture-required','--remote-debugging-port=0',
+    '--autoplay-policy=no-user-gesture-required','--remote-allow-origins=*','--remote-debugging-port=0',
     '--user-data-dir='+profile,'about:blank'
   ],{stdio:['ignore','ignore','pipe']});
 
@@ -637,7 +642,11 @@ async function browserNetworkCandidates(targetUrl){
         return;
       }
       const u=msg?.params?.request?.url||msg?.params?.response?.url||msg?.params?.documentURL||'';
-      if(mediaLike(u))media.add(u);
+      const mime=String(msg?.params?.response?.mimeType||'');
+      const resourceType=String(msg?.params?.type||'');
+      if(mediaLike(u)||/(?:mpegurl|dash\+xml|video\/|application\/octet-stream)/i.test(mime)||resourceType==='Media'){
+        if(/^https?:\/\//i.test(u))media.add(u);
+      }
     });
 
     const send=(method,params={})=>new Promise((resolve,reject)=>{
@@ -654,7 +663,7 @@ async function browserNetworkCandidates(targetUrl){
     await send('Network.setExtraHTTPHeaders',{headers:{Referer:SITE_REFERER}});
     await send('Emulation.setUserAgentOverride',{userAgent:USER_AGENT});
     await send('Page.navigate',{url:targetUrl});
-    await sleep(12000);
+    await sleep(16000);
     try{await send('Page.stopLoading')}catch{}
     try{ws.close()}catch{}
 
@@ -684,17 +693,28 @@ async function expandedDownloadCandidates(url,{browserFallback=false}={}){
 async function viewerCandidates(animeId,s,e,lang){
   const urls=new Set();
   const failures=[];
-  for(let reader=0;reader<6;reader++){
+  let consecutiveMisses=0;
+  for(let reader=0;reader<12&&consecutiveMisses<3;reader++){
     const endpoint=API+'/api/anime/'+encodeURIComponent(animeId)+'/'+s+'/'+e+'/'+encodeURIComponent(lang)+'/'+reader;
     try{
       const r=await fetch(endpoint,{headers:franimeHeaders({json:true}),signal:AbortSignal.timeout(25000)});
-      if(!r.ok){failures.push(reader+':HTTP '+r.status);continue}
+      if(!r.ok){
+        failures.push(reader+':HTTP '+r.status);
+        consecutiveMisses++;
+        continue;
+      }
       const text=(await r.text()).trim();
-      if(!text)continue;
+      if(!text){
+        consecutiveMisses++;
+        continue;
+      }
+      const before=urls.size;
       try{collectUrls(JSON.parse(text),urls)}catch{collectUrls(text,urls)}
       if(/^https?:\/\//i.test(text))urls.add(text);
+      consecutiveMisses=urls.size>before?0:consecutiveMisses+1;
     }catch(error){
       failures.push(reader+':'+String(error?.message||error).slice(0,120));
+      consecutiveMisses++;
     }
   }
 
@@ -713,15 +733,13 @@ async function viewerCandidates(animeId,s,e,lang){
     .filter(x=>viewerUrlScore(x)>0)
     .sort((a,b)=>viewerUrlScore(b)-viewerUrlScore(a));
 
-  if(!ranked.length){
-    if([...urls].some(isFranimeWrapper)){
-      throw new Error('Le lecteur FRAnime a été trouvé, mais sa source vidéo n’a pas pu être résolue. Essaie un autre lecteur ou réessaie dans quelques instants.');
-    }
-    if(failures.length)throw new Error('Aucun lecteur FRAnime disponible');
+  const wrappers=[...urls].filter(isFranimeWrapper);
+  if(!ranked.length&&!wrappers.length&&failures.length){
+    throw new Error('Aucun lecteur FRAnime disponible');
   }
   return {
     urls:[...new Set(ranked)],
-    wrappers:[...urls].filter(isFranimeWrapper)
+    wrappers:[...new Set(wrappers)]
   };
 }
 
