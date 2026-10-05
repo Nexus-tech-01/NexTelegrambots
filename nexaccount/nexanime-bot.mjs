@@ -767,7 +767,7 @@ async function viewerCandidates(animeId,s,e,lang){
   };
 }
 
-export async function downloadEpisode(anime,lang,s,e,quality,{onProgress=null}={}){
+export async function downloadEpisode(anime,lang,s,e,quality,{onProgress=null,preResolvedUrls=[]}={}){
   await fsp.mkdir(TMP_ROOT,{recursive:true});
   const work=await fsp.mkdtemp(path.join(TMP_ROOT,'job-'));
   const outTpl=path.join(work,'episode.%(ext)s');
@@ -791,8 +791,11 @@ export async function downloadEpisode(anime,lang,s,e,quality,{onProgress=null}={
     if(remainingMs()<=0)throw new Error('episode-timeout');
   };
 
-  emit({stage:'resolve',message:'Recherche des lecteurs FRAnime…',force:true});
-  const resolved=await viewerCandidates(anime.id,s,e,lang);
+  const handedOff=[...new Set((Array.isArray(preResolvedUrls)?preResolvedUrls:[]).map(x=>String(x||'').trim()).filter(x=>/^https?:\/\//i.test(x)))];
+  emit({stage:'resolve',message:handedOff.length?'Sources FRAnime déjà résolues par le webhook…':'Recherche des lecteurs FRAnime…',force:true});
+  const resolved=handedOff.length
+    ?{urls:handedOff,wrappers:[]}
+    :await viewerCandidates(anime.id,s,e,lang);
   const urls=Array.isArray(resolved?.urls)?resolved.urls:[];
   const wrappers=Array.isArray(resolved?.wrappers)?resolved.wrappers:[];
   if(!urls.length&&!wrappers.length)throw new Error('Aucune source vidéo trouvée pour cet épisode');
