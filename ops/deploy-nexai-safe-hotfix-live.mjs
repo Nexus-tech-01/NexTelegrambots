@@ -50,6 +50,7 @@ const modes={
   'nexanime-search-bot':[
     ['daemon.mjs','nexaccount/daemon.mjs'],
     ['nexanime-bot.mjs','nexaccount/nexanime-bot.mjs'],
+    ['nexanime-worker.mjs','nexaccount/nexanime-worker.mjs'],
     ['nexanime-secrets.mjs','nexaccount/nexanime-secrets.mjs']
   ]
 };
@@ -75,7 +76,8 @@ const required={
   'core/engine-router.mjs':['outcome?.deferred!==true','await progress.done','canonicalName(cmd)','handleStickerCommand'],
   'compat.mjs':['cacheMenuMediaForBot',"name==='customstyle'","name==='menuphoto'||name==='menuvideo'",'✅ Diffusion terminée',"const requested=Math.max(1,Math.floor(Number(args[0])||20));","await client.deleteMessages(peer,ids,{revoke:true});"],
   'daemon.mjs':['startNexAnimeBot','stopNexAnimeBot','nexAnimeBotStatus'],
-  'nexanime-bot.mjs':['export async function startNexAnimeBot','api.franime.fr','NexAnime01_bot','uploadForFileId','nexanime_bot_cache'],
+  'nexanime-bot.mjs':['export async function startNexAnimeBot','export async function downloadEpisode','export async function animeById','api.franime.fr','NexAnime01_bot','uploadForFileId','nexanime_bot_cache'],
+  'nexanime-worker.mjs':['export async function startNexAnimeWorker','nexanime_bot_jobs','#NXA_CACHE:','uploaded_waiting_webhook'],
   'nexanime-secrets.mjs':['saveNexAnimeBotToken','loadNexAnimeBotToken','nexanime_bot_token']
 };
 
@@ -227,7 +229,7 @@ try{
       :mode==='stickers'
         ?"const {Api}=await import('teleproto'); if(!Api?.stickers?.CreateStickerSet||!Api?.InputStickerSetItem||!Api?.InputUserSelf) throw new Error('native sticker API unavailable'); await import('./runtime.mjs'); await import('./inline-bot.mjs'); console.log('MODULE_GRAPH_OK')"
         :mode==='nexanime-search-bot'
-          ?"await import('./nexanime-bot.mjs'); console.log('MODULE_GRAPH_OK')"
+          ?"await import('./nexanime-bot.mjs'); await import('./nexanime-worker.mjs'); console.log('MODULE_GRAPH_OK')"
           :"await import('./runtime.mjs'); await import('./inline-bot.mjs'); console.log('MODULE_GRAPH_OK')";
     const graph=run(process.execPath,['--input-type=module','-e',graphCode],{cwd:base,timeout:90000});
     if(!graph.ok||!graph.stdout.includes('MODULE_GRAPH_OK')){
