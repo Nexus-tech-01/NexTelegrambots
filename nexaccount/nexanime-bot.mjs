@@ -374,20 +374,23 @@ function decodeWatchToken(value){
   return '';
 }
 
-function decodeWatchUrl(url){
+function decodeWatchUrls(url){
+  const out=new Set();
   try{
     const u=new URL(url);
     const params=[...u.searchParams.entries()];
+    // FRAnime may expose a decoy in b while real embeds live in other blobs.
+    // Try every token and keep b last instead of stopping at the first decode.
     const ordered=[
-      ...params.filter(([k])=>k==='b'),
-      ...params.filter(([k])=>k!=='b')
+      ...params.filter(([k])=>k!=='b'),
+      ...params.filter(([k])=>k==='b')
     ];
     for(const [,value] of ordered){
       const decoded=decodeWatchToken(value);
-      if(decoded)return decoded;
+      if(decoded)out.add(decoded);
     }
   }catch{}
-  return '';
+  return [...out];
 }
 
 function viewerUrlScore(url){
@@ -409,40 +412,273 @@ function isFranimeWrapper(url){
 }
 
 async function resolveFranimeWrapper(url){
-  const immediate=decodeWatchUrl(url);
-  if(immediate)return [immediate];
+  const resolved=new Set(decodeWatchUrls(url));
+  let r=null;
+  let finalUrl=url;
+  try{
+    r=await fetch(url,{
+      redirect:'follow',
+      headers:franimeHeaders(),
+      signal:AbortSignal.timeout(25000)
+    });
+    finalUrl=r.url||url;
+    for(const decoded of decodeWatchUrls(finalUrl))resolved.add(decoded);
 
-  const r=await fetch(url,{
-    redirect:'follow',
-    headers:franimeHeaders(),
-    signal:AbortSignal.timeout(25000)
-  });
-
-  const finalUrl=r.url||url;
-  const redirected=decodeWatchUrl(finalUrl);
-  if(redirected)return [redirected];
-
-  let text='';
-  try{text=await r.text()}catch{}
-  const found=collectUrls(text,new Set(),finalUrl);
-  const resolved=new Set();
-
-  for(const candidate of found){
-    if(isFranimeWrapper(candidate)){
-      const decoded=decodeWatchUrl(candidate);
-      if(decoded)resolved.add(decoded);
-    }else if(/^https?:\/\//i.test(candidate)&&viewerUrlScore(candidate)>0){
-      resolved.add(candidate);
+    let text='';
+    try{text=await r.text()}catch{}
+    const found=collectUrls(text,new Set(),finalUrl);
+    for(const candidate of found){
+      if(isFranimeWrapper(candidate)){
+        for(const decoded of decodeWatchUrls(candidate))resolved.add(decoded);
+      }else if(/^https?:\/\//i.test(candidate)&&viewerUrlScore(candidate)>0){
+        resolved.add(candidate);
+      }
     }
+  }catch(error){
+    if(!resolved.size)throw error;
   }
 
   if(resolved.size)return [...resolved];
 
-  // Cloudflare peut répondre 403 après la redirection. L'URL finale est
-  // néanmoins exploitable si elle contient le token chiffré; on ne rejette
-  // donc le statut qu'après avoir tenté le décodage ci-dessus.
-  if(!r.ok)throw new Error('Lecteur FRAnime HTTP '+r.status);
+  // Cloudflare may answer 403 after redirect. We only reject after attempting
+  // every token from the original and final URLs.
+  if(r&&!r.ok)throw new Error('Lecteur FRAnime HTTP '+r.status);
   return [];
+}
+
+function providerRequestHeaders(referer=''){
+  return {
+    'user-agent':USER_AGENT,
+    'accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'accept-language':'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+    ...(referer?{'referer':referer}:{})
+  };
+}
+
+function normalizeMediaCandidate(raw,base){
+  const value=String(raw||'').trim()
+    .replace(/\\u0026/g,'&')
+    .replace(/\\\//g,'/')
+    .replace(/&amp;/g,'&');
+  if(!value)return '';
+  try{return new URL(value,base).href}catch{return ''}
+}
+
+function extractMediaCandidatesFromHtml(html,base){
+  const out=new Set();
+  const text=String(html||'');
+  const patterns=[
+    /(?:file|src)\s*[:=]\s*["']([^"']+\.(?:m3u8|mpd|mp4|webm)(?:\?[^"']*)?)["']/gi,
+    /<source[^>]+src=["']([^"']+\.(?:m3u8|mpd|mp4|webm)(?:\?[^"']*)?)["']/gi,
+    /https?:\\?\/\\?\/[^"'<>\s]+\.(?:m3u8|mpd|mp4|webm)(?:\?[^"'<>\s]*)?/gi
+  ];
+  for(const pattern of patterns){
+    for(const m of text.matchAll(pattern)){
+      const raw=m[1]||m[0];
+      const u=normalizeMediaCandidate(raw,base);
+      if(u)out.add(u);
+    }
+  }
+  return [...out];
+}
+
+function extractIframeCandidates(html,base){
+  const out=new Set();
+  for(const m of String(html||'').matchAll(/<iframe[^>]+src=["']([^"']+)["']/gi)){
+    const u=normalizeMediaCandidate(m[1],base);
+    if(u&&/^https?:\/\//i.test(u))out.add(u);
+  }
+  return [...out];
+}
+
+async function resolveSibnetDirect(embedUrl,html){
+  const patterns=[
+    /player\.src\(\[\{src:\s*['"]([^'"]+)['"]/,
+    /['"]file['"]\s*:\s*['"](\/v\/[^'"]+)['"]/,
+    /src:\s*['"](\/v\/[^'"]+)['"]/
+  ];
+  let p='';
+  for(const pattern of patterns){
+    const m=String(html||'').match(pattern);
+    if(m){p=m[1];break}
+  }
+  if(!p)return '';
+  const videoUrl=normalizeMediaCandidate(p,'https://video.sibnet.ru/');
+  if(!videoUrl)return '';
+  try{
+    const r=await fetch(videoUrl,{
+      headers:providerRequestHeaders(embedUrl),
+      redirect:'manual',
+      signal:AbortSignal.timeout(20000)
+    });
+    const loc=r.headers.get('location');
+    if(loc)return normalizeMediaCandidate(loc,videoUrl);
+    if(r.ok)return videoUrl;
+  }catch{}
+  return '';
+}
+
+async function httpExtractorCandidates(embedUrl,depth=0,seen=new Set()){
+  if(depth>2||seen.has(embedUrl))return [];
+  seen.add(embedUrl);
+
+  if(/\.(?:m3u8|mpd|mp4|webm)(?:$|[?#])/i.test(embedUrl)){
+    return [{url:embedUrl,referer:SITE_REFERER,via:'direct'}];
+  }
+
+  let r;
+  try{
+    r=await fetch(embedUrl,{
+      headers:providerRequestHeaders(SITE_REFERER),
+      redirect:'follow',
+      signal:AbortSignal.timeout(25000)
+    });
+  }catch{return []}
+
+  const finalUrl=r.url||embedUrl;
+  let html='';
+  try{html=await r.text()}catch{}
+  const out=[];
+  const direct=extractMediaCandidatesFromHtml(html,finalUrl);
+
+  if(/sibnet/i.test(finalUrl)){
+    const sib=await resolveSibnetDirect(finalUrl,html);
+    if(sib)direct.unshift(sib);
+  }
+
+  for(const url of direct){
+    out.push({url,referer:finalUrl,via:'http'});
+  }
+
+  for(const iframe of extractIframeCandidates(html,finalUrl).slice(0,4)){
+    if(isFranimeWrapper(iframe))continue;
+    const nested=await httpExtractorCandidates(iframe,depth+1,seen);
+    for(const item of nested)out.push(item);
+  }
+
+  const dedup=[];
+  const keys=new Set();
+  for(const item of out){
+    if(!item?.url||keys.has(item.url))continue;
+    keys.add(item.url);
+    dedup.push(item);
+  }
+  return dedup;
+}
+
+function findBrowserBinary(){
+  const candidates=[
+    clean(process.env.NEXANIME_BROWSER_BIN),
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable'
+  ].filter(Boolean);
+  return candidates.find(x=>fs.existsSync(x))||'';
+}
+
+async function chromiumDevtoolsEndpoint(child,timeoutMs=10000){
+  return new Promise((resolve,reject)=>{
+    let buf='';
+    const timer=setTimeout(()=>reject(new Error('browser-devtools-timeout')),timeoutMs);
+    const done=value=>{clearTimeout(timer);resolve(value)};
+    child.stderr.on('data',chunk=>{
+      buf+=String(chunk);
+      const m=buf.match(/DevTools listening on (ws:\/\/[^\s]+)/);
+      if(m)done(m[1]);
+      if(buf.length>120000)buf=buf.slice(-120000);
+    });
+    child.once('error',e=>{clearTimeout(timer);reject(e)});
+    child.once('exit',code=>{clearTimeout(timer);reject(new Error('browser-exited-'+code))});
+  });
+}
+
+async function browserNetworkCandidates(targetUrl){
+  const browser=findBrowserBinary();
+  if(!browser||typeof WebSocket==='undefined')return [];
+  const profile=await fsp.mkdtemp(path.join(os.tmpdir(),'nexanime-chrome-'));
+  const child=spawn(browser,[
+    '--headless=new','--no-sandbox','--disable-gpu','--disable-dev-shm-usage',
+    '--autoplay-policy=no-user-gesture-required','--remote-debugging-port=0',
+    '--user-data-dir='+profile,'about:blank'
+  ],{stdio:['ignore','ignore','pipe']});
+
+  let browserWs='';
+  try{
+    browserWs=await chromiumDevtoolsEndpoint(child,12000);
+    const port=new URL(browserWs).port;
+    const created=await fetch('http://127.0.0.1:'+port+'/json/new?'+encodeURIComponent(targetUrl),{
+      method:'PUT',signal:AbortSignal.timeout(5000)
+    });
+    if(!created.ok)throw new Error('browser-target-http-'+created.status);
+    const target=await created.json();
+    const wsUrl=target.webSocketDebuggerUrl;
+    if(!wsUrl)throw new Error('browser-target-ws-missing');
+
+    const ws=new WebSocket(wsUrl);
+    const pending=new Map();
+    const media=new Set();
+    let seq=0;
+    const mediaLike=u=>/\.(?:m3u8|mpd|mp4|webm)(?:$|[?#])/i.test(String(u||''));
+
+    const opened=new Promise((resolve,reject)=>{
+      const t=setTimeout(()=>reject(new Error('browser-ws-timeout')),7000);
+      ws.addEventListener('open',()=>{clearTimeout(t);resolve()},{once:true});
+      ws.addEventListener('error',()=>{clearTimeout(t);reject(new Error('browser-ws-error'))},{once:true});
+    });
+    await opened;
+
+    ws.addEventListener('message',event=>{
+      let msg;
+      try{msg=JSON.parse(String(event.data||''))}catch{return}
+      if(msg.id&&pending.has(msg.id)){
+        const p=pending.get(msg.id);pending.delete(msg.id);
+        if(msg.error)p.reject(new Error(msg.error.message||'cdp-error'));else p.resolve(msg.result||{});
+        return;
+      }
+      const u=msg?.params?.request?.url||msg?.params?.response?.url||msg?.params?.documentURL||'';
+      if(mediaLike(u))media.add(u);
+    });
+
+    const send=(method,params={})=>new Promise((resolve,reject)=>{
+      const id=++seq;
+      pending.set(id,{resolve,reject});
+      ws.send(JSON.stringify({id,method,params}));
+      setTimeout(()=>{
+        if(pending.has(id)){pending.delete(id);reject(new Error('cdp-timeout-'+method))}
+      },7000);
+    });
+
+    await send('Network.enable');
+    await send('Page.enable');
+    await send('Network.setExtraHTTPHeaders',{headers:{Referer:SITE_REFERER}});
+    await send('Emulation.setUserAgentOverride',{userAgent:USER_AGENT});
+    await send('Page.navigate',{url:targetUrl});
+    await sleep(12000);
+    try{await send('Page.stopLoading')}catch{}
+    try{ws.close()}catch{}
+
+    return [...media].map(url=>({url,referer:targetUrl,via:'browser'}));
+  }catch(error){
+    console.warn('[NexAnime] browser extractor unavailable',String(error?.message||error).slice(0,220));
+    return [];
+  }finally{
+    try{child.kill('SIGKILL')}catch{}
+    await fsp.rm(profile,{recursive:true,force:true}).catch(()=>{});
+  }
+}
+
+async function expandedDownloadCandidates(url,{browserFallback=false}={}){
+  const out=[];
+  const http=await httpExtractorCandidates(url);
+  for(const item of http)out.push(item);
+  out.push({url,referer:SITE_REFERER,via:'embed'});
+  if(browserFallback){
+    const browser=await browserNetworkCandidates(url);
+    for(const item of browser)out.unshift(item);
+  }
+  const seen=new Set();
+  return out.filter(item=>item?.url&&!seen.has(item.url)&&(seen.add(item.url),true));
 }
 
 async function viewerCandidates(animeId,s,e,lang){
@@ -483,7 +719,10 @@ async function viewerCandidates(animeId,s,e,lang){
     }
     if(failures.length)throw new Error('Aucun lecteur FRAnime disponible');
   }
-  return [...new Set(ranked)];
+  return {
+    urls:[...new Set(ranked)],
+    wrappers:[...urls].filter(isFranimeWrapper)
+  };
 }
 
 export async function downloadEpisode(anime,lang,s,e,quality){
@@ -491,44 +730,61 @@ export async function downloadEpisode(anime,lang,s,e,quality){
   const work=await fsp.mkdtemp(path.join(TMP_ROOT,'job-'));
   const outTpl=path.join(work,'episode.%(ext)s');
   const ytdlp=await ensureYtDlp();
-  const urls=await viewerCandidates(anime.id,s,e,lang);
-  if(!urls.length)throw new Error('Aucune source vidéo trouvée pour cet épisode');
+  const resolved=await viewerCandidates(anime.id,s,e,lang);
+  const urls=Array.isArray(resolved?.urls)?resolved.urls:[];
+  const wrappers=Array.isArray(resolved?.wrappers)?resolved.wrappers:[];
+  if(!urls.length&&!wrappers.length)throw new Error('Aucune source vidéo trouvée pour cet épisode');
   const fmt='bv*[height<='+quality+']+ba/b[height<='+quality+']/best[height<='+quality+']/best';
   let lastError=null;
   let rejectedMedia=0;
 
-  for(const url of urls.slice(0,10)){
+  const tryCandidate=async candidate=>{
     await clearDownloadWorkdir(work);
     try{
       const r=await run(ytdlp,[
         '--no-playlist','--no-warnings','--retries','4','--fragment-retries','4',
         '--extractor-args','generic:impersonate',
-        '--user-agent',USER_AGENT,'--referer',SITE_REFERER,
+        '--user-agent',USER_AGENT,'--referer',candidate.referer||SITE_REFERER,
         '-f',fmt,'--merge-output-format','mp4','--print','after_move:filepath',
-        '-o',outTpl,url
+        '-o',outTpl,candidate.url
       ],{timeout:25*60_000,cwd:work});
 
       const printed=String(r.stdout||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean).at(-1)||'';
       const file=await selectDownloadedFile(work,printed);
-      if(!file){
-        lastError=new Error('reader-produced-no-file');
-        continue;
-      }
+      if(!file)throw new Error('reader-produced-no-file');
 
       const check=await validateEpisodeMedia(file);
       if(!check.ok){
         rejectedMedia++;
-        console.warn('[NexAnime] rejected reader media',check.reason,'bytes='+String(check.size||0),'duration='+String(check.duration??'n/a'));
-        lastError=new Error('invalid-reader-media:'+check.reason);
-        await clearDownloadWorkdir(work);
-        continue;
+        console.warn('[NexAnime] rejected '+candidate.via+' media',check.reason,'bytes='+String(check.size||0),'duration='+String(check.duration??'n/a'));
+        throw new Error('invalid-reader-media:'+check.reason);
       }
-
-      console.log('[NexAnime] accepted episode media','bytes='+check.size,'duration='+String(check.duration??'n/a'));
-      return {file,work};
+      console.log('[NexAnime] accepted '+candidate.via+' media','bytes='+check.size,'duration='+String(check.duration??'n/a'));
+      return file;
     }catch(error){
       lastError=error;
       await clearDownloadWorkdir(work);
+      return '';
+    }
+  };
+
+  // Cascade: direct HTTP media -> provider embed -> next provider.
+  for(const url of urls.slice(0,16)){
+    const candidates=await expandedDownloadCandidates(url);
+    for(const candidate of candidates){
+      const file=await tryCandidate(candidate);
+      if(file)return {file,work};
+    }
+  }
+
+  // Final fallback: execute the FRAnime/provider player in a real headless
+  // Chromium and capture HLS/DASH/MP4 requests from the network.
+  const browserTargets=[...wrappers,...urls].slice(0,10);
+  for(const target of browserTargets){
+    const candidates=await browserNetworkCandidates(target);
+    for(const candidate of candidates){
+      const file=await tryCandidate(candidate);
+      if(file)return {file,work};
     }
   }
 
