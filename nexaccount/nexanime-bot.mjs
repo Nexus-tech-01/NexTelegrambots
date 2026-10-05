@@ -8,6 +8,7 @@ import {Bot, InlineKeyboard} from 'grammy';
 import {db} from './store.mjs';
 import {runtimeConnectionFor} from './runtime.mjs';
 import {loadNexAnimeBotToken} from './nexanime-secrets.mjs';
+import {sourcePriority} from './nexanime-source-registry.mjs';
 
 const API=String(process.env.NEXANIME_FRANIME_API||'https://api.franime.fr').replace(/\/+$/,'');
 const SITE=String(process.env.NEXANIME_FRANIME_SITE||'https://franime.fr').replace(/\/+$/,'');
@@ -1375,8 +1376,15 @@ async function downloadEpisodeFromTelegramWatchers(anime,lang,s,e,quality,{onPro
       const anchorScore=Math.max(0,...anchors.map(a=>Math.max(
         watcherTitleScore(a?.raw||'',anime),watcherTitleScore(a?.canonicalTitle||'',anime)
       )));
-      return {row,anchorScore};
+      const preferredSourcePriority=sourcePriority({
+        title:row?.title,
+        username:row?.username,
+        channelTitle:row?.title,
+        channelUsername:row?.username
+      },'anime');
+      return {row,anchorScore,preferredSourcePriority};
     }).sort((a,b)=>
+      b.preferredSourcePriority-a.preferredSourcePriority||
       b.anchorScore-a.anchorScore||
       Number(b.row?.selected||0)-Number(a.row?.selected||0)||
       Number(b.row?.confidence||0)-Number(a.row?.confidence||0)
