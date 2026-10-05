@@ -17,6 +17,7 @@ assertCoreConfig();
 const PAIRING_ONLY=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXACCOUNT_PAIRING_ONLY||'').trim());
 const EMBEDDED_ANIME_ENABLED=!/^(?:0|false|no|off)$/i.test(String(process.env.NEXACCOUNT_EMBEDDED_ANIME||'true').trim());
 const ANIME_WORKER_URL=String(process.env.NEXANIME_WORKER_URL||'http://127.0.0.1:18130').replace(/\/+$/,'');
+const NEXANIME_POLLING_ENABLED=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXANIME_ENABLE_POLLING||'').trim());
 
 async function standaloneAnimeStatus(){
   try{
@@ -298,6 +299,11 @@ const server=http.createServer((req,res)=>route(req,res));
 server.listen(cfg.port,cfg.host,async()=>{
   console.log('[NexAccount] local control http://'+cfg.host+':'+cfg.port+(PAIRING_ONLY?' · pairing-only':''));
 
+  // Start the queue worker immediately. It will wait for an uploader runtime
+  // before claiming jobs, so slow session restoration cannot leave webhook
+  // downloads stuck in pending state.
+  if(cfg.coordinator&&!PAIRING_ONLY)await startNexAnimeWorker().catch(e=>console.error('[NexAnime worker]',e));
+
   const hadBotToken=cfg.coordinator&&!PAIRING_ONLY
     ?Boolean(await loadBotToken())
     :false;
@@ -314,8 +320,11 @@ server.listen(cfg.port,cfg.host,async()=>{
   }
 
   if(cfg.coordinator&&!PAIRING_ONLY)await startSecondaryAnimeReader().catch(e=>console.error('[NexAnime secondary]',e));
-  if(cfg.coordinator&&!PAIRING_ONLY)await startNexAnimeBot().catch(e=>console.error('[NexAnime bot]',e));
-  if(cfg.coordinator&&!PAIRING_ONLY)await startNexAnimeWorker().catch(e=>console.error('[NexAnime worker]',e));
+  // Production NexAnime uses the Vercel webhook. Long polling is opt-in only
+  // to avoid getUpdates/webhook conflicts.
+  if(cfg.coordinator&&!PAIRING_ONLY&&NEXANIME_POLLING_ENABLED){
+    await startNexAnimeBot().catch(e=>console.error('[NexAnime bot]',e));
+  }
   console.log('[NexAccount] worker '+cfg.workerIndex+'/'+cfg.workerCount+(cfg.coordinator?' · coordinator':'')+(PAIRING_ONLY?' · pairing-only':'')+' restored '+loaded.length+' account(s), capacity '+cfg.maxRuntimesPerWorker);
   if(!PAIRING_ONLY)await runStartupSmoke().catch(error=>console.error('[NexAccount startup-smoke]',String(error?.message||error)));
 });

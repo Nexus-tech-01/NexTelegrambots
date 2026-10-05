@@ -77,7 +77,7 @@ const required={
   'compat.mjs':['cacheMenuMediaForBot',"name==='customstyle'","name==='menuphoto'||name==='menuvideo'",'✅ Diffusion terminée',"const requested=Math.max(1,Math.floor(Number(args[0])||20));","await client.deleteMessages(peer,ids,{revoke:true});"],
   'daemon.mjs':['startNexAnimeBot','stopNexAnimeBot','nexAnimeBotStatus'],
   'nexanime-bot.mjs':['export async function startNexAnimeBot','export async function downloadEpisode','export async function animeById','api.franime.fr','NexAnime01_bot','uploadForFileId','nexanime_bot_cache'],
-  'nexanime-worker.mjs':['export async function startNexAnimeWorker','nexanime_bot_jobs','#NXA_CACHE:','uploaded_waiting_webhook'],
+  'nexanime-worker.mjs':['export async function startNexAnimeWorker','nexanime_bot_jobs','#NXA_CACHE:','#NXA_PROGRESS:','uploaded_waiting_webhook','uploaderReady'],
   'nexanime-secrets.mjs':['saveNexAnimeBotToken','loadNexAnimeBotToken','nexanime_bot_token']
 };
 
@@ -293,6 +293,45 @@ try{
   await startCanonical();
   const live=await health();
   report.steps.health=live;
+
+  if(mode==='nexanime-search-bot'){
+    let nx=live;
+    for(let i=0;i<45;i++){
+      try{
+        const r=await fetch('http://127.0.0.1:18120/health',{signal:AbortSignal.timeout(4000)});
+        const data=await r.json().catch(()=>null);
+        nx={status:r.status,data};
+        if(r.ok&&data?.nexAnimeWorker?.running===true)break;
+      }catch{}
+      await sleep(2000);
+    }
+    if(nx?.data?.nexAnimeWorker?.running!==true){
+      throw new Error('NexAnime queue worker did not start: '+JSON.stringify(nx?.data?.nexAnimeWorker||nx));
+    }
+
+    // Saved MTProto sessions can need a little longer than the HTTP service.
+    // Wait for the uploader, but do not rollback a healthy deployment solely
+    // because Telegram session restoration is temporarily delayed.
+    let uploaderReady=nx.data.nexAnimeWorker.uploaderReady===true;
+    for(let i=0;i<45&&!uploaderReady;i++){
+      await sleep(2000);
+      try{
+        const r=await fetch('http://127.0.0.1:18120/health',{signal:AbortSignal.timeout(4000)});
+        const data=await r.json().catch(()=>null);
+        if(r.ok&&data?.nexAnimeWorker?.running===true){
+          nx={status:r.status,data};
+          uploaderReady=data.nexAnimeWorker.uploaderReady===true;
+        }
+      }catch{}
+    }
+    report.steps.nexAnimeRuntime={
+      workerRunning:true,
+      uploaderReady,
+      activeJob:nx?.data?.nexAnimeWorker?.activeJob||null,
+      lastProgress:nx?.data?.nexAnimeWorker?.lastProgress||'',
+      lastError:nx?.data?.nexAnimeWorker?.lastError||''
+    };
+  }
 
   if(mode==='anime-gap-skip'){
     let anime=null;

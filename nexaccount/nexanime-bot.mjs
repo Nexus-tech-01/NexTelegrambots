@@ -20,6 +20,8 @@ const UPLOAD_TIMEOUT_MS=20*60_000;
 const CACHE_VERSION='v2-valid-media';
 const MIN_MEDIA_BYTES=Math.max(256*1024,Number(process.env.NEXANIME_MIN_MEDIA_BYTES||1024*1024));
 const MIN_MEDIA_DURATION_SECONDS=Math.max(10,Number(process.env.NEXANIME_MIN_DURATION_SECONDS||45));
+const SOURCE_TIMEOUT_MS=Math.max(90_000,Number(process.env.NEXANIME_SOURCE_TIMEOUT_MS||8*60_000));
+const EPISODE_TIMEOUT_MS=Math.max(SOURCE_TIMEOUT_MS+60_000,Number(process.env.NEXANIME_EPISODE_TIMEOUT_MS||15*60_000));
 const USER_AGENT='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36';
 const SITE_REFERER=SITE+'/anime/watch';
 const VIDEO_PROVIDERS=[
@@ -235,16 +237,38 @@ async function cachePut(key,value){
   }catch(error){console.warn('[NexAnime cache]',String(error?.message||error).slice(0,240))}
 }
 
-async function run(cmd,args,{timeout=15*60_000,cwd=undefined}={}){
+async function run(cmd,args,{timeout=15*60_000,cwd=undefined,onStdout=null,onStderr=null}={}){
   return new Promise((resolve,reject)=>{
     const child=spawn(cmd,args,{cwd,stdio:['ignore','pipe','pipe']});
     let out='',err='',done=false;
-    const kill=setTimeout(()=>{if(!done){child.kill('SIGKILL');reject(new Error('timeout '+cmd))}},timeout);
-    child.stdout.on('data',d=>{out+=String(d);if(out.length>2_000_000)out=out.slice(-2_000_000)});
-    child.stderr.on('data',d=>{err+=String(d);if(err.length>2_000_000)err=err.slice(-2_000_000)});
-    child.once('error',e=>{done=true;clearTimeout(kill);reject(e)});
+    const finishError=e=>{
+      if(done)return;
+      done=true;
+      clearTimeout(kill);
+      reject(e);
+    };
+    const kill=setTimeout(()=>{
+      if(done)return;
+      try{child.kill('SIGKILL')}catch{}
+      finishError(new Error('timeout '+cmd));
+    },timeout);
+    child.stdout.on('data',d=>{
+      const s=String(d);
+      out+=s;
+      if(out.length>2_000_000)out=out.slice(-2_000_000);
+      try{onStdout?.(s)}catch{}
+    });
+    child.stderr.on('data',d=>{
+      const s=String(d);
+      err+=s;
+      if(err.length>2_000_000)err=err.slice(-2_000_000);
+      try{onStderr?.(s)}catch{}
+    });
+    child.once('error',finishError);
     child.once('close',code=>{
-      if(done)return;done=true;clearTimeout(kill);
+      if(done)return;
+      done=true;
+      clearTimeout(kill);
       if(code===0)resolve({stdout:out,stderr:err});
       else reject(new Error((err||out||cmd+' exited '+code).slice(-2500)));
     });
@@ -743,79 +767,180 @@ async function viewerCandidates(animeId,s,e,lang){
   };
 }
 
-export async function downloadEpisode(anime,lang,s,e,quality){
+export async function downloadEpisode(anime,lang,s,e,quality,{onProgress=null}={}){
   await fsp.mkdir(TMP_ROOT,{recursive:true});
   const work=await fsp.mkdtemp(path.join(TMP_ROOT,'job-'));
   const outTpl=path.join(work,'episode.%(ext)s');
   const ytdlp=await ensureYtDlp();
+  const startedAt=Date.now();
+  const deadline=startedAt+EPISODE_TIMEOUT_MS;
+  let lastProgressAt=0;
+
+  const emit=payload=>{
+    if(typeof onProgress!=='function')return;
+    const now=Date.now();
+    if(payload?.force!==true&&now-lastProgressAt<8000)return;
+    lastProgressAt=now;
+    try{
+      Promise.resolve(onProgress({...payload,elapsedMs:now-startedAt})).catch(()=>{});
+    }catch{}
+  };
+
+  const remainingMs=()=>Math.max(0,deadline-Date.now());
+  const ensureTime=()=>{
+    if(remainingMs()<=0)throw new Error('episode-timeout');
+  };
+
+  emit({stage:'resolve',message:'Recherche des lecteurs FRAnime…',force:true});
   const resolved=await viewerCandidates(anime.id,s,e,lang);
   const urls=Array.isArray(resolved?.urls)?resolved.urls:[];
   const wrappers=Array.isArray(resolved?.wrappers)?resolved.wrappers:[];
   if(!urls.length&&!wrappers.length)throw new Error('Aucune source vidéo trouvée pour cet épisode');
+
+  emit({
+    stage:'resolve',
+    message:'Lecteurs trouvés : '+urls.length+(wrappers.length?' · fallback navigateur disponible':''),
+    force:true
+  });
+
   const fmt='bv*[height<='+quality+']+ba/b[height<='+quality+']/best[height<='+quality+']/best';
   let lastError=null;
   let rejectedMedia=0;
+  let timedOutSources=0;
+  let sourceAttempt=0;
+  const badHosts=new Set();
 
   const tryCandidate=async candidate=>{
+    ensureTime();
+    sourceAttempt++;
     await clearDownloadWorkdir(work);
+
+    let host='source';
+    try{host=new URL(candidate.url).hostname.replace(/^www\./,'')}catch{}
+    if(badHosts.has(host)){
+      emit({stage:'skip',message:'Lecteur '+host+' déjà identifié comme invalide, passage au suivant…',force:true});
+      return '';
+    }
+
+    emit({
+      stage:'download',
+      message:'Source '+sourceAttempt+' · '+host+' · préparation du téléchargement…',
+      force:true
+    });
+
+    let progressBuffer='';
+    const parseProgress=chunk=>{
+      progressBuffer=(progressBuffer+String(chunk||'')).slice(-12000);
+      const lines=progressBuffer.split(/\r?\n/);
+      progressBuffer=lines.pop()||'';
+      for(const line of lines){
+        const m=line.match(/NXA_PROGRESS\|\s*([^|]+)\|\s*([^|]+)\|\s*(.+)$/);
+        if(!m)continue;
+        const percent=String(m[1]||'').trim();
+        const speed=String(m[2]||'').trim();
+        const eta=String(m[3]||'').trim();
+        emit({
+          stage:'download',
+          message:'Source '+sourceAttempt+' · '+host+'\n'+percent+' · '+speed+' · ETA '+eta
+        });
+      }
+    };
+
     try{
+      const timeout=Math.max(45_000,Math.min(SOURCE_TIMEOUT_MS,remainingMs()));
       const r=await run(ytdlp,[
-        '--no-playlist','--no-warnings','--retries','4','--fragment-retries','4',
+        '--no-playlist','--no-warnings',
+        '--socket-timeout','20',
+        '--retries','2','--fragment-retries','2','--retry-sleep','2',
+        '--concurrent-fragments','4',
+        '--newline','--progress',
+        '--progress-template','download:NXA_PROGRESS|%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s',
         '--extractor-args','generic:impersonate',
         '--user-agent',USER_AGENT,'--referer',candidate.referer||SITE_REFERER,
         '-f',fmt,'--merge-output-format','mp4','--print','after_move:filepath',
         '-o',outTpl,candidate.url
-      ],{timeout:25*60_000,cwd:work});
+      ],{
+        timeout,
+        cwd:work,
+        onStdout:parseProgress,
+        onStderr:parseProgress
+      });
 
       const printed=String(r.stdout||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean).at(-1)||'';
       const file=await selectDownloadedFile(work,printed);
       if(!file)throw new Error('reader-produced-no-file');
 
+      emit({stage:'validate',message:'Vérification du fichier reçu depuis '+host+'…',force:true});
       const check=await validateEpisodeMedia(file);
       if(!check.ok){
         rejectedMedia++;
+        if(['no-audio-placeholder','too-short','too-small','no-video'].includes(check.reason))badHosts.add(host);
         console.warn('[NexAnime] rejected '+candidate.via+' media',check.reason,'bytes='+String(check.size||0),'duration='+String(check.duration??'n/a'));
+        emit({stage:'reject',message:'Lecteur '+host+' invalide ('+check.reason+'). Passage au suivant…',force:true});
         throw new Error('invalid-reader-media:'+check.reason);
       }
+
       console.log('[NexAnime] accepted '+candidate.via+' media','bytes='+check.size,'duration='+String(check.duration??'n/a'));
+      emit({stage:'ready',message:'Épisode valide trouvé · préparation de l’envoi…',force:true});
       return file;
     }catch(error){
       lastError=error;
+      if(/timeout yt-dlp|episode-timeout/i.test(String(error?.message||error))){
+        timedOutSources++;
+        emit({stage:'timeout',message:'Le lecteur '+host+' est trop lent. Passage au suivant…',force:true});
+      }
       await clearDownloadWorkdir(work);
       return '';
     }
   };
 
   // Cascade: direct HTTP media -> provider embed -> next provider.
-  for(const url of urls.slice(0,16)){
+  for(let i=0;i<Math.min(urls.length,16);i++){
+    ensureTime();
+    const url=urls[i];
+    emit({stage:'extract',message:'Analyse du lecteur '+(i+1)+'/'+Math.min(urls.length,16)+'…',force:true});
     const candidates=await expandedDownloadCandidates(url);
     for(const candidate of candidates){
+      ensureTime();
       const file=await tryCandidate(candidate);
       if(file)return {file,work};
     }
   }
 
-  // Final fallback: execute the FRAnime/provider player in a real headless
-  // Chromium and capture HLS/DASH/MP4 requests from the network.
+  // Final fallback: run the player in headless Chromium and capture network media.
   const browserTargets=[...wrappers,...urls].slice(0,10);
-  for(const target of browserTargets){
-    const candidates=await browserNetworkCandidates(target);
+  for(let i=0;i<browserTargets.length;i++){
+    ensureTime();
+    emit({stage:'browser',message:'Fallback navigateur '+(i+1)+'/'+browserTargets.length+' · observation du réseau…',force:true});
+    const candidates=await browserNetworkCandidates(browserTargets[i]);
+    if(!candidates.length){
+      emit({stage:'browser',message:'Aucun flux capturé sur ce lecteur. Passage au suivant…',force:true});
+      continue;
+    }
     for(const candidate of candidates){
+      ensureTime();
       const file=await tryCandidate(candidate);
       if(file)return {file,work};
     }
+  }
+
+  if(remainingMs()<=0){
+    throw new Error('Le téléchargement a dépassé la limite de temps. Tous les lecteurs lents ont été abandonnés automatiquement.');
   }
 
   if(lastError){
     const message=String(lastError?.message||lastError);
     if(rejectedMedia>0||/invalid-reader-media/i.test(message)){
-      throw new Error('Les lecteurs FRAnime ont répondu, mais les médias reçus étaient indisponibles ou invalides. Le bot les a rejetés au lieu d’envoyer un faux épisode.');
+      throw new Error('Les lecteurs FRAnime ont répondu, mais les médias reçus étaient indisponibles ou invalides. Les faux épisodes ont été rejetés automatiquement.');
+    }
+    if(timedOutSources>0){
+      throw new Error('Les lecteurs disponibles sont trop lents ou ne répondent plus. Le bot a abandonné les sources bloquées au lieu de rester figé.');
     }
     if(/403|Cloudflare|Forbidden/i.test(message)){
       throw new Error('Tous les lecteurs FRAnime disponibles sont temporairement bloqués ou indisponibles. Réessaie dans quelques instants.');
     }
     if(/Unsupported URL|franime\.fr\/watch2|[?&](?:z|d|e)=/i.test(message)){
-      throw new Error('Le lecteur FRAnime a répondu, mais le lien vidéo protégé n’a pas pu être résolu. Le bot va utiliser un autre lecteur quand il est disponible.');
+      throw new Error('Le lecteur FRAnime a répondu, mais son flux vidéo n’a pas pu être extrait.');
     }
     throw new Error('Le téléchargement de cet épisode a échoué sur tous les lecteurs disponibles.');
   }

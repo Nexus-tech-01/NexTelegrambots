@@ -1,16 +1,29 @@
 import crypto from 'node:crypto';
 import {getDb} from './_nexanime-db.js';
 
-export const cacheKey=(id,lang,s,e,q)=>[id,lang,s,e,q].join(':');
+const CACHE_VERSION='v5-cascade-progress';
+const ACTIVE_JOB_TTL_MS=20*60_000;
+
+export const cacheKey=(id,lang,s,e,q)=>[CACHE_VERSION,id,lang,s,e,q].join(':');
 
 export async function cachedEpisode(key){
   const d=await getDb();
   return d.collection('nexanime_bot_cache').findOne({_id:key},{projection:{fileId:1,kind:1,title:1,size:1}});
 }
+export async function activeEpisodeJob(key){
+  const d=await getDb();
+  const cutoff=new Date(Date.now()-ACTIVE_JOB_TTL_MS);
+  return d.collection('nexanime_bot_jobs').findOne({
+    cacheKey:key,
+    status:{$in:['pending','processing','uploaded_waiting_webhook']},
+    updatedAt:{$gte:cutoff}
+  },{sort:{updatedAt:-1}});
+}
+
 export async function queueEpisode({key,chatId,statusMessageId,animeId,lang,season,episode,quality,caption}){
   const d=await getDb();
-  const existing=await d.collection('nexanime_bot_jobs').findOne({cacheKey:key,status:{$in:['pending','processing']}});
-  if(existing)return existing;
+  const existing=await activeEpisodeJob(key);
+  if(existing)return {...existing,reused:true};
   const doc={
     claim:crypto.randomUUID(),
     cacheKey:key,
@@ -34,6 +47,13 @@ export async function jobByClaim(claim){
   const d=await getDb();
   return d.collection('nexanime_bot_jobs').findOne({claim:String(claim)});
 }
+export async function updateJobProgress(jobOrClaim,text){
+  const d=await getDb();
+  const filter=typeof jobOrClaim==='string'?{claim:String(jobOrClaim)}:{_id:jobOrClaim._id};
+  const progress=String(text||'').slice(0,500);
+  await d.collection('nexanime_bot_jobs').updateOne(filter,{$set:{progress,updatedAt:new Date()}});
+}
+
 export async function completeJob(job,{fileId,kind,size=0}){
   const d=await getDb();
   await d.collection('nexanime_bot_cache').updateOne(
