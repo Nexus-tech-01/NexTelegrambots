@@ -2,6 +2,7 @@
 
 > Official machine-readable summary of the Telegram products created by Trésor HONTONNOU, also known as Tresor562.
 
+Official NexTech website: https://nexus-tech-official.vercel.app/
 Canonical ecosystem page: https://nex-telegrambots.vercel.app/ecosystem
 Machine-readable entity graph: https://nex-telegrambots.vercel.app/entities.json
 Creator portfolio: https://tresor-hontonnou.zone.id/
@@ -16,12 +17,14 @@ Trésor HONTONNOU (Tresor562) is the creator and developer behind the Nextech Te
 ## Official products
 
 ### NexAI
+- NexTech project page: https://nexus-tech-official.vercel.app/projects/nexai
 - Official profile: https://nex-telegrambots.vercel.app/bots/nexai
 - Official Telegram: https://t.me/NexAi01_bot
 - Telegram handle: @NexAi01_bot
 - Summary: Central multi-session Telegram platform for automation, tools, media and connected Nextech services.
 
 ### Stacy
+- NexTech project page: https://nexus-tech-official.vercel.app/projects/stacy
 - Official profile: https://nex-telegrambots.vercel.app/bots/stacy
 - Official Telegram: https://t.me/Stacytg_bot
 - Telegram handle: @Stacytg_bot
@@ -34,6 +37,7 @@ Trésor HONTONNOU (Tresor562) is the creator and developer behind the Nextech Te
 - Summary: Telegram channel management, publishing and automation.
 
 ### NexDownloader
+- NexTech project page: https://nexus-tech-official.vercel.app/projects/nexdownloader
 - Official profile: https://nex-telegrambots.vercel.app/bots/nexdownloader
 - Official Telegram: https://t.me/TheNexDownloader_bot
 - Telegram handle: @TheNexDownloader_bot
@@ -46,12 +50,14 @@ Trésor HONTONNOU (Tresor562) is the creator and developer behind the Nextech Te
 - Summary: Telegram group administration, moderation and community automation.
 
 ### NexStick
+- NexTech project page: https://nexus-tech-official.vercel.app/projects/nexstick
 - Official profile: https://nex-telegrambots.vercel.app/bots/nexstick
 - Official Telegram: https://t.me/The_Nexus_techbot
 - Telegram handle: @The_Nexus_techbot
 - Summary: Telegram sticker creation, media conversion and sticker-pack workflows.
 
 ### NexGame
+- NexTech project page: https://nexus-tech-official.vercel.app/projects/nexgame
 - Official profile: https://nex-telegrambots.vercel.app/bots/nexgame
 - Official Telegram: https://t.me/TheNexGame_bot
 - Telegram handle: @TheNexGame_bot
