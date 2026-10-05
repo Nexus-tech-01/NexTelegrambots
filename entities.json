@@ -25,6 +25,7 @@
       ],
       "url": "https://nex-telegrambots.vercel.app/ecosystem",
       "sameAs": [
+        "https://nexus-tech-official.vercel.app/",
         "https://github.com/Nexus-tech-01",
         "https://t.me/thenexusorigin"
       ],
@@ -44,6 +45,7 @@
       ],
       "url": "https://nex-telegrambots.vercel.app/bots/nexai",
       "sameAs": [
+        "https://nexus-tech-official.vercel.app/projects/nexai",
         "https://t.me/NexAi01_bot"
       ],
       "applicationCategory": "BotApplication",
@@ -66,6 +68,7 @@
       ],
       "url": "https://nex-telegrambots.vercel.app/bots/stacy",
       "sameAs": [
+        "https://nexus-tech-official.vercel.app/projects/stacy",
         "https://t.me/Stacytg_bot"
       ],
       "applicationCategory": "BotApplication",
@@ -109,6 +112,7 @@
       ],
       "url": "https://nex-telegrambots.vercel.app/bots/nexdownloader",
       "sameAs": [
+        "https://nexus-tech-official.vercel.app/projects/nexdownloader",
         "https://t.me/TheNexDownloader_bot"
       ],
       "applicationCategory": "MultimediaApplication",
@@ -152,6 +156,7 @@
       ],
       "url": "https://nex-telegrambots.vercel.app/bots/nexstick",
       "sameAs": [
+        "https://nexus-tech-official.vercel.app/projects/nexstick",
         "https://t.me/The_Nexus_techbot"
       ],
       "applicationCategory": "GraphicsApplication",
@@ -173,6 +178,7 @@
       ],
       "url": "https://nex-telegrambots.vercel.app/bots/nexgame",
       "sameAs": [
+        "https://nexus-tech-official.vercel.app/projects/nexgame",
         "https://t.me/TheNexGame_bot"
       ],
       "applicationCategory": "GameApplication",
