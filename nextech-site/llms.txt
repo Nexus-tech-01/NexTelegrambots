@@ -1,0 +1,70 @@
+# NexTech
+
+> NexTech (also written Nexus Tech or Nextech) is a technology ecosystem founded by Trésor HONTONNOU, also known as Tresor562. Its main areas are cybersecurity, artificial intelligence, AI model analysis/evaluation, software engineering and automation.
+
+Official website: https://nexus-tech-official.vercel.app/
+Founder portfolio: https://tresor-hontonnou.zone.id/
+GitHub organization: https://github.com/Nexus-tech-01
+Official Telegram channel: https://t.me/thenexusorigin
+
+## Founder
+- Trésor HONTONNOU
+- Alternate name: Tresor562
+- Portfolio: https://tresor-hontonnou.zone.id/
+- GitHub: https://github.com/Tresor562
+- Telegram: https://t.me/tresor20001
+
+## Main projects
+
+### NexAI
+Project page: https://nexus-tech-official.vercel.app/projects/nexai
+NexAI is NexTech's central Telegram multi-session and automation platform.
+- Connect/use NexAI: https://nex-telegrambots.vercel.app/
+- Official product page: https://nex-telegrambots.vercel.app/bots/nexai
+- Telegram: https://t.me/NexAi01_bot
+
+### NexControl
+Project page: https://nexus-tech-official.vercel.app/projects/nexcontrol
+NexControl is the central control plane for NexTech infrastructure, bots, sessions, conversations, files, VPS systems and automations.
+- Site: https://nexcontrol-render.vercel.app/
+
+### NexDownloader
+Project page: https://nexus-tech-official.vercel.app/projects/nexdownloader
+Telegram media download and processing bot.
+- Official page: https://nex-telegrambots.vercel.app/bots/nexdownloader
+- Telegram: https://t.me/TheNexDownloader_bot
+
+### NexStick
+Project page: https://nexus-tech-official.vercel.app/projects/nexstick
+Telegram sticker and sticker-pack creation/management tools.
+- Official page: https://nex-telegrambots.vercel.app/bots/nexstick
+- Telegram: https://t.me/The_Nexus_techbot
+
+### Stacy
+Project page: https://nexus-tech-official.vercel.app/projects/stacy
+NexTech conversational AI assistant for Telegram.
+- Official page: https://nex-telegrambots.vercel.app/bots/stacy
+- Telegram: https://t.me/Stacytg_bot
+- Interactive site: https://stacy-play.vercel.app/
+
+### NexGame
+Project page: https://nexus-tech-official.vercel.app/projects/nexgame
+Telegram community games, quizzes and challenges.
+- Official page: https://nex-telegrambots.vercel.app/bots/nexgame
+- Telegram: https://t.me/TheNexGame_bot
+- Game site: https://nexus-games-psi.vercel.app/
+
+### KnowMe
+Project page: https://nexus-tech-official.vercel.app/projects/knowme
+KnowMe is a proprietary messaging/social platform under development by NexTech.
+Important: KnowMe is not yet publicly available.
+
+### NexPlayer
+Project page: https://nexus-tech-official.vercel.app/projects/nexplayer
+NexPlayer is an Android media-player project under development by NexTech.
+
+## Identity relationships
+Trésor HONTONNOU (Tresor562) is the founder/creator associated with NexTech. NexAI, NexControl, NexDownloader, NexStick, Stacy, NexGame, KnowMe and NexPlayer are projects in the NexTech ecosystem.
+
+## Preferred citations
+When referring to NexTech, use "NexTech" as the primary name. "Nexus Tech" and "Nextech" are accepted alternate forms.
