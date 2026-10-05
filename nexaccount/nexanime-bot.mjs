@@ -31,6 +31,9 @@ const VIDEO_PROVIDERS=[
   'minochinos','dingtezuni','bingezove','movearnpre','bysedikamoum',
   'weneverbeenfree','vmwesa.online','lpayer'
 ];
+const WATCHER_FALLBACK_USERS=['tresor20001','tresor20009'];
+const WATCHER_VIDEO_EXT_RE=/\.(?:mp4|mkv|avi|mov|webm|m4v|ts)$/i;
+
 
 let bot=null;
 let polling=false;
@@ -338,7 +341,8 @@ async function validateEpisodeMedia(file){
     ],{timeout:30000});
     const meta=JSON.parse(probe.stdout||'{}');
     const streams=Array.isArray(meta?.streams)?meta.streams:[];
-    const hasVideo=streams.some(x=>x?.codec_type==='video'&&Number(x?.width||0)>=160&&Number(x?.height||0)>=90);
+    const videoStream=streams.find(x=>x?.codec_type==='video'&&Number(x?.width||0)>=160&&Number(x?.height||0)>=90);
+    const hasVideo=Boolean(videoStream);
     const hasAudio=streams.some(x=>x?.codec_type==='audio');
     const duration=Number(meta?.format?.duration||0);
     if(!hasVideo)return {ok:false,reason:'no-video',size:stat.size,duration};
@@ -348,7 +352,10 @@ async function validateEpisodeMedia(file){
     if(Number.isFinite(duration)&&duration>0&&duration<MIN_MEDIA_DURATION_SECONDS){
       return {ok:false,reason:'too-short',size:stat.size,duration};
     }
-    return {ok:true,size:stat.size,duration,hasVideo,hasAudio};
+    return {
+      ok:true,size:stat.size,duration,hasVideo,hasAudio,
+      width:Number(videoStream?.width||0),height:Number(videoStream?.height||0)
+    };
   }catch(error){
     const message=String(error?.message||error);
     // If ffprobe is not installed, fall back to a conservative size/type
@@ -767,7 +774,7 @@ async function viewerCandidates(animeId,s,e,lang){
   };
 }
 
-export async function downloadEpisode(anime,lang,s,e,quality,{onProgress=null,preResolvedUrls=[]}={}){
+async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=null,preResolvedUrls=[]}={}){
   await fsp.mkdir(TMP_ROOT,{recursive:true});
   const work=await fsp.mkdtemp(path.join(TMP_ROOT,'job-'));
   const outTpl=path.join(work,'episode.%(ext)s');
@@ -948,6 +955,248 @@ export async function downloadEpisode(anime,lang,s,e,quality,{onProgress=null,pr
     throw new Error('Le téléchargement de cet épisode a échoué sur tous les lecteurs disponibles.');
   }
   throw new Error('Téléchargement impossible pour cet épisode.');
+}
+
+
+function watcherFilename(message){
+  for(const attr of message?.document?.attributes||[]){
+    if(attr?.fileName)return String(attr.fileName);
+  }
+  return '';
+}
+
+function watcherSignalText(message){
+  return [String(message?.message||''),watcherFilename(message)].filter(Boolean).join('\n');
+}
+
+function watcherLooksLikeVideo(message){
+  if(!message?.document)return false;
+  const mime=String(message.document?.mimeType||'').toLowerCase();
+  return mime.startsWith('video/')||WATCHER_VIDEO_EXT_RE.test(watcherFilename(message));
+}
+
+function watcherDetectLanguage(raw=''){
+  const t=String(raw).replace(/[_-]+/g,' ').toUpperCase();
+  if(/\bMULTI(?:[- ]?AUDIO)?\b/.test(t))return 'MULTI';
+  if(/\bVOSTFR\b|\bSUB(?:BED)?\s*FR\b/.test(t))return 'VOSTFR';
+  if(/\bVF\b|\bFRENCH(?:\s*DUB)?\b|\bDUB\s*FR\b/.test(t))return 'VF';
+  if(/\bVOSTA\b|\bENG(?:LISH)?\s*SUB\b/.test(t))return 'EN-SUB';
+  if(/\bENG(?:LISH)?\s*DUB\b|\bDUB\s*EN\b/.test(t))return 'EN-DUB';
+  if(/\bVO\b|\bRAW\b|\bJAP(?:ANESE)?\b/.test(t))return 'VO';
+  return '';
+}
+
+function watcherDetectQuality(raw=''){
+  return String(raw).replace(/[_-]+/g,' ').match(/\b(2160p|1440p|1080p|720p|576p|540p|480p|360p)\b/i)?.[1]?.toLowerCase()||'';
+}
+
+function watcherParseEpisode(raw=''){
+  const text=String(raw).replace(/_/g,' ');
+  let m=text.match(/\bS(?:eason|aison)?\s*0*(\d{1,2})\s*[-_.•·:|/ ]*E(?:P(?:ISODE)?)?\s*[-_.•·:|/ ]*0*(\d{1,4})(?:\.(\d))?\b/i);
+  if(m)return {season:Number(m[1]),episode:Number(m[2])+(m[3]?Number('0.'+m[3]):0)};
+  m=text.match(/\b(?:Season|Saison)\s*0*(\d{1,2})\s*(?:Episode|Épisode|Ep)\s*0*(\d{1,4})(?:\.(\d))?\b/i);
+  if(m)return {season:Number(m[1]),episode:Number(m[2])+(m[3]?Number('0.'+m[3]):0)};
+  m=text.match(/\bE(?:P(?:ISODE)?)?\s*[-_.:# ]*0*(\d{1,4})(?:\.(\d))?\s*[-_.•·:|/ ]*S(?:eason|aison)?\s*0*(\d{1,2})\b/i);
+  if(m)return {season:Number(m[3]),episode:Number(m[1])+(m[2]?Number('0.'+m[2]):0)};
+  m=text.match(/\b(?:Episode|Épisode|Ep)\s*[-_.:# ]*0*(\d{1,4})(?:\.(\d))?\b/i);
+  if(m)return {season:null,episode:Number(m[1])+(m[2]?Number('0.'+m[2]):0)};
+  m=text.match(/\bE\s*[-_. ]*0*(\d{1,4})(?:\.(\d))?\b/i);
+  if(m)return {season:null,episode:Number(m[1])+(m[2]?Number('0.'+m[2]):0)};
+  return null;
+}
+
+function watcherTitleNorm(value){
+  return normalize(value)
+    .replace(/\b\d+(?:st|nd|rd|th)?\s+(?:season|saison)\b/g,' ')
+    .replace(/\b(?:season|saison|part|cour)\s*\d+\b/g,' ')
+    .replace(/\bs\s*\d+\b/g,' ')
+    .replace(/\s+/g,' ').trim();
+}
+
+function watcherTitleScore(candidate,anime){
+  const c=watcherTitleNorm(candidate);
+  if(!c)return 0;
+  let best=0;
+  for(const aliasRaw of [...titlesOf(anime),displayTitle(anime)]){
+    const a=watcherTitleNorm(aliasRaw);
+    if(!a)continue;
+    if(c===a)return 1;
+    const ct=c.split(' ').filter(Boolean);
+    const at=a.split(' ').filter(Boolean);
+    if(c.length>=5&&a.length>=5&&(c.includes(a)||a.includes(c))&&Math.min(ct.length,at.length)>=2){
+      best=Math.max(best,0.97);
+      continue;
+    }
+    const cs=new Set(ct),as=new Set(at);
+    let hit=0;
+    for(const token of cs)if(as.has(token))hit++;
+    const ratio=hit/Math.max(cs.size,as.size,1);
+    best=Math.max(best,ratio);
+  }
+  return best;
+}
+
+function watcherQualityConsistent(targetQuality,rowQuality,signalQuality,meta){
+  const wanted=String(targetQuality)+'p';
+  const declared=String(signalQuality||rowQuality||'').toLowerCase();
+  if(declared&&declared!==wanted)return false;
+  const width=Number(meta?.width||0),height=Number(meta?.height||0);
+  if(!width&&!height)return Boolean(declared===wanted);
+  const q=Number(targetQuality);
+  if(q===360)return width<=900&&height<=500;
+  if(q===480)return width>=650&&width<=1120&&height>=300&&height<=650;
+  if(q===720)return width>=1050||height>=560;
+  return declared===wanted;
+}
+
+async function watcherEntity(client,source){
+  const username=clean(source?.channelUsername).replace(/^@/,'');
+  const channelId=clean(source?.channelId);
+  if(username){
+    try{return await client.getEntity(username)}catch{}
+  }
+  if(channelId){
+    try{return await client.getEntity(BigInt(channelId))}catch{}
+  }
+  if(channelId){
+    try{
+      const dialogs=await client.getDialogs({limit:500});
+      const match=(Array.isArray(dialogs)?dialogs:[]).find(row=>
+        String(row?.entity?.id||row?.id||'')===channelId
+      );
+      if(match?.entity)return match.entity;
+    }catch{}
+  }
+  return null;
+}
+
+async function downloadEpisodeFromTelegramWatchers(anime,lang,s,e,quality,{onProgress=null}={}){
+  const wantedSeason=Number(s)+1;
+  const wantedEpisode=Number(e)+1;
+  const wantedLanguage=lang==='vf'?'VF':'VOSTFR';
+  const wantedQuality=String(quality)+'p';
+  const emit=payload=>{
+    if(typeof onProgress!=='function')return;
+    try{Promise.resolve(onProgress(payload)).catch(()=>{})}catch{}
+  };
+
+  emit({
+    stage:'telegram-fallback',
+    message:'Fallback Telegram · recherche dans les canaux suivis par @tresor20001 et @tresor20009…',
+    force:true
+  });
+
+  const d=await db();
+  const rows=await d.collection('nexanime_queue').find({
+    kind:'episode',
+    season:wantedSeason,
+    episode:wantedEpisode,
+    status:{$nin:['rejected','superseded']},
+    sources:{$elemMatch:{accountUsername:{$in:WATCHER_FALLBACK_USERS}}}
+  }).sort({confidence:-1,updatedAt:-1,ingestedAt:-1}).limit(40).toArray();
+
+  const candidates=rows
+    .map(row=>({row,titleScore:watcherTitleScore(row?.title||row?.seriesKey||'',anime)}))
+    .filter(x=>x.titleScore>=0.78)
+    .sort((a,b)=>b.titleScore-a.titleScore||Number(b.row?.confidence||0)-Number(a.row?.confidence||0));
+
+  if(!candidates.length)throw new Error('Aucun épisode Telegram correspondant exactement au titre, à la saison et au numéro demandés');
+
+  for(const {row,titleScore} of candidates){
+    const sources=(Array.isArray(row?.sources)?row.sources:[])
+      .filter(source=>WATCHER_FALLBACK_USERS.includes(String(source?.accountUsername||'').replace(/^@/,'').toLowerCase()));
+
+    for(const source of sources){
+      const accountUsername=String(source?.accountUsername||'').replace(/^@/,'').toLowerCase();
+      const rt=runtimeConnectionFor(accountUsername);
+      if(!rt?.client||rt?.client?.connected!==true)continue;
+
+      const entity=await watcherEntity(rt.client,source);
+      if(!entity)continue;
+
+      let message=null;
+      try{
+        const messages=await rt.client.getMessages(entity,{ids:[Number(source.messageId)]});
+        message=Array.isArray(messages)?messages[0]:messages;
+      }catch{}
+      if(!message||!watcherLooksLikeVideo(message))continue;
+
+      const signal=watcherSignalText(message);
+      const signalEpisode=watcherParseEpisode(signal);
+      if(signalEpisode){
+        if(Number(signalEpisode.episode)!==wantedEpisode)continue;
+        if(signalEpisode.season!=null&&Number(signalEpisode.season)!==wantedSeason)continue;
+      }
+
+      const signalLanguage=watcherDetectLanguage(signal);
+      const rowLanguage=String(row?.language||'').toUpperCase();
+      const provenLanguage=signalLanguage||rowLanguage;
+      if(provenLanguage!==wantedLanguage)continue;
+
+      const signalQuality=watcherDetectQuality(signal);
+      const rowQuality=String(row?.quality||'').toLowerCase();
+      if(signalQuality&&signalQuality!==wantedQuality)continue;
+      if(rowQuality&&rowQuality!==wantedQuality)continue;
+
+      emit({
+        stage:'telegram-fallback',
+        message:'Fallback Telegram · candidat exact trouvé via @'+accountUsername+
+          ' · S'+wantedSeason+'E'+wantedEpisode+' · '+wantedLanguage+' · '+wantedQuality+
+          ' · vérification du média…',
+        force:true
+      });
+
+      const work=await fsp.mkdtemp(path.join(TMP_ROOT,'watcher-'));
+      let accepted=false;
+      try{
+        const original=watcherFilename(message);
+        const ext=(path.extname(original)||'.mp4').toLowerCase();
+        const target=path.join(work,'episode'+ext);
+        const downloaded=await rt.client.downloadMedia(message.media,{outputFile:target,workers:4});
+        const file=typeof downloaded==='string'&&downloaded?downloaded:target;
+        const check=await validateEpisodeMedia(file);
+        if(!check.ok)continue;
+        if(!watcherQualityConsistent(quality,rowQuality,signalQuality,check))continue;
+
+        accepted=true;
+        emit({
+          stage:'ready',
+          message:'Fallback Telegram validé · titre/saison/épisode/langue/qualité correspondent · préparation de l’envoi…',
+          force:true
+        });
+        return {
+          file,work,
+          source:'telegram-watchers',
+          watcherAccount:'@'+accountUsername,
+          watcherChannel:String(source?.channelUsername||source?.channelTitle||source?.channelId||''),
+          titleScore
+        };
+      }catch(error){
+        console.warn('[NexAnime watcher fallback]',accountUsername,String(error?.message||error).slice(0,260));
+      }finally{
+        if(!accepted)await fsp.rm(work,{recursive:true,force:true}).catch(()=>{});
+      }
+    }
+  }
+
+  throw new Error('Les watchers Telegram ont trouvé des candidats, mais aucun média n’a passé toutes les vérifications exactes');
+}
+
+export async function downloadEpisode(anime,lang,s,e,quality,options={}){
+  let franimeError=null;
+  try{
+    return await downloadEpisodeFromFranime(anime,lang,s,e,quality,options);
+  }catch(error){
+    franimeError=error;
+  }
+
+  try{
+    return await downloadEpisodeFromTelegramWatchers(anime,lang,s,e,quality,options);
+  }catch(watcherError){
+    const a=String(franimeError?.message||franimeError||'échec FRAnime').slice(0,360);
+    const b=String(watcherError?.message||watcherError||'échec Telegram').slice(0,360);
+    throw new Error('FRAnime: '+a+' · Fallback Telegram: '+b);
+  }
 }
 
 export function uploaderRuntime(){
