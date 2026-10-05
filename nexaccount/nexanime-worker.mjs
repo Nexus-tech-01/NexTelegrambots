@@ -8,7 +8,7 @@ const CLAIM_MS=Math.max(8*60_000,Number(process.env.NEXANIME_JOB_CLAIM_MS||18*60
 const MAX_ATTEMPTS=Math.max(1,Math.min(3,Number(process.env.NEXANIME_JOB_MAX_ATTEMPTS||2)));
 const UPLOAD_TIMEOUT_MS=Math.max(3*60_000,Number(process.env.NEXANIME_JOB_UPLOAD_TIMEOUT_MS||12*60_000));
 const PROGRESS_MIN_MS=Math.max(5000,Number(process.env.NEXANIME_PROGRESS_MIN_MS||9000));
-const PROGRESS_RELAY_ENABLED=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXANIME_PROGRESS_RELAY||'').trim());
+const PROGRESS_RELAY_ENABLED=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXANIME_PROGRESS_RELAY||'1').trim());
 const CACHE_MIGRATION_ID='nexanime_cache_purge_20261005_v1';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
