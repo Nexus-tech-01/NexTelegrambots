@@ -1,7 +1,7 @@
 import {tg} from './_nexanime-telegram.js';
 import {byId,titleOf,seasonCount} from './_nexanime-franime.js';
 import {esc,languageKeyboard,seasonsKeyboard,episodesKeyboard,qualityKeyboard} from './_nexanime-ui.js';
-import {cacheKey,cachedEpisode,queueEpisode} from './_nexanime-jobs.js';
+import {cacheKey,cachedEpisode,activeEpisodeJob,queueEpisode} from './_nexanime-jobs.js';
 
 async function edit(cq,text,reply_markup){
   const m=cq?.message,chatId=m?.chat?.id,messageId=m?.message_id;
@@ -64,8 +64,20 @@ export async function handleCallback(cq){
     if(cached.kind==='video')return tg('sendVideo',{chat_id:chatId,video:cached.fileId,caption,supports_streaming:true});
     return tg('sendDocument',{chat_id:chatId,document:cached.fileId,caption});
   }
-  const status=await tg('sendMessage',{chat_id:chatId,text:'⏳ '+caption+'\nTéléchargement en cours…'});
-  await queueEpisode({
+
+  const active=await activeEpisodeJob(key);
+  if(active){
+    const progress=String(active.progress||'Téléchargement déjà en cours…').slice(0,500);
+    const text='⏳ '+caption+'\n'+progress;
+    if(String(active.chatId)===String(chatId)&&active.statusMessageId){
+      await tg('editMessageText',{chat_id:chatId,message_id:active.statusMessageId,text}).catch(()=>{});
+      return;
+    }
+    return tg('sendMessage',{chat_id:chatId,text});
+  }
+
+  const status=await tg('sendMessage',{chat_id:chatId,text:'⏳ '+caption+'\nAjouté à la file de téléchargement…'});
+  const queued=await queueEpisode({
     key,
     chatId,
     statusMessageId:status.message_id,
@@ -76,4 +88,8 @@ export async function handleCallback(cq){
     quality:q,
     caption
   });
+  if(queued?.reused&&queued.statusMessageId&&queued.statusMessageId!==status.message_id){
+    await tg('deleteMessage',{chat_id:chatId,message_id:status.message_id}).catch(()=>{});
+    await tg('editMessageText',{chat_id:queued.chatId,message_id:queued.statusMessageId,text:'⏳ '+caption+'\n'+String(queued.progress||'Téléchargement déjà en cours…').slice(0,500)}).catch(()=>{});
+  }
 }
