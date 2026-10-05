@@ -1784,7 +1784,7 @@ async function markPublication(item,sent,runtime){
         },
         $unset:{
           frontierHoldSeriesKey:'',frontierHoldSince:'',frontierHoldUntil:'',
-          frontierRefreshSeriesKey:'',frontierRefreshRequestedAt:'',
+          frontierRefreshSeriesKey:'',frontierRefreshRequestedAt:'',frontierHoldReason:'',
           plannedSeriesKey:'',plannedAt:'',plannedSummary:'',cooldownUntil:''
         }
       },
@@ -2029,6 +2029,53 @@ async function restoreLastPublishedSeriesOwnership(d,scheduler,current,{requeste
   const last=await latestPublishedEpisode(d);
   const key=String(last?.seriesKey||'');
   if(!key)return current;
+
+  const legacyBlockReasons=new Set([
+    'preflight_next_episode_invalid',
+    'preflight_next_episode_unreachable',
+    'preflight_missing_previous_episode',
+    'preflight_no_unpublished_episode_available'
+  ]);
+  const rawEntries=Array.isArray(current?.blockedSeriesEntries)?current.blockedSeriesEntries:[];
+  const latestEntry=rawEntries.find(row=>String(row?.seriesKey||'')===key);
+  const legacyBlock=legacyBlockReasons.has(String(latestEntry?.reason||current?.blockedSeriesReason||''));
+  const patchApplied=Number(current?.continuityOwnershipPatchVersion||0)>=2;
+
+  if(legacyBlock&&!patchApplied){
+    const cleaned=rawEntries.filter(row=>String(row?.seriesKey||'')!==key);
+    await scheduler.updateOne(
+      {_id:'scheduler'},
+      {
+        $set:{
+          blockedSeriesEntries:cleaned,
+          continuityOwnershipPatchVersion:2,
+          continuityOwnershipPatchAppliedAt:now,
+          updatedAt:now
+        },
+        $unset:{
+          ...(String(current?.blockedSeriesKey||'')===key?{
+            blockedSeriesKey:'',blockedSeriesUntil:'',blockedSeriesReason:'',gapDetected:''
+          }:{})
+        }
+      },
+      {upsert:true}
+    );
+    current={
+      ...(current||{}),
+      blockedSeriesEntries:cleaned,
+      continuityOwnershipPatchVersion:2,
+      ...(String(current?.blockedSeriesKey||'')===key?{
+        blockedSeriesKey:'',blockedSeriesUntil:null,blockedSeriesReason:''
+      }:{})
+    };
+    persistedBlockedKeys=persistedBlockedKeys.filter(x=>x!==key);
+    if(blockedSeriesKey===key){
+      blockedSeriesKey='';
+      blockActive=false;
+    }
+    console.log('[NexAnime scheduler] cleared legacy continuity block for latest published anime',key);
+  }
+
   const excluded=requestedExclusions.includes(key);
   const blocked=persistedBlockedKeys.includes(key)||(blockActive&&key===blockedSeriesKey);
   const completionConfirmed=String(current?.lastCompletedSeriesKey||'')===key&&current?.lastSeriesCompletionConfirmed===true;
@@ -2045,6 +2092,7 @@ async function restoreLastPublishedSeriesOwnership(d,scheduler,current,{requeste
         lastPublishedSeriesKey:key,
         lastPublishedEpisode:Number(last?.episode??0)||null,
         lastPublishedSeason:Number(last?.season??1),
+        continuityOwnershipPatchVersion:2,
         updatedAt:now
       },
       $unset:{
@@ -2061,10 +2109,10 @@ async function restoreLastPublishedSeriesOwnership(d,scheduler,current,{requeste
     activeSeriesKey:key,
     activeSeriesStartedAt:now,
     continuityResumeReason:'last_public_episode_owns_continuity',
-    continuityResumedAt:now
+    continuityResumedAt:now,
+    continuityOwnershipPatchVersion:2
   };
 }
-
 async function requestFrontierRefresh(runtime,d,seriesKey){
   if(!runtime||!isListenerRuntime(runtime))return false;
   const scheduler=d.collection('nexanime_config');
@@ -2083,6 +2131,105 @@ async function requestFrontierRefresh(runtime,d,seriesKey){
       .catch(error=>console.warn('[NexAnime scheduler] frontier refresh failed',seriesKey,String(error?.message||error).slice(0,220)));
   });
   return true;
+}
+
+
+async function parkActiveSeriesAfterFrontierFailure(d,seriesKey,probe={}){
+  const now=new Date();
+  const scheduler=d.collection('nexanime_config');
+  const blockedUntil=new Date(now.getTime()+GAP_RETRY_MS);
+  const cooldownUntil=await interSeriesDeadline(d,seriesKey,now);
+  const snapshot=await scheduler.findOne({_id:'scheduler'},{projection:{blockedSeriesEntries:1}});
+  const blockedSeriesEntries=(Array.isArray(snapshot?.blockedSeriesEntries)?snapshot.blockedSeriesEntries:[])
+    .filter(row=>{
+      const key=String(row?.seriesKey||'');
+      const until=row?.until?new Date(row.until):null;
+      return key&&key!==String(seriesKey)&&until&&Number.isFinite(until.getTime())&&until>now;
+    })
+    .concat([{
+      seriesKey:String(seriesKey),
+      until:blockedUntil,
+      reason:'active_frontier_unavailable_after_grace',
+      blockedAt:now
+    }])
+    .slice(-100);
+
+  await scheduler.updateOne(
+    {_id:'scheduler'},
+    {
+      $set:{
+        blockedSeriesKey:String(seriesKey),
+        blockedSeriesUntil:blockedUntil,
+        blockedSeriesReason:'active_frontier_unavailable_after_grace',
+        blockedSeriesEntries,
+        cooldownUntil,
+        lastSeriesExitReason:'active_frontier_unavailable_after_grace',
+        lastSeriesExitedAt:now,
+        gapDetected:{
+          seriesKey:String(seriesKey),
+          season:Number(probe.season??1),
+          expectedEpisode:probe.expectedEpisode==null?null:Number(probe.expectedEpisode),
+          blockedEpisode:probe.blockedEpisode==null?null:Number(probe.blockedEpisode),
+          detectedAt:now,
+          sourceReason:String(probe.reason||'unknown')
+        },
+        updatedAt:now
+      },
+      $unset:{
+        activeSeriesKey:'',activeSeriesStartedAt:'',
+        frontierHoldSeriesKey:'',frontierHoldSince:'',frontierHoldUntil:'',
+        frontierRefreshSeriesKey:'',frontierRefreshRequestedAt:'',
+        plannedSeriesKey:'',plannedAt:'',plannedSummary:''
+      }
+    },
+    {upsert:true}
+  );
+  console.warn('[NexAnime scheduler] parked active anime after frontier recovery grace',seriesKey,String(probe.reason||'unknown'));
+}
+
+async function holdActiveSeriesForFrontierRecovery(runtime,d,seriesKey,probe={}){
+  const publications=d.collection('nexanime_publications');
+  const inProgress=await publications.findOne(
+    {seriesKey,kind:'episode',purgedAt:{$exists:false}},
+    {projection:{_id:1}}
+  );
+  if(!inProgress)return {handled:false};
+
+  const scheduler=d.collection('nexanime_config');
+  const now=new Date();
+  const state=await scheduler.findOne({_id:'scheduler'});
+  const sameHold=String(state?.frontierHoldSeriesKey||'')===String(seriesKey);
+  const rawSince=sameHold&&state?.frontierHoldSince?new Date(state.frontierHoldSince):null;
+  const validSince=rawSince&&Number.isFinite(rawSince.getTime())?rawSince:null;
+  const since=validSince||now;
+  const until=new Date(since.getTime()+ACTIVE_FRONTIER_GRACE_MS);
+
+  if(!validSince){
+    await scheduler.updateOne(
+      {_id:'scheduler'},
+      {
+        $set:{
+          activeSeriesKey:String(seriesKey),
+          frontierHoldSeriesKey:String(seriesKey),
+          frontierHoldSince:since,
+          frontierHoldUntil:until,
+          frontierHoldReason:'recovering_'+String(probe.reason||'frontier'),
+          updatedAt:now
+        },
+        $unset:{plannedSeriesKey:'',plannedAt:'',plannedSummary:'',cooldownUntil:''}
+      },
+      {upsert:true}
+    );
+  }
+
+  if(until>now){
+    await requestFrontierRefresh(runtime,d,seriesKey);
+    console.log('[NexAnime scheduler] retaining active anime during frontier recovery',seriesKey,String(probe.reason||'unknown'),until.toISOString());
+    return {handled:true,waiting:true,until};
+  }
+
+  await parkActiveSeriesAfterFrontierFailure(d,seriesKey,probe);
+  return {handled:true,waiting:false,parked:true};
 }
 
 async function preparePlannedSeries(d,seriesKey){
@@ -2294,7 +2441,7 @@ async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
         .concat([{
           seriesKey:finishingSeriesKey,
           until:blockedUntil,
-          reason:'frontier_not_discovered_after_grace',
+          reason:'active_frontier_unavailable_after_grace',
           blockedAt:now
         }])
         .slice(-100);
@@ -2305,9 +2452,9 @@ async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
           $set:{
             blockedSeriesKey:finishingSeriesKey,
             blockedSeriesUntil:blockedUntil,
-            blockedSeriesReason:'frontier_not_discovered_after_grace',
+            blockedSeriesReason:'active_frontier_unavailable_after_grace',
             blockedSeriesEntries:entries,
-            lastSeriesExitReason:'frontier_not_discovered_after_grace',
+            lastSeriesExitReason:'active_frontier_unavailable_after_grace',
             lastSeriesExitedAt:now,
             updatedAt:now
           },
@@ -2915,17 +3062,11 @@ async function choosePreflightReadySeries(runtime,d){
       ).catch(()=>{});
       return seriesKey;
     }
-    if(preflight.reason==='no_unpublished_episode_available'){
-      const hold=await d.collection('nexanime_config').findOne(
-        {_id:'scheduler',activeSeriesKey:seriesKey,frontierHoldSeriesKey:seriesKey},
-        {projection:{frontierHoldUntil:1}}
-      );
-      const holdUntil=hold?.frontierHoldUntil?new Date(hold.frontierHoldUntil):null;
-      if(holdUntil&&Number.isFinite(holdUntil.getTime())&&holdUntil>new Date()){
-        await requestFrontierRefresh(runtime,d,seriesKey);
-        console.log('[NexAnime scheduler] holding active anime for frontier discovery',seriesKey,holdUntil.toISOString());
-        return '';
-      }
+    const activeRecovery=await holdActiveSeriesForFrontierRecovery(runtime,d,seriesKey,preflight);
+    if(activeRecovery.handled){
+      if(activeRecovery.waiting)return '';
+      excluded.push(seriesKey);
+      continue;
     }
     await parkSeriesBeforeSynopsis(d,seriesKey,preflight);
     excluded.push(seriesKey);
