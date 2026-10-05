@@ -20,6 +20,8 @@ const UPLOAD_TIMEOUT_MS=20*60_000;
 const CACHE_VERSION='v2-valid-media';
 const MIN_MEDIA_BYTES=Math.max(256*1024,Number(process.env.NEXANIME_MIN_MEDIA_BYTES||1024*1024));
 const MIN_MEDIA_DURATION_SECONDS=Math.max(10,Number(process.env.NEXANIME_MIN_DURATION_SECONDS||45));
+const SOURCE_TIMEOUT_MS=Math.max(90_000,Number(process.env.NEXANIME_SOURCE_TIMEOUT_MS||8*60_000));
+const EPISODE_TIMEOUT_MS=Math.max(SOURCE_TIMEOUT_MS+60_000,Number(process.env.NEXANIME_EPISODE_TIMEOUT_MS||15*60_000));
 const USER_AGENT='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36';
 const SITE_REFERER=SITE+'/anime/watch';
 const VIDEO_PROVIDERS=[
@@ -235,16 +237,38 @@ async function cachePut(key,value){
   }catch(error){console.warn('[NexAnime cache]',String(error?.message||error).slice(0,240))}
 }
 
-async function run(cmd,args,{timeout=15*60_000,cwd=undefined}={}){
+async function run(cmd,args,{timeout=15*60_000,cwd=undefined,onStdout=null,onStderr=null}={}){
   return new Promise((resolve,reject)=>{
     const child=spawn(cmd,args,{cwd,stdio:['ignore','pipe','pipe']});
     let out='',err='',done=false;
-    const kill=setTimeout(()=>{if(!done){child.kill('SIGKILL');reject(new Error('timeout '+cmd))}},timeout);
-    child.stdout.on('data',d=>{out+=String(d);if(out.length>2_000_000)out=out.slice(-2_000_000)});
-    child.stderr.on('data',d=>{err+=String(d);if(err.length>2_000_000)err=err.slice(-2_000_000)});
-    child.once('error',e=>{done=true;clearTimeout(kill);reject(e)});
+    const finishError=e=>{
+      if(done)return;
+      done=true;
+      clearTimeout(kill);
+      reject(e);
+    };
+    const kill=setTimeout(()=>{
+      if(done)return;
+      try{child.kill('SIGKILL')}catch{}
+      finishError(new Error('timeout '+cmd));
+    },timeout);
+    child.stdout.on('data',d=>{
+      const s=String(d);
+      out+=s;
+      if(out.length>2_000_000)out=out.slice(-2_000_000);
+      try{onStdout?.(s)}catch{}
+    });
+    child.stderr.on('data',d=>{
+      const s=String(d);
+      err+=s;
+      if(err.length>2_000_000)err=err.slice(-2_000_000);
+      try{onStderr?.(s)}catch{}
+    });
+    child.once('error',finishError);
     child.once('close',code=>{
-      if(done)return;done=true;clearTimeout(kill);
+      if(done)return;
+      done=true;
+      clearTimeout(kill);
       if(code===0)resolve({stdout:out,stderr:err});
       else reject(new Error((err||out||cmd+' exited '+code).slice(-2500)));
     });
