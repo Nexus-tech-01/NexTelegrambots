@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'nexaccount/nexanime-bot.mjs'
+      - 'nexaccount/nexanime-worker.mjs'
       - 'nexaccount/nexanime-secrets.mjs'
       - 'nexaccount/daemon.mjs'
       - 'ops/deploy-nexai-safe-hotfix-live.mjs'
@@ -34,10 +35,12 @@ jobs:
           set -euo pipefail
           node --check nexaccount/nexanime-secrets.mjs
           node --check nexaccount/nexanime-bot.mjs
+          node --check nexaccount/nexanime-worker.mjs
           node --check nexaccount/daemon.mjs
           node --check ops/deploy-nexai-safe-hotfix-live.mjs
           grep -F "api.franime.fr" nexaccount/nexanime-bot.mjs
           grep -F "uploadForFileId" nexaccount/nexanime-bot.mjs
+          grep -F "nexanime_bot_jobs" nexaccount/nexanime-worker.mjs
           grep -F "startNexAnimeBot" nexaccount/daemon.mjs
 
       - name: Deploy through NexControl safe bridge
