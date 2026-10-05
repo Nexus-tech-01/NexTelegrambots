@@ -195,6 +195,31 @@ try{
   }
   report.steps.sourceValidated=true;
 
+  if(mode==='nexanime-search-bot'){
+    const browserBins=[
+      process.env.NEXANIME_BROWSER_BIN,
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable'
+    ].filter(Boolean);
+    let browserBin=browserBins.find(x=>fs.existsSync(x))||'';
+    if(!browserBin){
+      const aptUpdate=run('apt-get',['update'],{cwd:'/',timeout:180000});
+      if(aptUpdate.ok){
+        const aptInstall=run('apt-get',['install','-y','--no-install-recommends','chromium'],{cwd:'/',timeout:360000});
+        if(aptInstall.ok){
+          browserBin=['/usr/bin/chromium','/usr/bin/chromium-browser'].find(x=>fs.existsSync(x))||'';
+        }else{
+          report.steps.browserInstallWarning=(aptInstall.stderr||aptInstall.stdout).slice(-1200);
+        }
+      }else{
+        report.steps.browserInstallWarning=(aptUpdate.stderr||aptUpdate.stdout).slice(-1200);
+      }
+    }
+    report.steps.browserRuntime={available:Boolean(browserBin),bin:browserBin||null};
+  }
+
   for(const [dst] of files){
     const target=path.join(base,dst),bak=path.join(backupDir,dst);
     fs.mkdirSync(path.dirname(target),{recursive:true,mode:0o750});
