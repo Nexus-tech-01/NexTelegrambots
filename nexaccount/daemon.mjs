@@ -10,6 +10,7 @@ import { ensureNexAiBot } from './bot-factory.mjs';
 import { ensureAnalyticsIndex } from './analytics-indexer.mjs';
 import { animeRetryQueue, animeSystemStatus } from './anime-ingest.mjs';
 import { secondaryAnimeStatus, startSecondaryAnimeReader, stopSecondaryAnimeReader } from './anime-secondary-reader.mjs';
+import { startNexAnimeBot, stopNexAnimeBot, nexAnimeBotStatus } from './nexanime-bot.mjs';
 
 assertCoreConfig();
 const PAIRING_ONLY=/^(?:1|true|yes|on)$/i.test(String(process.env.NEXACCOUNT_PAIRING_ONLY||'').trim());
@@ -159,7 +160,8 @@ async function route(req,res){
         worker:{id:cfg.workerId,index:cfg.workerIndex,count:cfg.workerCount,capacity:cfg.maxRuntimesPerWorker},
         runtimeCount:runtimes.length,
         pairingOnly:PAIRING_ONLY,
-        secondaryAnime:secondaryAnimeStatus()
+        secondaryAnime:secondaryAnimeStatus(),
+        nexAnimeBot:nexAnimeBotStatus()
       });
     }
     if(!authorized(req))return json(res,401,{ok:false,error:'unauthorized'});
@@ -310,6 +312,7 @@ server.listen(cfg.port,cfg.host,async()=>{
   }
 
   if(cfg.coordinator&&!PAIRING_ONLY)await startSecondaryAnimeReader().catch(e=>console.error('[NexAnime secondary]',e));
+  if(cfg.coordinator&&!PAIRING_ONLY)await startNexAnimeBot().catch(e=>console.error('[NexAnime bot]',e));
   console.log('[NexAccount] worker '+cfg.workerIndex+'/'+cfg.workerCount+(cfg.coordinator?' · coordinator':'')+(PAIRING_ONLY?' · pairing-only':'')+' restored '+loaded.length+' account(s), capacity '+cfg.maxRuntimesPerWorker);
   if(!PAIRING_ONLY)await runStartupSmoke().catch(error=>console.error('[NexAccount startup-smoke]',String(error?.message||error)));
 });
@@ -335,6 +338,7 @@ async function shutdown(){
   try{server.close()}catch{}
   if(cfg.coordinator&&!PAIRING_ONLY)await stopInlineBot();
   if(cfg.coordinator&&!PAIRING_ONLY)await stopSecondaryAnimeReader().catch(()=>{});
+  if(cfg.coordinator&&!PAIRING_ONLY)await stopNexAnimeBot().catch(()=>{});
   await stopRuntimes();
   await closeStore();
   process.exit(0);
