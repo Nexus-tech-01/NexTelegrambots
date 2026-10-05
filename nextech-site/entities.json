@@ -1,0 +1,125 @@
+{
+  "@context": "https://schema.org",
+  "generated": "2026-10-05",
+  "entities": [
+    {
+      "type": "Person",
+      "id": "tresor-hontonnou",
+      "name": "Trésor HONTONNOU",
+      "alternateName": [
+        "Tresor562"
+      ],
+      "url": "https://tresor-hontonnou.zone.id/",
+      "sameAs": [
+        "https://github.com/Tresor562",
+        "https://t.me/tresor20001"
+      ]
+    },
+    {
+      "type": "Organization",
+      "id": "nextech",
+      "name": "NexTech",
+      "alternateName": [
+        "Nexus Tech",
+        "Nextech"
+      ],
+      "url": "https://nexus-tech-official.vercel.app/",
+      "founder": "tresor-hontonnou",
+      "sameAs": [
+        "https://github.com/Nexus-tech-01",
+        "https://t.me/thenexusorigin"
+      ]
+    },
+    {
+      "type": "SoftwareApplication",
+      "id": "nexai",
+      "name": "NexAI",
+      "parent": "nextech",
+      "creator": "tresor-hontonnou",
+      "url": "https://nexus-tech-official.vercel.app/projects/nexai",
+      "sameAs": [
+        "https://nex-telegrambots.vercel.app/bots/nexai",
+        "https://t.me/NexAi01_bot"
+      ],
+      "status": "available"
+    },
+    {
+      "type": "SoftwareApplication",
+      "id": "nexcontrol",
+      "name": "NexControl",
+      "parent": "nextech",
+      "creator": "tresor-hontonnou",
+      "url": "https://nexus-tech-official.vercel.app/projects/nexcontrol",
+      "status": "available"
+    },
+    {
+      "type": "SoftwareApplication",
+      "id": "nexdownloader",
+      "name": "NexDownloader",
+      "parent": "nextech",
+      "creator": "tresor-hontonnou",
+      "url": "https://nexus-tech-official.vercel.app/projects/nexdownloader",
+      "sameAs": [
+        "https://t.me/TheNexDownloader_bot"
+      ],
+      "status": "available"
+    },
+    {
+      "type": "SoftwareApplication",
+      "id": "nexstick",
+      "name": "NexStick",
+      "parent": "nextech",
+      "creator": "tresor-hontonnou",
+      "url": "https://nexus-tech-official.vercel.app/projects/nexstick",
+      "sameAs": [
+        "https://t.me/The_Nexus_techbot"
+      ],
+      "status": "available"
+    },
+    {
+      "type": "SoftwareApplication",
+      "id": "stacy",
+      "name": "Stacy",
+      "parent": "nextech",
+      "creator": "tresor-hontonnou",
+      "url": "https://nexus-tech-official.vercel.app/projects/stacy",
+      "sameAs": [
+        "https://t.me/Stacytg_bot",
+        "https://stacy-play.vercel.app/"
+      ],
+      "status": "available"
+    },
+    {
+      "type": "SoftwareApplication",
+      "id": "nexgame",
+      "name": "NexGame",
+      "parent": "nextech",
+      "creator": "tresor-hontonnou",
+      "url": "https://nexus-tech-official.vercel.app/projects/nexgame",
+      "sameAs": [
+        "https://t.me/TheNexGame_bot",
+        "https://nexus-games-psi.vercel.app/"
+      ],
+      "status": "available"
+    },
+    {
+      "type": "SoftwareApplication",
+      "id": "knowme",
+      "name": "KnowMe",
+      "parent": "nextech",
+      "creator": "tresor-hontonnou",
+      "url": "https://nexus-tech-official.vercel.app/projects/knowme",
+      "status": "in-development",
+      "publiclyAvailable": false
+    },
+    {
+      "type": "SoftwareApplication",
+      "id": "nexplayer",
+      "name": "NexPlayer",
+      "parent": "nextech",
+      "creator": "tresor-hontonnou",
+      "url": "https://nexus-tech-official.vercel.app/projects/nexplayer",
+      "status": "in-development"
+    }
+  ]
+}
