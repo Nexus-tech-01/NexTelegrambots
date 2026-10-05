@@ -110,7 +110,7 @@ async function catalog(){
   return items;
 }
 
-async function animeById(id){
+export async function animeById(id){
   return (await catalog()).find(a=>String(a?.id)===String(id))||null;
 }
 
