@@ -1,0 +1,66 @@
+name: NexAnime Webhook CI
+
+on:
+  pull_request:
+    paths:
+      - 'api/_nexanime-*.js'
+      - 'api/nexanime-*.js'
+      - 'nexaccount/nexanime-*.mjs'
+      - 'nexaccount/daemon.mjs'
+      - 'ops/deploy-nexai-safe-hotfix-live.mjs'
+      - 'package.json'
+      - '.github/workflows/nexanime-webhook-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'api/_nexanime-*.js'
+      - 'api/nexanime-*.js'
+      - 'nexaccount/nexanime-*.mjs'
+      - 'nexaccount/daemon.mjs'
+      - 'ops/deploy-nexai-safe-hotfix-live.mjs'
+      - 'package.json'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --ignore-scripts
+      - name: Syntax
+        run: |
+          node --check api/_nexanime-db.js
+          node --check api/_nexanime-telegram.js
+          node --check api/_nexanime-franime.js
+          node --check api/_nexanime-ui.js
+          node --check api/_nexanime-jobs.js
+          node --check api/_nexanime-message.js
+          node --check api/_nexanime-callback.js
+          node --check api/nexanime-webhook.js
+          node --check api/nexanime-register.js
+          node --check nexaccount/nexanime-bot.mjs
+          node --check nexaccount/nexanime-worker.mjs
+          node --check nexaccount/daemon.mjs
+          node --check ops/deploy-nexai-safe-hotfix-live.mjs
+      - name: Import Vercel functions
+        run: |
+          node --input-type=module - <<'NODE'
+          for(const file of [
+            './api/_nexanime-db.js',
+            './api/_nexanime-telegram.js',
+            './api/_nexanime-franime.js',
+            './api/_nexanime-ui.js',
+            './api/_nexanime-jobs.js',
+            './api/_nexanime-message.js',
+            './api/_nexanime-callback.js',
+            './api/nexanime-webhook.js',
+            './api/nexanime-register.js'
+          ]) await import(file);
+          console.log('NEXANIME_WEBHOOK_IMPORT_OK');
+          NODE
