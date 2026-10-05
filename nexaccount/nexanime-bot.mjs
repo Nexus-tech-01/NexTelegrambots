@@ -272,7 +272,7 @@ async function viewerCandidates(animeId,s,e,lang){
   return [...new Set(ranked)];
 }
 
-async function downloadEpisode(anime,lang,s,e,quality){
+export async function downloadEpisode(anime,lang,s,e,quality){
   await fsp.mkdir(TMP_ROOT,{recursive:true});
   const work=await fsp.mkdtemp(path.join(TMP_ROOT,'job-'));
   const outTpl=path.join(work,'episode.%(ext)s');
@@ -298,7 +298,7 @@ async function downloadEpisode(anime,lang,s,e,quality){
   throw lastError||new Error('Téléchargement impossible');
 }
 
-function uploaderRuntime(){
+export function uploaderRuntime(){
   for(const name of ['tresor20001','tresor20009','tresor20000','tresor_htn']){
     const rt=runtimeConnectionFor(name);
     if(rt?.client&&rt?.account)return rt;
