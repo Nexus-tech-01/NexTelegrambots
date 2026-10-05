@@ -1,3 +1,4 @@
+# deploy restart-continuity/frontier-owner fix 2026-10-05
 # redeploy synopsis-gate/no-resume-synopsis fix after hash refresh 2026-10-05
 # deploy synopsis-gate/no-resume-synopsis fix 2026-10-05
 # trigger source-account media resolver redeploy after runtime syntax repair 2026-10-04
