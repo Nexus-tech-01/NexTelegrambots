@@ -2222,13 +2222,15 @@ async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
     // Do not let normal candidate exclusions steal ownership while work remains.
     if(remaining>0)return current.activeSeriesKey;
 
-    const completion=await seriesConfirmedComplete(d,current.activeSeriesKey);
+    const finishingSeriesKey=finishingSeriesKey;
+    let completionConfirmed=false;
+    const completion=await seriesConfirmedComplete(d,finishingSeriesKey);
     if(completion.confirmed){
       await scheduler.updateOne(
         {_id:'scheduler'},
         {
           $set:{
-            lastCompletedSeriesKey:current.activeSeriesKey,
+            lastCompletedSeriesKey:finishingSeriesKey,
             lastSeriesCompletedAt:now,
             lastSeriesCompletionConfirmed:true,
             lastSeriesCompletionEvidence:completion,
@@ -2243,23 +2245,24 @@ async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
       );
       current={
         ...(current||{}),
-        lastCompletedSeriesKey:current.activeSeriesKey,
+        lastCompletedSeriesKey:finishingSeriesKey,
         lastSeriesCompletionConfirmed:true
       };
-      console.log('[NexAnime scheduler] confirmed series complete',current.activeSeriesKey,JSON.stringify(completion));
+      completionConfirmed=true;
+      console.log('[NexAnime scheduler] confirmed series complete',finishingSeriesKey,JSON.stringify(completion));
     }else{
       const holdSeries=String(current?.frontierHoldSeriesKey||'');
       const rawSince=current?.frontierHoldSince?new Date(current.frontierHoldSince):null;
       const validSince=rawSince&&Number.isFinite(rawSince.getTime())?rawSince:null;
-      const since=holdSeries===String(current.activeSeriesKey)&&validSince?validSince:now;
+      const since=holdSeries===finishingSeriesKey&&validSince?validSince:now;
       const until=new Date(since.getTime()+ACTIVE_FRONTIER_GRACE_MS);
 
-      if(holdSeries!==String(current.activeSeriesKey)||!validSince){
+      if(holdSeries!==finishingSeriesKey||!validSince){
         await scheduler.updateOne(
           {_id:'scheduler'},
           {
             $set:{
-              frontierHoldSeriesKey:String(current.activeSeriesKey),
+              frontierHoldSeriesKey:finishingSeriesKey,
               frontierHoldSince:since,
               frontierHoldUntil:until,
               frontierHoldReason:'awaiting_next_episode_discovery',
@@ -2270,7 +2273,7 @@ async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
         );
         current={
           ...(current||{}),
-          frontierHoldSeriesKey:String(current.activeSeriesKey),
+          frontierHoldSeriesKey:finishingSeriesKey,
           frontierHoldSince:since,
           frontierHoldUntil:until
         };
@@ -2286,10 +2289,10 @@ async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
         .filter(row=>{
           const key=String(row?.seriesKey||'');
           const exp=row?.until?new Date(row.until):null;
-          return key&&key!==String(current.activeSeriesKey)&&exp&&Number.isFinite(exp.getTime())&&exp>now;
+          return key&&key!==finishingSeriesKey&&exp&&Number.isFinite(exp.getTime())&&exp>now;
         })
         .concat([{
-          seriesKey:String(current.activeSeriesKey),
+          seriesKey:finishingSeriesKey,
           until:blockedUntil,
           reason:'frontier_not_discovered_after_grace',
           blockedAt:now
@@ -2300,7 +2303,7 @@ async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
         {_id:'scheduler'},
         {
           $set:{
-            blockedSeriesKey:String(current.activeSeriesKey),
+            blockedSeriesKey:finishingSeriesKey,
             blockedSeriesUntil:blockedUntil,
             blockedSeriesReason:'frontier_not_discovered_after_grace',
             blockedSeriesEntries:entries,
@@ -2316,9 +2319,12 @@ async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
         },
         {upsert:true}
       );
-      console.warn('[NexAnime scheduler] parked unfinished anime after frontier grace',current.activeSeriesKey);
+      console.warn('[NexAnime scheduler] parked unfinished anime after frontier grace',finishingSeriesKey);
       current={...(current||{}),activeSeriesKey:'',activeSeriesStartedAt:null};
-      blockedSeriesKey=String(snapshot?.blockedSeriesKey||blockedSeriesKey||'');
+      blockedSeriesKey=finishingSeriesKey;
+      blockedSeriesUntil=blockedUntil;
+      blockActive=true;
+      if(!persistedBlockedKeys.includes(finishingSeriesKey))persistedBlockedKeys.push(finishingSeriesKey);
     }
 
     let next='';
@@ -2335,12 +2341,12 @@ async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
     if(next){
       // Cross-series spacing is never bypassed, including legacy forced-next requests.
       // Anchor it to the last confirmed public post so timer polling adds no extra delay.
-      const cooldownUntil=await interSeriesDeadline(d,current.activeSeriesKey,now);
+      const cooldownUntil=await interSeriesDeadline(d,finishingSeriesKey,now);
       await scheduler.updateOne(
         {_id:'scheduler'},
         {$set:{
-          ...(current?.lastSeriesCompletionConfirmed===true?{
-            lastCompletedSeriesKey:current.activeSeriesKey,
+          ...(completionConfirmed?{
+            lastCompletedSeriesKey:finishingSeriesKey,
             lastSeriesCompletedAt:now
           }:{
             lastSeriesExitReason:'switched_after_unavailable_frontier',
@@ -2362,8 +2368,8 @@ async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
     await scheduler.updateOne(
       {_id:'scheduler'},
       {$set:{
-         ...(current?.lastSeriesCompletionConfirmed===true?{
-           lastCompletedSeriesKey:current.activeSeriesKey,
+         ...(completionConfirmed?{
+           lastCompletedSeriesKey:finishingSeriesKey,
            lastSeriesCompletedAt:now
          }:{
            lastSeriesExitReason:'no_runnable_series_after_frontier',
