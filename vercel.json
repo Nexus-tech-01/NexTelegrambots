@@ -1,14 +1,180 @@
 {
-  "$schema":"https://openapi.vercel.sh/vercel.json",
-  "framework":null,
-  "cleanUrls":true,
-  "headers":[{
-    "source":"/(.*)",
-    "headers":[
-      {"key":"X-Content-Type-Options","value":"nosniff"},
-      {"key":"X-Frame-Options","value":"DENY"},
-      {"key":"Referrer-Policy","value":"no-referrer"},
-      {"key":"Permissions-Policy","value":"camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"}
-    ]
-  }]
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "cleanUrls": true,
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/site.css",
+      "destination": "/nextech-site/site.css",
+      "has": [
+        {
+          "type": "host",
+          "value": "nexus-tech-official.vercel.app"
+        }
+      ]
+    },
+    {
+      "source": "/site.js",
+      "destination": "/nextech-site/site.js",
+      "has": [
+        {
+          "type": "host",
+          "value": "nexus-tech-official.vercel.app"
+        }
+      ]
+    },
+    {
+      "source": "/robots.txt",
+      "destination": "/nextech-site/robots.txt",
+      "has": [
+        {
+          "type": "host",
+          "value": "nexus-tech-official.vercel.app"
+        }
+      ]
+    },
+    {
+      "source": "/sitemap.xml",
+      "destination": "/nextech-site/sitemap.xml",
+      "has": [
+        {
+          "type": "host",
+          "value": "nexus-tech-official.vercel.app"
+        }
+      ]
+    },
+    {
+      "source": "/llms.txt",
+      "destination": "/nextech-site/llms.txt",
+      "has": [
+        {
+          "type": "host",
+          "value": "nexus-tech-official.vercel.app"
+        }
+      ]
+    },
+    {
+      "source": "/entities.json",
+      "destination": "/nextech-site/entities.json",
+      "has": [
+        {
+          "type": "host",
+          "value": "nexus-tech-official.vercel.app"
+        }
+      ]
+    },
+    {
+      "source": "/projects/nexai",
+      "destination": "/nextech-site/projects/nexai.html",
+      "has": [
+        {
+          "type": "host",
+          "value": "nexus-tech-official.vercel.app"
+        }
+      ]
+    },
+    {
+      "source": "/projects/nexcontrol",
+      "destination": "/nextech-site/projects/nexcontrol.html",
+      "has": [
+        {
+          "type": "host",
+          "value": "nexus-tech-official.vercel.app"
+        }
+      ]
+    },
+    {
+      "source": "/projects/nexdownloader",
+      "destination": "/nextech-site/projects/nexdownloader.html",
+      "has": [
+        {
+          "type": "host",
+          "value": "nexus-tech-official.vercel.app"
+        }
+      ]
+    },
+    {
+      "source": "/projects/nexstick",
+      "destination": "/nextech-site/projects/nexstick.html",
+      "has": [
+        {
+          "type": "host",
+          "value": "nexus-tech-official.vercel.app"
+        }
+      ]
+    },
+    {
+      "source": "/projects/stacy",
+      "destination": "/nextech-site/projects/stacy.html",
+      "has": [
+        {
+          "type": "host",
+          "value": "nexus-tech-official.vercel.app"
+        }
+      ]
+    },
+    {
+      "source": "/projects/nexgame",
+      "destination": "/nextech-site/projects/nexgame.html",
+      "has": [
+        {
+          "type": "host",
+          "value": "nexus-tech-official.vercel.app"
+        }
+      ]
+    },
+    {
+      "source": "/projects/knowme",
+      "destination": "/nextech-site/projects/knowme.html",
+      "has": [
+        {
+          "type": "host",
+          "value": "nexus-tech-official.vercel.app"
+        }
+      ]
+    },
+    {
+      "source": "/projects/nexplayer",
+      "destination": "/nextech-site/projects/nexplayer.html",
+      "has": [
+        {
+          "type": "host",
+          "value": "nexus-tech-official.vercel.app"
+        }
+      ]
+    },
+    {
+      "source": "/:path*",
+      "destination": "/nextech-site/index.html",
+      "has": [
+        {
+          "type": "host",
+          "value": "nexus-tech-official.vercel.app"
+        }
+      ]
+    }
+  ]
 }
