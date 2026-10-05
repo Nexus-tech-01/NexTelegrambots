@@ -16,12 +16,15 @@ let activeJob=null;
 let lastProgress='';
 let lastError='';
 
-async function recoverStaleJobs(){
+async function recoverStaleJobs({startup=false}={}){
   const d=await db();
   const now=new Date();
+  const filter=startup
+    ?{status:'processing'}
+    :{status:'processing',claimExpiresAt:{$lt:now}};
   await d.collection('nexanime_bot_jobs').updateMany(
-    {status:'processing',claimExpiresAt:{$lt:now}},
-    {$set:{status:'pending',progress:'Reprise automatique après expiration du worker…',updatedAt:now},$unset:{claimExpiresAt:''}}
+    filter,
+    {$set:{status:'pending',progress:startup?'Reprise automatique après redémarrage du worker…':'Reprise automatique après expiration du worker…',updatedAt:now},$unset:{claimExpiresAt:''}}
   );
 }
 
@@ -151,7 +154,9 @@ async function processJob(job){
 }
 
 async function loop(){
-  await recoverStaleJobs().catch(()=>{});
+  // Any processing job left in MongoDB at process startup belongs to the old
+  // worker instance and must be resumed immediately, not 30 minutes later.
+  await recoverStaleJobs({startup:true}).catch(()=>{});
   let staleSweepAt=Date.now();
 
   while(running){
