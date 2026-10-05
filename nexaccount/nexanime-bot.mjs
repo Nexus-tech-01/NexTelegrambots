@@ -1345,61 +1345,115 @@ async function downloadEpisodeFromTelegramWatchers(anime,lang,s,e,quality,{onPro
     }
   }
 
-  // 2) Deep path: search the verified anime channels directly. This catches
-  // episodes that the watcher parser/indexer missed.
+  // 2) Deep path: search EVERY broadcast channel the connected account can
+  // read. Admin/owner status is deliberately irrelevant. Known anime channels
+  // are ranked first for speed, then the remaining accessible channels are
+  // searched too. Exact episode identity is still validated before acceptance.
   emit({
     stage:'telegram-search',
     message:'Recherche approfondie de l’épisode…',
     force:true
   });
   const aliases=[displayTitle(anime),...titlesOf(anime)].map(clean).filter(Boolean);
-  const searchTerms=[...new Set(aliases)].sort((a,b)=>a.length-b.length).slice(0,4);
+  const searchTerms=[...new Set(aliases)].sort((a,b)=>a.length-b.length).slice(0,3);
 
   for(const accountUsername of WATCHER_FALLBACK_USERS){
     const rt=runtimeConnectionFor(accountUsername);
     if(!rt?.client||rt?.client?.connected!==true||!rt?.account)continue;
     const accountId=String(rt.account.telegramUserId||'');
     if(!accountId)continue;
+
     let sourceRows=[];
     try{
-      sourceRows=await d.collection('nexanime_sources').find({
-        accountId,
-        classification:{$in:['anime','mixed','candidate']}
-      }).sort({selected:-1,confidence:-1,updatedAt:-1}).limit(120).toArray();
+      sourceRows=await d.collection('nexanime_sources').find({accountId})
+        .sort({selected:-1,confidence:-1,updatedAt:-1}).limit(500).toArray();
     }catch{}
 
-    const ranked=sourceRows.map(row=>{
+    const storedById=new Map(sourceRows.map(row=>[String(row?.channelId||''),row]));
+    const rankedStored=sourceRows.map(row=>{
       const anchors=Array.isArray(row?.seriesAnchors)?row.seriesAnchors:[];
       const anchorScore=Math.max(0,...anchors.map(a=>Math.max(
         watcherTitleScore(a?.raw||'',anime),watcherTitleScore(a?.canonicalTitle||'',anime)
       )));
       return {row,anchorScore};
-    }).sort((a,b)=>b.anchorScore-a.anchorScore||Number(b.row?.selected||0)-Number(a.row?.selected||0)||Number(b.row?.confidence||0)-Number(a.row?.confidence||0));
+    }).sort((a,b)=>
+      b.anchorScore-a.anchorScore||
+      Number(b.row?.selected||0)-Number(a.row?.selected||0)||
+      Number(b.row?.confidence||0)-Number(a.row?.confidence||0)
+    );
 
-    const preferred=ranked.filter(x=>x.anchorScore>=0.65);
-    const scan=(preferred.length?preferred:ranked.filter(x=>x.row?.selected===true||x.row?.classification==='anime')).slice(0,45);
+    const ordered=[];
+    const seenChannels=new Set();
+    const pushSource=(row,entity=null)=>{
+      const channelId=String(row?.channelId||entity?.id||'');
+      const username=String(row?.username||entity?.username||'');
+      const key=channelId||('@'+username.toLowerCase());
+      if(!key||seenChannels.has(key))return;
+      seenChannels.add(key);
+      ordered.push({
+        row,
+        entity,
+        source:{
+          channelUsername:username,
+          channelTitle:String(row?.title||entity?.title||''),
+          channelId
+        }
+      });
+    };
 
-    for(const {row} of scan){
-      const source={
-        channelUsername:String(row?.username||''),
-        channelTitle:String(row?.title||''),
-        channelId:String(row?.channelId||'')
-      };
-      const entity=await watcherEntity(rt.client,source);
+    // Fast path inside the deep search: previously recognized anime-like
+    // channels first, but without excluding anything afterward.
+    for(const item of rankedStored){
+      if(item.anchorScore>=0.65||item.row?.selected===true||['anime','mixed','candidate'].includes(String(item.row?.classification||''))){
+        pushSource(item.row,null);
+      }
+    }
+
+    // Live dialog enumeration ensures channels not yet indexed/classified are
+    // still eligible. This includes channels where the account is only a member.
+    try{
+      const dialogs=await rt.client.getDialogs({limit:500});
+      for(const dialog of Array.isArray(dialogs)?dialogs:[]){
+        const entity=dialog?.entity;
+        if(!entity?.id||!entity?.broadcast)continue;
+        const channelId=String(entity.id);
+        const row=storedById.get(channelId)||{
+          accountId,
+          channelId,
+          username:String(entity?.username||''),
+          title:String(entity?.title||''),
+          classification:'unclassified'
+        };
+        pushSource(row,entity);
+      }
+    }catch(error){
+      console.warn('[NexAnime telegram fallback dialogs]',accountUsername,String(error?.message||error).slice(0,220));
+    }
+
+    // Add any stored channels not present in the current dialog page as a last
+    // chance (for example archived/older accessible channels).
+    for(const item of rankedStored)pushSource(item.row,null);
+
+    for(const item of ordered){
+      const row=item.row||{};
+      const source=item.source;
+      let entity=item.entity;
+      if(!entity)entity=await watcherEntity(rt.client,source);
       if(!entity)continue;
+
       for(const term of searchTerms){
         let messages=[];
-        try{messages=await rt.client.getMessages(entity,{limit:80,search:term})}catch{continue}
+        try{messages=await rt.client.getMessages(entity,{limit:50,search:term})}catch{continue}
         for(const message of messages||[]){
           const result=await tryMessage({message,rt,accountUsername,source,row:null});
           if(result)return result;
         }
       }
-      await sleep(40);
+      await sleep(25);
     }
   }
 
-  throw new Error('Aucun média Telegram exact et vérifié n’a été trouvé après recherche indexée et recherche directe');
+  throw new Error('Aucun média Telegram exact et vérifié n’a été trouvé après recherche dans tous les canaux accessibles');
 }
 
 export async function downloadEpisode(anime,lang,s,e,quality,options={}){
