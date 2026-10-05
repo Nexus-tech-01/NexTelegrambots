@@ -200,3 +200,72 @@ h1{font-size:clamp(58px,6.8vw,100px);line-height:.94;letter-spacing:-.065em;marg
   }
   .hero-cover__actions .btn{width:100%}
 }
+
+/* Mobile hero proportion fix */
+@media(max-width:640px){
+  .hero-cover{
+    min-height:650px;
+  }
+
+  .hero-cover__bg{
+    background-size:100% auto;
+    background-position:center top;
+    transform:none;
+    background-color:#050608;
+  }
+
+  .hero-cover__overlay{
+    background:
+      linear-gradient(
+        180deg,
+        rgba(0,0,0,.02) 0%,
+        rgba(0,0,0,.05) 35%,
+        rgba(2,4,7,.34) 52%,
+        rgba(3,5,8,.82) 72%,
+        var(--bg) 100%
+      );
+  }
+
+  .hero-cover__content{
+    padding-top:325px;
+    padding-bottom:26px;
+  }
+
+  .hero-cover__badge{
+    min-height:34px;
+    padding:0 10px;
+    border-radius:11px;
+    font-size:9px;
+    letter-spacing:.075em;
+  }
+
+  .hero-cover__badge:before{
+    width:6px;
+    height:6px;
+  }
+
+  .hero-cover__title{
+    margin-top:12px;
+    max-width:360px;
+    font-size:clamp(31px,9.2vw,40px);
+    line-height:.94;
+    letter-spacing:-.055em;
+  }
+
+  .hero-cover__text{
+    max-width:350px;
+    margin-top:11px;
+    font-size:14px;
+    line-height:1.5;
+  }
+
+  .hero-cover__actions{
+    margin-top:16px;
+    gap:8px;
+  }
+
+  .hero-cover__actions .btn{
+    min-height:45px;
+    font-size:14px;
+  }
+}
