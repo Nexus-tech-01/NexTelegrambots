@@ -34,12 +34,15 @@ menu.addEventListener("click",()=>setMenu(!drawer.classList.contains("open")));
 $("#drawerClose").addEventListener("click",()=>setMenu(false)); shade.addEventListener("click",()=>setMenu(false));
 
 const pages={
-"/":()=>'<section class="hero"><canvas id="net"></canvas><div class="hero-grid shell">'+
-'<div class="hero-copy"><span class="eyebrow">NEXUS TECH · BENIN → GLOBAL</span>'+
-'<h1><span>CRÉER, CONNECTER</span><span>ET REPOUSSER</span><span class="gradient">LES LIMITES DE</span><span class="gradient">LA TECHNOLOGIE.</span></h1>'+
-'<p class="lead">Nexus Tech construit un écosystème centré sur la cybersécurité, l’intelligence artificielle, l’analyse et l’évaluation de modèles, les logiciels, les bots et l’automatisation.</p>'+
-'<div class="actions"><a class="btn primary route" href="/projects">Découvrir nos projets ↗</a><a class="btn" href="'+NEXAI_CONNECT+'" target="_blank" rel="noreferrer">Connecter NexAI ↗</a></div></div>'+
-'<div class="hero-visual"><div class="hero-poster" role="img" aria-label="Identité visuelle NexTech — Tech, AI, Cyber, Beyond"></div></div></div></section>'+
+"/":()=>'<section class="hero-cover" aria-label="NexTech — Tech, AI, Cyber, Beyond">'+
+'<div class="hero-cover__bg" role="img" aria-label="Univers visuel NexTech"></div>'+
+'<div class="hero-cover__overlay"></div>'+
+'<div class="hero-cover__content shell">'+
+'<span class="hero-cover__badge">NEXUS TECH · BENIN → GLOBAL</span>'+
+'<h1 class="hero-cover__title"><span>CRÉER, CONNECTER</span><span>ET REPOUSSER</span><span class="gradient">LES LIMITES DE LA TECH.</span></h1>'+
+'<p class="hero-cover__text">Cybersécurité, intelligence artificielle, analyse et évaluation de modèles, logiciels et automatisation.</p>'+
+'<div class="hero-cover__actions"><a class="btn primary route" href="/projects">Découvrir les projets ↗</a><a class="btn" href="'+NEXAI_CONNECT+'" target="_blank" rel="noreferrer">Connecter NexAI ↗</a></div>'+
+'</div></section>'+
 '<section class="stats"><div class="stat"><strong>+15</strong><span>PROJETS & SYSTÈMES</span></div><div class="stat"><strong>6</strong><span>ATELIERS</span></div><div class="stat"><strong>100%</strong><span>PASSION TECH</span></div><div class="stat"><strong>∞</strong><span>POSSIBILITÉS</span></div></section>'+
 '<section class="section shell"><div class="section-head"><div><div class="kicker">NOTRE ADN</div><h2 data-r="l">Apprendre. Construire. <em>Évoluer ensemble.</em></h2></div><p data-r="r">Nous transformons l’apprentissage en projets concrets. L’objectif n’est pas de collectionner des idées, mais de bâtir des systèmes utiles, robustes et capables de grandir.</p></div>'+
 '<div class="cards">'+card("i-shield","Cybersécurité","Défense, analyse, sécurité applicative, automatisation et culture de la résilience.","l")+card("i-ai","IA & Model Analysis","LLM, agents, évaluation de modèles, qualité, sûreté et expérimentation.","r")+card("i-code","Software","Web, mobile, backend, APIs et outils pensés comme de vrais produits.","l")+card("i-network","Automation","Bots, workflows multi-plateformes et systèmes autonomes pilotables.","r")+'</div></section>'+
