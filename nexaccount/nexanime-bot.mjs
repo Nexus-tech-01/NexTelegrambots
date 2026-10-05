@@ -245,7 +245,7 @@ async function ensureYtDlp(){
   return local;
 }
 
-function collectUrls(value,out=new Set()){
+function collectUrls(value,out=new Set(),base=SITE+'/'){
   if(typeof value==='string'){
     const s=value.trim();
     if(/^https?:\/\//i.test(s))out.add(s.replace(/\\u0026/g,'&').replace(/&amp;/g,'&'));
@@ -253,11 +253,47 @@ function collectUrls(value,out=new Set()){
       out.add(m[0].replace(/\\\//g,'/').replace(/\\u0026/g,'&').replace(/&amp;/g,'&'));
     }
     for(const m of s.matchAll(/(?:src|href)=[\"']([^\"']+)[\"']/gi)){
-      try{out.add(new URL(m[1],SITE+'/').href)}catch{}
+      try{out.add(new URL(m[1],base).href)}catch{}
     }
-  }else if(Array.isArray(value))for(const x of value)collectUrls(x,out);
-  else if(value&&typeof value==='object')for(const x of Object.values(value))collectUrls(x,out);
+  }else if(Array.isArray(value))for(const x of value)collectUrls(x,out,base);
+  else if(value&&typeof value==='object')for(const x of Object.values(value))collectUrls(x,out,base);
   return out;
+}
+
+function viewerUrlScore(url){
+  const u=String(url||'');
+  let score=0;
+  if(/\.(?:m3u8|mp4|mkv|webm)(?:$|[?#])/i.test(u))score+=20;
+  if(/sibnet|sendvid|vidmoly|filemoon|smoothpre|vkvideo|(?:^|\.)vk\.com|dailymotion|youtube|yourupload|ok\.ru|playtube|mail\.ru|tomacloud|embed4me|dingtezuni|callistanise|minochinos/i.test(u))score+=10;
+  if(/\/(?:embed|player|video|shell\.php)(?:[/?#]|$)/i.test(u))score+=4;
+  if(/franime\.fr\/watch2/i.test(u))score-=30;
+  if(/\.(?:js|css|png|jpe?g|gif|svg|ico|woff2?)(?:$|[?#])/i.test(u))score-=20;
+  return score;
+}
+
+function isFranimeWrapper(url){
+  try{
+    const u=new URL(url);
+    return /(^|\.)franime\.fr$/i.test(u.hostname)&&/\/watch2\b/i.test(u.pathname);
+  }catch{return false}
+}
+
+async function resolveFranimeWrapper(url){
+  const r=await fetch(url,{
+    redirect:'follow',
+    headers:{
+      'user-agent':USER_AGENT,
+      'referer':SITE+'/',
+      'accept':'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8'
+    },
+    signal:AbortSignal.timeout(25000)
+  });
+  if(!r.ok)throw new Error('Lecteur protégé HTTP '+r.status);
+  const text=await r.text();
+  const base=r.url||url;
+  const found=collectUrls(text,new Set(),base);
+  if(base&&base!==url)found.add(base);
+  return [...found].filter(x=>/^https?:\/\//i.test(x)&&x!==url);
 }
 
 async function viewerCandidates(animeId,s,e,lang){
@@ -276,12 +312,29 @@ async function viewerCandidates(animeId,s,e,lang){
       failures.push(reader+':'+String(error?.message||error).slice(0,120));
     }
   }
-  const ranked=[...urls].filter(x=>/^https?:\/\//i.test(x)).sort((a,b)=>{
-    const score=u=>(/\.m3u8|\.mp4/i.test(u)?8:0)+(/sibnet|sendvid|stream|vid/i.test(u)?3:0)-(/franime\.fr\/watch2/i.test(u)?1:0);
-    return score(b)-score(a);
-  });
-  if(!ranked.length&&failures.length)throw new Error('Aucun lecteur FRAnime disponible');
-  return ranked;
+
+  for(const wrapped of [...urls].filter(isFranimeWrapper)){
+    try{
+      const resolved=await resolveFranimeWrapper(wrapped);
+      for(const candidate of resolved)urls.add(candidate);
+    }catch(error){
+      failures.push('watch2:'+String(error?.message||error).slice(0,120));
+    }
+  }
+
+  const ranked=[...urls]
+    .filter(x=>/^https?:\/\//i.test(x))
+    .filter(x=>!isFranimeWrapper(x))
+    .filter(x=>viewerUrlScore(x)>0)
+    .sort((a,b)=>viewerUrlScore(b)-viewerUrlScore(a));
+
+  if(!ranked.length){
+    if([...urls].some(isFranimeWrapper)){
+      throw new Error('Le lecteur FRAnime a été trouvé, mais sa source vidéo n’a pas pu être résolue. Essaie un autre lecteur ou réessaie dans quelques instants.');
+    }
+    if(failures.length)throw new Error('Aucun lecteur FRAnime disponible');
+  }
+  return [...new Set(ranked)];
 }
 
 export async function downloadEpisode(anime,lang,s,e,quality){
@@ -313,7 +366,10 @@ export async function downloadEpisode(anime,lang,s,e,quality){
     if(/403|Cloudflare|Forbidden/i.test(message)){
       throw new Error('Tous les lecteurs FRAnime disponibles sont temporairement bloqués ou indisponibles. Réessaie dans quelques instants.');
     }
-    throw new Error(message.slice(-700));
+    if(/Unsupported URL|franime\.fr\/watch2|[?&](?:z|d|e)=/i.test(message)){
+      throw new Error('Le lecteur FRAnime a répondu, mais le lien vidéo protégé n’a pas pu être résolu. Le bot va utiliser un autre lecteur quand il est disponible.');
+    }
+    throw new Error('Le téléchargement de cet épisode a échoué sur tous les lecteurs disponibles.');
   }
   throw new Error('Téléchargement impossible pour cet épisode.');
 }
