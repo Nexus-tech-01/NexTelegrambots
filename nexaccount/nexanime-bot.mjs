@@ -20,8 +20,8 @@ const UPLOAD_TIMEOUT_MS=20*60_000;
 const CACHE_VERSION='v2-valid-media';
 const MIN_MEDIA_BYTES=Math.max(256*1024,Number(process.env.NEXANIME_MIN_MEDIA_BYTES||1024*1024));
 const MIN_MEDIA_DURATION_SECONDS=Math.max(10,Number(process.env.NEXANIME_MIN_DURATION_SECONDS||45));
-const SOURCE_TIMEOUT_MS=Math.max(90_000,Number(process.env.NEXANIME_SOURCE_TIMEOUT_MS||8*60_000));
-const EPISODE_TIMEOUT_MS=Math.max(SOURCE_TIMEOUT_MS+60_000,Number(process.env.NEXANIME_EPISODE_TIMEOUT_MS||15*60_000));
+const SOURCE_TIMEOUT_MS=Math.max(90_000,Number(process.env.NEXANIME_SOURCE_TIMEOUT_MS||25*60_000));
+const EPISODE_TIMEOUT_MS=Math.max(SOURCE_TIMEOUT_MS+60_000,Number(process.env.NEXANIME_EPISODE_TIMEOUT_MS||60*60_000));
 const USER_AGENT='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36';
 const SITE_REFERER=SITE+'/anime/watch';
 const VIDEO_PROVIDERS=[
@@ -33,6 +33,39 @@ const VIDEO_PROVIDERS=[
 ];
 const WATCHER_FALLBACK_USERS=['tresor20001','tresor20009'];
 const WATCHER_VIDEO_EXT_RE=/\.(?:mp4|mkv|avi|mov|webm|m4v|ts)$/i;
+
+
+function nxaFiniteNumber(value){
+  const n=Number(String(value??'').replace(/[^\d.+-]/g,''));
+  return Number.isFinite(n)?n:0;
+}
+function nxaHumanBytes(bytes){
+  let n=Number(bytes)||0;
+  if(n<=0)return '—';
+  const units=['B','KB','MB','GB','TB'];
+  let i=0;
+  while(n>=1024&&i<units.length-1){n/=1024;i++}
+  const digits=n>=100||i===0?0:n>=10?1:2;
+  return n.toFixed(digits)+' '+units[i];
+}
+function nxaProgressBar(percent,width=18){
+  const p=Math.max(0,Math.min(100,Number(percent)||0));
+  const done=Math.round(width*p/100);
+  return '█'.repeat(done)+'░'.repeat(Math.max(0,width-done));
+}
+function nxaDownloadProgressText({host='source',attempt=1,percent=0,downloaded=0,total=0,speed='',eta=''}={}){
+  const p=Math.max(0,Math.min(100,Number(percent)||0));
+  const remaining=total>0?Math.max(0,total-downloaded):0;
+  const rows=[
+    '⬇️ Source '+attempt+' · '+host,
+    '['+nxaProgressBar(p)+'] '+p.toFixed(p>=10?1:2)+'%',
+    'Téléchargé : '+nxaHumanBytes(downloaded)+(total>0?' / '+nxaHumanBytes(total):''),
+    'Restant : '+(total>0?nxaHumanBytes(remaining):'calcul…')
+  ];
+  if(speed&&speed!=='NA')rows.push('Vitesse : '+speed);
+  if(eta&&eta!=='NA')rows.push('Temps restant : '+eta);
+  return rows.join('\n');
+}
 
 
 let bot=null;
@@ -367,6 +400,73 @@ async function validateEpisodeMedia(file){
     }
     return {ok:false,reason:'invalid-media',size:stat.size};
   }
+}
+
+
+async function ffmpegCandidateDownload(candidate,work,quality,{timeout=10*60_000,onProgress=null,attempt=1,host='source'}={}){
+  const out=path.join(work,'episode-ffmpeg-'+attempt+'.mp4');
+  const referer=clean(candidate?.referer)||SITE_REFERER;
+  const headers='User-Agent: '+USER_AGENT+'\r\nReferer: '+referer+'\r\n';
+  const emit=text=>{
+    if(typeof onProgress!=='function')return;
+    try{Promise.resolve(onProgress({stage:'ffmpeg-fallback',message:text,force:true})).catch(()=>{})}catch{}
+  };
+  emit('Fallback flux direct · '+host+' · tentative ffmpeg…');
+  const base=[
+    '-y','-hide_banner','-loglevel','error',
+    '-headers',headers,'-i',String(candidate?.url||''),
+    '-map','0:v:0','-map','0:a:0?'
+  ];
+  try{
+    await run('ffmpeg',[
+      ...base,'-c:v','copy','-c:a','aac','-b:a','128k','-movflags','+faststart',out
+    ],{timeout});
+    const check=await validateEpisodeMedia(out);
+    if(check.ok)return out;
+  }catch{}
+  await fsp.rm(out,{force:true}).catch(()=>{});
+  emit('Fallback flux direct · '+host+' · remux impossible, transcodage de secours…');
+  try{
+    await run('ffmpeg',[
+      ...base,
+      '-vf','scale=-2:'+Number(quality)+':force_original_aspect_ratio=decrease',
+      '-c:v','libx264','-preset','veryfast','-crf','23',
+      '-c:a','aac','-b:a','128k','-movflags','+faststart',out
+    ],{timeout});
+    const check=await validateEpisodeMedia(out);
+    if(check.ok)return out;
+  }catch{}
+  await fsp.rm(out,{force:true}).catch(()=>{});
+  return '';
+}
+
+async function normalizeWatcherQuality(file,work,quality,check,{onProgress=null}={}){
+  const wanted=Number(quality)||0;
+  const height=Number(check?.height||0);
+  if(!wanted||!height)return file;
+  if(height<wanted*0.72)return '';
+  if(height<=wanted+32&&height>=wanted*0.80)return file;
+  const out=path.join(work,'episode-'+wanted+'p.mp4');
+  if(typeof onProgress==='function'){
+    try{Promise.resolve(onProgress({
+      stage:'normalize-quality',
+      message:'Source Telegram trouvée en '+height+'p · conversion vers '+wanted+'p…',
+      force:true
+    })).catch(()=>{})}catch{}
+  }
+  try{
+    await run('ffmpeg',[
+      '-y','-hide_banner','-loglevel','error','-i',file,
+      '-map','0:v:0','-map','0:a:0?',
+      '-vf','scale=-2:'+wanted+':force_original_aspect_ratio=decrease',
+      '-c:v','libx264','-preset','veryfast','-crf','23',
+      '-c:a','aac','-b:a','128k','-movflags','+faststart',out
+    ],{timeout:30*60_000});
+    const verified=await validateEpisodeMedia(out);
+    if(verified.ok)return out;
+  }catch{}
+  await fsp.rm(out,{force:true}).catch(()=>{});
+  return '';
 }
 
 function collectUrls(value,out=new Set(),base=SITE+'/'){
@@ -725,7 +825,7 @@ async function viewerCandidates(animeId,s,e,lang){
   const urls=new Set();
   const failures=[];
   let consecutiveMisses=0;
-  for(let reader=0;reader<12&&consecutiveMisses<3;reader++){
+  for(let reader=0;reader<12;reader++){
     const endpoint=API+'/api/anime/'+encodeURIComponent(animeId)+'/'+s+'/'+e+'/'+encodeURIComponent(lang)+'/'+reader;
     try{
       const r=await fetch(endpoint,{headers:franimeHeaders({json:true}),signal:AbortSignal.timeout(25000)});
@@ -799,12 +899,13 @@ async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=nul
   };
 
   const handedOff=[...new Set((Array.isArray(preResolvedUrls)?preResolvedUrls:[]).map(x=>String(x||'').trim()).filter(x=>/^https?:\/\//i.test(x)))];
-  emit({stage:'resolve',message:handedOff.length?'Sources FRAnime déjà résolues par le webhook…':'Recherche des lecteurs FRAnime…',force:true});
-  const resolved=handedOff.length
-    ?{urls:handedOff,wrappers:[]}
-    :await viewerCandidates(anime.id,s,e,lang);
-  const urls=Array.isArray(resolved?.urls)?resolved.urls:[];
-  const wrappers=Array.isArray(resolved?.wrappers)?resolved.wrappers:[];
+  emit({stage:'resolve',message:handedOff.length?'Sources déjà reçues · recherche de lecteurs supplémentaires…':'Recherche des lecteurs FRAnime…',force:true});
+  let fresh={urls:[],wrappers:[]};
+  try{fresh=await viewerCandidates(anime.id,s,e,lang)}catch(error){
+    if(!handedOff.length)throw error;
+  }
+  const urls=[...new Set([...handedOff,...(Array.isArray(fresh?.urls)?fresh.urls:[])])];
+  const wrappers=[...new Set(Array.isArray(fresh?.wrappers)?fresh.wrappers:[])];
   if(!urls.length&&!wrappers.length)throw new Error('Aucune source vidéo trouvée pour cet épisode');
 
   emit({
@@ -840,18 +941,22 @@ async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=nul
 
     let progressBuffer='';
     const parseProgress=chunk=>{
-      progressBuffer=(progressBuffer+String(chunk||'')).slice(-12000);
+      progressBuffer=(progressBuffer+String(chunk||'')).slice(-20000);
       const lines=progressBuffer.split(/\r?\n/);
       progressBuffer=lines.pop()||'';
       for(const line of lines){
-        const m=line.match(/NXA_PROGRESS\|\s*([^|]+)\|\s*([^|]+)\|\s*(.+)$/);
-        if(!m)continue;
-        const percent=String(m[1]||'').trim();
-        const speed=String(m[2]||'').trim();
-        const eta=String(m[3]||'').trim();
+        if(!line.includes('NXA_PROGRESS|'))continue;
+        const parts=line.slice(line.indexOf('NXA_PROGRESS|')).split('|');
+        const percent=nxaFiniteNumber(parts[1]);
+        const downloaded=nxaFiniteNumber(parts[7]);
+        const total=nxaFiniteNumber(parts[8])||nxaFiniteNumber(parts[9]);
+        const speed=String(parts[5]||'').trim();
+        const eta=String(parts[6]||'').trim();
         emit({
           stage:'download',
-          message:'Source '+sourceAttempt+' · '+host+'\n'+percent+' · '+speed+' · ETA '+eta
+          message:nxaDownloadProgressText({
+            host,attempt:sourceAttempt,percent,downloaded,total,speed,eta
+          })
         });
       }
     };
@@ -864,7 +969,7 @@ async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=nul
         '--retries','2','--fragment-retries','2','--retry-sleep','2',
         '--concurrent-fragments','4',
         '--newline','--progress',
-        '--progress-template','download:NXA_PROGRESS|%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s',
+        '--progress-template','download:NXA_PROGRESS|%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._total_bytes_estimate_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s',
         '--extractor-args','generic:impersonate',
         '--user-agent',USER_AGENT,'--referer',candidate.referer||SITE_REFERER,
         '-f',fmt,'--merge-output-format','mp4','--print','after_move:filepath',
@@ -895,9 +1000,24 @@ async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=nul
       return file;
     }catch(error){
       lastError=error;
-      if(/timeout yt-dlp|episode-timeout/i.test(String(error?.message||error))){
+      const message=String(error?.message||error);
+      if(/timeout yt-dlp|episode-timeout/i.test(message)){
         timedOutSources++;
-        emit({stage:'timeout',message:'Le lecteur '+host+' est trop lent. Passage au suivant…',force:true});
+        emit({stage:'timeout',message:'Le lecteur '+host+' est trop lent pour yt-dlp · essai du flux direct…',force:true});
+      }
+      const directish=/\.(?:m3u8|mpd|mp4|webm|mkv)(?:$|[?#])/i.test(String(candidate?.url||''))||['http','browser','direct'].includes(String(candidate?.via||''));
+      if(directish&&remainingMs()>45_000){
+        const ff=await ffmpegCandidateDownload(candidate,work,quality,{
+          timeout:Math.max(45_000,Math.min(20*60_000,remainingMs())),
+          onProgress,attempt:sourceAttempt,host
+        }).catch(()=> '');
+        if(ff){
+          const check=await validateEpisodeMedia(ff);
+          if(check.ok){
+            emit({stage:'ready',message:'Flux direct récupéré avec succès · préparation de l’envoi…',force:true});
+            return ff;
+          }
+        }
       }
       await clearDownloadWorkdir(work);
       return '';
@@ -1010,6 +1130,9 @@ function watcherTitleNorm(value){
     .replace(/\b\d+(?:st|nd|rd|th)?\s+(?:season|saison)\b/g,' ')
     .replace(/\b(?:season|saison|part|cour)\s*\d+\b/g,' ')
     .replace(/\bs\s*\d+\b/g,' ')
+    .replace(/\b(?:episode|ep|e)\s*\d+(?:\s*\d+)?\b/g,' ')
+    .replace(/\b(?:vf|vostfr|vo|multi|french|sub|dub)\b/g,' ')
+    .replace(/\b(?:2160|1440|1080|720|576|540|480|360)p\b/g,' ')
     .replace(/\s+/g,' ').trim();
 }
 
@@ -1082,104 +1205,203 @@ async function downloadEpisodeFromTelegramWatchers(anime,lang,s,e,quality,{onPro
 
   emit({
     stage:'telegram-fallback',
-    message:'Fallback Telegram · recherche dans les canaux suivis par @tresor20001 et @tresor20009…',
+    message:'Fallback Telegram · recherche exacte dans les canaux de @tresor20001 et @tresor20009…',
     force:true
   });
 
   const d=await db();
+
+  const tryMessage=async({message,rt,accountUsername,source={},row=null}={})=>{
+    if(!message||!watcherLooksLikeVideo(message)||!rt?.client)return null;
+    const channelContext=[source?.channelTitle,source?.channelUsername].filter(Boolean).join(' ');
+    const signal=[watcherSignalText(message),channelContext].filter(Boolean).join('\n');
+    const score=Math.max(
+      watcherTitleScore(signal,anime),
+      watcherTitleScore(row?.title||row?.seriesKey||'',anime)
+    );
+    if(score<0.72)return null;
+
+    const ep=watcherParseEpisode(signal);
+    const rowEpisode=Number(row?.episode||0);
+    const rowSeason=Number(row?.season||0);
+    if(ep){
+      if(Number(ep.episode)!==wantedEpisode)return null;
+      if(ep.season!=null&&Number(ep.season)!==wantedSeason)return null;
+    }else if(rowEpisode!==wantedEpisode){
+      return null;
+    }
+    if(ep?.season==null&&row&&rowSeason!==wantedSeason)return null;
+    if(ep?.season==null&&!row&& !new RegExp('\\b(?:s|season|saison)\\s*0*'+wantedSeason+'\\b','i').test(signal)){
+      return null;
+    }
+
+    const signalLanguage=watcherDetectLanguage(signal);
+    const rowLanguage=String(row?.language||'').toUpperCase();
+    const provenLanguage=signalLanguage||rowLanguage;
+    if(provenLanguage!==wantedLanguage)return null;
+
+    const signalQuality=watcherDetectQuality(signal);
+    const rowQuality=String(row?.quality||'').toLowerCase();
+    const declared=signalQuality||rowQuality;
+    if(declared){
+      const declaredN=Number(declared.replace(/\D/g,''))||0;
+      if(declaredN&&declaredN<Number(quality)*0.72)return null;
+    }
+
+    emit({
+      stage:'telegram-fallback',
+      message:'Fallback Telegram · candidat vérifié via @'+accountUsername+
+        ' · S'+wantedSeason+'E'+wantedEpisode+' · '+wantedLanguage+
+        (declared?' · '+declared:'')+' · téléchargement…',
+      force:true
+    });
+
+    const work=await fsp.mkdtemp(path.join(TMP_ROOT,'watcher-'));
+    let accepted=false;
+    try{
+      const original=watcherFilename(message);
+      const ext=(path.extname(original)||'.mp4').toLowerCase();
+      const target=path.join(work,'episode-source'+ext);
+      const expectedTotal=Number(message?.document?.size||0);
+      let lastProgressAt=0;
+      const progressCallback=(current,total)=>{
+        const now=Date.now();
+        if(now-lastProgressAt<2500)return;
+        lastProgressAt=now;
+        const downloaded=Number(current||0);
+        const full=Number(total||0)||expectedTotal;
+        const percent=full>0?downloaded/full*100:0;
+        emit({
+          stage:'telegram-download',
+          message:nxaDownloadProgressText({
+            host:'Telegram @'+accountUsername,attempt:1,percent,
+            downloaded,total:full,speed:'',eta:''
+          })
+        });
+      };
+      const downloaded=await rt.client.downloadMedia(message.media,{
+        outputFile:target,workers:4,progressCallback
+      });
+      let file=typeof downloaded==='string'&&downloaded?downloaded:target;
+      let check=await validateEpisodeMedia(file);
+      if(!check.ok)return null;
+
+      file=await normalizeWatcherQuality(file,work,quality,check,{onProgress});
+      if(!file)return null;
+      check=await validateEpisodeMedia(file);
+      if(!check.ok)return null;
+
+      const finalHeight=Number(check.height||0);
+      if(finalHeight&&finalHeight<Number(quality)*0.72)return null;
+      accepted=true;
+      emit({
+        stage:'ready',
+        message:'Fallback Telegram validé · titre, saison, épisode, langue et média vérifiés · préparation de l’envoi…',
+        force:true
+      });
+      return {
+        file,work,
+        source:'telegram-watchers',
+        watcherAccount:'@'+accountUsername,
+        watcherChannel:String(source?.channelUsername||source?.channelTitle||source?.channelId||''),
+        titleScore:score
+      };
+    }catch(error){
+      console.warn('[NexAnime watcher fallback]',accountUsername,String(error?.message||error).slice(0,260));
+      return null;
+    }finally{
+      if(!accepted)await fsp.rm(work,{recursive:true,force:true}).catch(()=>{});
+    }
+  };
+
+  // 1) Fast path: candidates already indexed by the watcher/ingest system.
   const rows=await d.collection('nexanime_queue').find({
     kind:'episode',
     season:wantedSeason,
     episode:wantedEpisode,
     status:{$nin:['rejected','superseded']},
     sources:{$elemMatch:{accountUsername:{$in:WATCHER_FALLBACK_USERS}}}
-  }).sort({confidence:-1,updatedAt:-1,ingestedAt:-1}).limit(40).toArray();
+  }).sort({confidence:-1,updatedAt:-1,ingestedAt:-1}).limit(80).toArray();
 
   const candidates=rows
     .map(row=>({row,titleScore:watcherTitleScore(row?.title||row?.seriesKey||'',anime)}))
-    .filter(x=>x.titleScore>=0.78)
+    .filter(x=>x.titleScore>=0.68)
     .sort((a,b)=>b.titleScore-a.titleScore||Number(b.row?.confidence||0)-Number(a.row?.confidence||0));
 
-  if(!candidates.length)throw new Error('Aucun épisode Telegram correspondant exactement au titre, à la saison et au numéro demandés');
-
-  for(const {row,titleScore} of candidates){
+  for(const {row} of candidates){
     const sources=(Array.isArray(row?.sources)?row.sources:[])
       .filter(source=>WATCHER_FALLBACK_USERS.includes(String(source?.accountUsername||'').replace(/^@/,'').toLowerCase()));
-
     for(const source of sources){
       const accountUsername=String(source?.accountUsername||'').replace(/^@/,'').toLowerCase();
       const rt=runtimeConnectionFor(accountUsername);
       if(!rt?.client||rt?.client?.connected!==true)continue;
-
       const entity=await watcherEntity(rt.client,source);
       if(!entity)continue;
-
       let message=null;
       try{
         const messages=await rt.client.getMessages(entity,{ids:[Number(source.messageId)]});
         message=Array.isArray(messages)?messages[0]:messages;
       }catch{}
-      if(!message||!watcherLooksLikeVideo(message))continue;
-
-      const signal=watcherSignalText(message);
-      const signalEpisode=watcherParseEpisode(signal);
-      if(signalEpisode){
-        if(Number(signalEpisode.episode)!==wantedEpisode)continue;
-        if(signalEpisode.season!=null&&Number(signalEpisode.season)!==wantedSeason)continue;
-      }
-
-      const signalLanguage=watcherDetectLanguage(signal);
-      const rowLanguage=String(row?.language||'').toUpperCase();
-      const provenLanguage=signalLanguage||rowLanguage;
-      if(provenLanguage!==wantedLanguage)continue;
-
-      const signalQuality=watcherDetectQuality(signal);
-      const rowQuality=String(row?.quality||'').toLowerCase();
-      if(signalQuality&&signalQuality!==wantedQuality)continue;
-      if(rowQuality&&rowQuality!==wantedQuality)continue;
-
-      emit({
-        stage:'telegram-fallback',
-        message:'Fallback Telegram · candidat exact trouvé via @'+accountUsername+
-          ' · S'+wantedSeason+'E'+wantedEpisode+' · '+wantedLanguage+' · '+wantedQuality+
-          ' · vérification du média…',
-        force:true
-      });
-
-      const work=await fsp.mkdtemp(path.join(TMP_ROOT,'watcher-'));
-      let accepted=false;
-      try{
-        const original=watcherFilename(message);
-        const ext=(path.extname(original)||'.mp4').toLowerCase();
-        const target=path.join(work,'episode'+ext);
-        const downloaded=await rt.client.downloadMedia(message.media,{outputFile:target,workers:4});
-        const file=typeof downloaded==='string'&&downloaded?downloaded:target;
-        const check=await validateEpisodeMedia(file);
-        if(!check.ok)continue;
-        if(!watcherQualityConsistent(quality,rowQuality,signalQuality,check))continue;
-
-        accepted=true;
-        emit({
-          stage:'ready',
-          message:'Fallback Telegram validé · titre/saison/épisode/langue/qualité correspondent · préparation de l’envoi…',
-          force:true
-        });
-        return {
-          file,work,
-          source:'telegram-watchers',
-          watcherAccount:'@'+accountUsername,
-          watcherChannel:String(source?.channelUsername||source?.channelTitle||source?.channelId||''),
-          titleScore
-        };
-      }catch(error){
-        console.warn('[NexAnime watcher fallback]',accountUsername,String(error?.message||error).slice(0,260));
-      }finally{
-        if(!accepted)await fsp.rm(work,{recursive:true,force:true}).catch(()=>{});
-      }
+      const result=await tryMessage({message,rt,accountUsername,source,row});
+      if(result)return result;
     }
   }
 
-  throw new Error('Les watchers Telegram ont trouvé des candidats, mais aucun média n’a passé toutes les vérifications exactes');
+  // 2) Deep path: search the verified anime channels directly. This catches
+  // episodes that the watcher parser/indexer missed.
+  emit({
+    stage:'telegram-search',
+    message:'Index insuffisant · recherche directe dans les chaînes anime vérifiées…',
+    force:true
+  });
+  const aliases=[displayTitle(anime),...titlesOf(anime)].map(clean).filter(Boolean);
+  const searchTerms=[...new Set(aliases)].sort((a,b)=>a.length-b.length).slice(0,4);
+
+  for(const accountUsername of WATCHER_FALLBACK_USERS){
+    const rt=runtimeConnectionFor(accountUsername);
+    if(!rt?.client||rt?.client?.connected!==true||!rt?.account)continue;
+    const accountId=String(rt.account.telegramUserId||'');
+    if(!accountId)continue;
+    let sourceRows=[];
+    try{
+      sourceRows=await d.collection('nexanime_sources').find({
+        accountId,
+        classification:{$in:['anime','mixed','candidate']}
+      }).sort({selected:-1,confidence:-1,updatedAt:-1}).limit(120).toArray();
+    }catch{}
+
+    const ranked=sourceRows.map(row=>{
+      const anchors=Array.isArray(row?.seriesAnchors)?row.seriesAnchors:[];
+      const anchorScore=Math.max(0,...anchors.map(a=>Math.max(
+        watcherTitleScore(a?.raw||'',anime),watcherTitleScore(a?.canonicalTitle||'',anime)
+      )));
+      return {row,anchorScore};
+    }).sort((a,b)=>b.anchorScore-a.anchorScore||Number(b.row?.selected||0)-Number(a.row?.selected||0)||Number(b.row?.confidence||0)-Number(a.row?.confidence||0));
+
+    const preferred=ranked.filter(x=>x.anchorScore>=0.65);
+    const scan=(preferred.length?preferred:ranked.filter(x=>x.row?.selected===true||x.row?.classification==='anime')).slice(0,45);
+
+    for(const {row} of scan){
+      const source={
+        channelUsername:String(row?.username||''),
+        channelTitle:String(row?.title||''),
+        channelId:String(row?.channelId||'')
+      };
+      const entity=await watcherEntity(rt.client,source);
+      if(!entity)continue;
+      for(const term of searchTerms){
+        let messages=[];
+        try{messages=await rt.client.getMessages(entity,{limit:80,search:term})}catch{continue}
+        for(const message of messages||[]){
+          const result=await tryMessage({message,rt,accountUsername,source,row:null});
+          if(result)return result;
+        }
+      }
+      await sleep(40);
+    }
+  }
+
+  throw new Error('Aucun média Telegram exact et vérifié n’a été trouvé après recherche indexée et recherche directe');
 }
 
 export async function downloadEpisode(anime,lang,s,e,quality,options={}){
