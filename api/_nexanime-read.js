@@ -95,11 +95,8 @@ function catalogKeyboard(series,page=0){
 function catalogText(series){
   const chapters=sortedChapters(series);
   const gaps=Array.isArray(series?.missing)?series.missing:[];
-  const checked=Math.max(0,Number(series?.sourcesChecked)||0);
   let text='<b>'+esc(series?.title||series?.query||'Lecture')+'</b>\n\n';
-  text+='📚 '+chapters.length+' chapitre(s) trouvé(s)';
-  if(checked)text+=' · '+checked+' catalogue(s) vérifié(s)';
-  text+='.';
+  text+='📚 '+chapters.length+' chapitre(s) trouvé(s).';
   if(gaps.length){
     text+='\n🧩 '+gaps.length+' numéro(s) encore absent(s) après fusion. NexAnime continuera les fallbacks au téléchargement.';
   }else if(chapters.length){
@@ -139,7 +136,7 @@ export async function beginReadLookup(chatId,title,{messageId=0,force=false}={})
     statusMessageId=Number(status?.message_id)||0;
   }
 
-  const key='read-index:'+series._id;
+  const key='read-index:'+series._id+':'+String(chatId);
   const active=await activeEpisodeJob(key);
   if(active){
     if(String(active.chatId)===String(chatId)&&active.statusMessageId&&active.statusMessageId!==statusMessageId){
