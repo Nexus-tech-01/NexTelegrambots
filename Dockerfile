@@ -32,6 +32,13 @@ RUN set -eux; \
     for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do test -d "/app/bots/$bot"; done; \
     rm -f /tmp/render-src.b64.part-* /tmp/nexus-bots.tar.xz
 
+# Keep the live NexAccount sticker engine on the repository version instead of
+# the older snapshot embedded in the Render source archive. This makes
+# Noteclone/Filitake/Ultratake performance and durability fixes deploy on every
+# main-branch build without having to regenerate the whole legacy archive.
+COPY nexaccount/sticker-engine.mjs /app/nexaccount/sticker-engine.mjs
+COPY nexaccount/sticker-transform.mjs /app/nexaccount/sticker-transform.mjs
+
 # NexCanal public-channel watchers run beside the bundled bot processes.
 COPY watchers /app/watchers
 
