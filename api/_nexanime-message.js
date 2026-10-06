@@ -1,11 +1,13 @@
-import {tg} from './_nexanime-telegram.js';
+import {tg,keyboard} from './_nexanime-telegram.js';
 import {searchAnime,posterOf} from './_nexanime-franime.js';
 import {resultKeyboard,esc} from './_nexanime-ui.js';
 import {jobByClaim,updateJobProgress,completeJob,failJob} from './_nexanime-jobs.js';
+import {beginReadLookup,getMediaMode,renderReadCatalog,setMediaMode} from './_nexanime-read.js';
 
 const clean=v=>String(v??'').trim();
 
 async function sendSearch(chatId,q){
+  await setMediaMode(chatId,'anime');
   const items=await searchAnime(q);
   if(!items.length)return tg('sendMessage',{chat_id:chatId,text:'Aucun anime trouvé. Essaie avec un autre titre.'});
   const text='<b>Résultats pour :</b> '+esc(q)+'\n\nChoisis l’anime que tu veux :';
@@ -31,6 +33,18 @@ async function handleUploaderMessage(message){
           text:'⏳ '+String(job.caption||'NexAnime')+'\n'+progress
         }).catch(()=>{});
       }
+    }
+    await tg('deleteMessage',{chat_id:message.chat.id,message_id:message.message_id}).catch(()=>{});
+    return true;
+  }
+
+  m=caption.match(/^#NXA_READ_INDEX:([0-9a-f-]{20,})/i);
+  if(m){
+    const job=await jobByClaim(m[1]);
+    if(job?.resultSeriesId){
+      await renderReadCatalog(job.chatId,job.resultSeriesId,{messageId:job.statusMessageId||0,page:0}).catch(async error=>{
+        if(job.statusMessageId)await tg('editMessageText',{chat_id:job.chatId,message_id:job.statusMessageId,text:'❌ '+String(error?.message||error).slice(0,300)}).catch(()=>{});
+      });
     }
     await tg('deleteMessage',{chat_id:message.chat.id,message_id:message.message_id}).catch(()=>{});
     return true;
@@ -76,10 +90,20 @@ export async function handleMessage(message){
     return tg('sendMessage',{
       chat_id:chatId,
       parse_mode:'HTML',
-      text:'🎬 <b>NexAnime</b>\n\nEnvoie simplement le nom d’un anime. Je chercherai sur FRAnime et te proposerai les titres les plus proches.\n\nExemple : <code>Blue Lock</code>'
+      text:'🎬📚 <b>NexAnime</b>\n\nChoisis ce que tu veux rechercher :',
+      reply_markup:keyboard([
+        [{text:'🎬 Animes',callback_data:'home:anime'}],
+        [{text:'📚 Mangas & Scans',callback_data:'home:read'}],
+        [{text:'📱 Webtoon & Manhwa',callback_data:'home:read'}]
+      ])
     });
   }
-  if(text.startsWith('/search '))return sendSearch(chatId,text.slice(8));
+  if(text.startsWith('/read '))return beginReadLookup(chatId,text.slice(6));
+  if(text.startsWith('/anime '))return sendSearch(chatId,text.slice(7));
+  if(text.startsWith('/search ')){
+    const q=text.slice(8);
+    return (await getMediaMode(chatId))==='read'?beginReadLookup(chatId,q):sendSearch(chatId,q);
+  }
   if(text.startsWith('/'))return;
-  return sendSearch(chatId,text);
+  return (await getMediaMode(chatId))==='read'?beginReadLookup(chatId,text):sendSearch(chatId,text);
 }

@@ -5,6 +5,7 @@ const CACHE_VERSION='v5-cascade-progress';
 const ACTIVE_JOB_TTL_MS=20*60_000;
 
 export const cacheKey=(id,lang,s,e,q)=>[CACHE_VERSION,id,lang,s,e,q].join(':');
+export const readCacheKey=(seriesId,chapter)=>[CACHE_VERSION,'read',String(seriesId),String(chapter).replace(',','.')].join(':');
 
 export async function cachedEpisode(key){
   const d=await getDb();
@@ -43,6 +44,55 @@ export async function queueEpisode({key,chatId,statusMessageId,animeId,lang,seas
   const r=await d.collection('nexanime_bot_jobs').insertOne(doc);
   return {...doc,_id:r.insertedId};
 }
+export async function queueReadIndex({key,chatId,statusMessageId,seriesId,title}){
+  const d=await getDb();
+  const existing=await activeEpisodeJob(key);
+  if(existing)return {...existing,reused:true};
+  const now=new Date();
+  const doc={
+    claim:crypto.randomUUID(),
+    kind:'read-index',
+    cacheKey:key,
+    chatId,
+    statusMessageId,
+    seriesId:String(seriesId),
+    readTitle:String(title||'').slice(0,180),
+    caption:String(title||'').slice(0,180),
+    status:'pending',
+    attempts:0,
+    createdAt:now,
+    updatedAt:now
+  };
+  const r=await d.collection('nexanime_bot_jobs').insertOne(doc);
+  return {...doc,_id:r.insertedId};
+}
+
+export async function queueReadChapter({key,chatId,statusMessageId,seriesId,title,chapter,aliases=[],alternatives=[],caption}){
+  const d=await getDb();
+  const existing=await activeEpisodeJob(key);
+  if(existing)return {...existing,reused:true};
+  const now=new Date();
+  const doc={
+    claim:crypto.randomUUID(),
+    kind:'read',
+    cacheKey:key,
+    chatId,
+    statusMessageId,
+    seriesId:String(seriesId),
+    readTitle:String(title||'').slice(0,180),
+    readChapter:String(chapter||'').replace(',','.'),
+    aliases:Array.isArray(aliases)?aliases.map(String).filter(Boolean).slice(0,20):[],
+    alternatives:Array.isArray(alternatives)?alternatives.slice(0,40):[],
+    caption:String(caption||'').slice(0,500),
+    status:'pending',
+    attempts:0,
+    createdAt:now,
+    updatedAt:now
+  };
+  const r=await d.collection('nexanime_bot_jobs').insertOne(doc);
+  return {...doc,_id:r.insertedId};
+}
+
 export async function jobByClaim(claim){
   const d=await getDb();
   return d.collection('nexanime_bot_jobs').findOne({claim:String(claim)});

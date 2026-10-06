@@ -1,6 +1,6 @@
 import fsp from 'node:fs/promises';
 import {db} from './store.mjs';
-import {animeById,downloadEpisode,downloadReadChapter,uploaderRuntime} from './nexanime-bot.mjs';
+import {animeById,discoverReadCatalog,downloadEpisode,downloadReadChapter,uploaderRuntime} from './nexanime-bot.mjs';
 
 const BOT_USERNAME=String(process.env.NEXANIME_BOT_USERNAME||'NexAnime01_bot').replace(/^@/,'');
 const POLL_MS=Math.max(1000,Number(process.env.NEXANIME_JOB_POLL_MS||2500));
@@ -76,6 +76,20 @@ async function markUploaded(job){
   );
 }
 
+async function markReadIndexComplete(job,series){
+  const d=await db();
+  await d.collection('nexanime_bot_jobs').updateOne(
+    {_id:job._id},
+    {$set:{
+      status:'done',
+      progress:'Catalogue lecteur finalisé',
+      resultSeriesId:String(series?._id||job.seriesId||''),
+      completedAt:new Date(),
+      updatedAt:new Date()
+    },$unset:{claimExpiresAt:''}}
+  );
+}
+
 async function markRetry(job,error){
   const d=await db();
   const attempts=Number(job?.attempts||0);
@@ -134,6 +148,17 @@ async function processJob(job){
   };
 
   try{
+    if(String(job?.kind||'anime')==='read-index'){
+      await relayProgress({message:'Fusion de tous les catalogues de chapitres…',force:true});
+      const series=await discoverReadCatalog(
+        String(job.readTitle||job.title||''),
+        {onProgress:relayProgress}
+      );
+      await markReadIndexComplete(job,series);
+      await notifyBot('#NXA_READ_INDEX:'+job.claim);
+      return;
+    }
+
     let dl=null;
     if(String(job?.kind||'anime')==='read'){
       await relayProgress({message:'Recherche du chapitre…',force:true});
@@ -141,7 +166,7 @@ async function processJob(job){
         String(job.readTitle||job.title||''),
         String(job.readChapter||job.chapter||''),
         Array.isArray(job.alternatives)?job.alternatives:[],
-        {onProgress:relayProgress}
+        {onProgress:relayProgress,aliases:Array.isArray(job.aliases)?job.aliases:[]}
       );
       work=dl.work;
       await relayProgress({message:'Chapitre valide trouvé · envoi vers Telegram…',force:true});
