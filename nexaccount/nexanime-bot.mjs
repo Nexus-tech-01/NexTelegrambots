@@ -84,6 +84,15 @@ function preferredSourcePriority(input={},capability=''){
     .toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
   const kind=String(capability||'').toLowerCase();
   if(kind==='anime'&&(raw.includes('anime sama')||raw.includes('animesama')))return 1000;
+  if(kind==='read'){
+    if(raw.includes('scan manga')||raw.includes('scanmanga'))return 1000;
+    if(raw.includes('scantrad'))return 950;
+    if(raw.includes('epsilon'))return 900;
+    if(raw.includes('toonmic'))return 850;
+    if(raw.includes('lelmanga')||raw.includes('lel manga'))return 800;
+    if(raw.includes('telegram'))return 700;
+    if(raw.includes('mangadex'))return 500;
+  }
   return 0;
 }
 
@@ -2106,6 +2115,377 @@ async function downloadReadFromTelegram(title,chapter,{onProgress=null}={}){
     }
   }
   throw new Error('Chapitre introuvable dans les canaux accessibles');
+}
+
+
+function readCatalogNorm(value=''){
+  return String(value||'').trim().normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+}
+
+function readCatalogSeriesId(title=''){
+  const key=readCatalogNorm(title)||String(title||'').trim().toLowerCase();
+  return crypto.createHash('sha256').update(key).digest('hex').slice(0,16);
+}
+
+function readCatalogChapter(value=''){
+  const n=Number(String(value||'').replace(',','.'));
+  return Number.isFinite(n)&&n>=0?String(n):'';
+}
+
+function readHtmlText(value=''){
+  return String(value||'')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ')
+    .replace(/<[^>]+>/g,' ')
+    .replace(/&nbsp;|&#160;/gi,' ')
+    .replace(/&amp;/gi,'&').replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'")
+    .replace(/\s+/g,' ').trim();
+}
+
+function readSlug(value=''){
+  return String(value||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+}
+
+function readConfiguredCatalogSources(){
+  const defaults=[
+    {name:'Scan Manga',searchUrls:['https://scan-manga.st/?s={query}','https://scan-manga.st/recherche?q={query}'],directTemplates:['https://scan-manga.st/manhwa/{slug}','https://scan-manga.st/manga/{slug}','https://scan-manga.st/webtoon/{slug}']},
+    {name:'LelManga',searchUrls:['https://www.lelmanga.com/?s={query}&post_type=wp-manga'],directTemplates:['https://www.lelmanga.com/manhwa/{slug}','https://www.lelmanga.com/manga/{slug}']},
+    {name:'Epsilon Scan',searchUrls:['https://epsilonscan.to/?s={query}&post_type=wp-manga'],directTemplates:['https://epsilonscan.to/manga/{slug}/']},
+    {name:'Toonmic',searchUrls:['https://toonmicbd.com/?s={query}'],directTemplates:['https://toonmicbd.com/{slug}/']},
+    {name:'Scantrad',searchUrls:['https://scantrad.lmraillondev.com/?s={query}'],directTemplates:[]}
+  ];
+  try{
+    const extra=JSON.parse(String(process.env.NEXANIME_READ_CATALOG_SOURCES_JSON||'[]'));
+    if(Array.isArray(extra)){
+      for(const row of extra){
+        if(!row||typeof row!=='object'||!String(row.name||'').trim())continue;
+        defaults.push({
+          name:String(row.name).trim().slice(0,80),
+          searchUrls:(Array.isArray(row.searchUrls)?row.searchUrls:[]).map(String).filter(x=>/^https?:\/\//i.test(x)).slice(0,8),
+          directTemplates:(Array.isArray(row.directTemplates)?row.directTemplates:[]).map(String).filter(x=>/^https?:\/\//i.test(x)).slice(0,8)
+        });
+      }
+    }
+  }catch{}
+  const byName=new Map();
+  for(const source of defaults){
+    const key=readCatalogNorm(source.name);
+    if(!key)continue;
+    if(!byName.has(key))byName.set(key,source);
+    else{
+      const prev=byName.get(key);
+      prev.searchUrls=[...new Set([...(prev.searchUrls||[]),...(source.searchUrls||[])])];
+      prev.directTemplates=[...new Set([...(prev.directTemplates||[]),...(source.directTemplates||[])])];
+    }
+  }
+  return [...byName.values()];
+}
+
+async function readCatalogHtml(url){
+  const r=await fetch(url,{
+    redirect:'follow',
+    headers:{
+      'user-agent':USER_AGENT,
+      'accept':'text/html,application/xhtml+xml,*/*;q=0.8',
+      'accept-language':'fr-FR,fr;q=0.9,en;q=0.6',
+      ...readTrustedSourceHeaders(url)
+    },
+    signal:AbortSignal.timeout(25_000)
+  });
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const html=await r.text();
+  if(readLooksProtected(html))throw new Error('source-protected');
+  return {html,url:r.url||url};
+}
+
+function readCandidateSeriesLinks(html,base,title){
+  const out=[],seen=new Set();
+  for(const m of String(html||'').matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)){
+    const label=readHtmlText(m[2]);
+    if(!label||readTitleScore(label,title)<.55)continue;
+    let url='';
+    try{url=new URL(String(m[1]||'').replace(/&amp;/g,'&'),base).href}catch{continue}
+    if(!/^https?:\/\//i.test(url)||seen.has(url))continue;
+    if(/\/(?:chapter|chapitre)[\/_-]?\d/i.test(url))continue;
+    seen.add(url);out.push({url,label,score:readTitleScore(label,title)});
+  }
+  return out.sort((a,b)=>b.score-a.score).slice(0,5);
+}
+
+function readChapterLinks(html,base,title,sourceName){
+  const out=[],seen=new Set();
+  for(const m of String(html||'').matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)){
+    let url='';
+    try{url=new URL(String(m[1]||'').replace(/&amp;/g,'&'),base).href}catch{continue}
+    const label=readHtmlText(m[2]);
+    let chapter=readChapterNumber(label);
+    if(!chapter){
+      const pathText=decodeURIComponent(new URL(url).pathname).replace(/[-_/]+/g,' ');
+      chapter=readChapterNumber(pathText);
+      if(!chapter){
+        const mm=pathText.match(/(?:^|\s)(\d{1,4}(?:[.,]\d+)?)(?:\s|$)/);
+        if(mm&&readTitleScore(pathText,title)>=.45)chapter=readCatalogChapter(mm[1]);
+      }
+    }
+    chapter=readCatalogChapter(chapter);
+    if(!chapter)continue;
+    const key=chapter+'|'+url;
+    if(seen.has(key))continue;
+    seen.add(key);
+    out.push({
+      number:chapter,
+      source:{
+        kind:'web',
+        sourceName,
+        url,
+        referer:base,
+        priority:preferredSourcePriority({name:sourceName},'read')
+      }
+    });
+  }
+  return out;
+}
+
+async function discoverReadFromWebCatalogs(title,{onProgress=null}={}){
+  const rows=[],checked=new Set(),errors=[];
+  const slug=readSlug(title),query=encodeURIComponent(title);
+  const emit=payload=>{
+    if(typeof onProgress!=='function')return;
+    try{Promise.resolve(onProgress(payload)).catch(()=>{})}catch{}
+  };
+  for(const source of readConfiguredCatalogSources()){
+    emit({stage:'read-index-web',message:'Vérification des catalogues web…'});
+    let candidates=[];
+    for(const template of source.searchUrls||[]){
+      const url=template.replaceAll('{query}',query).replaceAll('{slug}',slug);
+      try{
+        const page=await readCatalogHtml(url);
+        checked.add(source.name);
+        candidates.push(...readCandidateSeriesLinks(page.html,page.url,title));
+      }catch(error){errors.push(source.name+':'+String(error?.message||error))}
+    }
+    for(const template of source.directTemplates||[]){
+      candidates.push({url:template.replaceAll('{query}',query).replaceAll('{slug}',slug),label:title,score:.8});
+    }
+    const seen=new Set();
+    for(const candidate of candidates.sort((a,b)=>b.score-a.score).slice(0,6)){
+      if(seen.has(candidate.url))continue;
+      seen.add(candidate.url);
+      try{
+        const page=await readCatalogHtml(candidate.url);
+        checked.add(source.name);
+        const text=readHtmlText(page.html).slice(0,5000);
+        if(readTitleScore(text,title)<.18&&readTitleScore(candidate.label,title)<.55)continue;
+        rows.push(...readChapterLinks(page.html,page.url,title,source.name));
+        if(rows.length&&readTitleScore(candidate.label,title)>=.9)break;
+      }catch(error){errors.push(source.name+':'+String(error?.message||error))}
+    }
+  }
+  return {rows,checked:[...checked],errors};
+}
+
+async function discoverReadFromMangaDex(title,{onProgress=null}={}){
+  const emit=payload=>{
+    if(typeof onProgress!=='function')return;
+    try{Promise.resolve(onProgress(payload)).catch(()=>{})}catch{}
+  };
+  emit({stage:'read-index-catalog',message:'Vérification du catalogue global…'});
+  const url='https://api.mangadex.org/manga?title='+encodeURIComponent(title)+'&limit=10&includes[]=cover_art';
+  const r=await fetch(url,{headers:{'user-agent':'NexAnime/1.0'},signal:AbortSignal.timeout(20_000)});
+  if(!r.ok)throw new Error('MangaDex search HTTP '+r.status);
+  const data=await r.json();
+  const items=Array.isArray(data?.data)?data.data:[];
+  const ranked=items.map(item=>{
+    const attrs=item?.attributes||{};
+    const labels=[attrs?.title?.fr,attrs?.title?.en,...Object.values(attrs?.title||{}),...(Array.isArray(attrs?.altTitles)?attrs.altTitles.flatMap(x=>Object.values(x||{})):[])].filter(Boolean);
+    const score=Math.max(0,...labels.map(x=>readTitleScore(x,title)));
+    const best=labels.sort((a,b)=>readTitleScore(b,title)-readTitleScore(a,title))[0]||title;
+    return {item,score,best};
+  }).filter(x=>x.score>=.42).sort((a,b)=>b.score-a.score).slice(0,3);
+  const rows=[],aliases=new Set(),canonical=ranked[0]?.best||title;
+  let checked=0;
+  for(const hit of ranked){
+    checked++;
+    aliases.add(hit.best);
+    let offset=0,total=Infinity,pages=0;
+    while(offset<total&&pages<80){
+      const q=new URLSearchParams();
+      q.set('limit','100');q.set('offset',String(offset));q.set('order[chapter]','asc');
+      q.append('translatedLanguage[]','fr');q.append('translatedLanguage[]','en');
+      const feed='https://api.mangadex.org/manga/'+encodeURIComponent(hit.item.id)+'/feed?'+q.toString();
+      const fr=await fetch(feed,{headers:{'user-agent':'NexAnime/1.0'},signal:AbortSignal.timeout(20_000)});
+      if(!fr.ok)throw new Error('MangaDex feed HTTP '+fr.status);
+      const body=await fr.json();
+      const chapters=Array.isArray(body?.data)?body.data:[];
+      total=Math.max(0,Number(body?.total)||0);
+      for(const item of chapters){
+        const number=readCatalogChapter(item?.attributes?.chapter);
+        if(!number)continue;
+        const external=String(item?.attributes?.externalUrl||'').trim();
+        rows.push({
+          number,
+          source:external&&/^https?:\/\//i.test(external)
+            ?{kind:'web',sourceName:'MangaDex',url:external,referer:'https://mangadex.org/',priority:500}
+            :{kind:'mangadex',sourceName:'MangaDex',chapterId:String(item.id),priority:500}
+        });
+      }
+      offset+=chapters.length;
+      pages++;
+      if(!chapters.length||chapters.length<100)break;
+    }
+  }
+  return {rows,canonical,aliases:[...aliases],checked};
+}
+
+async function discoverReadFromTelegramCatalog(title,{onProgress=null}={}){
+  const rows=[],checked=new Set(),errors=[];
+  const emit=payload=>{
+    if(typeof onProgress!=='function')return;
+    try{Promise.resolve(onProgress(payload)).catch(()=>{})}catch{}
+  };
+  emit({stage:'read-index-telegram',message:'Recherche dans les canaux Telegram accessibles…',force:true});
+  const terms=[title,readTitleNorm(title)].map(x=>String(x||'').trim()).filter(Boolean);
+  const uniqueTerms=[...new Set(terms)].slice(0,2);
+
+  for(const accountUsername of WATCHER_FALLBACK_USERS){
+    const rt=runtimeConnectionFor(accountUsername);
+    if(!rt?.client||rt?.client?.connected!==true)continue;
+    let dialogs=[];
+    try{dialogs=await rt.client.getDialogs({limit:READ_TELEGRAM_DIALOG_LIMIT})}
+    catch(error){errors.push(accountUsername+':dialogs:'+String(error?.message||error));continue}
+    for(const dialog of Array.isArray(dialogs)?dialogs:[]){
+      const entity=dialog?.entity;
+      if(!entity?.id||!entity?.broadcast)continue;
+      const channelKey=accountUsername+':'+String(entity.id);
+      for(const term of uniqueTerms){
+        let offsetId=0,previousOldest=0;
+        const seenIds=new Set();
+        for(let page=0;page<READ_TELEGRAM_MAX_PAGES;page++){
+          let messages=[];
+          try{
+            const args={limit:READ_TELEGRAM_PAGE_SIZE,search:term};
+            if(offsetId>0)args.offsetId=offsetId;
+            messages=await rt.client.getMessages(entity,args);
+            checked.add(channelKey);
+          }catch(error){errors.push(channelKey+':'+String(error?.message||error));break}
+          if(!Array.isArray(messages)||!messages.length)break;
+          let fresh=0;
+          for(const message of messages){
+            const id=Number(message?.id||0);
+            if(id&&seenIds.has(id))continue;
+            if(id)seenIds.add(id);
+            fresh++;
+            const signal=watcherSignalText(message);
+            const chapter=readCatalogChapter(readChapterNumber(signal));
+            if(!chapter||readTitleScore(signal,title)<.52)continue;
+            rows.push({
+              number:chapter,
+              source:{
+                kind:'telegram',
+                sourceName:'Telegram',
+                accountUsername,
+                channelId:String(entity.id),
+                messageId:String(message?.id||''),
+                priority:700
+              }
+            });
+          }
+          const ids=messages.map(x=>Number(x?.id||0)).filter(x=>x>0);
+          const oldest=ids.length?Math.min(...ids):0;
+          if(messages.length<READ_TELEGRAM_PAGE_SIZE||fresh===0||!oldest||oldest===previousOldest)break;
+          previousOldest=oldest;offsetId=oldest;
+          await sleep(15);
+        }
+      }
+    }
+  }
+  return {rows,checked:[...checked],errors};
+}
+
+function mergeReadCatalogRows(rows=[]){
+  const map=new Map();
+  for(const row of rows){
+    const number=readCatalogChapter(row?.number);
+    const source=row?.source;
+    if(!number||!source)continue;
+    if(!map.has(number))map.set(number,{number,sources:[]});
+    const entry=map.get(number);
+    const fingerprint=[source.kind,source.url,source.chapterId,source.accountUsername,source.channelId,source.messageId].map(x=>String(x||'')).join('|');
+    if(!entry.sources.some(x=>x._fp===fingerprint))entry.sources.push({...source,_fp:fingerprint});
+  }
+  return [...map.values()].map(entry=>({
+    number:entry.number,
+    sources:entry.sources
+      .sort((a,b)=>Number(b.priority||0)-Number(a.priority||0))
+      .map(({_fp,...source})=>source)
+  })).sort((a,b)=>Number(a.number)-Number(b.number));
+}
+
+function detectReadCatalogGaps(chapters=[]){
+  const exact=new Set(chapters.map(x=>readCatalogChapter(x?.number)).filter(Boolean));
+  const ints=[...exact].map(Number).filter(n=>Number.isInteger(n)&&n>=1).sort((a,b)=>a-b);
+  if(ints.length<2)return [];
+  const min=ints[0],max=ints[ints.length-1];
+  if(max-min>5000)return [];
+  const missing=[];
+  for(let n=min;n<=max;n++)if(!exact.has(String(n)))missing.push(String(n));
+  return missing;
+}
+
+export async function discoverReadCatalog(title,{onProgress=null}={}){
+  const cleanTitle=String(title||'').trim().slice(0,180);
+  if(!cleanTitle)throw new Error('Titre de lecture requis');
+  const allRows=[],aliases=new Set([cleanTitle]),stats={web:0,catalog:0,telegram:0,errors:[]};
+  let canonical=cleanTitle;
+
+  try{
+    const web=await discoverReadFromWebCatalogs(cleanTitle,{onProgress});
+    allRows.push(...web.rows);stats.web=web.checked.length;stats.errors.push(...web.errors);
+  }catch(error){stats.errors.push('web:'+String(error?.message||error))}
+
+  try{
+    const md=await discoverReadFromMangaDex(cleanTitle,{onProgress});
+    allRows.push(...md.rows);stats.catalog=md.checked||0;
+    canonical=md.canonical||canonical;
+    for(const a of md.aliases||[])aliases.add(a);
+  }catch(error){stats.errors.push('catalog:'+String(error?.message||error))}
+
+  try{
+    const tg=await discoverReadFromTelegramCatalog(cleanTitle,{onProgress});
+    allRows.push(...tg.rows);stats.telegram=tg.checked.length;stats.errors.push(...tg.errors);
+  }catch(error){stats.errors.push('telegram:'+String(error?.message||error))}
+
+  const chapters=mergeReadCatalogRows(allRows);
+  const missing=detectReadCatalogGaps(chapters);
+  const d=await db(),now=new Date(),_id=readCatalogSeriesId(cleanTitle);
+  const doc={
+    _id,
+    title:cleanTitle,
+    canonicalTitle:canonical,
+    aliases:[...aliases].filter(Boolean).slice(0,40),
+    chapters,
+    missing,
+    sourcesChecked:stats.web+stats.catalog+stats.telegram,
+    discoveryStats:{web:stats.web,catalog:stats.catalog,telegram:stats.telegram,errorCount:stats.errors.length},
+    indexedAt:now,
+    updatedAt:now,
+    complete:true
+  };
+  await d.collection('nexanime_read_series').updateOne(
+    {_id},
+    {$set:doc,$setOnInsert:{createdAt:now}},
+    {upsert:true}
+  );
+  if(typeof onProgress==='function'){
+    await Promise.resolve(onProgress({
+      stage:'read-index-done',
+      message:'Catalogue fusionné : '+chapters.length+' chapitre(s) · '+missing.length+' trou(s) restant(s)',
+      force:true
+    })).catch(()=>{});
+  }
+  return doc;
 }
 
 export async function downloadReadChapter(title,chapter,alternatives=[],options={}){
