@@ -2234,7 +2234,7 @@ function readConfiguredCatalogSources(){
     {name:'LelManga',searchUrls:['https://www.lelmanga.com/?s={query}&post_type=wp-manga'],directTemplates:['https://www.lelmanga.com/manhwa/{slug}','https://www.lelmanga.com/manga/{slug}']},
     {name:'Epsilon Scan',searchUrls:['https://epsilonscan.to/?s={query}&post_type=wp-manga'],directTemplates:['https://epsilonscan.to/manga/{slug}/']},
     {name:'Toonmic',searchUrls:['https://toonmicbd.com/?s={query}'],directTemplates:['https://toonmicbd.com/{slug}/']},
-    {name:'Scantrad',searchUrls:['https://scantrad.lmraillondev.com/?s={query}'],directTemplates:[]}
+    {name:'Scantrad',searchUrls:['https://manga-scantrad.io/?s={query}&post_type=wp-manga'],directTemplates:['https://manga-scantrad.io/manga/{slug}/']}
   ];
   try{
     const extra=JSON.parse(String(process.env.NEXANIME_READ_CATALOG_SOURCES_JSON||'[]'));
@@ -2280,22 +2280,25 @@ async function readCatalogHtml(url){
   return {html,url:r.url||url};
 }
 
-function readCandidateSeriesLinks(html,base,title){
+function readCandidateSeriesLinks(html,base,titles){
   const out=[],seen=new Set();
+  const titleVariants=(Array.isArray(titles)?titles:[titles]).map(x=>String(x||'').trim()).filter(Boolean);
   for(const m of String(html||'').matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)){
     const label=readHtmlText(m[2]);
-    if(!label||readTitleScore(label,title)<.55)continue;
+    const score=Math.max(0,...titleVariants.map(title=>readTitleScore(label,title)));
+    if(!label||score<.55)continue;
     let url='';
     try{url=new URL(String(m[1]||'').replace(/&amp;/g,'&'),base).href}catch{continue}
     if(!/^https?:\/\//i.test(url)||seen.has(url))continue;
     if(/\/(?:chapter|chapitre)[\/_-]?\d/i.test(url))continue;
-    seen.add(url);out.push({url,label,score:readTitleScore(label,title)});
+    seen.add(url);out.push({url,label,score});
   }
   return out.sort((a,b)=>b.score-a.score).slice(0,5);
 }
 
-function readChapterLinks(html,base,title,sourceName){
+function readChapterLinks(html,base,titles,sourceName){
   const out=[],seen=new Set();
+  const titleVariants=(Array.isArray(titles)?titles:[titles]).map(x=>String(x||'').trim()).filter(Boolean);
   for(const m of String(html||'').matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)){
     let url='';
     try{url=new URL(String(m[1]||'').replace(/&amp;/g,'&'),base).href}catch{continue}
@@ -2306,7 +2309,7 @@ function readChapterLinks(html,base,title,sourceName){
       chapter=readChapterNumber(pathText);
       if(!chapter){
         const mm=pathText.match(/(?:^|\s)(\d{1,4}(?:[.,]\d+)?)(?:\s|$)/);
-        if(mm&&readTitleScore(pathText,title)>=.45)chapter=readCatalogChapter(mm[1]);
+        if(mm&&Math.max(0,...titleVariants.map(title=>readTitleScore(pathText,title)))>=.45)chapter=readCatalogChapter(mm[1]);
       }
     }
     chapter=readCatalogChapter(chapter);
@@ -2328,9 +2331,13 @@ function readChapterLinks(html,base,title,sourceName){
   return out;
 }
 
-async function discoverReadFromWebCatalogs(title,{onProgress=null}={}){
+async function discoverReadFromWebCatalogs(title,{onProgress=null,aliases=[]}={}){
   const rows=[],checked=new Set(),errors=[];
-  const slug=readSlug(title),query=encodeURIComponent(title);
+  const titleVariants=[title,...(Array.isArray(aliases)?aliases:[])]
+    .map(x=>String(x||'').trim()).filter(Boolean);
+  const variants=[...new Set(titleVariants.map(x=>readCatalogNorm(x)).filter(Boolean))]
+    .map(key=>titleVariants.find(x=>readCatalogNorm(x)===key))
+    .filter(Boolean).slice(0,10);
   const emit=payload=>{
     if(typeof onProgress!=='function')return;
     try{Promise.resolve(onProgress(payload)).catch(()=>{})}catch{}
@@ -2338,29 +2345,42 @@ async function discoverReadFromWebCatalogs(title,{onProgress=null}={}){
   for(const source of readConfiguredCatalogSources()){
     emit({stage:'read-index-web',message:'Vérification des catalogues web…'});
     let candidates=[];
-    for(const template of source.searchUrls||[]){
-      const url=template.replaceAll('{query}',query).replaceAll('{slug}',slug);
-      try{
-        const page=await readCatalogHtml(url);
-        checked.add(source.name);
-        candidates.push(...readCandidateSeriesLinks(page.html,page.url,title));
-      }catch(error){errors.push(source.name+':'+String(error?.message||error))}
+    for(const variant of variants){
+      const slug=readSlug(variant),query=encodeURIComponent(variant);
+      for(const template of source.searchUrls||[]){
+        const url=template.replaceAll('{query}',query).replaceAll('{slug}',slug);
+        try{
+          const page=await readCatalogHtml(url);
+          checked.add(source.name);
+          candidates.push(...readCandidateSeriesLinks(page.html,page.url,variants));
+        }catch(error){errors.push(source.name+':'+String(error?.message||error))}
+      }
+      for(const template of source.directTemplates||[]){
+        candidates.push({url:template.replaceAll('{query}',query).replaceAll('{slug}',slug),label:variant,score:.8});
+      }
     }
-    for(const template of source.directTemplates||[]){
-      candidates.push({url:template.replaceAll('{query}',query).replaceAll('{slug}',slug),label:title,score:.8});
-    }
+
     const seen=new Set();
-    for(const candidate of candidates.sort((a,b)=>b.score-a.score).slice(0,6)){
+    for(const candidate of candidates.sort((a,b)=>b.score-a.score).slice(0,24)){
       if(seen.has(candidate.url))continue;
       seen.add(candidate.url);
       try{
         const page=await readCatalogHtml(candidate.url);
         checked.add(source.name);
-        const text=readHtmlText(page.html).slice(0,5000);
-        if(readTitleScore(text,title)<.18&&readTitleScore(candidate.label,title)<.55)continue;
+        const text=readHtmlText(page.html).slice(0,7000);
+        const pageScore=Math.max(0,...variants.map(v=>readTitleScore(text,v)),readTitleScore(candidate.label,title));
+        if(pageScore<.18)continue;
+
         const before=rows.length;
-        rows.push(...readChapterLinks(page.html,page.url,title,source.name));
-        if(rows.length>before&&readTitleScore(candidate.label,title)>=.9)break;
+        rows.push(...readChapterLinks(page.html,page.url,variants,source.name));
+
+        if(rows.length===before){
+          const rendered=await readBrowserRenderedPage(page.url);
+          if(rendered?.html){
+            rows.push(...readChapterLinks(rendered.html,rendered.url||page.url,variants,source.name));
+          }
+        }
+        if(rows.length>before&&candidate.score>=.9)break;
       }catch(error){errors.push(source.name+':'+String(error?.message||error))}
     }
   }
@@ -2383,13 +2403,14 @@ async function discoverReadFromMangaDex(title,{onProgress=null}={}){
     const labels=[attrs?.title?.fr,attrs?.title?.en,...Object.values(attrs?.title||{}),...(Array.isArray(attrs?.altTitles)?attrs.altTitles.flatMap(x=>Object.values(x||{})):[])].filter(Boolean);
     const score=Math.max(0,...labels.map(x=>readTitleScore(x,title)));
     const best=labels.sort((a,b)=>readTitleScore(b,title)-readTitleScore(a,title))[0]||title;
-    return {item,score,best};
+    return {item,score,best,labels:[...new Set(labels.map(String).filter(Boolean))]};
   }).filter(x=>x.score>=.42).sort((a,b)=>b.score-a.score).slice(0,1);
   const rows=[],aliases=new Set(),canonical=ranked[0]?.best||title;
   let checked=0;
   for(const hit of ranked){
     checked++;
     aliases.add(hit.best);
+    for(const label of hit.labels||[])aliases.add(label);
     let offset=0,total=Infinity,pages=0;
     while(offset<total&&pages<80){
       const q=new URLSearchParams();
@@ -2520,14 +2541,15 @@ function detectReadCatalogGaps(chapters=[]){
 export async function discoverReadCatalog(title,{onProgress=null}={}){
   const cleanTitle=String(title||'').trim().slice(0,180);
   if(!cleanTitle)throw new Error('Titre de lecture requis');
-  const allRows=[],aliases=new Set([cleanTitle]),stats={web:0,catalog:0,telegram:0,errors:[]};
-  let canonical=cleanTitle;
 
-  try{
-    const web=await discoverReadFromWebCatalogs(cleanTitle,{onProgress});
-    allRows.push(...web.rows);stats.web=web.checked.length;stats.errors.push(...web.errors);
-  }catch(error){stats.errors.push('web:'+String(error?.message||error))}
+  const d=await db(),now=new Date(),_id=readCatalogSeriesId(cleanTitle);
+  const previous=await d.collection('nexanime_read_series').findOne({_id}).catch(()=>null);
+  const allRows=[],aliases=new Set([cleanTitle,...(Array.isArray(previous?.aliases)?previous.aliases:[])]);
+  const stats={web:0,catalog:0,telegram:0,errors:[]};
+  let canonical=String(previous?.canonicalTitle||cleanTitle);
 
+  // Resolve canonical and alternate titles first. Several French catalogues use
+  // translated names that have no useful slug relationship with the English title.
   try{
     const md=await discoverReadFromMangaDex(cleanTitle,{onProgress});
     allRows.push(...md.rows);stats.catalog=md.checked||0;
@@ -2536,25 +2558,45 @@ export async function discoverReadCatalog(title,{onProgress=null}={}){
   }catch(error){stats.errors.push('catalog:'+String(error?.message||error))}
 
   try{
+    const web=await discoverReadFromWebCatalogs(cleanTitle,{onProgress,aliases:[...aliases]});
+    allRows.push(...web.rows);stats.web=web.checked.length;stats.errors.push(...web.errors);
+  }catch(error){stats.errors.push('web:'+String(error?.message||error))}
+
+  try{
     const tg=await discoverReadFromTelegramCatalog(cleanTitle,{onProgress,aliases:[...aliases]});
     allRows.push(...tg.rows);stats.telegram=tg.checked.length;stats.errors.push(...tg.errors);
   }catch(error){stats.errors.push('telegram:'+String(error?.message||error))}
 
-  const chapters=mergeReadCatalogRows(allRows);
+  const freshChapters=mergeReadCatalogRows(allRows);
+  const previousRows=(Array.isArray(previous?.chapters)?previous.chapters:[]).flatMap(ch=>
+    (Array.isArray(ch?.sources)?ch.sources:[]).map(source=>({number:ch.number,source}))
+  );
+  // Discovery failures must never erase chapters that were already verified.
+  // Merge old + fresh, preferring fresh source ordering.
+  const chapters=mergeReadCatalogRows([...allRows,...previousRows]);
   const missing=detectReadCatalogGaps(chapters);
-  const d=await db(),now=new Date(),_id=readCatalogSeriesId(cleanTitle);
+  const degraded=freshChapters.length===0&&chapters.length>0;
+
   const doc={
     _id,
     title:cleanTitle,
     canonicalTitle:canonical,
-    aliases:[...aliases].filter(Boolean).slice(0,40),
+    aliases:[...aliases].filter(Boolean).slice(0,80),
     chapters,
     missing,
     sourcesChecked:stats.web+stats.catalog+stats.telegram,
-    discoveryStats:{web:stats.web,catalog:stats.catalog,telegram:stats.telegram,errorCount:stats.errors.length},
-    indexedAt:now,
+    discoveryStats:{
+      web:stats.web,catalog:stats.catalog,telegram:stats.telegram,
+      errorCount:stats.errors.length,
+      freshChapterCount:freshChapters.length,
+      retainedChapterCount:Math.max(0,chapters.length-freshChapters.length)
+    },
+    catalogDegraded:degraded,
+    lastDiscoveryAt:now,
+    indexedAt:freshChapters.length?now:(previous?.indexedAt||null),
+    lastSuccessfulIndexedAt:freshChapters.length?now:(previous?.lastSuccessfulIndexedAt||previous?.indexedAt||null),
     updatedAt:now,
-    complete:true
+    complete:chapters.length>0&&missing.length===0&&!degraded
   };
   await d.collection('nexanime_read_series').updateOne(
     {_id},
