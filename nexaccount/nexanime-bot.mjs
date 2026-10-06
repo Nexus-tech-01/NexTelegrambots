@@ -1690,6 +1690,60 @@ function readFileLike(message){
     ||/\.(?:pdf|cbz|zip)$/i.test(name);
 }
 
+function readImageLike(message){
+  if(message?.photo)return true;
+  const mime=String(message?.document?.mimeType||'').toLowerCase();
+  const name=watcherFilename(message).toLowerCase();
+  return /^image\/(?:jpeg|png|webp|avif)/i.test(mime)||/\.(?:jpe?g|png|webp|avif)$/i.test(name);
+}
+
+async function readTelegramAlbumMessages(client,entity,message){
+  const grouped=String(message?.groupedId||'');
+  if(!grouped)return [message];
+  const id=Number(message?.id||0);
+  if(!id)return [message];
+  const ids=[];
+  for(let n=Math.max(1,id-16);n<=id+16;n++)ids.push(n);
+  try{
+    const around=await client.getMessages(entity,{ids});
+    const group=(Array.isArray(around)?around:[around]).filter(x=>String(x?.groupedId||'')===grouped&&readImageLike(x));
+    return group.length?group.sort((a,b)=>Number(a.id||0)-Number(b.id||0)):[message];
+  }catch{return [message]}
+}
+
+async function readPackTelegramImages(client,messages,work,title,chapter,{onProgress=null}={}){
+  const dir=path.join(work,'pages');
+  await fsp.mkdir(dir,{recursive:true});
+  const sorted=[...(Array.isArray(messages)?messages:[])].filter(readImageLike).sort((a,b)=>Number(a.id||0)-Number(b.id||0));
+  let good=0;
+  for(let i=0;i<sorted.length;i++){
+    const msg=sorted[i];
+    const name=watcherFilename(msg);
+    const ext=/\.(?:png|webp|avif)$/i.test(name)?path.extname(name).toLowerCase():'.jpg';
+    const file=path.join(dir,String(i+1).padStart(4,'0')+ext);
+    try{
+      const downloaded=await client.downloadMedia(msg.media,{outputFile:file,workers:4});
+      const actual=typeof downloaded==='string'&&downloaded?downloaded:file;
+      const st=await fsp.stat(actual);
+      if(st.size<8_000){await fsp.rm(actual,{force:true}).catch(()=>{});continue}
+      good++;
+      if(typeof onProgress==='function'){
+        await Promise.resolve(onProgress({
+          stage:'read-telegram-pages',
+          message:'📖 Pages Telegram : '+good+'/'+sorted.length
+        })).catch(()=>{});
+      }
+    }catch{await fsp.rm(file,{force:true}).catch(()=>{})}
+  }
+  if(good<1)throw new Error('Album Telegram vide');
+  const cbz=path.join(work,readSafeName(title)+'-ch-'+readSafeName(chapter)+'.cbz');
+  const py="import os,sys,zipfile\nout=sys.argv[1]\nroot=sys.argv[2]\nwith zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as z:\n  [z.write(os.path.join(root,n),n) for n in sorted(os.listdir(root)) if os.path.isfile(os.path.join(root,n))]";
+  await run('python3',['-c',py,cbz,dir],{timeout:120_000});
+  const st=await fsp.stat(cbz);
+  if(st.size<12_000)throw new Error('Archive Telegram invalide');
+  return cbz;
+}
+
 function readSafeName(value='chapter'){
   return String(value||'chapter').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .replace(/[^a-z0-9._-]+/gi,'-').replace(/-+/g,'-').replace(/^-|-$/g,'').slice(0,90)||'chapter';
@@ -2065,11 +2119,24 @@ async function downloadReadFromTelegram(title,chapter,{onProgress=null}={}){
             if(messageId&&seenMessageIds.has(messageId))continue;
             if(messageId)seenMessageIds.add(messageId);
             freshCount++;
-            if(!readFileLike(message))continue;
+            const fileLike=readFileLike(message),imageLike=readImageLike(message);
+            if(!fileLike&&!imageLike)continue;
             const signal=watcherSignalText(message);
             const ch=readChapterNumber(signal);
             if(!ch||String(Number(ch))!==wanted)continue;
             if(readTitleScore(signal,title)<.58)continue;
+
+            if(imageLike&&!fileLike){
+              const work=await fsp.mkdtemp(path.join(TMP_ROOT,'read-tg-images-'));
+              try{
+                const album=await readTelegramAlbumMessages(rt.client,entity,message);
+                const file=await readPackTelegramImages(rt.client,album,work,title,wanted,{onProgress});
+                emit({stage:'read-ready',message:'Chapitre Telegram vérifié · préparation de l’envoi…',force:true});
+                return {file,work,source:'telegram'};
+              }catch(error){
+                await fsp.rm(work,{recursive:true,force:true}).catch(()=>{});
+              }
+            }
 
             const name=watcherFilename(message)||('chapter-'+wanted+'.pdf');
             const ext=path.extname(name).toLowerCase();
