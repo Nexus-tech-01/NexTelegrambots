@@ -33,6 +33,48 @@ const VIDEO_PROVIDERS=[
 ];
 const WATCHER_FALLBACK_USERS=['tresor20001','tresor20009'];
 const WATCHER_VIDEO_EXT_RE=/\.(?:mp4|mkv|avi|mov|webm|m4v|ts)$/i;
+const READ_TELEGRAM_PAGE_SIZE=Math.max(20,Math.min(100,Number(process.env.NEXANIME_READ_TELEGRAM_PAGE_SIZE||100)));
+const READ_TELEGRAM_MAX_PAGES=Math.max(1,Math.min(80,Number(process.env.NEXANIME_READ_TELEGRAM_MAX_PAGES||40)));
+const READ_TELEGRAM_DIALOG_LIMIT=Math.max(100,Math.min(2000,Number(process.env.NEXANIME_READ_TELEGRAM_DIALOG_LIMIT||1000)));
+const READ_TRUSTED_SOURCE_TOKEN=String(process.env.NEXANIME_TRUSTED_SOURCE_TOKEN||'').trim();
+let READ_TRUSTED_SOURCE_SECRETS={};
+try{
+  const parsed=JSON.parse(String(process.env.NEXANIME_TRUSTED_SOURCE_SECRETS_JSON||'{}'));
+  if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))READ_TRUSTED_SOURCE_SECRETS=parsed;
+}catch{}
+
+function readTrustedSourceSecret(targetUrl=''){
+  let host='';
+  try{host=new URL(String(targetUrl)).hostname.toLowerCase()}catch{return ''}
+  const direct=READ_TRUSTED_SOURCE_SECRETS[host];
+  if(typeof direct==='string'&&direct.trim())return direct.trim();
+  for(const [pattern,value] of Object.entries(READ_TRUSTED_SOURCE_SECRETS)){
+    if(typeof value!=='string'||!value.trim())continue;
+    const key=String(pattern||'').trim().toLowerCase();
+    if(!key.startsWith('*.'))continue;
+    const suffix=key.slice(1);
+    if(host.endsWith(suffix))return value.trim();
+  }
+  const wildcard=READ_TRUSTED_SOURCE_SECRETS['*'];
+  return typeof wildcard==='string'?wildcard.trim():'';
+}
+
+function readTrustedSourceHeaders(targetUrl=''){
+  const headers={};
+  if(READ_TRUSTED_SOURCE_TOKEN)headers['x-nexanime-token']=READ_TRUSTED_SOURCE_TOKEN;
+  const secret=readTrustedSourceSecret(targetUrl);
+  if(!secret)return headers;
+  let u;
+  try{u=new URL(String(targetUrl))}catch{return headers}
+  const ts=String(Math.floor(Date.now()/1000));
+  const nonce=crypto.randomBytes(12).toString('hex');
+  const canonical=['GET',ts,nonce,u.hostname.toLowerCase(),u.pathname+u.search].join('\n');
+  headers['x-nexanime-client']='NexAnime';
+  headers['x-nexanime-ts']=ts;
+  headers['x-nexanime-nonce']=nonce;
+  headers['x-nexanime-signature']=crypto.createHmac('sha256',secret).update(canonical).digest('hex');
+  return headers;
+}
 
 function preferredSourcePriority(input={},capability=''){
   const raw=[
@@ -1587,11 +1629,24 @@ export async function downloadEpisode(anime,lang,s,e,quality,options={}){
 
 
 function readChapterNumber(raw=''){
-  const text=String(raw).replace(/[_-]+/g,' ');
-  let m=text.match(/\b(?:chapitre|chapter|chap|ch)\s*[#.: -]*0*(\d{1,4}(?:\.\d+)?)\b/i);
-  if(m)return String(Number(m[1]));
-  m=text.match(/\b(?:episode|épisode|ep)\s*[#.: -]*0*(\d{1,4}(?:\.\d+)?)\b/i);
-  if(m)return String(Number(m[1]));
+  const text=String(raw||'')
+    .normalize('NFKC')
+    .replace(/[\u00a0\u202f]/g,' ')
+    .replace(/[_–—-]+/g,' ')
+    .replace(/\s+/g,' ')
+    .trim();
+  const patterns=[
+    /\b(?:chapitre|chapter|chap|ch|c)\s*[#.:º° -]*0*(\d{1,4}(?:[.,]\d+)?)\b/i,
+    /\b(?:episode|épisode|episod|ep|épi)\s*[#.:º° -]*0*(\d{1,4}(?:[.,]\d+)?)\b/i,
+    /(?:^|[\s[(])#\s*0*(\d{1,4}(?:[.,]\d+)?)(?=$|[\s\])}:.,])/i
+  ];
+  for(const pattern of patterns){
+    const m=text.match(pattern);
+    if(m){
+      const n=Number(String(m[1]).replace(',','.'));
+      if(Number.isFinite(n))return String(n);
+    }
+  }
   return '';
 }
 
@@ -1631,14 +1686,16 @@ function readSafeName(value='chapter'){
     .replace(/[^a-z0-9._-]+/gi,'-').replace(/-+/g,'-').replace(/^-|-$/g,'').slice(0,90)||'chapter';
 }
 
-async function readDownloadUrl(url,file,{onProgress=null,label='Téléchargement'}={}){
+async function readDownloadUrl(url,file,{onProgress=null,label='Téléchargement',referer=''}={}){
   const started=Date.now();
   const r=await fetch(url,{
     redirect:'follow',
     headers:{
       'user-agent':USER_AGENT,
       'accept':'*/*',
-      'accept-language':'fr-FR,fr;q=0.9,en;q=0.7'
+      'accept-language':'fr-FR,fr;q=0.9,en;q=0.7',
+      ...(referer?{'referer':referer}:{}),
+      ...readTrustedSourceHeaders(url)
     },
     signal:AbortSignal.timeout(90_000)
   });
@@ -1679,7 +1736,7 @@ async function readDownloadUrl(url,file,{onProgress=null,label='Téléchargement
   return {size:downloaded,contentType:String(r.headers.get('content-type')||'')};
 }
 
-async function readPackImages(imageUrls,work,title,chapter,{onProgress=null}={}){
+async function readPackImages(imageUrls,work,title,chapter,{onProgress=null,referer=''}={}){
   const dir=path.join(work,'pages');
   await fsp.mkdir(dir,{recursive:true});
   const good=[];
@@ -1690,11 +1747,11 @@ async function readPackImages(imageUrls,work,title,chapter,{onProgress=null}={})
     let ext='.jpg';
     try{
       const e=path.extname(new URL(u).pathname).toLowerCase();
-      if(/^\.(?:jpe?g|png|webp)$/.test(e))ext=e;
+      if(/^\.(?:jpe?g|png|webp|avif)$/.test(e))ext=e;
     }catch{}
     const file=path.join(dir,String(i+1).padStart(4,'0')+ext);
     try{
-      const meta=await readDownloadUrl(u,file,{});
+      const meta=await readDownloadUrl(u,file,{referer});
       const stat=await fsp.stat(file);
       if(stat.size<8_000){await fsp.rm(file,{force:true}).catch(()=>{});continue}
       good.push(file);
@@ -1717,23 +1774,130 @@ async function readPackImages(imageUrls,work,title,chapter,{onProgress=null}={})
   return cbz;
 }
 
+function readLooksProtected(html=''){
+  return /Just a moment|cf-chl-|challenge-platform|Attention Required|cf-turnstile|Checking your browser|Verify (?:you are|that you are) human|Access denied|bot protection/i.test(String(html||''));
+}
+
 function readHtmlUrls(html,base){
-  const files=[],images=[];
-  for(const m of String(html||'').matchAll(/href=["']([^"']+)["']/gi)){
-    try{
-      const u=new URL(m[1].replace(/&amp;/g,'&'),base).href;
-      if(/\.(?:pdf|cbz|zip)(?:$|[?#])/i.test(u))files.push(u);
-    }catch{}
+  const files=[],images=[],fileSeen=new Set(),imageSeen=new Set();
+  const cleanRaw=raw=>String(raw||'').trim().replace(/&amp;/g,'&').replace(/\\u0026/g,'&').replace(/\\\//g,'/');
+  const toUrl=raw=>{
+    const value=cleanRaw(raw);
+    if(!value||/^data:|^blob:|^javascript:/i.test(value))return '';
+    try{return new URL(value,base).href}catch{return ''}
+  };
+  const pushFile=raw=>{
+    const u=toUrl(raw);
+    if(!u||fileSeen.has(u)||!/\.(?:pdf|cbz|zip)(?:$|[?#])/i.test(u))return;
+    fileSeen.add(u);files.push(u);
+  };
+  const pushImage=raw=>{
+    for(const candidate of cleanRaw(raw).split(',').map(x=>x.trim().split(/\s+/)[0]).filter(Boolean)){
+      const u=toUrl(candidate);
+      if(!u||imageSeen.has(u))continue;
+      if(/(?:logo|avatar|icon|emoji|banner|ads?(?:[./_-]|$)|sprite|favicon|tracking|pixel)/i.test(u))continue;
+      imageSeen.add(u);images.push(u);
+    }
+  };
+
+  const source=String(html||'');
+  for(const m of source.matchAll(/href=["']([^"']+)["']/gi))pushFile(m[1]);
+
+  for(const tag of source.match(/<(?:img|source)\b[^>]*>/gi)||[]){
+    for(const m of tag.matchAll(/(?:data-lazy-src|data-src|data-original|data-cfsrc|data-url|src|data-srcset|srcset)=["']([^"']+)["']/gi)){
+      pushImage(m[1]);
+    }
   }
-  for(const m of String(html||'').matchAll(/<img[^>]+(?:data-lazy-src|data-src|src)=["']([^"']+)["'][^>]*>/gi)){
-    try{
-      const u=new URL(m[1].replace(/&amp;/g,'&'),base).href;
-      if(!/\.(?:jpe?g|png|webp)(?:$|[?#])/i.test(u))continue;
-      if(/(?:logo|avatar|icon|emoji|banner|ads?|cover|thumbnail|sprite)/i.test(u))continue;
-      images.push(u);
-    }catch{}
+  for(const m of source.matchAll(/url\(\s*["']?([^"')]+)["']?\s*\)/gi))pushImage(m[1]);
+  for(const m of source.matchAll(/["'](https?:\\?\/\\?\/[^"'\s<>]+)["']/gi)){
+    const raw=String(m[1]||'').replace(/\\\//g,'/');
+    if(/\.(?:jpe?g|png|webp|avif)(?:$|[?#])/i.test(raw))pushImage(raw);
+    if(/\.(?:pdf|cbz|zip)(?:$|[?#])/i.test(raw))pushFile(raw);
   }
-  return {files:[...new Set(files)],images:[...new Set(images)]};
+  return {files,images};
+}
+
+async function readBrowserRenderedPage(targetUrl){
+  const browser=findBrowserBinary();
+  if(!browser||typeof WebSocket==='undefined')return {html:'',images:[],url:targetUrl};
+  const profile=await fsp.mkdtemp(path.join(os.tmpdir(),'nexanime-read-chrome-'));
+  const child=spawn(browser,[
+    '--headless=new','--no-sandbox','--disable-gpu','--disable-dev-shm-usage',
+    '--disable-blink-features=AutomationControlled','--remote-allow-origins=*','--remote-debugging-port=0',
+    '--window-size=1440,1800','--user-data-dir='+profile,'about:blank'
+  ],{stdio:['ignore','ignore','pipe']});
+  try{
+    const browserWs=await chromiumDevtoolsEndpoint(child,12000);
+    const port=new URL(browserWs).port;
+    const created=await fetch('http://127.0.0.1:'+port+'/json/new?'+encodeURIComponent('about:blank'),{
+      method:'PUT',signal:AbortSignal.timeout(5000)
+    });
+    if(!created.ok)throw new Error('reader-browser-target-http-'+created.status);
+    const target=await created.json();
+    if(!target?.webSocketDebuggerUrl)throw new Error('reader-browser-target-ws-missing');
+    const ws=new WebSocket(target.webSocketDebuggerUrl);
+    const pending=new Map();
+    const networkImages=new Set();
+    let seq=0;
+    const opened=new Promise((resolve,reject)=>{
+      const timer=setTimeout(()=>reject(new Error('reader-browser-ws-timeout')),7000);
+      ws.addEventListener('open',()=>{clearTimeout(timer);resolve()},{once:true});
+      ws.addEventListener('error',()=>{clearTimeout(timer);reject(new Error('reader-browser-ws-error'))},{once:true});
+    });
+    await opened;
+    ws.addEventListener('message',event=>{
+      let msg;
+      try{msg=JSON.parse(String(event.data||''))}catch{return}
+      if(msg.id&&pending.has(msg.id)){
+        const p=pending.get(msg.id);pending.delete(msg.id);
+        if(msg.error)p.reject(new Error(msg.error.message||'reader-cdp-error'));else p.resolve(msg.result||{});
+        return;
+      }
+      if(msg.method==='Network.responseReceived'&&msg.params?.type==='Image'){
+        const u=String(msg.params?.response?.url||'');
+        if(/^https?:\/\//i.test(u))networkImages.add(u);
+      }
+    });
+    const send=(method,params={})=>new Promise((resolve,reject)=>{
+      const id=++seq;pending.set(id,{resolve,reject});
+      ws.send(JSON.stringify({id,method,params}));
+      setTimeout(()=>{
+        if(!pending.has(id))return;
+        pending.delete(id);reject(new Error('reader-cdp-timeout-'+method));
+      },20000);
+    });
+    await send('Network.enable');
+    await send('Page.enable');
+    await send('Runtime.enable');
+    await send('Emulation.setUserAgentOverride',{userAgent:USER_AGENT});
+    const browserHeaders={};
+    if(READ_TRUSTED_SOURCE_TOKEN)browserHeaders['x-nexanime-token']=READ_TRUSTED_SOURCE_TOKEN;
+    if(Object.keys(browserHeaders).length)await send('Network.setExtraHTTPHeaders',{headers:browserHeaders});
+    await send('Page.navigate',{url:targetUrl});
+    await sleep(3500);
+    await send('Runtime.evaluate',{
+      expression:`new Promise(resolve=>{let steps=0,last=0,stable=0;const tick=()=>{const root=document.scrollingElement||document.documentElement||document.body;const h=Math.max(document.body?.scrollHeight||0,document.documentElement?.scrollHeight||0);window.scrollBy(0,Math.max(650,Math.floor(window.innerHeight*.85)));steps++;if(h===last)stable++;else stable=0;last=h;const bottom=(window.scrollY+window.innerHeight)>=h-8;if(steps>=70||(bottom&&stable>=3)){window.scrollTo(0,0);resolve(true);return}setTimeout(tick,180)};tick()})`,
+      awaitPromise:true,returnByValue:true
+    }).catch(()=>{});
+    await sleep(1200);
+    const snapshot=await send('Runtime.evaluate',{
+      expression:'({html:document.documentElement?.outerHTML||"",url:location.href})',
+      returnByValue:true
+    });
+    try{ws.close()}catch{}
+    const value=snapshot?.result?.value||{};
+    return {
+      html:String(value?.html||''),
+      url:String(value?.url||targetUrl),
+      images:[...networkImages]
+    };
+  }catch(error){
+    console.warn('[NexAnime reader browser]',String(error?.message||error).slice(0,220));
+    return {html:'',images:[],url:targetUrl};
+  }finally{
+    try{child.kill('SIGKILL')}catch{}
+    await fsp.rm(profile,{recursive:true,force:true}).catch(()=>{});
+  }
 }
 
 async function downloadReadFromMangaDex(chapterId,title,chapter,{onProgress=null}={}){
@@ -1778,7 +1942,7 @@ async function downloadReadFromWeb(title,chapter,alternatives,{onProgress=null}=
         const directExt=path.extname(new URL(url).pathname).toLowerCase();
         if(['.pdf','.cbz','.zip'].includes(directExt)){
           const file=path.join(work,'chapter'+directExt);
-          await readDownloadUrl(url,file,{onProgress});
+          await readDownloadUrl(url,file,{onProgress,referer:String(alt?.referer||'')});
           const st=await fsp.stat(file);
           if(st.size<20_000)throw new Error('Fichier trop petit');
           return {file,work,source:'web'};
@@ -1789,7 +1953,8 @@ async function downloadReadFromWeb(title,chapter,alternatives,{onProgress=null}=
           headers:{
             'user-agent':USER_AGENT,
             'accept':'text/html,application/xhtml+xml,*/*;q=0.8',
-            'accept-language':'fr-FR,fr;q=0.9,en;q=0.7'
+            'accept-language':'fr-FR,fr;q=0.9,en;q=0.7',
+            ...readTrustedSourceHeaders(url)
           },
           signal:AbortSignal.timeout(35_000)
         });
@@ -1802,27 +1967,41 @@ async function downloadReadFromWeb(title,chapter,alternatives,{onProgress=null}=
           if(st.size<20_000)throw new Error('PDF trop petit');
           return {file,work,source:'web'};
         }
-        const html=await r.text();
-        if(/Just a moment|cf-chl-|challenge-platform|Attention Required/i.test(html)){
+        let html=await r.text();
+        let baseUrl=r.url||url;
+        let found=readHtmlUrls(html,baseUrl);
+        const initiallyProtected=readLooksProtected(html);
+        if(initiallyProtected||(!found.files.length&&found.images.length<2)){
+          const rendered=await readBrowserRenderedPage(baseUrl);
+          if(rendered?.html){
+            html=rendered.html;
+            baseUrl=rendered.url||baseUrl;
+            const fromDom=readHtmlUrls(html,baseUrl);
+            found={
+              files:[...new Set([...found.files,...fromDom.files])],
+              images:[...new Set([...found.images,...fromDom.images,...(rendered.images||[])])]
+            };
+          }
+        }
+        if(readLooksProtected(html)&&!found.files.length&&found.images.length<2){
           throw new Error('Méthode temporairement protégée');
         }
-        const found=readHtmlUrls(html,r.url||url);
-        for(const fileUrl of found.files.slice(0,8)){
+        for(const fileUrl of found.files.slice(0,12)){
           const ext=path.extname(new URL(fileUrl).pathname).toLowerCase()||'.pdf';
           const file=path.join(work,'chapter'+(ext||'.pdf'));
           try{
-            await readDownloadUrl(fileUrl,file,{onProgress});
+            await readDownloadUrl(fileUrl,file,{onProgress,referer:baseUrl});
             const st=await fsp.stat(file);
             if(st.size>=20_000)return {file,work,source:'web'};
           }catch{}
         }
 
         let images=found.images;
-        if(/lelmanga\.com/i.test(r.url||url)){
+        if(/lelmanga\.com/i.test(baseUrl)){
           images=images.filter(x=>/wp-content\/uploads/i.test(x));
         }
         if(images.length>=2){
-          const file=await readPackImages(images.slice(0,400),work,title,chapter,{onProgress});
+          const file=await readPackImages(images.slice(0,800),work,title,chapter,{onProgress,referer:baseUrl});
           return {file,work,source:'web'};
         }
         throw new Error('Aucun fichier ou ensemble de pages exploitable');
@@ -1849,51 +2028,79 @@ async function downloadReadFromTelegram(title,chapter,{onProgress=null}={}){
     const rt=runtimeConnectionFor(accountUsername);
     if(!rt?.client||rt?.client?.connected!==true)continue;
     let dialogs=[];
-    try{dialogs=await rt.client.getDialogs({limit:500})}catch{continue}
+    try{dialogs=await rt.client.getDialogs({limit:READ_TELEGRAM_DIALOG_LIMIT})}catch{continue}
     for(const dialog of Array.isArray(dialogs)?dialogs:[]){
       const entity=dialog?.entity;
       if(!entity?.id||!entity?.broadcast)continue;
-      for(const term of uniqueTerms){
-        let messages=[];
-        try{messages=await rt.client.getMessages(entity,{limit:60,search:term})}catch{continue}
-        for(const message of messages||[]){
-          if(!readFileLike(message))continue;
-          const signal=watcherSignalText(message);
-          const ch=readChapterNumber(signal);
-          if(!ch||String(Number(ch))!==wanted)continue;
-          if(readTitleScore(signal,title)<.58)continue;
-
-          const name=watcherFilename(message)||('chapter-'+wanted+'.pdf');
-          const ext=path.extname(name).toLowerCase();
-          if(!['.pdf','.cbz','.zip'].includes(ext)&&!String(message?.document?.mimeType||'').toLowerCase().includes('pdf'))continue;
-          const work=await fsp.mkdtemp(path.join(TMP_ROOT,'read-tg-'));
-          let accepted=false;
+      const searchTerms=[...new Set([
+        title+' '+wanted,
+        readTitleNorm(title)+' '+wanted,
+        ...uniqueTerms
+      ].map(x=>String(x||'').trim()).filter(Boolean))];
+      for(const term of searchTerms){
+        let offsetId=0;
+        let previousOldest=0;
+        const seenMessageIds=new Set();
+        for(let page=0;page<READ_TELEGRAM_MAX_PAGES;page++){
+          let messages=[];
           try{
-            const out=path.join(work,'chapter'+(ext||'.pdf'));
-            const expected=Number(message?.document?.size||0);
-            let lastAt=0;
-            const downloaded=await rt.client.downloadMedia(message.media,{
-              outputFile:out,workers:4,
-              progressCallback:(current,total)=>{
-                const now=Date.now();if(now-lastAt<2500)return;lastAt=now;
-                const got=Number(current||0),full=Number(total||0)||expected;
-                emit({
-                  stage:'read-telegram-download',
-                  message:nxaDownloadProgressText({
-                    percent:full?got/full*100:0,downloaded:got,total:full
-                  })
-                });
-              }
-            });
-            const file=typeof downloaded==='string'&&downloaded?downloaded:out;
-            const st=await fsp.stat(file);
-            if(st.size<20_000)throw new Error('Fichier incomplet');
-            accepted=true;
-            emit({stage:'read-ready',message:'Chapitre vérifié · préparation de l’envoi…',force:true});
-            return {file,work,source:'telegram'};
-          }catch(error){
-            if(!accepted)await fsp.rm(work,{recursive:true,force:true}).catch(()=>{});
+            const args={limit:READ_TELEGRAM_PAGE_SIZE,search:term};
+            if(offsetId>0)args.offsetId=offsetId;
+            messages=await rt.client.getMessages(entity,args);
+          }catch{break}
+          if(!Array.isArray(messages)||!messages.length)break;
+
+          let freshCount=0;
+          for(const message of messages){
+            const messageId=Number(message?.id||0);
+            if(messageId&&seenMessageIds.has(messageId))continue;
+            if(messageId)seenMessageIds.add(messageId);
+            freshCount++;
+            if(!readFileLike(message))continue;
+            const signal=watcherSignalText(message);
+            const ch=readChapterNumber(signal);
+            if(!ch||String(Number(ch))!==wanted)continue;
+            if(readTitleScore(signal,title)<.58)continue;
+
+            const name=watcherFilename(message)||('chapter-'+wanted+'.pdf');
+            const ext=path.extname(name).toLowerCase();
+            if(!['.pdf','.cbz','.zip'].includes(ext)&&!String(message?.document?.mimeType||'').toLowerCase().includes('pdf'))continue;
+            const work=await fsp.mkdtemp(path.join(TMP_ROOT,'read-tg-'));
+            let accepted=false;
+            try{
+              const out=path.join(work,'chapter'+(ext||'.pdf'));
+              const expected=Number(message?.document?.size||0);
+              let lastAt=0;
+              const downloaded=await rt.client.downloadMedia(message.media,{
+                outputFile:out,workers:4,
+                progressCallback:(current,total)=>{
+                  const now=Date.now();if(now-lastAt<2500)return;lastAt=now;
+                  const got=Number(current||0),full=Number(total||0)||expected;
+                  emit({
+                    stage:'read-telegram-download',
+                    message:nxaDownloadProgressText({
+                      percent:full?got/full*100:0,downloaded:got,total:full
+                    })
+                  });
+                }
+              });
+              const file=typeof downloaded==='string'&&downloaded?downloaded:out;
+              const st=await fsp.stat(file);
+              if(st.size<20_000)throw new Error('Fichier incomplet');
+              accepted=true;
+              emit({stage:'read-ready',message:'Chapitre vérifié · préparation de l’envoi…',force:true});
+              return {file,work,source:'telegram'};
+            }catch(error){
+              if(!accepted)await fsp.rm(work,{recursive:true,force:true}).catch(()=>{});
+            }
           }
+
+          const ids=messages.map(x=>Number(x?.id||0)).filter(x=>x>0);
+          const oldest=ids.length?Math.min(...ids):0;
+          if(messages.length<READ_TELEGRAM_PAGE_SIZE||freshCount===0||!oldest||oldest===previousOldest)break;
+          previousOldest=oldest;
+          offsetId=oldest;
+          await sleep(20);
         }
       }
     }
