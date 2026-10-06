@@ -166,7 +166,7 @@ async function processJob(job){
         String(job.readTitle||job.title||''),
         String(job.readChapter||job.chapter||''),
         Array.isArray(job.alternatives)?job.alternatives:[],
-        {onProgress:relayProgress}
+        {onProgress:relayProgress,aliases:Array.isArray(job.aliases)?job.aliases:[]}
       );
       work=dl.work;
       await relayProgress({message:'Chapitre valide trouvé · envoi vers Telegram…',force:true});
