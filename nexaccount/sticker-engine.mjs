@@ -1739,29 +1739,43 @@ async function createSet(account,title,name,prepared,emoji='✨'){
 async function createSetBatch(account,title,name,items=[]){
   const rows=items.slice(0,50);
   if(!rows.length)throw new Error('Batch stickers vide.');
-  const stickers=[];
-  const files=[];
-  rows.forEach((item,index)=>{
-    const field='sticker_file_'+index;
-    stickers.push({
-      sticker:'attach://'+field,
-      format:item.prepared.format,
-      emoji_list:[item.emoji||'✨']
-    });
-    files.push({
-      field,
-      buffer:item.prepared.buffer,
-      mime:item.prepared.mime,
-      filename:item.prepared.filename||('sticker_'+index+'.bin')
-    });
-  });
-  return botApiFiles('createNewStickerSet',{
+  const stickers=new Array(rows.length);
+  let cursor=0;
+  const workers=Math.min(8,rows.length);
+  await Promise.all(Array.from({length:workers},async()=>{
+    while(true){
+      const index=cursor++;
+      if(index>=rows.length)return;
+      const item=rows[index];
+      const uploaded=await withCloneRetry(
+        ()=>botApi('uploadStickerFile',{
+          user_id:String(account.telegramUserId),
+          sticker_format:item.prepared.format
+        },{
+          field:'sticker',
+          buffer:item.prepared.buffer,
+          mime:item.prepared.mime,
+          filename:item.prepared.filename||('sticker_'+index+'.bin')
+        },120000),
+        'batch upload '+(index+1)+'/'+rows.length,
+        {persistentTransient:true}
+      );
+      const fileId=String(uploaded?.file_id||'').trim();
+      if(!fileId)throw new Error('Sticker upload sans file_id.');
+      stickers[index]={
+        sticker:fileId,
+        format:item.prepared.format,
+        emoji_list:[item.emoji||'✨']
+      };
+    }
+  }));
+  return botApi('createNewStickerSet',{
     user_id:String(account.telegramUserId),
     name,
     title:String(title).slice(0,64),
     stickers,
     sticker_type:'regular'
-  },files,180000);
+  },null,120000);
 }
 async function addToSet(account,name,prepared,emoji='✨'){
   return botApi('addStickerToSet',{
