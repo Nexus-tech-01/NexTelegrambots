@@ -31,6 +31,7 @@ const CLONE_TRANSFORM_CONCURRENCY=Math.max(
   Math.min(32,Number(process.env.NEXAI_STICKER_TRANSFORM_CONCURRENCY||Math.max(4,Math.min(12,(os.cpus()?.length||4)*2))))
 );
 const CLONE_JOB_CONCURRENCY=Math.max(4,Math.min(256,Number(process.env.NEXAI_STICKER_JOB_CONCURRENCY||64)));
+const CLONE_STICKER_UPLOAD_CONCURRENCY=Math.max(4,Math.min(128,Number(process.env.NEXAI_STICKER_UPLOAD_CONCURRENCY||24)));
 const CLONE_PERMANENT_RETRY_ATTEMPTS=Math.max(1,Math.min(6,Number(process.env.NEXAI_STICKER_PERMANENT_RETRY_ATTEMPTS||3)));
 const activeCloneJobs=new Map();
 const scheduledCloneJobs=new Set();
@@ -65,6 +66,7 @@ const globalMutationLimiter=createAsyncLimiter(CLONE_MUTATION_GLOBAL_CONCURRENCY
 const globalDownloadLimiter=createAsyncLimiter(CLONE_GLOBAL_DOWNLOAD_CONCURRENCY);
 const globalTransformLimiter=createAsyncLimiter(CLONE_TRANSFORM_CONCURRENCY);
 const globalStickerJobLimiter=createAsyncLimiter(CLONE_JOB_CONCURRENCY);
+const globalStickerUploadLimiter=createAsyncLimiter(CLONE_STICKER_UPLOAD_CONCURRENCY);
 
 const STICKER_JOB_ACTIVE_STATUSES=['queued','running','retrying'];
 const STICKER_JOB_LEASE_MS=Math.max(2*60_000,Number(process.env.NEXAI_STICKER_JOB_LEASE_MS||5*60*1000));
@@ -1747,7 +1749,7 @@ async function createSetBatch(account,title,name,items=[]){
       const index=cursor++;
       if(index>=rows.length)return;
       const item=rows[index];
-      const uploaded=await withCloneRetry(
+      const uploaded=await globalStickerUploadLimiter(()=>withCloneRetry(
         ()=>botApi('uploadStickerFile',{
           user_id:String(account.telegramUserId),
           sticker_format:item.prepared.format
@@ -1759,7 +1761,7 @@ async function createSetBatch(account,title,name,items=[]){
         },120000),
         'batch upload '+(index+1)+'/'+rows.length,
         {persistentTransient:true}
-      );
+      ));
       const fileId=String(uploaded?.file_id||'').trim();
       if(!fileId)throw new Error('Sticker upload sans file_id.');
       stickers[index]={
