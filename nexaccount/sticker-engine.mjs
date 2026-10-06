@@ -556,7 +556,13 @@ async function startProgress(client,peer,text){
 
 async function restoreDurableProgress(runtime,job,progress=null){
   if(progress)return progress;
-  const peer=peerFromRef(job?.progressPeerRef||job?.peerRef);
+  let peer=peerFromRef(job?.progressPeerRef||job?.peerRef);
+  if(!peer){
+    const selfId=String(runtime?.account?.telegramUserId||'').trim();
+    if(/^-?\d+$/.test(selfId)){
+      peer=new Api.PeerUser({userId:BigInt(selfId)});
+    }
+  }
   if(!peer)return null;
   const id=Math.max(0,Number(job?.progressMessageId)||0);
   if(id)return progressController(runtime.client,peer,id);
@@ -1173,12 +1179,15 @@ async function runDurablePackJob({runtime,job,progress=null}){
           );
           let prepared;
           try{
-            prepared=await withPersistentStickerRetry(
-              runtime,
-              ()=>queueCloneTransform(()=>transform(raw,{index:sourceIndex,doc})),
-              label+' · traitement '+(sourceIndex+1)+'/'+docs.length,
-              {jobId:id,progress}
-            );
+            const transformAction=()=>queueCloneTransform(()=>transform(raw,{index:sourceIndex,doc}));
+            prepared=kind==='noteclone'
+              ?await withCloneRetry(transformAction,label+' · traitement '+(sourceIndex+1)+'/'+docs.length)
+              :await withPersistentStickerRetry(
+                runtime,
+                transformAction,
+                label+' · traitement '+(sourceIndex+1)+'/'+docs.length,
+                {jobId:id,progress}
+              );
           }catch(error){
             if(kind!=='noteclone')throw error;
             fallbackTransforms++;
@@ -1233,10 +1242,15 @@ async function runDurablePackJob({runtime,job,progress=null}){
         const batchItems=await prepareBatch(0,batchCount);
         let batchCreated=false;
         try{
-          await queueCloneMutation(
-            ()=>createSetBatch(account,part.title,part.name,batchItems),
-            id+' '+kind+' initial batch '+batchCount,
-            part.name
+          await withPersistentStickerRetry(
+            runtime,
+            ()=>queueCloneMutation(
+              ()=>createSetBatch(account,part.title,part.name,batchItems),
+              id+' '+kind+' initial batch '+batchCount,
+              part.name
+            ),
+            label+' · création batch '+batchCount,
+            {jobId:id,progress}
           );
           batchCreated=true;
         }catch(error){
