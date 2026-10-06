@@ -1,7 +1,8 @@
 import {tg} from './_nexanime-telegram.js';
 import {byId,titleOf,seasonCount} from './_nexanime-franime.js';
 import {esc,languageKeyboard,seasonsKeyboard,episodesKeyboard,qualityKeyboard} from './_nexanime-ui.js';
-import {cacheKey,cachedEpisode,activeEpisodeJob,queueEpisode} from './_nexanime-jobs.js';
+import {cacheKey,readCacheKey,cachedEpisode,activeEpisodeJob,queueEpisode,queueReadChapter} from './_nexanime-jobs.js';
+import {beginReadLookup,readChapterEntry,readSeriesById,renderReadCatalog,setMediaMode} from './_nexanime-read.js';
 
 async function edit(cq,text,reply_markup){
   const m=cq?.message,chatId=m?.chat?.id,messageId=m?.message_id;
@@ -17,9 +18,69 @@ export async function handleCallback(cq){
   await tg('answerCallbackQuery',{callback_query_id:cq.id}).catch(()=>{});
   if(!chatId)return;
   if(data==='noop')return;
-  if(data==='r:search')return edit(cq,'Envoie le nom de l’anime que tu recherches.');
+  if(data==='home:anime'){
+    await setMediaMode(chatId,'anime');
+    return edit(cq,'🎬 <b>Anime</b>\n\nEnvoie le titre de l’anime que tu recherches.');
+  }
+  if(data==='home:read'){
+    await setMediaMode(chatId,'read');
+    return edit(cq,'📚 <b>Manga · Scan · Webtoon · Manhwa</b>\n\nEnvoie le titre. NexAnime fusionnera les catalogues avant d’afficher les chapitres.');
+  }
+  if(data==='r:search'){
+    await setMediaMode(chatId,'anime');
+    return edit(cq,'Envoie le nom de l’anime que tu recherches.');
+  }
 
-  let m=data.match(/^a:(\d+)$/);
+  let m=data.match(/^rr:([a-f0-9]{16})$/i);
+  if(m){
+    const series=await readSeriesById(m[1]); if(!series)return;
+    return beginReadLookup(chatId,series.title||series.query,{messageId:cq.message.message_id,force:true});
+  }
+
+  m=data.match(/^rp:([a-f0-9]{16}):(\d+)$/i);
+  if(m)return renderReadCatalog(chatId,m[1],{messageId:cq.message.message_id,page:Number(m[2])});
+
+  m=data.match(/^rc:([a-f0-9]{16}):([0-9_]+)$/i);
+  if(m){
+    const chapterNumber=m[2].replace('_','.');
+    const entry=await readChapterEntry(m[1],chapterNumber);
+    if(!entry)return edit(cq,'❌ Chapitre introuvable. Relance la vérification du catalogue.');
+    const series=entry.series,ch=entry.chapter;
+    const key=readCacheKey(series._id,chapterNumber);
+    const caption=String(series.title||series.query||'Lecture')+' · Chapitre '+chapterNumber;
+    const cached=await cachedEpisode(key);
+    if(cached?.fileId){
+      return tg('sendDocument',{chat_id:chatId,document:cached.fileId,caption});
+    }
+    const active=await activeEpisodeJob(key);
+    if(active){
+      const text='⏳ '+caption+'\n'+String(active.progress||'Téléchargement déjà en cours…').slice(0,500);
+      if(String(active.chatId)===String(chatId)&&active.statusMessageId){
+        await tg('editMessageText',{chat_id:chatId,message_id:active.statusMessageId,text}).catch(()=>{});
+        return;
+      }
+      return tg('sendMessage',{chat_id:chatId,text});
+    }
+    const status=await tg('sendMessage',{chat_id:chatId,text:'⏳ '+caption+'\nRecherche sur toutes les méthodes disponibles…'});
+    const alternatives=(Array.isArray(ch.sources)?ch.sources:[]).map(source=>({
+      kind:String(source?.kind||''),
+      url:String(source?.url||''),
+      referer:String(source?.referer||''),
+      chapterId:String(source?.chapterId||'')
+    })).filter(source=>source.kind==='mangadex'||/^https?:\/\//i.test(source.url));
+    return queueReadChapter({
+      key,
+      chatId,
+      statusMessageId:status.message_id,
+      seriesId:series._id,
+      title:series.title||series.query,
+      chapter:chapterNumber,
+      alternatives,
+      caption
+    });
+  }
+
+  m=data.match(/^a:(\d+)$/);
   if(m){
     const a=await byId(m[1]); if(!a)return;
     return edit(cq,'<b>'+esc(titleOf(a))+'</b>\n'+seasonCount(a)+' saison(s) disponible(s).\n\nChoisis la langue :',languageKeyboard(a.id));
