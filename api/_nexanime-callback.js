@@ -73,8 +73,9 @@ export async function handleCallback(cq){
       chatId,
       statusMessageId:status.message_id,
       seriesId:series._id,
-      title:series.title||series.query,
+      title:series.canonicalTitle||series.title||series.query,
       chapter:chapterNumber,
+      aliases:Array.isArray(series.aliases)?series.aliases:[],
       alternatives,
       caption
     });
