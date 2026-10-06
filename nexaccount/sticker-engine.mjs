@@ -19,17 +19,55 @@ const STICKER_PACK_PART_SIZE=Math.max(10,Math.min(120,Number(process.env.NEXAI_S
 const STICKER_PERSISTENT_RETRY_MS=Math.max(5000,Math.min(10*60*1000,Number(process.env.NEXAI_STICKER_PERSISTENT_RETRY_MS||30000)));
 const CLONE_RETRY_ATTEMPTS=Math.max(2,Math.min(20,Number(process.env.NEXAI_STICKER_CLONE_RETRY_ATTEMPTS||8)));
 const CLONE_RETRY_BASE_MS=Math.max(250,Math.min(10000,Number(process.env.NEXAI_STICKER_CLONE_RETRY_BASE_MS||1200)));
-const CLONE_MUTATION_GAP_MS=Math.max(200,Math.min(5000,Number(process.env.NEXAI_STICKER_MUTATION_GAP_MS||300)));
+const CLONE_MUTATION_GAP_MS=Math.max(50,Math.min(5000,Number(process.env.NEXAI_STICKER_MUTATION_GAP_MS||120)));
+const CLONE_MUTATION_GLOBAL_CONCURRENCY=Math.max(1,Math.min(64,Number(process.env.NEXAI_STICKER_MUTATION_GLOBAL_CONCURRENCY||12)));
 const CLONE_TRANSIENT_MAX_MS=Math.max(5*60*1000,Math.min(12*60*60*1000,Number(process.env.NEXAI_STICKER_TRANSIENT_MAX_MS||6*60*60*1000)));
+const CLONE_DOWNLOAD_CONCURRENCY=Math.max(1,Math.min(12,Number(process.env.NEXAI_STICKER_DOWNLOAD_CONCURRENCY||6)));
+const CLONE_GLOBAL_DOWNLOAD_CONCURRENCY=Math.max(4,Math.min(256,Number(process.env.NEXAI_STICKER_GLOBAL_DOWNLOAD_CONCURRENCY||48)));
+const CLONE_PREPARE_CONCURRENCY=Math.max(2,Math.min(32,Number(process.env.NEXAI_STICKER_PREPARE_CONCURRENCY||10)));
+const CLONE_PREPARE_AHEAD=Math.max(2,Math.min(32,Number(process.env.NEXAI_STICKER_PREPARE_AHEAD||10)));
+const CLONE_TRANSFORM_CONCURRENCY=Math.max(
+  1,
+  Math.min(32,Number(process.env.NEXAI_STICKER_TRANSFORM_CONCURRENCY||Math.max(4,Math.min(12,(os.cpus()?.length||4)*2))))
+);
+const CLONE_JOB_CONCURRENCY=Math.max(4,Math.min(256,Number(process.env.NEXAI_STICKER_JOB_CONCURRENCY||64)));
 const activeCloneJobs=new Map();
-let stickerMutationTail=Promise.resolve();
-let stickerMutationNextAt=0;
+const scheduledCloneJobs=new Set();
+const stickerMutationStates=new Map();
 const cloneDownloadStates=new Map();
-const CLONE_DOWNLOAD_CONCURRENCY=Math.max(1,Math.min(6,Number(process.env.NEXAI_STICKER_DOWNLOAD_CONCURRENCY||3)));
 const rememberPackTails=new Map();
+
+function createAsyncLimiter(limit){
+  const cap=Math.max(1,Number(limit)||1);
+  let active=0;
+  const waiters=[];
+  const pump=()=>{
+    while(active<cap&&waiters.length){
+      const next=waiters.shift();
+      active++;
+      Promise.resolve()
+        .then(next.action)
+        .then(next.resolve,next.reject)
+        .finally(()=>{
+          active=Math.max(0,active-1);
+          pump();
+        });
+    }
+  };
+  return action=>new Promise((resolve,reject)=>{
+    waiters.push({action,resolve,reject});
+    pump();
+  });
+}
+
+const globalMutationLimiter=createAsyncLimiter(CLONE_MUTATION_GLOBAL_CONCURRENCY);
+const globalDownloadLimiter=createAsyncLimiter(CLONE_GLOBAL_DOWNLOAD_CONCURRENCY);
+const globalTransformLimiter=createAsyncLimiter(CLONE_TRANSFORM_CONCURRENCY);
+const globalStickerJobLimiter=createAsyncLimiter(CLONE_JOB_CONCURRENCY);
 
 const STICKER_JOB_ACTIVE_STATUSES=['queued','running','retrying'];
 const STICKER_JOB_LEASE_MS=Math.max(2*60_000,Number(process.env.NEXAI_STICKER_JOB_LEASE_MS||5*60*1000));
+const stickerWorkerOwner=[String(cfg.workerId||'nexai'),os.hostname(),String(process.pid)].join(':');
 let stickerJobIndexesReady=false;
 
 async function stickerJobCollection(){
@@ -87,7 +125,7 @@ async function listPendingStickerJobs(telegramUserId,{limit=25}={}){
 
 async function claimStickerJob(id,telegramUserId){
   const collection=await stickerJobCollection();
-  const now=new Date(),owner=String(cfg.workerId||process.pid);
+  const now=new Date(),owner=stickerWorkerOwner;
   const leaseExpiresAt=new Date(Date.now()+STICKER_JOB_LEASE_MS);
   const result=await collection.findOneAndUpdate(
     {
@@ -110,12 +148,23 @@ async function claimStickerJob(id,telegramUserId){
 
 async function renewStickerJobLease(id){
   const collection=await stickerJobCollection();
-  const owner=String(cfg.workerId||process.pid);
+  const owner=stickerWorkerOwner;
   const result=await collection.updateOne(
     {_id:String(id),leaseOwner:owner,status:{$in:STICKER_JOB_ACTIVE_STATUSES}},
     {$set:{leaseExpiresAt:new Date(Date.now()+STICKER_JOB_LEASE_MS),updatedAt:new Date()}}
   );
   return result.matchedCount===1;
+}
+
+function startStickerLeaseHeartbeat(id){
+  const every=Math.max(20_000,Math.floor(STICKER_JOB_LEASE_MS/3));
+  const timer=setInterval(()=>{
+    renewStickerJobLease(id).catch(error=>{
+      console.warn('[NexAi sticker lease heartbeat]',id,String(error?.message||error).slice(0,220));
+    });
+  },every);
+  timer.unref?.();
+  return ()=>clearInterval(timer);
 }
 
 async function patchStickerJob(id,patch={}){
@@ -131,7 +180,7 @@ async function patchStickerJob(id,patch={}){
 
 async function releaseStickerJob(id,patch={}){
   const collection=await stickerJobCollection();
-  const owner=String(cfg.workerId||process.pid);
+  const owner=stickerWorkerOwner;
   const safe={...patch,status:patch.status||'queued',updatedAt:new Date(),leaseOwner:'',leaseExpiresAt:new Date(0)};
   delete safe._id;
   delete safe.id;
@@ -525,17 +574,32 @@ async function withCloneRetry(action,label='clone',{persistentTransient=false}={
   throw last||new Error('Clone operation failed');
 }
 
-function queueCloneMutation(action,label='mutation'){
-  const task=stickerMutationTail.then(async()=>{
-    const wait=Math.max(0,stickerMutationNextAt-Date.now());
+function queueCloneMutation(action,label='mutation',key='global'){
+  const queueKey=String(key||'global');
+  let state=stickerMutationStates.get(queueKey);
+  if(!state){
+    state={tail:Promise.resolve(),nextAt:0};
+    stickerMutationStates.set(queueKey,state);
+  }
+  const task=state.tail.then(async()=>{
+    const wait=Math.max(0,Number(state.nextAt||0)-Date.now());
     if(wait)await sleep(wait);
     try{
-      return await action();
+      return await globalMutationLimiter(action);
     }finally{
-      stickerMutationNextAt=Date.now()+CLONE_MUTATION_GAP_MS;
+      state.nextAt=Date.now()+CLONE_MUTATION_GAP_MS;
     }
   });
-  stickerMutationTail=task.catch(()=>{});
+  const tail=task.catch(()=>{});
+  state.tail=tail;
+  tail.finally(()=>{
+    const timer=setTimeout(()=>{
+      if(stickerMutationStates.get(queueKey)===state&&state.tail===tail){
+        stickerMutationStates.delete(queueKey);
+      }
+    },CLONE_MUTATION_GAP_MS+250);
+    timer.unref?.();
+  });
   return task;
 }
 
@@ -551,7 +615,7 @@ async function queueCloneDownload(accountId,action,label='download'){
   }
   state.active++;
   try{
-    return await withCloneRetry(action,label,{persistentTransient:true});
+    return await globalDownloadLimiter(()=>withCloneRetry(action,label,{persistentTransient:true}));
   }finally{
     state.active=Math.max(0,state.active-1);
     const next=state.waiters.shift();
@@ -562,6 +626,10 @@ async function queueCloneDownload(accountId,action,label='download'){
 
 function cloneJobId(accountId){
   return newStickerJobId(accountId);
+}
+
+function queueCloneTransform(action){
+  return globalTransformLimiter(action);
 }
 
 async function safeProgress(progress,text){
@@ -809,7 +877,8 @@ async function applyDurableStickerMutation({
           ()=>!state.exists
             ?createSet(account,part.title,part.name,prepared,emoji)
             :addToSet(account,part.name,prepared,emoji),
-          id+' '+kind+' '+(sourceIndex+1)+'/'+total
+          id+' '+kind+' '+(sourceIndex+1)+'/'+total,
+          part.name
         );
         return {added:true,count:localIndex+1};
       }catch(error){
@@ -932,6 +1001,7 @@ async function runDurablePackJob({runtime,job,progress=null}){
     return false;
   }
 
+  const stopLeaseHeartbeat=startStickerLeaseHeartbeat(id);
   const kind=String(claimed.kind||'clonepack');
   const label=jobLabel(kind);
   const parts=Array.isArray(claimed.parts)&&claimed.parts.length
@@ -985,38 +1055,54 @@ async function runDurablePackJob({runtime,job,progress=null}){
         await patchStickerJob(id,{nextIndex:completed,status:'running',lastError:''}).catch(()=>{});
       }
 
-      const prepareLocalSticker=async localIndex=>{
-        const sourceIndex=Number(part.start)+localIndex;
-        const doc=docs[sourceIndex];
-        const raw=await withPersistentStickerRetry(
-          runtime,
-          ()=>queueCloneDownload(
-            account.telegramUserId,
-            ()=>downloadCloneDocument(client,doc,{sourcePackName:claimed.sourcePackName,sourceIndex}),
-            id+' download '+(sourceIndex+1)+'/'+docs.length
-          ),
-          label+' · téléchargement '+(sourceIndex+1)+'/'+docs.length,
-          {jobId:id,progress}
-        );
-        const prepared=await withPersistentStickerRetry(
-          runtime,
-          ()=>transform(raw,{index:sourceIndex,doc}),
-          label+' · traitement '+(sourceIndex+1)+'/'+docs.length,
-          {jobId:id,progress}
-        );
-        return {sourceIndex,doc,prepared,emoji:stickerAttr(doc)?.alt||'✨'};
+      const preparedCache=new Map();
+      const prepareLocalSticker=localIndex=>{
+        if(preparedCache.has(localIndex))return preparedCache.get(localIndex);
+        const promise=(async()=>{
+          const sourceIndex=Number(part.start)+localIndex;
+          const doc=docs[sourceIndex];
+          const raw=await withPersistentStickerRetry(
+            runtime,
+            ()=>queueCloneDownload(
+              account.telegramUserId,
+              ()=>downloadCloneDocument(client,doc,{sourcePackName:claimed.sourcePackName,sourceIndex}),
+              id+' download '+(sourceIndex+1)+'/'+docs.length
+            ),
+            label+' · téléchargement '+(sourceIndex+1)+'/'+docs.length,
+            {jobId:id,progress}
+          );
+          const prepared=await withPersistentStickerRetry(
+            runtime,
+            ()=>queueCloneTransform(()=>transform(raw,{index:sourceIndex,doc})),
+            label+' · traitement '+(sourceIndex+1)+'/'+docs.length,
+            {jobId:id,progress}
+          );
+          return {sourceIndex,doc,prepared,emoji:stickerAttr(doc)?.alt||'✨'};
+        })();
+        preparedCache.set(localIndex,promise);
+        promise.catch(()=>{
+          if(preparedCache.get(localIndex)===promise)preparedCache.delete(localIndex);
+        });
+        return promise;
       };
 
       const prepareBatch=async(start,count)=>{
         const total=Math.max(0,Math.min(Number(part.total)-start,count));
         const out=new Array(total);
-        let cursor=0;
-        const workers=Math.min(4,total);
+        let cursor=0,finished=0;
+        const workers=Math.min(CLONE_PREPARE_CONCURRENCY,total);
         await Promise.all(Array.from({length:workers},async()=>{
           while(true){
             const offset=cursor++;
             if(offset>=total)return;
             out[offset]=await prepareLocalSticker(start+offset);
+            finished++;
+            if(finished===total||finished%5===0){
+              void safeProgress(
+                progress,
+                '⚡ '+label+' · préparation '+(start+1)+'-'+(start+total)+' · '+finished+'/'+total+' prêt(s) · pack '+docs.length
+              );
+            }
           }
         }));
         return out;
@@ -1033,7 +1119,8 @@ async function runDurablePackJob({runtime,job,progress=null}){
         try{
           await queueCloneMutation(
             ()=>createSetBatch(account,part.title,part.name,batchItems),
-            id+' '+kind+' initial batch '+batchCount
+            id+' '+kind+' initial batch '+batchCount,
+            part.name
           );
           batchCreated=true;
         }catch(error){
@@ -1062,6 +1149,7 @@ async function runDurablePackJob({runtime,job,progress=null}){
             retryAt:null
           }).catch(()=>{});
           await renewStickerJobLease(id).catch(()=>{});
+          for(let cachedIndex=0;cachedIndex<batchCount;cachedIndex++)preparedCache.delete(cachedIndex);
           await safeProgress(progress,'⚡ '+label+' · batch Telegram créé · '+completed+'/'+docs.length);
         }
       }
@@ -1070,17 +1158,19 @@ async function runDurablePackJob({runtime,job,progress=null}){
         value=>({ok:true,value}),
         error=>({ok:false,error})
       );
-      let preparedAhead=null;
+      const warmPrepareWindow=from=>{
+        const end=Math.min(Number(part.total),from+CLONE_PREPARE_AHEAD);
+        for(let index=from;index<end;index++){
+          void startPrepared(index);
+        }
+      };
       for(let localIndex=localDone;localIndex<Number(part.total);localIndex++){
         const currentLocalIndex=localIndex;
-        const currentResult=await (preparedAhead||startPrepared(currentLocalIndex));
+        warmPrepareWindow(currentLocalIndex);
+        const currentResult=await startPrepared(currentLocalIndex);
         if(!currentResult.ok)throw currentResult.error;
         const current=currentResult.value;
-
         const nextLocalIndex=currentLocalIndex+1;
-        preparedAhead=nextLocalIndex<Number(part.total)
-          ?startPrepared(nextLocalIndex)
-          :null;
 
         const {sourceIndex,doc,prepared,emoji}=current;
         const mutation=await applyDurableStickerMutation({
@@ -1093,7 +1183,7 @@ async function runDurablePackJob({runtime,job,progress=null}){
           completed=Math.max(0,completed-localDone);
           localDone=0;
           localIndex=-1;
-          preparedAhead=null;
+          preparedCache.clear();
           state.exists=false;
           state.count=0;
           await patchStickerJob(id,{
@@ -1105,14 +1195,18 @@ async function runDurablePackJob({runtime,job,progress=null}){
           continue;
         }
 
+        preparedCache.delete(currentLocalIndex);
         const effectiveCount=Math.max(currentLocalIndex+1,Math.min(Number(part.total)||0,Number(mutation?.count)||0));
         const advanced=Math.max(1,effectiveCount-localDone);
         localDone=Math.min(Number(part.total)||0,effectiveCount);
         completed+=advanced;
         if(localDone>currentLocalIndex+1){
           localIndex=localDone-1;
-          preparedAhead=null;
+          for(const cacheIndex of [...preparedCache.keys()]){
+            if(cacheIndex<localDone)preparedCache.delete(cacheIndex);
+          }
         }
+        warmPrepareWindow(Math.max(localDone,nextLocalIndex));
         state.exists=true;
         state.count=localDone;
         updateActiveJob(id,{nextIndex:completed});
@@ -1192,6 +1286,7 @@ async function runDurablePackJob({runtime,job,progress=null}){
     }
     return false;
   }finally{
+    stopLeaseHeartbeat();
     activeCloneJobs.delete(id);
   }
 }
@@ -1351,11 +1446,16 @@ async function runDurableExportJob({runtime,job,progress=null}){
 
 function startDurableStickerJob(runtime,job,progress=null){
   const id=String(job?.id||job?._id||'');
-  if(!id||activeCloneJobs.has(id))return id;
+  if(!id||activeCloneJobs.has(id)||scheduledCloneJobs.has(id))return id;
+  scheduledCloneJobs.add(id);
   const runner=String(job?.kind||'')==='exportwhatsapp'?runDurableExportJob:runDurablePackJob;
-  void runner({runtime,job,progress}).catch(error=>{
-    console.error('[NexAi sticker durable background]',id,String(error?.stack||error));
-  });
+  void globalStickerJobLimiter(()=>runner({runtime,job,progress}))
+    .catch(error=>{
+      console.error('[NexAi sticker durable background]',id,String(error?.stack||error));
+    })
+    .finally(()=>{
+      scheduledCloneJobs.delete(id);
+    });
   return id;
 }
 
@@ -1588,11 +1688,11 @@ async function ensureDefaultPack(runtime,prepared,settings=null){
       if(existing.exists&&Number(existing.count)>=STICKER_PACK_PART_SIZE)continue;
       if(existing.exists){
         pending={name:candidate,mode:'add',beforeCount:Number(existing.count)||0};
-        await queueCloneMutation(()=>addToSet(account,candidate,prepared),'sticker default add p'+part);
+        await queueCloneMutation(()=>addToSet(account,candidate,prepared),'sticker default add p'+part,candidate);
       }else{
         pending={name:candidate,mode:'create',beforeCount:0};
         const partTitle=part>1?(title+' · '+part).slice(0,64):title;
-        await queueCloneMutation(()=>createSet(account,partTitle,candidate,prepared),'sticker default create p'+part);
+        await queueCloneMutation(()=>createSet(account,partTitle,candidate,prepared),'sticker default create p'+part,candidate);
       }
       return candidate;
     }
@@ -1858,7 +1958,7 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
     );
     const prepared=await withPersistentStickerRetry(
       runtime,
-      ()=>transform(raw,{index:0,doc:docs[0]}),
+      ()=>queueCloneTransform(()=>transform(raw,{index:0,doc:docs[0]})),
       label+' · traitement 1/1',
       {progress}
     );
@@ -1870,7 +1970,8 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
         if(existing.exists)return true;
         return queueCloneMutation(
           ()=>createSet(account,title,newName,prepared,stickerAttr(docs[0])?.alt||'✨'),
-          label+' create single'
+          label+' create single',
+          newName
         );
       },
       label+' · création',
@@ -1979,7 +2080,8 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
       runtime,
       ()=>queueCloneMutation(
         ()=>createSet(account,title,newName,prepared,attr.alt||'✨'),
-        'Take direct · create'
+        'Take direct · create',
+        newName
       ),
       'Take · recréation du sticker',
       {progress}
@@ -2048,7 +2150,8 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
         if(existing.exists)return true;
         return queueCloneMutation(
           ()=>createSet(account,title,newName,finalSticker,raw.sticker?.alt||'✨'),
-          'createpack '+newName
+          'createpack '+newName,
+          newName
         );
       },
       'Createpack · création',
