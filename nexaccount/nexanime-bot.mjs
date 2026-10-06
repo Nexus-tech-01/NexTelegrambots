@@ -1517,6 +1517,336 @@ export async function downloadEpisode(anime,lang,s,e,quality,options={}){
   }
 }
 
+
+function readChapterNumber(raw=''){
+  const text=String(raw).replace(/[_-]+/g,' ');
+  let m=text.match(/\b(?:chapitre|chapter|chap|ch)\s*[#.: -]*0*(\d{1,4}(?:\.\d+)?)\b/i);
+  if(m)return String(Number(m[1]));
+  m=text.match(/\b(?:episode|épisode|ep)\s*[#.: -]*0*(\d{1,4}(?:\.\d+)?)\b/i);
+  if(m)return String(Number(m[1]));
+  return '';
+}
+
+function readTitleNorm(value=''){
+  return normalize(value)
+    .replace(/\b(?:chapitre|chapter|chap|ch|episode|ep)\s*[#.: -]*\d+(?:\.\d+)?\b/g,' ')
+    .replace(/\b(?:scan|vf|fr|french|pdf|cbz|zip|webtoon|manhwa|manga)\b/g,' ')
+    .replace(/\s+/g,' ').trim();
+}
+
+function readTitleScore(candidate,title){
+  const c=readTitleNorm(candidate),t=readTitleNorm(title);
+  if(!c||!t)return 0;
+  if(c===t)return 1;
+  const ct=c.split(' ').filter(Boolean),tt=t.split(' ').filter(Boolean);
+  if(c.includes(t)||t.includes(c)){
+    if(Math.min(ct.length,tt.length)>=2)return .97;
+  }
+  const cs=new Set(ct),ts=new Set(tt);
+  let hit=0;
+  for(const x of ts)if(cs.has(x))hit++;
+  const recall=hit/Math.max(ts.size,1);
+  const precision=hit/Math.max(cs.size,1);
+  return recall*.75+precision*.25;
+}
+
+function readFileLike(message){
+  if(!message?.document)return false;
+  const mime=String(message.document?.mimeType||'').toLowerCase();
+  const name=watcherFilename(message).toLowerCase();
+  return /application\/pdf|application\/zip|application\/x-(?:zip-compressed|cbz)/i.test(mime)
+    ||/\.(?:pdf|cbz|zip)$/i.test(name);
+}
+
+function readSafeName(value='chapter'){
+  return String(value||'chapter').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9._-]+/gi,'-').replace(/-+/g,'-').replace(/^-|-$/g,'').slice(0,90)||'chapter';
+}
+
+async function readDownloadUrl(url,file,{onProgress=null,label='Téléchargement'}={}){
+  const started=Date.now();
+  const r=await fetch(url,{
+    redirect:'follow',
+    headers:{
+      'user-agent':USER_AGENT,
+      'accept':'*/*',
+      'accept-language':'fr-FR,fr;q=0.9,en;q=0.7'
+    },
+    signal:AbortSignal.timeout(90_000)
+  });
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const total=Number(r.headers.get('content-length')||0);
+  const reader=r.body?.getReader?.();
+  if(!reader){
+    const buf=Buffer.from(await r.arrayBuffer());
+    await fsp.writeFile(file,buf);
+    return {size:buf.length,contentType:String(r.headers.get('content-type')||'')};
+  }
+  const handle=await fsp.open(file,'w');
+  let downloaded=0,last=0;
+  try{
+    while(true){
+      const {done,value}=await reader.read();
+      if(done)break;
+      if(value?.length){
+        await handle.write(value);
+        downloaded+=value.length;
+      }
+      const now=Date.now();
+      if(typeof onProgress==='function'&&now-last>2500){
+        last=now;
+        const pct=total?downloaded/total*100:0;
+        const secs=Math.max(.1,(now-started)/1000);
+        const bps=downloaded/secs;
+        const eta=total&&bps>0?Math.max(0,(total-downloaded)/bps):0;
+        const speed=bps?nxaHumanBytes(bps)+'/s':'';
+        const etaText=eta?Math.floor(eta/60)+':'+String(Math.floor(eta%60)).padStart(2,'0'):'';
+        await Promise.resolve(onProgress({
+          stage:'read-download',
+          message:nxaDownloadProgressText({percent:pct,downloaded,total,speed,eta:etaText})
+        })).catch(()=>{});
+      }
+    }
+  }finally{await handle.close().catch(()=>{})}
+  return {size:downloaded,contentType:String(r.headers.get('content-type')||'')};
+}
+
+async function readPackImages(imageUrls,work,title,chapter,{onProgress=null}={}){
+  const dir=path.join(work,'pages');
+  await fsp.mkdir(dir,{recursive:true});
+  const good=[];
+  let done=0;
+  for(let i=0;i<imageUrls.length;i++){
+    const u=String(imageUrls[i]||'');
+    if(!/^https?:\/\//i.test(u))continue;
+    let ext='.jpg';
+    try{
+      const e=path.extname(new URL(u).pathname).toLowerCase();
+      if(/^\.(?:jpe?g|png|webp)$/.test(e))ext=e;
+    }catch{}
+    const file=path.join(dir,String(i+1).padStart(4,'0')+ext);
+    try{
+      const meta=await readDownloadUrl(u,file,{});
+      const stat=await fsp.stat(file);
+      if(stat.size<8_000){await fsp.rm(file,{force:true}).catch(()=>{});continue}
+      good.push(file);
+      done++;
+      if(typeof onProgress==='function'){
+        const pct=imageUrls.length?done/imageUrls.length*100:0;
+        await Promise.resolve(onProgress({
+          stage:'read-pages',
+          message:'📖 Pages : '+done+'/'+imageUrls.length+'\n['+nxaProgressBar(pct)+'] '+pct.toFixed(1)+'%'
+        })).catch(()=>{});
+      }
+    }catch{await fsp.rm(file,{force:true}).catch(()=>{})}
+  }
+  if(good.length<2)throw new Error('Pages insuffisantes');
+  const cbz=path.join(work,readSafeName(title)+'-ch-'+readSafeName(chapter)+'.cbz');
+  const py="import os,sys,zipfile\nout=sys.argv[1]\nroot=sys.argv[2]\nwith zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as z:\n  [z.write(os.path.join(root,n),n) for n in sorted(os.listdir(root)) if os.path.isfile(os.path.join(root,n))]";
+  await run('python3',['-c',py,cbz,dir],{timeout:120_000});
+  const st=await fsp.stat(cbz);
+  if(st.size<20_000)throw new Error('Archive chapitre invalide');
+  return cbz;
+}
+
+function readHtmlUrls(html,base){
+  const files=[],images=[];
+  for(const m of String(html||'').matchAll(/href=["']([^"']+)["']/gi)){
+    try{
+      const u=new URL(m[1].replace(/&amp;/g,'&'),base).href;
+      if(/\.(?:pdf|cbz|zip)(?:$|[?#])/i.test(u))files.push(u);
+    }catch{}
+  }
+  for(const m of String(html||'').matchAll(/<img[^>]+(?:data-lazy-src|data-src|src)=["']([^"']+)["'][^>]*>/gi)){
+    try{
+      const u=new URL(m[1].replace(/&amp;/g,'&'),base).href;
+      if(!/\.(?:jpe?g|png|webp)(?:$|[?#])/i.test(u))continue;
+      if(/(?:logo|avatar|icon|emoji|banner|ads?|cover|thumbnail|sprite)/i.test(u))continue;
+      images.push(u);
+    }catch{}
+  }
+  return {files:[...new Set(files)],images:[...new Set(images)]};
+}
+
+async function downloadReadFromMangaDex(chapterId,title,chapter,{onProgress=null}={}){
+  const meta=await fetch('https://api.mangadex.org/at-home/server/'+encodeURIComponent(chapterId),{
+    headers:{'user-agent':'NexAnime/1.0'},signal:AbortSignal.timeout(20_000)
+  });
+  if(!meta.ok)throw new Error('Chapitre indisponible');
+  const body=await meta.json();
+  const base=String(body?.baseUrl||''),hash=String(body?.chapter?.hash||'');
+  const names=Array.isArray(body?.chapter?.data)?body.chapter.data:[];
+  if(!base||!hash||!names.length)throw new Error('Pages indisponibles');
+  const urls=names.map(name=>base+'/data/'+hash+'/'+name);
+  const work=await fsp.mkdtemp(path.join(TMP_ROOT,'read-mdx-'));
+  try{
+    const file=await readPackImages(urls,work,title,chapter,{onProgress});
+    return {file,work,source:'catalog'};
+  }catch(error){
+    await fsp.rm(work,{recursive:true,force:true}).catch(()=>{});
+    throw error;
+  }
+}
+
+async function downloadReadFromWeb(title,chapter,alternatives,{onProgress=null}={}){
+  const list=Array.isArray(alternatives)?alternatives:[];
+  let lastError=null;
+  for(const alt of list){
+    try{
+      if(alt?.kind==='mangadex'&&alt?.chapterId){
+        return await downloadReadFromMangaDex(String(alt.chapterId),title,chapter,{onProgress});
+      }
+      const url=String(alt?.url||'').trim();
+      if(!/^https?:\/\//i.test(url))continue;
+      if(typeof onProgress==='function'){
+        await Promise.resolve(onProgress({
+          stage:'read-method',
+          message:'Recherche et préparation du chapitre…',
+          force:true
+        })).catch(()=>{});
+      }
+      const work=await fsp.mkdtemp(path.join(TMP_ROOT,'read-web-'));
+      try{
+        const directExt=path.extname(new URL(url).pathname).toLowerCase();
+        if(['.pdf','.cbz','.zip'].includes(directExt)){
+          const file=path.join(work,'chapter'+directExt);
+          await readDownloadUrl(url,file,{onProgress});
+          const st=await fsp.stat(file);
+          if(st.size<20_000)throw new Error('Fichier trop petit');
+          return {file,work,source:'web'};
+        }
+
+        const r=await fetch(url,{
+          redirect:'follow',
+          headers:{
+            'user-agent':USER_AGENT,
+            'accept':'text/html,application/xhtml+xml,*/*;q=0.8',
+            'accept-language':'fr-FR,fr;q=0.9,en;q=0.7'
+          },
+          signal:AbortSignal.timeout(35_000)
+        });
+        if(!r.ok)throw new Error('HTTP '+r.status);
+        const ct=String(r.headers.get('content-type')||'');
+        if(/application\/pdf/i.test(ct)){
+          const file=path.join(work,'chapter.pdf');
+          await fsp.writeFile(file,Buffer.from(await r.arrayBuffer()));
+          const st=await fsp.stat(file);
+          if(st.size<20_000)throw new Error('PDF trop petit');
+          return {file,work,source:'web'};
+        }
+        const html=await r.text();
+        if(/Just a moment|cf-chl-|challenge-platform|Attention Required/i.test(html)){
+          throw new Error('Méthode temporairement protégée');
+        }
+        const found=readHtmlUrls(html,r.url||url);
+        for(const fileUrl of found.files.slice(0,8)){
+          const ext=path.extname(new URL(fileUrl).pathname).toLowerCase()||'.pdf';
+          const file=path.join(work,'chapter'+(ext||'.pdf'));
+          try{
+            await readDownloadUrl(fileUrl,file,{onProgress});
+            const st=await fsp.stat(file);
+            if(st.size>=20_000)return {file,work,source:'web'};
+          }catch{}
+        }
+
+        let images=found.images;
+        if(/lelmanga\.com/i.test(r.url||url)){
+          images=images.filter(x=>/wp-content\/uploads/i.test(x));
+        }
+        if(images.length>=2){
+          const file=await readPackImages(images.slice(0,400),work,title,chapter,{onProgress});
+          return {file,work,source:'web'};
+        }
+        throw new Error('Aucun fichier ou ensemble de pages exploitable');
+      }catch(error){
+        lastError=error;
+        await fsp.rm(work,{recursive:true,force:true}).catch(()=>{});
+      }
+    }catch(error){lastError=error}
+  }
+  throw lastError||new Error('Aucune méthode web disponible');
+}
+
+async function downloadReadFromTelegram(title,chapter,{onProgress=null}={}){
+  const wanted=String(Number(chapter));
+  const terms=[title,readTitleNorm(title)].filter(Boolean);
+  const uniqueTerms=[...new Set(terms)].slice(0,2);
+  const emit=payload=>{
+    if(typeof onProgress!=='function')return;
+    try{Promise.resolve(onProgress(payload)).catch(()=>{})}catch{}
+  };
+  emit({stage:'read-telegram',message:'Recherche approfondie du chapitre…',force:true});
+
+  for(const accountUsername of WATCHER_FALLBACK_USERS){
+    const rt=runtimeConnectionFor(accountUsername);
+    if(!rt?.client||rt?.client?.connected!==true)continue;
+    let dialogs=[];
+    try{dialogs=await rt.client.getDialogs({limit:500})}catch{continue}
+    for(const dialog of Array.isArray(dialogs)?dialogs:[]){
+      const entity=dialog?.entity;
+      if(!entity?.id||!entity?.broadcast)continue;
+      for(const term of uniqueTerms){
+        let messages=[];
+        try{messages=await rt.client.getMessages(entity,{limit:60,search:term})}catch{continue}
+        for(const message of messages||[]){
+          if(!readFileLike(message))continue;
+          const signal=watcherSignalText(message);
+          const ch=readChapterNumber(signal);
+          if(!ch||String(Number(ch))!==wanted)continue;
+          if(readTitleScore(signal,title)<.58)continue;
+
+          const name=watcherFilename(message)||('chapter-'+wanted+'.pdf');
+          const ext=path.extname(name).toLowerCase();
+          if(!['.pdf','.cbz','.zip'].includes(ext)&&!String(message?.document?.mimeType||'').toLowerCase().includes('pdf'))continue;
+          const work=await fsp.mkdtemp(path.join(TMP_ROOT,'read-tg-'));
+          let accepted=false;
+          try{
+            const out=path.join(work,'chapter'+(ext||'.pdf'));
+            const expected=Number(message?.document?.size||0);
+            let lastAt=0;
+            const downloaded=await rt.client.downloadMedia(message.media,{
+              outputFile:out,workers:4,
+              progressCallback:(current,total)=>{
+                const now=Date.now();if(now-lastAt<2500)return;lastAt=now;
+                const got=Number(current||0),full=Number(total||0)||expected;
+                emit({
+                  stage:'read-telegram-download',
+                  message:nxaDownloadProgressText({
+                    percent:full?got/full*100:0,downloaded:got,total:full
+                  })
+                });
+              }
+            });
+            const file=typeof downloaded==='string'&&downloaded?downloaded:out;
+            const st=await fsp.stat(file);
+            if(st.size<20_000)throw new Error('Fichier incomplet');
+            accepted=true;
+            emit({stage:'read-ready',message:'Chapitre vérifié · préparation de l’envoi…',force:true});
+            return {file,work,source:'telegram'};
+          }catch(error){
+            if(!accepted)await fsp.rm(work,{recursive:true,force:true}).catch(()=>{});
+          }
+        }
+      }
+    }
+  }
+  throw new Error('Chapitre introuvable dans les canaux accessibles');
+}
+
+export async function downloadReadChapter(title,chapter,alternatives=[],options={}){
+  let webError=null;
+  try{
+    return await downloadReadFromWeb(title,chapter,alternatives,options);
+  }catch(error){webError=error}
+  try{
+    return await downloadReadFromTelegram(title,chapter,options);
+  }catch(error){
+    const a=String(webError?.message||webError||'méthodes web indisponibles').slice(0,220);
+    const b=String(error?.message||error||'recherche alternative indisponible').slice(0,220);
+    throw new Error('Chapitre non récupéré après toutes les méthodes : '+a+' · '+b);
+  }
+}
+
 export function uploaderRuntime(){
   for(const name of ['tresor20001','tresor20009','tresor20000','tresor_htn']){
     const rt=runtimeConnectionFor(name);
