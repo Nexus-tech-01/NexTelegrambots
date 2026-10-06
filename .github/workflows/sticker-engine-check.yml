@@ -1,0 +1,29 @@
+name: Sticker engine checks
+
+on:
+  push:
+    paths:
+      - "nexaccount/sticker-engine.mjs"
+      - "nexaccount/sticker-transform.mjs"
+      - "Dockerfile"
+      - ".github/workflows/sticker-engine-check.yml"
+  pull_request:
+    paths:
+      - "nexaccount/sticker-engine.mjs"
+      - "nexaccount/sticker-transform.mjs"
+      - "Dockerfile"
+      - ".github/workflows/sticker-engine-check.yml"
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check sticker engine syntax
+        run: |
+          node --check nexaccount/sticker-engine.mjs
+          node --check nexaccount/sticker-transform.mjs
