@@ -31,6 +31,26 @@ RUN set -eux; \
     for bot in nexgame nexcanal nexdownloader nexgroup nexstick; do test -d "/app/bots/$bot"; done; \
     rm -f /tmp/render-src.b64.part-* /tmp/nexus-bots.tar.xz
 
+
+# NexDownloader large Telegram media admission hotfix
+# Keep media processing limits separate from the official Bot API's 20 MB download cap.
+# If a Local Bot API server returns an absolute file path, use the local file directly.
+RUN python3 - <<'PY'
+from pathlib import Path
+p = Path('/app/bots/nexdownloader/src/jobs/processor.js')
+s = p.read_text(encoding='utf-8')
+old = "const declaredSize=Number(job.options.fileSize||0);const plan=job.options?.plan||'FREE';const sourceLimit=this.sourceMaxMb(plan);const transportLimit=this.config.localBotApi?Number.POSITIVE_INFINITY:Number(this.config.telegramOfficialDownloadLimitMb||20);const max=Math.min(sourceLimit,transportLimit);"
+new = "const declaredSize=Number(job.options.fileSize||0);const plan=job.options?.plan||'FREE';const sourceLimit=this.sourceMaxMb(plan);const max=sourceLimit;"
+if old in s:
+    s = s.replace(old, new, 1)
+old_dl = "await this.telegram.downloadFileToPath(f.file_path,p,{signal,maxBytes:max*1024*1024,expectedSize:actualDeclared});"
+new_dl = "if(String(f.file_path||'')&&path.isAbsolute(String(f.file_path)))await fs.copyFile(String(f.file_path),p);else await this.telegram.downloadFileToPath(f.file_path,p,{signal,maxBytes:max*1024*1024,expectedSize:actualDeclared});"
+if old_dl in s:
+    s = s.replace(old_dl, new_dl, 1)
+p.write_text(s, encoding='utf-8')
+PY
+RUN node --check /app/bots/nexdownloader/src/jobs/processor.js
+
 # Secrets are supplied only through Render environment variables.
 # Never COPY a repository .env file into the image.
 RUN python3 -m pip install --break-system-packages --no-cache-dir -r bots/nexdownloader/requirements.txt
