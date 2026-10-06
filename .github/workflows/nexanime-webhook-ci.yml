@@ -40,6 +40,7 @@ jobs:
           node --check api/_nexanime-franime.js
           node --check api/_nexanime-ui.js
           node --check api/_nexanime-jobs.js
+          node --check api/_nexanime-read.js
           node --check api/_nexanime-message.js
           node --check api/_nexanime-callback.js
           node --check api/nexanime-webhook.js
@@ -57,10 +58,21 @@ jobs:
             './api/_nexanime-franime.js',
             './api/_nexanime-ui.js',
             './api/_nexanime-jobs.js',
+            './api/_nexanime-read.js',
             './api/_nexanime-message.js',
             './api/_nexanime-callback.js',
             './api/nexanime-webhook.js',
             './api/nexanime-register.js'
           ]) await import(file);
           console.log('NEXANIME_WEBHOOK_IMPORT_OK');
+          NODE
+
+      - name: Reader catalogue invariants
+        run: |
+          node --input-type=module - <<'NODE'
+          const {canonicalChapter,readSeriesId}=await import('./api/_nexanime-read.js');
+          if(canonicalChapter('12,5')!=='12.5')throw new Error('decimal chapter normalization failed');
+          if(canonicalChapter('0012')!=='12')throw new Error('integer chapter normalization failed');
+          if(readSeriesId('Solo Leveling')!==readSeriesId('  solo   leveling  '))throw new Error('series id normalization failed');
+          console.log('NEXANIME_READER_INVARIANTS_OK');
           NODE
