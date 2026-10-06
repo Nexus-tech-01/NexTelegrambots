@@ -31,6 +31,7 @@ const CLONE_TRANSFORM_CONCURRENCY=Math.max(
   Math.min(32,Number(process.env.NEXAI_STICKER_TRANSFORM_CONCURRENCY||Math.max(4,Math.min(12,(os.cpus()?.length||4)*2))))
 );
 const CLONE_JOB_CONCURRENCY=Math.max(4,Math.min(256,Number(process.env.NEXAI_STICKER_JOB_CONCURRENCY||64)));
+const CLONE_STICKER_UPLOAD_CONCURRENCY=Math.max(4,Math.min(128,Number(process.env.NEXAI_STICKER_UPLOAD_CONCURRENCY||24)));
 const CLONE_PERMANENT_RETRY_ATTEMPTS=Math.max(1,Math.min(6,Number(process.env.NEXAI_STICKER_PERMANENT_RETRY_ATTEMPTS||3)));
 const activeCloneJobs=new Map();
 const scheduledCloneJobs=new Set();
@@ -65,6 +66,7 @@ const globalMutationLimiter=createAsyncLimiter(CLONE_MUTATION_GLOBAL_CONCURRENCY
 const globalDownloadLimiter=createAsyncLimiter(CLONE_GLOBAL_DOWNLOAD_CONCURRENCY);
 const globalTransformLimiter=createAsyncLimiter(CLONE_TRANSFORM_CONCURRENCY);
 const globalStickerJobLimiter=createAsyncLimiter(CLONE_JOB_CONCURRENCY);
+const globalStickerUploadLimiter=createAsyncLimiter(CLONE_STICKER_UPLOAD_CONCURRENCY);
 
 const STICKER_JOB_ACTIVE_STATUSES=['queued','running','retrying'];
 const STICKER_JOB_LEASE_MS=Math.max(2*60_000,Number(process.env.NEXAI_STICKER_JOB_LEASE_MS||5*60*1000));
@@ -1646,7 +1648,7 @@ async function launchTransformPackJob({
     // Transformed stickers use one 50-item createNewStickerSet call per part.
     // A 120-sticker Noteclone therefore needs 3 Telegram mutations instead of
     // 1 create + 70 sequential addStickerToSet calls.
-    parts:plannedPackParts(accountId,title,docs.length,50)
+    parts:plannedPackParts(accountId,title,docs.length,25)
   });
   startDurableStickerJob(runtime,job,progress);
   return id;
@@ -1739,29 +1741,43 @@ async function createSet(account,title,name,prepared,emoji='✨'){
 async function createSetBatch(account,title,name,items=[]){
   const rows=items.slice(0,50);
   if(!rows.length)throw new Error('Batch stickers vide.');
-  const stickers=[];
-  const files=[];
-  rows.forEach((item,index)=>{
-    const field='sticker_file_'+index;
-    stickers.push({
-      sticker:'attach://'+field,
-      format:item.prepared.format,
-      emoji_list:[item.emoji||'✨']
-    });
-    files.push({
-      field,
-      buffer:item.prepared.buffer,
-      mime:item.prepared.mime,
-      filename:item.prepared.filename||('sticker_'+index+'.bin')
-    });
-  });
-  return botApiFiles('createNewStickerSet',{
+  const stickers=new Array(rows.length);
+  let cursor=0;
+  const workers=Math.min(8,rows.length);
+  await Promise.all(Array.from({length:workers},async()=>{
+    while(true){
+      const index=cursor++;
+      if(index>=rows.length)return;
+      const item=rows[index];
+      const uploaded=await globalStickerUploadLimiter(()=>withCloneRetry(
+        ()=>botApi('uploadStickerFile',{
+          user_id:String(account.telegramUserId),
+          sticker_format:item.prepared.format
+        },{
+          field:'sticker',
+          buffer:item.prepared.buffer,
+          mime:item.prepared.mime,
+          filename:item.prepared.filename||('sticker_'+index+'.bin')
+        },120000),
+        'batch upload '+(index+1)+'/'+rows.length,
+        {persistentTransient:true}
+      ));
+      const fileId=String(uploaded?.file_id||'').trim();
+      if(!fileId)throw new Error('Sticker upload sans file_id.');
+      stickers[index]={
+        sticker:fileId,
+        format:item.prepared.format,
+        emoji_list:[item.emoji||'✨']
+      };
+    }
+  }));
+  return botApi('createNewStickerSet',{
     user_id:String(account.telegramUserId),
     name,
     title:String(title).slice(0,64),
     stickers,
     sticker_type:'regular'
-  },files,180000);
+  },null,120000);
 }
 async function addToSet(account,name,prepared,emoji='✨'){
   return botApi('addStickerToSet',{
