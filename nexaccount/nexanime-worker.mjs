@@ -1,6 +1,6 @@
 import fsp from 'node:fs/promises';
 import {db} from './store.mjs';
-import {animeById,downloadEpisode,uploaderRuntime} from './nexanime-bot.mjs';
+import {animeById,downloadEpisode,downloadReadChapter,uploaderRuntime} from './nexanime-bot.mjs';
 
 const BOT_USERNAME=String(process.env.NEXANIME_BOT_USERNAME||'NexAnime01_bot').replace(/^@/,'');
 const POLL_MS=Math.max(1000,Number(process.env.NEXANIME_JOB_POLL_MS||2500));
@@ -134,24 +134,36 @@ async function processJob(job){
   };
 
   try{
-    await relayProgress({message:'Recherche de l’anime et des lecteurs FRAnime…',force:true});
-    const anime=await animeById(job.animeId);
-    if(!anime)throw new Error('Anime FRAnime introuvable');
+    let dl=null;
+    if(String(job?.kind||'anime')==='read'){
+      await relayProgress({message:'Recherche du chapitre…',force:true});
+      dl=await downloadReadChapter(
+        String(job.readTitle||job.title||''),
+        String(job.readChapter||job.chapter||''),
+        Array.isArray(job.alternatives)?job.alternatives:[],
+        {onProgress:relayProgress}
+      );
+      work=dl.work;
+      await relayProgress({message:'Chapitre valide trouvé · envoi vers Telegram…',force:true});
+    }else{
+      await relayProgress({message:'Préparation du téléchargement…',force:true});
+      const anime=await animeById(job.animeId);
+      if(!anime)throw new Error('Anime introuvable');
+      dl=await downloadEpisode(
+        anime,
+        job.lang,
+        Number(job.season),
+        Number(job.episode),
+        Number(job.quality),
+        {
+          onProgress:relayProgress,
+          preResolvedUrls:Array.isArray(job.sourceUrls)?job.sourceUrls:[]
+        }
+      );
+      work=dl.work;
+      await relayProgress({message:'Épisode valide trouvé · envoi vers Telegram…',force:true});
+    }
 
-    const dl=await downloadEpisode(
-      anime,
-      job.lang,
-      Number(job.season),
-      Number(job.episode),
-      Number(job.quality),
-      {
-        onProgress:relayProgress,
-        preResolvedUrls:Array.isArray(job.sourceUrls)?job.sourceUrls:[]
-      }
-    );
-    work=dl.work;
-
-    await relayProgress({message:'Épisode valide trouvé · envoi vers Telegram…',force:true});
     const rt=uploaderRuntime();
     if(!rt?.client)throw new Error('Aucun compte Telegram uploader connecté');
 
@@ -175,7 +187,6 @@ async function processJob(job){
     if(work)await fsp.rm(work,{recursive:true,force:true}).catch(()=>{});
   }
 }
-
 async function loop(){
   await migrateLegacyCache().catch(error=>console.warn('[NexAnime worker] cache migration',String(error?.message||error).slice(0,300)));
   // Any processing job left in MongoDB at process startup belongs to the old
