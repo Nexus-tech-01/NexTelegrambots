@@ -31,6 +31,7 @@ const CLONE_TRANSFORM_CONCURRENCY=Math.max(
   Math.min(32,Number(process.env.NEXAI_STICKER_TRANSFORM_CONCURRENCY||Math.max(4,Math.min(12,(os.cpus()?.length||4)*2))))
 );
 const CLONE_JOB_CONCURRENCY=Math.max(4,Math.min(256,Number(process.env.NEXAI_STICKER_JOB_CONCURRENCY||64)));
+const CLONE_PERMANENT_RETRY_ATTEMPTS=Math.max(1,Math.min(6,Number(process.env.NEXAI_STICKER_PERMANENT_RETRY_ATTEMPTS||3)));
 const activeCloneJobs=new Map();
 const scheduledCloneJobs=new Set();
 const stickerMutationStates=new Map();
@@ -698,9 +699,13 @@ async function withPersistentStickerRetry(runtime,action,label='sticker',{jobId=
       if(error?.code==='STICKER_RUNTIME_DISCONNECTED')throw error;
       attempt++;
       const retryable=cloneErrorRetryable(error);
+      if(!retryable&&attempt>=CLONE_PERMANENT_RETRY_ATTEMPTS){
+        error.stickerPermanent=true;
+        throw error;
+      }
       const delay=retryable
         ?cloneRetryDelay(error,attempt)
-        :Math.min(10*60*1000,STICKER_PERSISTENT_RETRY_MS*Math.max(1,Math.min(attempt,20)));
+        :Math.min(60*1000,STICKER_PERSISTENT_RETRY_MS*Math.max(1,attempt));
       const reason=String(error?.message||error||'').replace(/\s+/g,' ').slice(0,280);
       console.warn('[NexAi sticker persistent retry]',label,'attempt='+attempt,'delay='+delay,'retryable='+retryable,reason);
       if(jobId){
@@ -824,6 +829,72 @@ function plannedPackParts(accountId,title,total,partSize=STICKER_PACK_PART_SIZE)
   return out;
 }
 
+async function optimizedTransformJobParts(account,claimed,kind){
+  const accountId=String(account?.telegramUserId||'');
+  const stored=Array.isArray(claimed?.parts)&&claimed.parts.length
+    ?claimed.parts.map(part=>({...part}))
+    :plannedPackParts(accountId,claimed?.title,claimed?.total,kind==='clonepack'?STICKER_PACK_PART_SIZE:50);
+  if(kind==='clonepack'||stored.every(part=>Math.max(0,Number(part?.total)||0)<=50))return stored;
+
+  const migrated=[];
+  let changed=false;
+  for(const oldPart of stored){
+    const start=Math.max(0,Number(oldPart?.start)||0);
+    const end=Math.max(start,Number(oldPart?.end)||start+Math.max(0,Number(oldPart?.total)||0));
+    const total=Math.max(0,end-start);
+    if(total<=50){
+      migrated.push({...oldPart,start,end,total});
+      continue;
+    }
+
+    changed=true;
+    let existingCount=0;
+    try{
+      const state=await destinationState(oldPart.name);
+      if(state.exists)existingCount=Math.max(0,Math.min(total,Number(state.count)||0));
+    }catch{}
+
+    let cursor=start;
+    if(existingCount>0){
+      migrated.push({
+        ...oldPart,
+        start,
+        end:start+existingCount,
+        total:existingCount
+      });
+      cursor=start+existingCount;
+    }
+
+    let firstNew=existingCount===0;
+    while(cursor<end){
+      const chunkEnd=Math.min(end,cursor+50);
+      const chunkNumber=migrated.length+1;
+      const title=(String(claimed?.title||oldPart?.title||'NexAi')+' · '+chunkNumber).slice(0,64);
+      migrated.push({
+        index:0,
+        start:cursor,
+        end:chunkEnd,
+        total:chunkEnd-cursor,
+        title:firstNew?String(oldPart?.title||title).slice(0,64):title,
+        name:firstNew?String(oldPart?.name||packName(accountId,title)):packName(accountId,title)
+      });
+      firstNew=false;
+      cursor=chunkEnd;
+    }
+  }
+
+  const normalized=migrated.map((part,index)=>({...part,index}));
+  if(changed){
+    await patchStickerJob(String(claimed?.id||claimed?._id||''),{
+      parts:normalized,
+      optimizedPartsAt:new Date()
+    }).catch(error=>{
+      console.warn('[NexAi sticker part migration]',String(claimed?.id||''),String(error?.message||error).slice(0,260));
+    });
+  }
+  return normalized;
+}
+
 async function destinationState(name){
   try{
     const set=await botApi('getStickerSet',{name});
@@ -939,7 +1010,7 @@ async function runNativeCloneJob({runtime,job,docs,progress=null}){
   if(!claimed)return false;
   const parts=Array.isArray(claimed.parts)&&claimed.parts.length
     ?claimed.parts
-    :plannedPackParts(account.telegramUserId,claimed.title,claimed.total,kind==='clonepack'?STICKER_PACK_PART_SIZE:50);
+    :plannedPackParts(account.telegramUserId,claimed.title,claimed.total);
   activeCloneJobs.set(id,{
     id,accountId:String(account.telegramUserId),title:String(claimed.title||''),
     total:Number(claimed.total)||0,nextIndex:0,sourcePackName:String(claimed.sourcePackName||''),
@@ -1034,9 +1105,7 @@ async function runDurablePackJob({runtime,job,progress=null}){
   progress=await restoreDurableProgress(runtime,claimed,progress).catch(()=>progress);
   const kind=String(claimed.kind||'clonepack');
   const label=jobLabel(kind);
-  const parts=Array.isArray(claimed.parts)&&claimed.parts.length
-    ?claimed.parts
-    :plannedPackParts(account.telegramUserId,claimed.title,claimed.total);
+  const parts=await optimizedTransformJobParts(account,claimed,kind);
   activeCloneJobs.set(id,{
     id,
     accountId:String(account.telegramUserId),
@@ -1070,6 +1139,7 @@ async function runDurablePackJob({runtime,job,progress=null}){
 
     let completed=0;
     let verifiedTotal=0;
+    let fallbackTransforms=0;
     const outputPacks=[];
     for(const part of parts){
       const state=await withPersistentStickerRetry(
@@ -1101,12 +1171,28 @@ async function runDurablePackJob({runtime,job,progress=null}){
             label+' · téléchargement '+(sourceIndex+1)+'/'+docs.length,
             {jobId:id,progress}
           );
-          const prepared=await withPersistentStickerRetry(
-            runtime,
-            ()=>queueCloneTransform(()=>transform(raw,{index:sourceIndex,doc})),
-            label+' · traitement '+(sourceIndex+1)+'/'+docs.length,
-            {jobId:id,progress}
-          );
+          let prepared;
+          try{
+            prepared=await withPersistentStickerRetry(
+              runtime,
+              ()=>queueCloneTransform(()=>transform(raw,{index:sourceIndex,doc})),
+              label+' · traitement '+(sourceIndex+1)+'/'+docs.length,
+              {jobId:id,progress}
+            );
+          }catch(error){
+            if(kind!=='noteclone')throw error;
+            fallbackTransforms++;
+            console.warn(
+              '[NexAi Noteclone transform fallback]',
+              id,
+              (sourceIndex+1)+'/'+docs.length,
+              String(error?.message||error).slice(0,260)
+            );
+            prepared=await withCloneRetry(
+              ()=>prepareSticker(raw),
+              label+' · fallback '+(sourceIndex+1)+'/'+docs.length
+            );
+          }
           return {sourceIndex,doc,prepared,emoji:stickerAttr(doc)?.alt||'✨'};
         })();
         preparedCache.set(localIndex,promise);
@@ -1293,11 +1379,18 @@ async function runDurablePackJob({runtime,job,progress=null}){
     await completeStickerJob(id,{
       nextIndex:docs.length,
       verifiedTotal,
+      fallbackTransforms,
       verifiedAt:new Date(),
       outputPacks:outputPacks.map(x=>({name:x.name,title:x.title,link:x.link,count:x.count}))
     });
     const links=outputPacks.map(x=>x.link).join('\n');
-    await finishProgress(progress,'✅ '+label+' terminé · '+docs.length+'/'+docs.length+' sticker(s)'+(outputPacks.length>1?' · '+outputPacks.length+' packs':'')+'\n'+links);
+    await finishProgress(
+      progress,
+      '✅ '+label+' terminé · '+docs.length+'/'+docs.length+' sticker(s)'+
+      (outputPacks.length>1?' · '+outputPacks.length+' packs':'')+
+      (fallbackTransforms?' · '+fallbackTransforms+' fallback(s) sécurisé(s)':'')+
+      '\n'+links
+    );
     console.log('[NexAi sticker durable job]',id,'completed',docs.length+'/'+docs.length);
     return true;
   }catch(error){
