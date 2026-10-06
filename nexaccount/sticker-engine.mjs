@@ -31,6 +31,7 @@ const CLONE_TRANSFORM_CONCURRENCY=Math.max(
   Math.min(32,Number(process.env.NEXAI_STICKER_TRANSFORM_CONCURRENCY||Math.max(4,Math.min(12,(os.cpus()?.length||4)*2))))
 );
 const CLONE_JOB_CONCURRENCY=Math.max(4,Math.min(256,Number(process.env.NEXAI_STICKER_JOB_CONCURRENCY||64)));
+const CLONE_PERMANENT_RETRY_ATTEMPTS=Math.max(1,Math.min(6,Number(process.env.NEXAI_STICKER_PERMANENT_RETRY_ATTEMPTS||3)));
 const activeCloneJobs=new Map();
 const scheduledCloneJobs=new Set();
 const stickerMutationStates=new Map();
@@ -516,22 +517,56 @@ function automaticPackTitle(account,settings=null){
   const bot=clean(settings?.botDisplayName)||'NexAi';
   return (bot+' · '+accountDisplayName(account)).slice(0,64);
 }
+async function progressController(client,peer,messageId=0){
+  let id=Math.max(0,Number(messageId)||0);
+  let inputPeer=null;
+  try{inputPeer=await client.getInputEntity(peer)}catch{}
+  const controller={
+    id,
+    finished:false,
+    async update(next){
+      if(controller.finished)return;
+      const text=String(next);
+      if(id&&inputPeer){
+        try{
+          await client.invoke(new Api.messages.EditMessage({peer:inputPeer,id,message:text}));
+          return;
+        }catch{}
+      }
+      try{
+        const sent=await client.sendMessage(peer,{message:text});
+        id=Number(sent?.id||sent?.message?.id||0);
+        controller.id=id;
+        if(!inputPeer)try{inputPeer=await client.getInputEntity(peer)}catch{}
+      }catch{}
+    },
+    async done(next){
+      await controller.update(next);
+      controller.finished=true;
+    }
+  };
+  return controller;
+}
+
 async function startProgress(client,peer,text){
   const sent=await client.sendMessage(peer,{message:String(text)});
   const id=Number(sent?.id||sent?.message?.id||0);
-  let inputPeer=null;
-  try{inputPeer=await client.getInputEntity(peer)}catch{}
-  return {
-    id,
-    async update(next){
-      if(!id||!inputPeer)return;
-      try{
-        await client.invoke(new Api.messages.EditMessage({
-          peer:inputPeer,id,message:String(next)
-        }));
-      }catch{}
+  return progressController(client,peer,id);
+}
+
+async function restoreDurableProgress(runtime,job,progress=null){
+  if(progress)return progress;
+  let peer=peerFromRef(job?.progressPeerRef||job?.peerRef);
+  if(!peer){
+    const selfId=String(runtime?.account?.telegramUserId||'').trim();
+    if(/^-?\d+$/.test(selfId)){
+      peer=new Api.PeerUser({userId:BigInt(selfId)});
     }
-  };
+  }
+  if(!peer)return null;
+  const id=Math.max(0,Number(job?.progressMessageId)||0);
+  if(id)return progressController(runtime.client,peer,id);
+  return startProgress(runtime.client,peer,'⏳ '+jobLabel(job?.kind)+' · reprise automatique · '+Math.max(0,Number(job?.nextIndex)||0)+'/'+Math.max(0,Number(job?.total)||0));
 }
 
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,Math.max(0,Number(ms)||0)));
@@ -670,9 +705,13 @@ async function withPersistentStickerRetry(runtime,action,label='sticker',{jobId=
       if(error?.code==='STICKER_RUNTIME_DISCONNECTED')throw error;
       attempt++;
       const retryable=cloneErrorRetryable(error);
+      if(!retryable&&attempt>=CLONE_PERMANENT_RETRY_ATTEMPTS){
+        error.stickerPermanent=true;
+        throw error;
+      }
       const delay=retryable
         ?cloneRetryDelay(error,attempt)
-        :Math.min(10*60*1000,STICKER_PERSISTENT_RETRY_MS*Math.max(1,Math.min(attempt,20)));
+        :Math.min(60*1000,STICKER_PERSISTENT_RETRY_MS*Math.max(1,attempt));
       const reason=String(error?.message||error||'').replace(/\s+/g,' ').slice(0,280);
       console.warn('[NexAi sticker persistent retry]',label,'attempt='+attempt,'delay='+delay,'retryable='+retryable,reason);
       if(jobId){
@@ -775,12 +814,13 @@ function transformFromSpec(spec={}){
   return raw=>prepareSticker(raw);
 }
 
-function plannedPackParts(accountId,title,total){
-  const count=Math.max(1,Math.ceil(Math.max(1,Number(total)||1)/STICKER_PACK_PART_SIZE));
+function plannedPackParts(accountId,title,total,partSize=STICKER_PACK_PART_SIZE){
+  const size=Math.max(1,Math.min(STICKER_PACK_PART_SIZE,Number(partSize)||STICKER_PACK_PART_SIZE));
+  const count=Math.max(1,Math.ceil(Math.max(1,Number(total)||1)/size));
   const out=[];
   for(let part=0;part<count;part++){
-    const start=part*STICKER_PACK_PART_SIZE;
-    const end=Math.min(Math.max(1,Number(total)||1),start+STICKER_PACK_PART_SIZE);
+    const start=part*size;
+    const end=Math.min(Math.max(1,Number(total)||1),start+size);
     const suffix=count>1?' · '+(part+1)+'/'+count:'';
     const partTitle=(String(title||'NexAi')+suffix).slice(0,64);
     out.push({
@@ -793,6 +833,72 @@ function plannedPackParts(accountId,title,total){
     });
   }
   return out;
+}
+
+async function optimizedTransformJobParts(account,claimed,kind){
+  const accountId=String(account?.telegramUserId||'');
+  const stored=Array.isArray(claimed?.parts)&&claimed.parts.length
+    ?claimed.parts.map(part=>({...part}))
+    :plannedPackParts(accountId,claimed?.title,claimed?.total,kind==='clonepack'?STICKER_PACK_PART_SIZE:50);
+  if(kind==='clonepack'||stored.every(part=>Math.max(0,Number(part?.total)||0)<=50))return stored;
+
+  const migrated=[];
+  let changed=false;
+  for(const oldPart of stored){
+    const start=Math.max(0,Number(oldPart?.start)||0);
+    const end=Math.max(start,Number(oldPart?.end)||start+Math.max(0,Number(oldPart?.total)||0));
+    const total=Math.max(0,end-start);
+    if(total<=50){
+      migrated.push({...oldPart,start,end,total});
+      continue;
+    }
+
+    changed=true;
+    let existingCount=0;
+    try{
+      const state=await destinationState(oldPart.name);
+      if(state.exists)existingCount=Math.max(0,Math.min(total,Number(state.count)||0));
+    }catch{}
+
+    let cursor=start;
+    if(existingCount>0){
+      migrated.push({
+        ...oldPart,
+        start,
+        end:start+existingCount,
+        total:existingCount
+      });
+      cursor=start+existingCount;
+    }
+
+    let firstNew=existingCount===0;
+    while(cursor<end){
+      const chunkEnd=Math.min(end,cursor+50);
+      const chunkNumber=migrated.length+1;
+      const title=(String(claimed?.title||oldPart?.title||'NexAi')+' · '+chunkNumber).slice(0,64);
+      migrated.push({
+        index:0,
+        start:cursor,
+        end:chunkEnd,
+        total:chunkEnd-cursor,
+        title:firstNew?String(oldPart?.title||title).slice(0,64):title,
+        name:firstNew?String(oldPart?.name||packName(accountId,title)):packName(accountId,title)
+      });
+      firstNew=false;
+      cursor=chunkEnd;
+    }
+  }
+
+  const normalized=migrated.map((part,index)=>({...part,index}));
+  if(changed){
+    await patchStickerJob(String(claimed?.id||claimed?._id||''),{
+      parts:normalized,
+      optimizedPartsAt:new Date()
+    }).catch(error=>{
+      console.warn('[NexAi sticker part migration]',String(claimed?.id||''),String(error?.message||error).slice(0,260));
+    });
+  }
+  return normalized;
 }
 
 async function destinationState(name){
@@ -1002,11 +1108,10 @@ async function runDurablePackJob({runtime,job,progress=null}){
   }
 
   const stopLeaseHeartbeat=startStickerLeaseHeartbeat(id);
+  progress=await restoreDurableProgress(runtime,claimed,progress).catch(()=>progress);
   const kind=String(claimed.kind||'clonepack');
   const label=jobLabel(kind);
-  const parts=Array.isArray(claimed.parts)&&claimed.parts.length
-    ?claimed.parts
-    :plannedPackParts(account.telegramUserId,claimed.title,claimed.total);
+  const parts=await optimizedTransformJobParts(account,claimed,kind);
   activeCloneJobs.set(id,{
     id,
     accountId:String(account.telegramUserId),
@@ -1040,6 +1145,7 @@ async function runDurablePackJob({runtime,job,progress=null}){
 
     let completed=0;
     let verifiedTotal=0;
+    let fallbackTransforms=0;
     const outputPacks=[];
     for(const part of parts){
       const state=await withPersistentStickerRetry(
@@ -1071,12 +1177,31 @@ async function runDurablePackJob({runtime,job,progress=null}){
             label+' · téléchargement '+(sourceIndex+1)+'/'+docs.length,
             {jobId:id,progress}
           );
-          const prepared=await withPersistentStickerRetry(
-            runtime,
-            ()=>queueCloneTransform(()=>transform(raw,{index:sourceIndex,doc})),
-            label+' · traitement '+(sourceIndex+1)+'/'+docs.length,
-            {jobId:id,progress}
-          );
+          let prepared;
+          try{
+            const transformAction=()=>queueCloneTransform(()=>transform(raw,{index:sourceIndex,doc}));
+            prepared=kind==='noteclone'
+              ?await withCloneRetry(transformAction,label+' · traitement '+(sourceIndex+1)+'/'+docs.length)
+              :await withPersistentStickerRetry(
+                runtime,
+                transformAction,
+                label+' · traitement '+(sourceIndex+1)+'/'+docs.length,
+                {jobId:id,progress}
+              );
+          }catch(error){
+            if(kind!=='noteclone')throw error;
+            fallbackTransforms++;
+            console.warn(
+              '[NexAi Noteclone transform fallback]',
+              id,
+              (sourceIndex+1)+'/'+docs.length,
+              String(error?.message||error).slice(0,260)
+            );
+            prepared=await withCloneRetry(
+              ()=>prepareSticker(raw),
+              label+' · fallback '+(sourceIndex+1)+'/'+docs.length
+            );
+          }
           return {sourceIndex,doc,prepared,emoji:stickerAttr(doc)?.alt||'✨'};
         })();
         preparedCache.set(localIndex,promise);
@@ -1117,10 +1242,15 @@ async function runDurablePackJob({runtime,job,progress=null}){
         const batchItems=await prepareBatch(0,batchCount);
         let batchCreated=false;
         try{
-          await queueCloneMutation(
-            ()=>createSetBatch(account,part.title,part.name,batchItems),
-            id+' '+kind+' initial batch '+batchCount,
-            part.name
+          await withPersistentStickerRetry(
+            runtime,
+            ()=>queueCloneMutation(
+              ()=>createSetBatch(account,part.title,part.name,batchItems),
+              id+' '+kind+' initial batch '+batchCount,
+              part.name
+            ),
+            label+' · création batch '+batchCount,
+            {jobId:id,progress}
           );
           batchCreated=true;
         }catch(error){
@@ -1263,11 +1393,18 @@ async function runDurablePackJob({runtime,job,progress=null}){
     await completeStickerJob(id,{
       nextIndex:docs.length,
       verifiedTotal,
+      fallbackTransforms,
       verifiedAt:new Date(),
       outputPacks:outputPacks.map(x=>({name:x.name,title:x.title,link:x.link,count:x.count}))
     });
     const links=outputPacks.map(x=>x.link).join('\n');
-    await finishProgress(progress,'✅ '+label+' terminé · '+docs.length+'/'+docs.length+' sticker(s)'+(outputPacks.length>1?' · '+outputPacks.length+' packs':'')+'\n'+links);
+    await finishProgress(
+      progress,
+      '✅ '+label+' terminé · '+docs.length+'/'+docs.length+' sticker(s)'+
+      (outputPacks.length>1?' · '+outputPacks.length+' packs':'')+
+      (fallbackTransforms?' · '+fallbackTransforms+' fallback(s) sécurisé(s)':'')+
+      '\n'+links
+    );
     console.log('[NexAi sticker durable job]',id,'completed',docs.length+'/'+docs.length);
     return true;
   }catch(error){
@@ -1460,7 +1597,7 @@ function startDurableStickerJob(runtime,job,progress=null){
 }
 
 async function launchClonePackJob({
-  runtime,docs,title,progress,sourcePackName='',sourceSetMeta=null
+  runtime,docs,title,progress,peer=null,sourcePackName='',sourceSetMeta=null
 }) {
   const accountId=String(runtime?.account?.telegramUserId||'');
   const id=cloneJobId(accountId);
@@ -1477,6 +1614,8 @@ async function launchClonePackJob({
     sourceEmojis:Boolean(sourceSetMeta?.emojis),
     sourceTextColor:Boolean(sourceSetMeta?.textColor||sourceSetMeta?.text_color),
     transformSpec:{kind:'clonepack'},
+    progressPeerRef:serializePeer(peer),
+    progressMessageId:Math.max(0,Number(progress?.id)||0),
     parts:plannedPackParts(accountId,title,docs.length)
   });
   await safeProgress(progress,'⏳ Clone pack · job enregistré · 0/'+docs.length+' · démarrage rapide…');
@@ -1489,7 +1628,7 @@ async function launchClonePackJob({
 }
 
 async function launchTransformPackJob({
-  runtime,docs,title,progress,sourcePackName='',kind='transform',transformSpec={}
+  runtime,docs,title,progress,peer=null,sourcePackName='',kind='transform',transformSpec={}
 }) {
   const accountId=String(runtime?.account?.telegramUserId||'');
   const id=cloneJobId(accountId);
@@ -1502,7 +1641,12 @@ async function launchTransformPackJob({
     sourcePackName,
     sourceDocumentIds:docs.map(doc=>String(doc?.id||'')),
     transformSpec,
-    parts:plannedPackParts(accountId,title,docs.length)
+    progressPeerRef:serializePeer(peer),
+    progressMessageId:Math.max(0,Number(progress?.id)||0),
+    // Transformed stickers use one 50-item createNewStickerSet call per part.
+    // A 120-sticker Noteclone therefore needs 3 Telegram mutations instead of
+    // 1 create + 70 sequential addStickerToSet calls.
+    parts:plannedPackParts(accountId,title,docs.length,50)
   });
   startDurableStickerJob(runtime,job,progress);
   return id;
@@ -1867,7 +2011,9 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
         total:docs.length,
         sourcePackName,
         sourceDocumentIds:docs.map(doc=>String(doc?.id||'')),
-        peerRef:serializePeer(peer)
+        peerRef:serializePeer(peer),
+        progressPeerRef:serializePeer(peer),
+        progressMessageId:Math.max(0,Number(progress?.id)||0)
       });
       startDurableStickerJob(runtime,job,progress);
       return {deferred:true,jobId:id};
@@ -1944,7 +2090,7 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
 
     if(sourcePackName){
       const jobId=await launchTransformPackJob({
-        runtime,docs,title,progress,sourcePackName,kind:name,transformSpec
+        runtime,docs,title,progress,peer,sourcePackName,kind:name,transformSpec
       });
       return {deferred:true,jobId};
     }
@@ -2054,7 +2200,7 @@ export async function handleStickerCommand({runtime,event,name,args=[],progress:
       if(!sourcePackName)throw new Error('Le pack source ne possède pas de nom Telegram réutilisable.');
       const progress=externalProgress||await startProgress(client,peer,'⏳ Clone pack · 0/'+docs.length+'…');
       const jobId=await launchClonePackJob({
-        runtime,docs,title,progress,sourcePackName,sourceSetMeta:set?.set||null
+        runtime,docs,title,progress,peer,sourcePackName,sourceSetMeta:set?.set||null
       });
       return {deferred:true,jobId};
     }
