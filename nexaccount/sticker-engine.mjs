@@ -1646,7 +1646,7 @@ async function launchTransformPackJob({
     // Transformed stickers use one 50-item createNewStickerSet call per part.
     // A 120-sticker Noteclone therefore needs 3 Telegram mutations instead of
     // 1 create + 70 sequential addStickerToSet calls.
-    parts:plannedPackParts(accountId,title,docs.length,50)
+    parts:plannedPackParts(accountId,title,docs.length,25)
   });
   startDurableStickerJob(runtime,job,progress);
   return id;
