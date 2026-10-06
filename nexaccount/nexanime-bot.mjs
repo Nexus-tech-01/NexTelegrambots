@@ -33,6 +33,47 @@ const VIDEO_PROVIDERS=[
 ];
 const WATCHER_FALLBACK_USERS=['tresor20001','tresor20009'];
 const WATCHER_VIDEO_EXT_RE=/\.(?:mp4|mkv|avi|mov|webm|m4v|ts)$/i;
+const READ_TELEGRAM_PAGE_SIZE=Math.max(20,Math.min(100,Number(process.env.NEXANIME_READ_TELEGRAM_PAGE_SIZE||100)));
+const READ_TELEGRAM_MAX_PAGES=Math.max(1,Math.min(80,Number(process.env.NEXANIME_READ_TELEGRAM_MAX_PAGES||40)));
+const READ_TRUSTED_SOURCE_TOKEN=String(process.env.NEXANIME_TRUSTED_SOURCE_TOKEN||'').trim();
+let READ_TRUSTED_SOURCE_SECRETS={};
+try{
+  const parsed=JSON.parse(String(process.env.NEXANIME_TRUSTED_SOURCE_SECRETS_JSON||'{}'));
+  if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))READ_TRUSTED_SOURCE_SECRETS=parsed;
+}catch{}
+
+function readTrustedSourceSecret(targetUrl=''){
+  let host='';
+  try{host=new URL(String(targetUrl)).hostname.toLowerCase()}catch{return ''}
+  const direct=READ_TRUSTED_SOURCE_SECRETS[host];
+  if(typeof direct==='string'&&direct.trim())return direct.trim();
+  for(const [pattern,value] of Object.entries(READ_TRUSTED_SOURCE_SECRETS)){
+    if(typeof value!=='string'||!value.trim())continue;
+    const key=String(pattern||'').trim().toLowerCase();
+    if(!key.startsWith('*.'))continue;
+    const suffix=key.slice(1);
+    if(host.endsWith(suffix))return value.trim();
+  }
+  const wildcard=READ_TRUSTED_SOURCE_SECRETS['*'];
+  return typeof wildcard==='string'?wildcard.trim():'';
+}
+
+function readTrustedSourceHeaders(targetUrl=''){
+  const headers={};
+  if(READ_TRUSTED_SOURCE_TOKEN)headers['x-nexanime-token']=READ_TRUSTED_SOURCE_TOKEN;
+  const secret=readTrustedSourceSecret(targetUrl);
+  if(!secret)return headers;
+  let u;
+  try{u=new URL(String(targetUrl))}catch{return headers}
+  const ts=String(Math.floor(Date.now()/1000));
+  const nonce=crypto.randomBytes(12).toString('hex');
+  const canonical=['GET',ts,nonce,u.hostname.toLowerCase(),u.pathname+u.search].join('\n');
+  headers['x-nexanime-client']='NexAnime';
+  headers['x-nexanime-ts']=ts;
+  headers['x-nexanime-nonce']=nonce;
+  headers['x-nexanime-signature']=crypto.createHmac('sha256',secret).update(canonical).digest('hex');
+  return headers;
+}
 
 function preferredSourcePriority(input={},capability=''){
   const raw=[
