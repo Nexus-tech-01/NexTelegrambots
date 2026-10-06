@@ -67,7 +67,7 @@ export async function queueReadIndex({key,chatId,statusMessageId,seriesId,title}
   return {...doc,_id:r.insertedId};
 }
 
-export async function queueReadChapter({key,chatId,statusMessageId,seriesId,title,chapter,alternatives=[],caption}){
+export async function queueReadChapter({key,chatId,statusMessageId,seriesId,title,chapter,aliases=[],alternatives=[],caption}){
   const d=await getDb();
   const existing=await activeEpisodeJob(key);
   if(existing)return {...existing,reused:true};
@@ -81,6 +81,7 @@ export async function queueReadChapter({key,chatId,statusMessageId,seriesId,titl
     seriesId:String(seriesId),
     readTitle:String(title||'').slice(0,180),
     readChapter:String(chapter||'').replace(',','.'),
+    aliases:Array.isArray(aliases)?aliases.map(String).filter(Boolean).slice(0,20):[],
     alternatives:Array.isArray(alternatives)?alternatives.slice(0,40):[],
     caption:String(caption||'').slice(0,500),
     status:'pending',
