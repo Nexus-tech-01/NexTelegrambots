@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { createCanvas } from '@napi-rs/canvas';
+import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { renderTgsToAnimatedWebp } from './lottie-renderer.mjs';
 
 const FFMPEG=String(process.env.FFMPEG_PATH||'ffmpeg');
@@ -252,7 +252,41 @@ export async function addStickerWatermark(source,{
   return transformWithOverlay(source,overlay);
 }
 
+async function roundStaticStickerFast(source){
+  const image=await loadImage(Buffer.from(source?.buffer||[]));
+  const width=Math.max(1,Number(image?.width)||1);
+  const height=Math.max(1,Number(image?.height)||1);
+  const canvas=createCanvas(512,512);
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,512,512);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(256,256,250,0,Math.PI*2);
+  ctx.closePath();
+  ctx.clip();
+  const scale=Math.min(512/width,512/height);
+  const drawWidth=Math.max(1,Math.round(width*scale));
+  const drawHeight=Math.max(1,Math.round(height*scale));
+  const x=Math.round((512-drawWidth)/2);
+  const y=Math.round((512-drawHeight)/2);
+  ctx.drawImage(image,x,y,drawWidth,drawHeight);
+  ctx.restore();
+  const buffer=Buffer.from(await canvas.encode('webp'));
+  if(!buffer.length)throw new Error('Canvas WebP vide.');
+  if(buffer.length>512*1024)throw new Error('Canvas WebP > 512 Ko.');
+  return {buffer,format:'static',filename:'sticker.webp',mime:'image/webp'};
+}
+
 export async function roundSticker(source){
+  const mime=String(source?.mime||'').toLowerCase();
+  const animated=mime.includes('tgsticker')||mime.includes('x-tgsticker')||mime.includes('webm')||mime.startsWith('video/')||mime.includes('gif');
+  if(!animated){
+    try{
+      return await roundStaticStickerFast(source);
+    }catch(error){
+      console.warn('[NexAi roundSticker fast fallback]',String(error?.message||error).slice(0,240));
+    }
+  }
   const src=await sourceInput(source);
   const mask=tmp('png');
   fs.writeFileSync(mask,circleMaskPng());
