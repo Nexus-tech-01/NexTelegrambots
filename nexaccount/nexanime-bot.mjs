@@ -1637,7 +1637,7 @@ export async function downloadEpisode(anime,lang,s,e,quality,options={}){
 }
 
 
-function readChapterNumber(raw=''){
+function readChapterNumber(raw='',title=''){
   const text=String(raw||'')
     .normalize('NFKC')
     .replace(/[\u00a0\u202f]/g,' ')
@@ -1654,6 +1654,17 @@ function readChapterNumber(raw=''){
     if(m){
       const n=Number(String(m[1]).replace(',','.'));
       if(Number.isFinite(n))return String(n);
+    }
+  }
+  if(title){
+    const withoutExt=text.replace(/\.(?:pdf|cbz|zip|jpe?g|png|webp|avif)$/i,'').trim();
+    const m=withoutExt.match(/(?:^|\s)0*(\d{1,4}(?:[.,]\d+)?)\s*(?:vf|fr|french)?$/i);
+    if(m){
+      const candidate=withoutExt.slice(0,m.index).trim();
+      if(readTitleScore(candidate,title)>=.55){
+        const n=Number(String(m[1]).replace(',','.'));
+        if(Number.isFinite(n))return String(n);
+      }
     }
   }
   return '';
@@ -2077,10 +2088,11 @@ async function downloadReadFromWeb(title,chapter,alternatives,{onProgress=null}=
   throw lastError||new Error('Aucune méthode web disponible');
 }
 
-async function downloadReadFromTelegram(title,chapter,{onProgress=null}={}){
+async function downloadReadFromTelegram(title,chapter,{onProgress=null,aliases=[]}={}){
   const wanted=String(Number(chapter));
-  const terms=[title,readTitleNorm(title)].filter(Boolean);
-  const uniqueTerms=[...new Set(terms)].slice(0,2);
+  const titleVariants=[title,...(Array.isArray(aliases)?aliases:[])].map(x=>String(x||'').trim()).filter(Boolean);
+  const terms=titleVariants.flatMap(x=>[x,readTitleNorm(x)]).filter(Boolean);
+  const uniqueTerms=[...new Set(terms)].slice(0,6);
   const emit=payload=>{
     if(typeof onProgress!=='function')return;
     try{Promise.resolve(onProgress(payload)).catch(()=>{})}catch{}
@@ -2122,9 +2134,10 @@ async function downloadReadFromTelegram(title,chapter,{onProgress=null}={}){
             const fileLike=readFileLike(message),imageLike=readImageLike(message);
             if(!fileLike&&!imageLike)continue;
             const signal=watcherSignalText(message);
-            const ch=readChapterNumber(signal);
+            const bestTitle=titleVariants.sort((a,b)=>readTitleScore(signal,b)-readTitleScore(signal,a))[0]||title;
+            const ch=readChapterNumber(signal,bestTitle);
             if(!ch||String(Number(ch))!==wanted)continue;
-            if(readTitleScore(signal,title)<.58)continue;
+            if(Math.max(0,...titleVariants.map(x=>readTitleScore(signal,x)))<.58)continue;
 
             if(imageLike&&!fileLike){
               const work=await fsp.mkdtemp(path.join(TMP_ROOT,'read-tg-images-'));
@@ -2345,8 +2358,9 @@ async function discoverReadFromWebCatalogs(title,{onProgress=null}={}){
         checked.add(source.name);
         const text=readHtmlText(page.html).slice(0,5000);
         if(readTitleScore(text,title)<.18&&readTitleScore(candidate.label,title)<.55)continue;
+        const before=rows.length;
         rows.push(...readChapterLinks(page.html,page.url,title,source.name));
-        if(rows.length&&readTitleScore(candidate.label,title)>=.9)break;
+        if(rows.length>before&&readTitleScore(candidate.label,title)>=.9)break;
       }catch(error){errors.push(source.name+':'+String(error?.message||error))}
     }
   }
@@ -2370,7 +2384,7 @@ async function discoverReadFromMangaDex(title,{onProgress=null}={}){
     const score=Math.max(0,...labels.map(x=>readTitleScore(x,title)));
     const best=labels.sort((a,b)=>readTitleScore(b,title)-readTitleScore(a,title))[0]||title;
     return {item,score,best};
-  }).filter(x=>x.score>=.42).sort((a,b)=>b.score-a.score).slice(0,3);
+  }).filter(x=>x.score>=.42).sort((a,b)=>b.score-a.score).slice(0,1);
   const rows=[],aliases=new Set(),canonical=ranked[0]?.best||title;
   let checked=0;
   for(const hit of ranked){
@@ -2406,15 +2420,16 @@ async function discoverReadFromMangaDex(title,{onProgress=null}={}){
   return {rows,canonical,aliases:[...aliases],checked};
 }
 
-async function discoverReadFromTelegramCatalog(title,{onProgress=null}={}){
+async function discoverReadFromTelegramCatalog(title,{onProgress=null,aliases=[]}={}){
   const rows=[],checked=new Set(),errors=[];
   const emit=payload=>{
     if(typeof onProgress!=='function')return;
     try{Promise.resolve(onProgress(payload)).catch(()=>{})}catch{}
   };
   emit({stage:'read-index-telegram',message:'Recherche dans les canaux Telegram accessibles…',force:true});
-  const terms=[title,readTitleNorm(title)].map(x=>String(x||'').trim()).filter(Boolean);
-  const uniqueTerms=[...new Set(terms)].slice(0,2);
+  const titleVariants=[title,...(Array.isArray(aliases)?aliases:[])].map(x=>String(x||'').trim()).filter(Boolean);
+  const terms=titleVariants.flatMap(x=>[x,readTitleNorm(x)]).filter(Boolean);
+  const uniqueTerms=[...new Set(terms)].slice(0,6);
 
   for(const accountUsername of WATCHER_FALLBACK_USERS){
     const rt=runtimeConnectionFor(accountUsername);
@@ -2445,8 +2460,9 @@ async function discoverReadFromTelegramCatalog(title,{onProgress=null}={}){
             if(id)seenIds.add(id);
             fresh++;
             const signal=watcherSignalText(message);
-            const chapter=readCatalogChapter(readChapterNumber(signal));
-            if(!chapter||readTitleScore(signal,title)<.52)continue;
+            const score=Math.max(0,...titleVariants.map(x=>readTitleScore(signal,x)));
+            const chapter=readCatalogChapter(readChapterNumber(signal,titleVariants.sort((a,b)=>readTitleScore(signal,b)-readTitleScore(signal,a))[0]||title));
+            if(!chapter||score<.52)continue;
             rows.push({
               number:chapter,
               source:{
@@ -2494,10 +2510,10 @@ function detectReadCatalogGaps(chapters=[]){
   const exact=new Set(chapters.map(x=>readCatalogChapter(x?.number)).filter(Boolean));
   const ints=[...exact].map(Number).filter(n=>Number.isInteger(n)&&n>=1).sort((a,b)=>a-b);
   if(ints.length<2)return [];
-  const min=ints[0],max=ints[ints.length-1];
-  if(max-min>5000)return [];
+  const max=ints[ints.length-1];
+  if(max>5000)return [];
   const missing=[];
-  for(let n=min;n<=max;n++)if(!exact.has(String(n)))missing.push(String(n));
+  for(let n=1;n<=max;n++)if(!exact.has(String(n)))missing.push(String(n));
   return missing;
 }
 
@@ -2520,7 +2536,7 @@ export async function discoverReadCatalog(title,{onProgress=null}={}){
   }catch(error){stats.errors.push('catalog:'+String(error?.message||error))}
 
   try{
-    const tg=await discoverReadFromTelegramCatalog(cleanTitle,{onProgress});
+    const tg=await discoverReadFromTelegramCatalog(cleanTitle,{onProgress,aliases:[...aliases]});
     allRows.push(...tg.rows);stats.telegram=tg.checked.length;stats.errors.push(...tg.errors);
   }catch(error){stats.errors.push('telegram:'+String(error?.message||error))}
 
