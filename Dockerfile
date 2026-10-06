@@ -38,6 +38,8 @@ RUN set -eux; \
 # main-branch build without having to regenerate the whole legacy archive.
 COPY nexaccount/sticker-engine.mjs /app/nexaccount/sticker-engine.mjs
 COPY nexaccount/sticker-transform.mjs /app/nexaccount/sticker-transform.mjs
+RUN node --check /app/nexaccount/sticker-engine.mjs \
+ && node --check /app/nexaccount/sticker-transform.mjs
 
 # NexCanal public-channel watchers run beside the bundled bot processes.
 COPY watchers /app/watchers
