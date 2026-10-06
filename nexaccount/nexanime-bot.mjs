@@ -911,7 +911,7 @@ async function viewerCandidates(animeId,s,e,lang){
   };
 }
 
-async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=null,preResolvedUrls=[]}={}){
+async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=null,preResolvedUrls=[],skipFresh=false,sourceReferer=SITE_REFERER}={}){
   await fsp.mkdir(TMP_ROOT,{recursive:true});
   const work=await fsp.mkdtemp(path.join(TMP_ROOT,'job-'));
   const outTpl=path.join(work,'episode.%(ext)s');
@@ -938,8 +938,10 @@ async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=nul
   const handedOff=[...new Set((Array.isArray(preResolvedUrls)?preResolvedUrls:[]).map(x=>String(x||'').trim()).filter(x=>/^https?:\/\//i.test(x)))];
   emit({stage:'resolve',message:handedOff.length?'Sources déjà reçues · recherche de lecteurs supplémentaires…':'Recherche des lecteurs FRAnime…',force:true});
   let fresh={urls:[],wrappers:[]};
-  try{fresh=await viewerCandidates(anime.id,s,e,lang)}catch(error){
-    if(!handedOff.length)throw error;
+  if(!skipFresh){
+    try{fresh=await viewerCandidates(anime.id,s,e,lang)}catch(error){
+      if(!handedOff.length)throw error;
+    }
   }
   const urls=[...new Set([...handedOff,...(Array.isArray(fresh?.urls)?fresh.urls:[])])];
   const wrappers=[...new Set(Array.isArray(fresh?.wrappers)?fresh.wrappers:[])];
@@ -1068,6 +1070,7 @@ async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=nul
     emit({stage:'extract',message:'Recherche de la meilleure méthode de téléchargement…',force:true});
     const candidates=await expandedDownloadCandidates(url);
     for(const candidate of candidates){
+      if(sourceReferer&&candidate.referer===SITE_REFERER)candidate.referer=sourceReferer;
       ensureTime();
       const file=await tryCandidate(candidate);
       if(file)return {file,work};
@@ -1080,6 +1083,7 @@ async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=nul
     ensureTime();
     emit({stage:'browser',message:'Recherche avancée du flux vidéo…',force:true});
     const candidates=await browserNetworkCandidates(browserTargets[i]);
+    for(const candidate of candidates){if(sourceReferer&&candidate.referer===SITE_REFERER)candidate.referer=sourceReferer}
     if(!candidates.length){
       emit({stage:'browser',message:'Méthode indisponible · nouvelle tentative…',force:true});
       continue;
@@ -1114,6 +1118,69 @@ async function downloadEpisodeFromFranime(anime,lang,s,e,quality,{onProgress=nul
   throw new Error('Téléchargement impossible pour cet épisode.');
 }
 
+
+
+const ANIMESAMA_SITE='https://anime-sama.to';
+
+function animeSamaSlug(value=''){
+  return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/['’]/g,'').replace(/[^a-z0-9]+/g,'-')
+    .replace(/-+/g,'-').replace(/^-|-$/g,'');
+}
+
+async function animeSamaEpisodeUrls(anime,lang,s,e){
+  const aliases=[displayTitle(anime),...titlesOf(anime)].map(animeSamaSlug).filter(Boolean);
+  const slugs=[...new Set(aliases)].slice(0,8);
+  const langPath=lang==='vf'?'vf':'vostfr';
+  const season=Number(s)+1;
+  for(const slug of slugs){
+    const page=ANIMESAMA_SITE+'/catalogue/'+slug+'/saison'+season+'/'+langPath+'/';
+    try{
+      const r=await fetch(page,{
+        headers:{'user-agent':USER_AGENT,'accept-language':'fr-FR,fr;q=0.9,en;q=0.7'},
+        redirect:'follow',signal:AbortSignal.timeout(20_000)
+      });
+      if(!r.ok)continue;
+      const html=await r.text();
+      if(/Accès Introuvable|Page introuvable|404/i.test(html))continue;
+      const script=(html.match(/<script[^>]+src=["']([^"']*episodes\.js[^"']*)["']/i)||[])[1]||'';
+      if(!script)continue;
+      const jsUrl=new URL(script,r.url||page).href;
+      const jr=await fetch(jsUrl,{
+        headers:{'user-agent':USER_AGENT,'referer':r.url||page},
+        signal:AbortSignal.timeout(20_000)
+      });
+      if(!jr.ok)continue;
+      const js=await jr.text();
+      const urls=[];
+      for(const m of js.matchAll(/var\s+eps\d+\s*=\s*\[([\s\S]*?)\]\s*;/gi)){
+        const entries=[...String(m[1]||'').matchAll(/['"]([^'"]+)['"]/g)].map(x=>x[1]);
+        const selected=String(entries[Number(e)]||'').trim();
+        if(/^https?:\/\//i.test(selected))urls.push(selected);
+      }
+      const unique=[...new Set(urls)];
+      if(unique.length)return {urls:unique,referer:r.url||page};
+    }catch{}
+  }
+  throw new Error('Aucune méthode alternative trouvée pour cet épisode');
+}
+
+async function downloadEpisodeFromAnimeSama(anime,lang,s,e,quality,{onProgress=null}={}){
+  if(typeof onProgress==='function'){
+    try{await Promise.resolve(onProgress({
+      stage:'alternative-resolve',
+      message:'Recherche d’une méthode alternative…',
+      force:true
+    }))}catch{}
+  }
+  const resolved=await animeSamaEpisodeUrls(anime,lang,s,e);
+  return downloadEpisodeFromFranime(anime,lang,s,e,quality,{
+    onProgress,
+    preResolvedUrls:resolved.urls,
+    skipFresh:true,
+    sourceReferer:resolved.referer
+  });
+}
 
 function watcherFilename(message){
   for(const attr of message?.document?.attributes||[]){
@@ -1501,20 +1568,21 @@ async function downloadEpisodeFromTelegramWatchers(anime,lang,s,e,quality,{onPro
 }
 
 export async function downloadEpisode(anime,lang,s,e,quality,options={}){
-  let franimeError=null;
+  const errors=[];
   try{
     return await downloadEpisodeFromFranime(anime,lang,s,e,quality,options);
-  }catch(error){
-    franimeError=error;
-  }
+  }catch(error){errors.push(error)}
+
+  try{
+    return await downloadEpisodeFromAnimeSama(anime,lang,s,e,quality,options);
+  }catch(error){errors.push(error)}
 
   try{
     return await downloadEpisodeFromTelegramWatchers(anime,lang,s,e,quality,options);
-  }catch(watcherError){
-    const a=String(franimeError?.message||franimeError||'échec FRAnime').slice(0,360);
-    const b=String(watcherError?.message||watcherError||'échec alternatif').slice(0,360);
-    throw new Error('Téléchargement principal: '+a+' · Recherche alternative: '+b);
-  }
+  }catch(error){errors.push(error)}
+
+  const reasons=errors.map(x=>String(x?.message||x||'échec').slice(0,180)).filter(Boolean);
+  throw new Error('Toutes les méthodes de récupération ont échoué'+(reasons.length?' · '+reasons.join(' · '):''));
 }
 
 
