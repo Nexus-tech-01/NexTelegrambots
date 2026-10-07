@@ -1,6 +1,6 @@
 name: Ops Deploy NexAI Help Docs Once
 # One-shot production deployment for the bilingual NexAI help-docs release.
-# Retry 5: deploy after repinning the protected NexAnime runtime to the 15-minute contract.
+# Retry 6: deploy bilingual NexAI help docs with explicit FR/EN sync and live help probe.
 # NexAI Core deployment remains isolated and must never restart NexAnime or NexAPK.
 
 on:
@@ -18,7 +18,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       NXC_BASE: https://nexcontrol-ochre.vercel.app
       NXC_AGENT: nexus-main
@@ -206,6 +206,30 @@ jobs:
               scanner=by_name.get('tresor20009')
               if not scanner:
                   raise RuntimeError('required NexAI account runtime is not active: @tresor20009')
+
+              help_sync=job('runtime.exec',{
+                  'root':'nexus',
+                  'command':'node',
+                  'args':['bots/nexaccount/cli.mjs','help-sync','fr','en'],
+                  'timeoutMs':600000
+              },timeout=650)
+              help_text=help_sync.get('stdout','').strip()
+              print('NEXAI_HELP_SYNC',help_text[-5000:])
+              help_json=json.loads(help_text or '{}')
+              if help_json.get('ok') is not True or int(help_json.get('failed') or 0)!=0 or int(help_json.get('total') or 0)<2:
+                  raise RuntimeError('NexAI bilingual help sync failed: '+str(help_json))
+
+              help_probe=job('runtime.exec',{
+                  'root':'nexus',
+                  'command':'node',
+                  'args':['bots/nexaccount/cli.mjs','command-test',str(primary.get('telegramUserId')),'help ping','me'],
+                  'timeoutMs':30000
+              },timeout=60)
+              help_probe_text=help_probe.get('stdout','').strip()
+              print('NEXAI_HELP_ROUTE_PROBE',help_probe_text[-2000:])
+              help_probe_json=json.loads(help_probe_text or '{}')
+              if help_probe_json.get('ok') is not True or help_probe_json.get('command')!='help':
+                  raise RuntimeError('NexAI help routing probe failed: '+str(help_probe_json))
 
               # NexAnime and NexAPK are standalone systemd workers. Core deployment
               # verifies them over localhost but never restarts or replaces them.
