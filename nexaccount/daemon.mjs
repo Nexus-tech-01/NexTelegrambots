@@ -8,7 +8,7 @@ import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { ensureNexAiBot } from './bot-factory.mjs';
 import { ensureAnalyticsIndex } from './analytics-indexer.mjs';
-import { syncHelpDocs } from './help-docs.mjs';
+import { helpDocLink, syncHelpDocs } from './help-docs.mjs';
 import { animeRetryQueue, animeSystemStatus } from './anime-ingest.mjs';
 import { secondaryAnimeStatus, startSecondaryAnimeReader, stopSecondaryAnimeReader } from './anime-secondary-reader.mjs';
 import { startNexAnimeBot, stopNexAnimeBot, nexAnimeBotStatus } from './nexanime-bot.mjs';
@@ -295,6 +295,13 @@ async function route(req,res){
         languages:Array.isArray(q.languages)&&q.languages.length?q.languages:['fr','en'],
         names:Array.isArray(q.names)&&q.names.length?q.names:null
       }));
+    }
+    if(req.method==='POST'&&url.pathname==='/help/link'){
+      const q=await body(req);
+      const name=String(q.name||'').trim();
+      if(!name)return json(res,400,{ok:false,error:'name required'});
+      const result=await helpDocLink(name,String(q.language||'fr'),{ensure:false});
+      return json(res,result?.ok===true?200:404,result);
     }
     return json(res,404,{ok:false,error:'not_found'});
   }catch(e){
