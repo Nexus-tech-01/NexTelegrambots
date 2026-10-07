@@ -1,6 +1,6 @@
 name: Ops Deploy NexAI Help Docs Once
 # One-shot production deployment for the bilingual NexAI help-docs release.
-# Retry 4: deploy after aligning the scheduler test with the 15-minute contract.
+# Retry 5: deploy after repinning the protected NexAnime runtime to the 15-minute contract.
 # NexAI Core deployment remains isolated and must never restart NexAnime or NexAPK.
 
 on:
