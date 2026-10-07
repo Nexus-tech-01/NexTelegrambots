@@ -1,313 +1,108 @@
-name: Ops Deploy NexAI Help Docs Once
-# One-shot production deployment for the bilingual NexAI help-docs release.
-# Retry 6: deploy bilingual NexAI help docs with explicit FR/EN sync and live help probe.
-# NexAI Core deployment remains isolated and must never restart NexAnime or NexAPK.
+name: Ops NexAI Bilingual Help Deploy
 
 on:
   push:
     branches: [main]
     paths:
       - '.github/workflows/ops-nexai-help-docs-deploy-once-20261007.yml'
+  workflow_dispatch:
+
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
-  group: deploy-nexaccount
+  group: ops-nexai-bilingual-help-deploy
   cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
-    env:
-      NXC_BASE: https://nexcontrol-ochre.vercel.app
-      NXC_AGENT: nexus-main
-      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
-      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    timeout-minutes: 25
     steps:
-      - name: Checkout Nexus bots
-        uses: actions/checkout@v4
-
-      - name: Checkout THE BIG DIPPER
-        uses: actions/checkout@v4
-        with:
-          repository: Tresor562/DIPPER-
-          path: _dipper
-
-      - name: Sync Dipper styles
-        run: node nexaccount/scripts/sync-dipper.mjs _dipper nexaccount
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install NexAccount dependencies
-        run: npm install --prefix nexaccount --ignore-scripts
-
-      - name: Install ffmpeg for media regression
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y ffmpeg
-
-      - name: Full NexAccount public stability gate
-        run: npm --prefix nexaccount run check
-
-      - name: NexControl API syntax
-        run: node --check nexcontrol/api/index.mjs
-
-      - name: Deploy through NexControl Agent
+      - name: Validate bilingual help source
         shell: bash
         run: |
           set -euo pipefail
+          npm install --prefix nexaccount --ignore-scripts
+          node --check nexaccount/config.mjs
+          node --check nexaccount/daemon.mjs
+          node --check nexaccount/help-docs.mjs
+          node --check nexaccount/inline-bot.mjs
+          node --check nexaccount/runtime.mjs
+          node --check nexaccount/cli.mjs
+          node --check ops/deploy-nexai-safe-hotfix-live.mjs
+          grep -F "Nextech_NexAi" nexaccount/config.mjs
+          grep -F "export async function syncHelpDocs" nexaccount/help-docs.mjs
+          grep -F "export async function helpDocLink" nexaccount/help-docs.mjs
+          grep -F "sendCommandHelp" nexaccount/inline-bot.mjs
+          grep -F "name==='help'" nexaccount/runtime.mjs
+          grep -F "case 'help-sync':" nexaccount/cli.mjs
+          grep -F "case 'help-link':" nexaccount/cli.mjs
+          grep -F "'help-docs':[" ops/deploy-nexai-safe-hotfix-live.mjs
+          grep -F "report.steps.helpDocs={" ops/deploy-nexai-safe-hotfix-live.mjs
+
+      - name: Deploy bilingual help to NexAI VPS
+        shell: bash
+        env:
+          DEPLOY_ENDPOINT: https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nxc-agent-hotfix-bridge
+        run: |
+          set -euo pipefail
+          OIDC_JSON="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=nxc-nexai-help-docs-deploy")"
+          OIDC_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"$OIDC_JSON")"
+          test -n "$OIDC_TOKEN"
+
+          curl --fail-with-body --silent --show-error --max-time 1050 \
+            -X POST "$DEPLOY_ENDPOINT" \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "{\"sha\":\"${GITHUB_SHA}\",\"mode\":\"help-docs\"}" \
+            | tee /tmp/nexai-help-docs-deploy.json
+
           python3 - <<'PY'
-          import os,json,time,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib,base64
+          import json,re
           from pathlib import Path
-
-          BASE=os.environ['NXC_BASE'].rstrip('/')
-          AGENT=os.environ['NXC_AGENT']
-          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
-          SECRET=os.environ.get('NXC_SESSION_SECRET','')
-
-          jar=http.cookiejar.CookieJar()
-          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-          cookie=''
-          if SECRET:
-              exp=int(time.time()*1000)+30*60*1000
-              payload=base64.urlsafe_b64encode(json.dumps({'exp':exp},separators=(',',':')).encode()).decode().rstrip('=')
-              sig=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
-              cookie=payload+'.'+sig
-          elif ADMIN:
-              data=urllib.parse.urlencode({'password':ADMIN}).encode()
-              op.open(urllib.request.Request(BASE+'/api/admin/login',data=data,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=45).read()
-          else:
-              raise RuntimeError('No NexControl credential in Actions secrets')
-
-          def http(method,path,data=None,timeout=60):
-              headers={'Accept':'application/json'}
-              if cookie: headers['Cookie']='nexcontrol_session='+cookie
-              body=None
-              if data is not None:
-                  body=json.dumps(data,separators=(',',':')).encode()
-                  headers['Content-Type']='application/json'
-              req=urllib.request.Request(BASE+path,data=body,headers=headers,method=method)
-              try:
-                  with op.open(req,timeout=timeout) as r:
-                      raw=r.read().decode('utf-8','replace')
-                      return json.loads(raw) if raw else {}
-              except urllib.error.HTTPError as e:
-                  raise RuntimeError(f'HTTP {e.code} {path}: '+e.read().decode('utf-8','replace')[:2000])
-
-          def job(kind,payload,timeout=180):
-              j=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload})
-              jid=j.get('jobId')
-              if not jid: raise RuntimeError(f'No jobId for {kind}: {j}')
-              end=time.time()+timeout
-              while time.time()<end:
-                  x=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid),timeout=45)
-                  st=x.get('status')
-                  if st=='succeeded': return x.get('result') or {}
-                  if st=='failed': raise RuntimeError(f'{kind} failed: {x.get("error")}')
-                  time.sleep(1)
-              raise TimeoutError(f'{kind} timeout: {jid}')
-
-          job('fs.mkdir',{'root':'nexus','path':'bots/nexaccount','recursive':True})
-          job('fs.mkdir',{'root':'nexus','path':'bots/nexaccount/automation','recursive':True})
-
-          files=[]
-          for p in Path('nexaccount').rglob('*'):
-              if not p.is_file(): continue
-              if any(part in {'node_modules','.runtime'} for part in p.parts): continue
-              rel=p.relative_to('nexaccount').as_posix()
-              files.append((p,rel))
-
-          backups=[]
-          production_previous=None
-          production_release=None
-          try:
-              # NexTech APK watcher is embedded into the already connected
-              # @tresor20009 NexAccount runtime. Copy the canonical modules to
-              # the production-local automation directory; no second user
-              # Telegram session is started.
-              for src_name,dst_name in (
-                  ('nexcanal/liteapks-relay.mjs','liteapks-relay.mjs'),
-                  ('nexcanal/internal-event-core.mjs','internal-event-core.mjs'),
-                  ('nexcanal/social-feed.mjs','social-feed.mjs'),
-              ):
-                  src=Path(src_name)
-                  if not src.exists():
-                      raise RuntimeError('missing embedded watcher source: '+src_name)
-                  result=job('fs.write',{
-                      'root':'nexus',
-                      'path':'bots/nexaccount/automation/'+dst_name,
-                      'content':src.read_text(encoding='utf-8')
-                  })
-                  backups.append(('automation/'+dst_name,result.get('backupId'),result.get('created',False)))
-
-              for src,rel in files:
-                  text=src.read_text(encoding='utf-8')
-                  result=job('fs.write',{'root':'nexus','path':'bots/nexaccount/'+rel,'content':text})
-                  backups.append((rel,result.get('backupId'),result.get('created',False)))
-              install=job('runtime.exec',{
-                  'root':'nexus',
-                  'command':'npm',
-                  'args':['--prefix','bots/nexaccount','install','--omit=dev','--ignore-scripts'],
-                  'timeoutMs':180000
-              },timeout=210)
-              if install.get('ok') is False:
-                  raise RuntimeError('npm install failed: '+str(install)[-4000:])
-              for embedded in ('liteapks-relay.mjs','internal-event-core.mjs','social-feed.mjs'):
-                  ck=job('check.run',{
-                      'check':'node-check',
-                      'root':'nexus',
-                      'file':'bots/nexaccount/automation/'+embedded,
-                      'timeoutMs':60000
-                  })
-                  if not ck.get('ok'):
-                      raise RuntimeError('embedded watcher node-check failed '+embedded+': '+str(ck))
-              promote=job('runtime.exec',{
-                  'root':'nexus',
-                  'command':'node',
-                  'args':['bots/nexaccount/scripts/promote-systemd-release.mjs','--promote',os.environ.get('GITHUB_SHA','manual')],
-                  'timeoutMs':120000
-              },timeout=150)
-              if promote.get('ok') is False:
-                  raise RuntimeError('canonical systemd promotion failed: '+str(promote)[-4000:])
-              promote_text=promote.get('stdout','').strip()
-              promote_json=json.loads(promote_text or '{}')
-              if promote_json.get('ok') is not True:
-                  raise RuntimeError('canonical systemd promotion returned unhealthy result: '+str(promote_json))
-              production_previous=promote_json.get('previousRelease')
-              production_release=promote_json.get('currentRelease')
-              print('NEXACCOUNT_CANONICAL_RELEASE',production_release)
-              health=job('runtime.exec',{
-                  'root':'nexus',
-                  'command':'node',
-                  'args':['bots/nexaccount/cli.mjs','health'],
-                  'timeoutMs':30000
-              },timeout=60)
-              health_text=health.get('stdout','').strip()
-              print('NEXACCOUNT_HEALTH',health_text[-5000:])
-              health_json=json.loads(health_text or '{}')
-              if health_json.get('pairingOnly') is True:
-                  raise RuntimeError('production NexAccount started in pairing-only mode')
-              accounts=job('runtime.exec',{
-                  'root':'nexus',
-                  'command':'node',
-                  'args':['bots/nexaccount/cli.mjs','accounts'],
-                  'timeoutMs':30000
-              },timeout=60)
-              accounts_text=accounts.get('stdout','').strip()
-              account_json=json.loads(accounts_text or '{}')
-              active=account_json.get('runtimes') or []
-              by_name={str(x.get('username') or '').lower().lstrip('@'):x for x in active if x.get('connected') is True}
-              primary=by_name.get('tresor20001')
-              if not primary:
-                  raise RuntimeError('required NexAI owner runtime is not active: @tresor20001')
-              scanner=by_name.get('tresor20009')
-              if not scanner:
-                  raise RuntimeError('required NexAI account runtime is not active: @tresor20009')
-
-              help_sync=job('runtime.exec',{
-                  'root':'nexus',
-                  'command':'node',
-                  'args':['bots/nexaccount/cli.mjs','help-sync','fr','en'],
-                  'timeoutMs':600000
-              },timeout=650)
-              help_text=help_sync.get('stdout','').strip()
-              print('NEXAI_HELP_SYNC',help_text[-5000:])
-              help_json=json.loads(help_text or '{}')
-              if help_json.get('ok') is not True or int(help_json.get('failed') or 0)!=0 or int(help_json.get('total') or 0)<2:
-                  raise RuntimeError('NexAI bilingual help sync failed: '+str(help_json))
-
-              help_probe=job('runtime.exec',{
-                  'root':'nexus',
-                  'command':'node',
-                  'args':['bots/nexaccount/cli.mjs','command-test',str(primary.get('telegramUserId')),'help ping','me'],
-                  'timeoutMs':30000
-              },timeout=60)
-              help_probe_text=help_probe.get('stdout','').strip()
-              print('NEXAI_HELP_ROUTE_PROBE',help_probe_text[-2000:])
-              help_probe_json=json.loads(help_probe_text or '{}')
-              if help_probe_json.get('ok') is not True or help_probe_json.get('command')!='help':
-                  raise RuntimeError('NexAI help routing probe failed: '+str(help_probe_json))
-
-              # NexAnime and NexAPK are standalone systemd workers. Core deployment
-              # verifies them over localhost but never restarts or replaces them.
-              worker_probe=job('runtime.exec',{
-                  'root':'nexus',
-                  'command':'node',
-                  'args':['-e',(
-                      "Promise.all(['http://127.0.0.1:18130/health','http://127.0.0.1:18131/health']"
-                      ".map(async u=>{const r=await fetch(u);const j=await r.json();if(!r.ok||j.ok!==true)throw new Error(u+' unhealthy '+JSON.stringify(j));return j;}))"
-                      ".then(x=>console.log(JSON.stringify(x))).catch(e=>{console.error(e);process.exit(1)})"
-                  )],
-                  'timeoutMs':30000
-              },timeout=60)
-              worker_text=worker_probe.get('stdout','').strip()
-              workers=json.loads(worker_text or '[]')
-              if len(workers)!=2:
-                  raise RuntimeError('standalone worker probe incomplete: '+worker_text)
-              print('NEXAI_INDEPENDENT_WORKERS_OK',[(x.get('service'),x.get('ok')) for x in workers])
-              print('NEXANIME_RUNTIME_CONTRACT_OK',[(x.get('service'),x.get('ok')) for x in workers])
-
-              probe_row=by_name.get('tresor20001') or next((x for x in active if x.get('connected') is True),None)
-              if not probe_row or not probe_row.get('telegramUserId'):
-                  raise RuntimeError('no connected NexAccount runtime available for inline menu probe')
-              menu_probe=job('runtime.exec',{
-                  'root':'nexus',
-                  'command':'node',
-                  'args':['bots/nexaccount/cli.mjs','menu-probe',str(probe_row.get('telegramUserId'))],
-                  'timeoutMs':30000
-              },timeout=60)
-              probe_text=menu_probe.get('stdout','').strip()
-              probe_json=json.loads(probe_text or '{}')
-              if probe_json.get('ok') is not True or not probe_json.get('resultId'):
-                  raise RuntimeError('NexAI inline menu probe failed: '+str(probe_json))
-              print('NEXAI_INLINE_MENU_OK',probe_json)
-
-              engines=job('runtime.exec',{
-                  'root':'nexus',
-                  'command':'node',
-                  'args':['bots/nexaccount/cli.mjs','engines'],
-                  'timeoutMs':30000
-              },timeout=60)
-              engines_text=engines.get('stdout','').strip()
-              engines_json=json.loads(engines_text or '{}')
-              engine_rows={str(x.get('service')):x for x in (engines_json.get('engines') or [])}
-              for required in ('download','group','sticker','game','anime','audio'):
-                  row=engine_rows.get(required) or {}
-                  if row.get('configured') is not True or row.get('reachable') is not True:
-                      raise RuntimeError('required NexAI engine not ready: '+required+' '+str(row))
-              ai=engine_rows.get('ai') or {}
-              if ai.get('configured') is not True or ai.get('reachable') is not True:
-                  print('WARNING NexAI AI provider is not configured/reachable:',ai)
-              else:
-                  print('NEXAI_AI_OK',ai)
-
-              print('AUTOMATIONS_OK NexAI Core isolated from standalone NexAnime + NexAPK workers')
-              print('DEPLOYMENT_OK NexAccount')
-          except Exception:
-              if production_previous:
-                  try:
-                      rollback=job('runtime.exec',{
-                          'root':'nexus',
-                          'command':'node',
-                          'args':['bots/nexaccount/scripts/promote-systemd-release.mjs','--rollback',production_previous],
-                          'timeoutMs':120000
-                      },timeout=150)
-                      if rollback.get('ok') is False:
-                          raise RuntimeError('canonical rollback command failed: '+str(rollback)[-4000:])
-                      rollback_json=json.loads((rollback.get('stdout') or '{}').strip() or '{}')
-                      if rollback_json.get('ok') is not True:
-                          raise RuntimeError('canonical rollback returned unhealthy result: '+str(rollback_json))
-                      print('PRODUCTION_ROLLBACK_OK',production_previous)
-                  except Exception as e:
-                      print('PRODUCTION_ROLLBACK_FAILED',production_previous,e)
-              for rel,bid,created in reversed(backups):
-                  try:
-                      if bid: job('fs.rollback',{'backupId':bid})
-                      elif created: job('fs.delete',{'root':'nexus','path':'bots/nexaccount/'+rel,'allowDir':False})
-                  except Exception as e:
-                      print('rollback warning',rel,e)
-              raise
+          d=json.loads(Path('/tmp/nexai-help-docs-deploy.json').read_text())
+          if d.get('ok') is not True:
+              raise SystemExit('deployment failed: '+str(d))
+          steps=d.get('steps') or {}
+          if steps.get('sourceValidated') is not True:
+              raise SystemExit('source validation not confirmed')
+          if steps.get('productionMarker') is not True:
+              raise SystemExit('production marker not confirmed')
+          health=steps.get('health') or {}
+          if health.get('ok') is not True or health.get('pairingOnly') is True:
+              raise SystemExit('NexAI health not confirmed: '+str(health))
+          live=steps.get('live') or {}
+          docs=live.get('helpDocs') or {}
+          if docs.get('channel')!='@Nextech_NexAi':
+              raise SystemExit('official help channel not confirmed: '+str(docs))
+          sync=docs.get('sync') or {}
+          if sync.get('ok') is not True or int(sync.get('failed') or 0)!=0 or int(sync.get('total') or 0)<2:
+              raise SystemExit('FR/EN synchronization failed: '+str(sync))
+          probe=docs.get('routeProbe') or {}
+          if probe.get('ok') is not True or probe.get('command')!='help':
+              raise SystemExit('help command route failed: '+str(probe))
+          links=docs.get('links') or {}
+          pat=re.compile(r'^https://t\.me/Nextech_NexAi/\d+$',re.I)
+          if not pat.match(str(links.get('fr') or '')) or not pat.match(str(links.get('en') or '')):
+              raise SystemExit('published help links invalid: '+str(links))
+          ids=docs.get('messageIds') or {}
+          if not int(ids.get('fr') or 0) or not int(ids.get('en') or 0) or int(ids['fr'])==int(ids['en']):
+              raise SystemExit('FR and EN posts are not distinct: '+str(ids))
+          print('NEXAI_BILINGUAL_HELP_PRODUCTION_OK')
+          print('HELP_TOTAL',sync.get('total'))
+          print('HELP_CREATED',sync.get('created'))
+          print('HELP_EDITED',sync.get('edited'))
+          print('HELP_UNCHANGED',sync.get('unchanged'))
+          print('HELP_FR_URL',links.get('fr'))
+          print('HELP_EN_URL',links.get('en'))
           PY
