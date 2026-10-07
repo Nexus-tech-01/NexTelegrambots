@@ -25,10 +25,10 @@ const NEXCANAL_HANDOFF_TIMEOUT_MS=25_000;
 const DISCOVERY_MS=Math.max(15*60*1000,Number(process.env.NEXANIME_DISCOVERY_MS||6*60*60*1000));
 // Publication cadence is a product invariant, not an environment override:
 // - same anime: another publication opportunity every 30s (<= 1 min)
-// - different anime: exactly 5 min from the previous series' last confirmed publication
+// - different anime: exactly 15 min from the previous series' last confirmed publication
 // The active anime is drained first; only a genuinely unrunnable frontier may be parked.
 const PUBLISH_MS=30_000;
-const INTER_SERIES_MS=5*60_000;
+const INTER_SERIES_MS=15*60_000;
 const RESUME_AFTER_LONG_PAUSE_MS=30*60_000;
 // A broken or incomplete series must never freeze the entire anime feed.
 // It is parked temporarily, while episode order inside that series stays strict.
