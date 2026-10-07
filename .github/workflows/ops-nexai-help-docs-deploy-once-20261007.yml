@@ -43,6 +43,11 @@ jobs:
       - name: Install NexAccount dependencies
         run: npm install --prefix nexaccount --ignore-scripts
 
+      - name: Install ffmpeg for media regression
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg
+
       - name: Full NexAccount public stability gate
         run: npm --prefix nexaccount run check
 
