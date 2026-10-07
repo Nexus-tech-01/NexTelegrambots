@@ -42,7 +42,7 @@ jobs:
           grep -F "export async function syncHelpDocs" nexaccount/help-docs.mjs
           grep -F "export async function helpDocLink" nexaccount/help-docs.mjs
           grep -F "sendCommandHelp" nexaccount/inline-bot.mjs
-          grep -F "name==='help'" nexaccount/runtime.mjs
+          grep -F "case 'help':{" nexaccount/runtime.mjs
           grep -F "case 'help-sync':" nexaccount/cli.mjs
           grep -F "case 'help-link':" nexaccount/cli.mjs
           grep -F "'help-docs':[" ops/deploy-nexai-safe-hotfix-live.mjs
