@@ -52,6 +52,14 @@ const modes={
     ['nexanime-bot.mjs','nexaccount/nexanime-bot.mjs'],
     ['nexanime-worker.mjs','nexaccount/nexanime-worker.mjs'],
     ['nexanime-secrets.mjs','nexaccount/nexanime-secrets.mjs']
+  ],
+  'help-docs':[
+    ['config.mjs','nexaccount/config.mjs'],
+    ['daemon.mjs','nexaccount/daemon.mjs'],
+    ['help-docs.mjs','nexaccount/help-docs.mjs'],
+    ['inline-bot.mjs','nexaccount/inline-bot.mjs'],
+    ['runtime.mjs','nexaccount/runtime.mjs'],
+    ['cli.mjs','nexaccount/cli.mjs']
   ]
 };
 const files=modes[mode];
@@ -78,7 +86,9 @@ const required={
   'daemon.mjs':['startNexAnimeBot','stopNexAnimeBot','nexAnimeBotStatus'],
   'nexanime-bot.mjs':['export async function startNexAnimeBot','export async function downloadEpisode','export async function animeById','api.franime.fr','NexAnime01_bot','uploadForFileId','nexanime_bot_cache'],
   'nexanime-worker.mjs':['export async function startNexAnimeWorker','nexanime_bot_jobs','#NXA_CACHE:','#NXA_PROGRESS:','uploaded_waiting_webhook','uploaderReady'],
-  'nexanime-secrets.mjs':['saveNexAnimeBotToken','loadNexAnimeBotToken','nexanime_bot_token']
+  'nexanime-secrets.mjs':['saveNexAnimeBotToken','loadNexAnimeBotToken','nexanime_bot_token'],
+  'help-docs.mjs':['export async function syncHelpDocs','export async function helpDocLink','nexai_help_docs','Documentation officielle des commandes NexAI','Official NexAI command documentation'],
+  'cli.mjs':["case 'help-sync':","case 'help-link':","'/help/sync'","'/help/link'"]
 };
 
 const stamp=new Date().toISOString().replace(/[:.]/g,'-');
@@ -248,7 +258,7 @@ try{
 
   // node --check does not resolve ESM imports/exports. Import the runtime graph
   // before touching systemd so mismatched dependent files can never crash live.
-  if(mode==='anime-gap-skip'||mode==='custom-style'||mode==='stickers'||mode==='prefixless-loop'||mode==='nexanime-search-bot'){
+  if(mode==='anime-gap-skip'||mode==='custom-style'||mode==='stickers'||mode==='prefixless-loop'||mode==='nexanime-search-bot'||mode==='help-docs'){
     const graphCode=mode==='anime-gap-skip'
       ?"await import('./runtime.mjs'); await import('./anime-secondary-reader.mjs'); console.log('MODULE_GRAPH_OK')"
       :mode==='stickers'
@@ -272,6 +282,60 @@ try{
       throw new Error('admin access validation failed: '+(adminProbe.stderr||adminProbe.stdout).slice(-1600));
     }
     report.steps.adminAccess={josh:true,prefixless:true,nexaiPremium:true};
+  }
+
+  if(mode==='help-docs'){
+    let accounts=null;
+    let active=[];
+    for(let i=0;i<30;i++){
+      try{
+        accounts=cli('accounts');
+        active=Array.isArray(accounts?.runtimes)?accounts.runtimes.filter(x=>x?.connected===true):[];
+        if(active.length)break;
+      }catch{}
+      await sleep(2000);
+    }
+    const primary=active.find(x=>String(x?.username||'').toLowerCase().replace(/^@/,'')==='tresor20001')
+      ||active.find(x=>x?.telegramUserId);
+    if(!primary?.telegramUserId)throw new Error('no connected NexAI runtime available for bilingual help probe');
+
+    const syncRun=run(process.execPath,[path.join(base,'cli.mjs'),'help-sync','fr','en'],{
+      cwd:base,
+      timeout:900000,
+      env:{...process.env,NEXACCOUNT_PORT:'18120'}
+    });
+    if(!syncRun.ok)throw new Error('help sync failed: '+(syncRun.stderr||syncRun.stdout).slice(-2600));
+    let sync={};
+    try{sync=JSON.parse(String(syncRun.stdout||'{}').trim()||'{}')}
+    catch{throw new Error('help sync invalid json: '+String(syncRun.stdout||'').slice(-2200))}
+    if(sync?.ok!==true||Number(sync?.failed||0)!==0||Number(sync?.total||0)<2){
+      throw new Error('help sync incomplete: '+JSON.stringify(sync).slice(0,2600));
+    }
+
+    const probe=cli('command-test',String(primary.telegramUserId),'help ping','me');
+    if(probe?.ok!==true||probe?.command!=='help')throw new Error('help command route probe failed');
+
+    const fr=cli('help-link','ping','fr');
+    const en=cli('help-link','ping','en');
+    for(const [language,row] of [['fr',fr],['en',en]]){
+      if(row?.ok!==true||!/^https:\/\/t\.me\/Nextech_NexAi\/\d+$/i.test(String(row?.url||''))){
+        throw new Error('invalid '+language+' help link: '+JSON.stringify(row));
+      }
+    }
+    if(Number(fr.messageId||0)===Number(en.messageId||0))throw new Error('FR and EN help docs unexpectedly share one Telegram post');
+
+    report.steps.helpDocs={
+      channel:'@Nextech_NexAi',
+      sync,
+      routeProbe:{ok:true,command:probe.command,telegramUserId:String(primary.telegramUserId)},
+      links:{fr:fr.url,en:en.url},
+      messageIds:{fr:Number(fr.messageId||0),en:Number(en.messageId||0)}
+    };
+    report.steps.accounts={
+      runtimeCount:active.length,
+      probeUsername:String(primary.username||''),
+      probeTelegramUserId:String(primary.telegramUserId||'')
+    };
   }
 
   if(mode==='anime-gap-skip'){
