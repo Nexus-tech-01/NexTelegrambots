@@ -81,6 +81,12 @@ try{
       if(out?.ok!==true)throw new Error('help sync failed: '+JSON.stringify(out));
       break;
     }
+    case 'help-link': {
+      if(!args[0])throw new Error('command name required');
+      out=await call('POST','/help/link',{name:String(args[0]),language:String(args[1]||'fr')});
+      if(out?.ok!==true)throw new Error('help link unavailable: '+JSON.stringify(out));
+      break;
+    }
     case 'conversation-list':
       out=await call('GET','/conversation/list?telegramUserId='+encodeURIComponent(String(args[0]||''))+'&limit='+Math.max(1,Math.min(250,Number(args[1]||100))));
       break;
@@ -153,7 +159,7 @@ try{
       out=await call('GET','/pair/status?id='+encodeURIComponent(args[0]));
       break;
     default:
-      throw new Error('usage: cli.mjs health|accounts|engines|help-sync [fr] [en]|menu-probe TELEGRAM_USER_ID [peer]|command-test TELEGRAM_USER_ID TEXT [peer]|group-smoke TELEGRAM_USER_ID|auto-join-all [TELEGRAM_USER_ID|USERNAME]|automation-probe [TELEGRAM_USER_ID|USERNAME]|anime-status|anime-discover [@username]|anime-publish-now [@username]|anime-retry|anime-dedupe [@username] [--execute]|anime-rebuild [@username] [deadline]|public-key|secure ENVELOPE|qr-start|qr-status ID|qr-cancel ID|pair-status ID');
+      throw new Error('usage: cli.mjs health|accounts|engines|help-sync [fr] [en]|help-link <command> [fr|en]|menu-probe TELEGRAM_USER_ID [peer]|command-test TELEGRAM_USER_ID TEXT [peer]|group-smoke TELEGRAM_USER_ID|auto-join-all [TELEGRAM_USER_ID|USERNAME]|automation-probe [TELEGRAM_USER_ID|USERNAME]|anime-status|anime-discover [@username]|anime-publish-now [@username]|anime-retry|anime-dedupe [@username] [--execute]|anime-rebuild [@username] [deadline]|public-key|secure ENVELOPE|qr-start|qr-status ID|qr-cancel ID|pair-status ID');
   }
   process.stdout.write(JSON.stringify(out));
 }catch(e){
