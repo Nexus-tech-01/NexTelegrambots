@@ -8,6 +8,7 @@ import { startInlineBot, stopInlineBot } from './inline-bot.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { ensureNexAiBot } from './bot-factory.mjs';
 import { ensureAnalyticsIndex } from './analytics-indexer.mjs';
+import { syncHelpDocs } from './help-docs.mjs';
 import { animeRetryQueue, animeSystemStatus } from './anime-ingest.mjs';
 import { secondaryAnimeStatus, startSecondaryAnimeReader, stopSecondaryAnimeReader } from './anime-secondary-reader.mjs';
 import { startNexAnimeBot, stopNexAnimeBot, nexAnimeBotStatus } from './nexanime-bot.mjs';
@@ -288,6 +289,13 @@ async function route(req,res){
       const settings=await patchSettings(q.telegramUserId,allowed);
       return json(res,200,{ok:true,settings});
     }
+    if(req.method==='POST'&&url.pathname==='/help/sync'){
+      const q=await body(req);
+      return json(res,200,await syncHelpDocs({
+        languages:Array.isArray(q.languages)&&q.languages.length?q.languages:['fr','en'],
+        names:Array.isArray(q.names)&&q.names.length?q.names:null
+      }));
+    }
     return json(res,404,{ok:false,error:'not_found'});
   }catch(e){
     console.error('[NexAccount HTTP]',e);
@@ -326,6 +334,11 @@ server.listen(cfg.port,cfg.host,async()=>{
     await startNexAnimeBot().catch(e=>console.error('[NexAnime bot]',e));
   }
   console.log('[NexAccount] worker '+cfg.workerIndex+'/'+cfg.workerCount+(cfg.coordinator?' · coordinator':'')+(PAIRING_ONLY?' · pairing-only':'')+' restored '+loaded.length+' account(s), capacity '+cfg.maxRuntimesPerWorker);
+  if(cfg.coordinator&&!PAIRING_ONLY&&cfg.helpAutoSync){
+    syncHelpDocs()
+      .then(stats=>console.log('[NexAI help-docs]',JSON.stringify(stats)))
+      .catch(error=>console.error('[NexAI help-docs]',String(error?.message||error)));
+  }
   if(!PAIRING_ONLY)await runStartupSmoke().catch(error=>console.error('[NexAccount startup-smoke]',String(error?.message||error)));
 });
 

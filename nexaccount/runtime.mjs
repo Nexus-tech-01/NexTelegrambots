@@ -6,6 +6,7 @@ import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { returnBigInt } from 'teleproto/Helpers.js';
 import { cfg, isOwnerId, isOwnerIdentity, isAdminIdentity } from './config.mjs';
 import { commandMap } from './commands.mjs';
+import { helpDocLink } from './help-docs.mjs';
 import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, acquireSessionLease, claimCommandDelivery, claimSharedGreetingDelivery, db, disableAccount, enableAccount, listAccountsForWorker, markSessionRepairRequired, nexAiPremiumState, patchSettings, releaseRuntimeLease, releaseSessionLease, releaseSharedGreetingDelivery, renewRuntimeLease, renewSessionLease, sessionFingerprint, settingsFor, sharedBotIdentity } from './store.mjs';
 import { listStyles } from './styles.mjs';
 import { creatorCaptionModel, creatorImagePath } from './creator.mjs';
@@ -1156,9 +1157,28 @@ async function handleCommand(runtime,event,parsed){
     case 'account':
       await sendText(client,peer,'Compte : '+(account.username?'@'+account.username:account.firstName)+'\nTelegram Premium : '+(telegramPremium?'Oui':'Non')+'\nNexAI Premium : '+(account.nexaiPremium?'Oui':'Non')+'\nNexAccount : connecté');
       return true;
-    case 'help':
-      await sendText(client,peer,'Utilise menu (ou .menu / /menu) pour afficher le menu interactif.');
+    case 'help':{
+      const target=String(parsed.args?.[0]||'').trim();
+      if(!target){
+        await sendText(client,peer,'Utilise menu (ou .menu / /menu) pour afficher le menu interactif.');
+        return true;
+      }
+      const settings=await settingsFor(account.telegramUserId).catch(()=>({language:'fr'}));
+      const language=String(settings?.language||'fr').toLowerCase().startsWith('en')?'en':'fr';
+      const doc=await helpDocLink(target,language,{ensure:true}).catch(error=>({
+        ok:false,error:String(error?.message||error)
+      }));
+      if(!doc?.ok){
+        await sendText(client,peer,language==='en'
+          ?'Unknown command: '+target
+          :'Commande inconnue : '+target);
+        return true;
+      }
+      await sendText(client,peer,language==='en'
+        ?'Help /'+doc.name+'\n'+doc.url
+        :'Aide /'+doc.name+'\n'+doc.url);
       return true;
+    }
     case 'join':
       try{await joinTarget(client,parsed.args[0]);await sendText(client,peer,'Cible rejointe.')}
       catch(e){await sendText(client,peer,'Impossible de rejoindre : '+String(e.errorMessage||e.message||e))}

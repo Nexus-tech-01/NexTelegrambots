@@ -153,7 +153,7 @@ for(const name of ['waifuhd','cosplayvip','amvhd','openingvip']){
 }
 if(!commandSource.includes("PREMIUM:'PREMIUM'"))errors.push('combined-premium-category-label-missing');
 if(!secondaryAnimeSource.includes("NEXANIME_SECONDARY_ENABLED"))errors.push('secondary-anime-enabled-guard-missing');
-if(!secondaryAnimeSource.includes("reason:'disabled'"))errors.push('secondary-anime-disabled-state-missing');
+if(!secondaryAnimeSource.includes("'embedded_runtime_owns_sessions':'disabled'"))errors.push('secondary-anime-disabled-state-missing');
 if(secondaryAnimeSource.includes("||'/home/container/.nexcontrol/nexcanal-reader-session.txt'"))errors.push('legacy-secondary-session-fallback-still-present');
 if(!cliSource.includes("case 'command-test':"))errors.push('live-command-diagnostic-cli-missing');
 if(!cliSource.includes("case 'group-smoke':"))errors.push('live-group-smoke-cli-missing');

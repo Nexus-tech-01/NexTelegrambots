@@ -3,6 +3,7 @@ import { Bot, InputFile } from 'grammy';
 import { cfg, isOwnerId, isOwnerIdentity } from './config.mjs';
 import { loadBotToken } from './secrets.mjs';
 import { commandMap } from './commands.mjs';
+import { helpDocLink } from './help-docs.mjs';
 import { db, accountRecord, listConnectedAccounts, settingsFor, patchSettings, saveSharedBotIdentity, nexAiPremiumState, grantNexAiPremium, acquireServiceLease, renewServiceLease, releaseServiceLease, sharedGreetingPolicy, claimSharedGreetingDelivery, releaseSharedGreetingDelivery } from './store.mjs';
 import { menuModel, stylesModel, customStyleModel } from './menu.mjs';
 import { customStyleFor, normalizeCustomStyle } from './custom-style.mjs';
@@ -1050,6 +1051,38 @@ async function preferredLanguage(userId,telegramLanguage=''){
   return v.startsWith('en')?'en':'fr';
 }
 
+async function sendCommandHelp(ctx,rawCommand){
+  const language=await preferredLanguage(ctx.from.id,ctx.from.language_code);
+  const target=String(rawCommand||'').trim().split(/\s+/)[0]||'';
+  if(!target){
+    const account=await accountRecord(ctx.from.id);
+    if(account?.enabled===true)return sendDirectMenu(ctx,account,'menu');
+    return sendStart(ctx);
+  }
+  const doc=await helpDocLink(target,language,{ensure:true}).catch(error=>({
+    ok:false,error:String(error?.message||error)
+  }));
+  if(!doc?.ok){
+    const t=language==='en'
+      ?'Command not found: '+target
+      :'Commande introuvable : '+target;
+    return monoReplyText(ctx,t,{entities:[{type:'expandable_blockquote',offset:0,length:utf16len(t)}]});
+  }
+  const title=language==='en'?'ᴄᴏᴍᴍᴀɴᴅ ɢᴜɪᴅᴇ':'ғɪᴄʜᴇ ᴅᴇ ᴄᴏᴍᴍᴀɴᴅᴇ';
+  const text='⛩ '+title+' · /'+doc.name;
+  return monoReplyText(ctx,text,{
+    entities:[{type:'expandable_blockquote',offset:0,length:utf16len(text)}],
+    reply_markup:{
+      inline_keyboard:[[
+        {
+          text:language==='en'?'Open official guide':'Ouvrir la fiche officielle',
+          url:doc.url
+        }
+      ]]
+    }
+  });
+}
+
 function quotedEntities(text,commandsList=[]){
   const entities=[{type:'expandable_blockquote',offset:0,length:utf16len(text)}];
   for(const c of commandsList){
@@ -1226,6 +1259,11 @@ async function handleBareDirectCommand(ctx,text){
   const name=String(rawName||'').toLowerCase();
 
   if(name==='start'){await sendStart(ctx);return true}
+  if(name==='help'&&args.length){
+    await recordEvent(ctx.from,'command',{source:'nexai',command:'help',chatType:ctx.chat?.type||'private'}).catch(()=>{});
+    await sendCommandHelp(ctx,args[0]);
+    return true;
+  }
   if(name==='menu'||name==='help'){
     const account=await accountRecord(ctx.from.id);
     if(!account||account.enabled!==true){
@@ -1484,6 +1522,9 @@ export async function startInlineBot(){
     return sendDirectMenu(ctx,account,'menu');
   });
   bot.command('help',async ctx=>{
+    const target=String(ctx.match||'').trim().split(/\s+/)[0]||'';
+    await recordEvent(ctx.from,'command',{source:'nexai',command:'help',chatType:ctx.chat?.type||'private'}).catch(()=>{});
+    if(target)return sendCommandHelp(ctx,target);
     const account=await accountRecord(ctx.from.id);
     if(account?.enabled===true)return sendDirectMenu(ctx,account,'menu');
     return sendStart(ctx);

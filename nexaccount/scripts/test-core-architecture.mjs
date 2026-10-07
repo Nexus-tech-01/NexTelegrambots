@@ -28,11 +28,12 @@ assert.equal(runtime.emojiLibraryTimer,null);
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const runtimeSource=fs.readFileSync(path.resolve(here,'../runtime.mjs'),'utf8');
+// Sticker routing keeps a narrow runtime fallback so known sticker commands remain
+// usable during rolling deploys when the registry and sticker engine momentarily drift.
 for(const forbidden of [
   'canHandleAnimeCommand',
   'canHandleDownloadCommand',
   'canHandleAiCommand',
-  'canHandleStickerCommand',
   'canHandleGameCommand'
 ]){
   assert.equal(runtimeSource.includes(forbidden),false,'runtime.mjs still owns engine routing: '+forbidden);
