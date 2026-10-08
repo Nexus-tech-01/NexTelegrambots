@@ -1,0 +1,40 @@
+name: nexcontrol-rescue
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:?Set MONGO_USER in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?Set MONGO_PASSWORD in .env}
+    volumes:
+      - control_db:/data/db
+    networks: [control_internal]
+  control:
+    build:
+      context: ..
+      dockerfile: nexcontrol-rescue/Dockerfile
+    restart: unless-stopped
+    depends_on: [mongo]
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      MONGODB_URI: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/nexcontrol_rescue?authSource=admin
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
+      NEXCONTROL_FLEET_KEY: ${NEXCONTROL_FLEET_KEY:?Migrate existing fleet key to .env}
+      NEXCONTROL_AGENT_KEY: ${NEXCONTROL_AGENT_KEY:?Migrate existing agent key to .env}
+      RESCUE_ALLOW_INSECURE_HTTP: "false"
+    ports:
+      - "127.0.0.1:8082:8080"
+    networks: [control_internal]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+networks:
+  control_internal:
+    internal: false
+volumes:
+  control_db:
