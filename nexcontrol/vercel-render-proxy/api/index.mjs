@@ -3,6 +3,10 @@ const SESSION_COOKIE = "nxc_proxy_session";
 const SESSION_MAX_AGE = 8 * 60 * 60;
 const DIRECT_SUPABASE_URL = "https://ojbyvjqurlamplmujmyu.supabase.co";
 const DIRECT_SUPABASE_KEY = "sb_publishable_EnV_q5ePfEOB1NxN3-gtpA_HdwjtPyu";
+// Do not forward every polling request into a quota-blocked Supabase Edge Function.
+// Direct PostgREST agent routes remain available while this circuit is open.
+let edgeQuotaCircuitUntil = 0;
+const EDGE_QUOTA_RETRY_MS = 60_000;
 
 const HOP = new Set([
   "host","content-length","connection","transfer-encoding","keep-alive","upgrade",
@@ -131,6 +135,11 @@ export default async function handler(req, res) {
   try {
     const u = new URL(req.url || "/", "https://nexcontrol.local");
     if (await handleDirectAgent(req, res, u.pathname)) return;
+    if (Date.now() < edgeQuotaCircuitUntil) {
+      res.setHeader('retry-after', String(Math.ceil((edgeQuotaCircuitUntil - Date.now()) / 1000)));
+      directJson(res, 503, {ok:false,error:'nexcontrol_edge_quota_blocked',retryAfterSeconds:60});
+      return;
+    }
     const hasSession = !!cookieValue(req.headers?.cookie, SESSION_COOKIE);
     const route = (u.pathname === "/" && hasSession ? "/infrastructure" : u.pathname) + u.search;
     const headers = outboundHeaders(req);
@@ -146,6 +155,12 @@ export default async function handler(req, res) {
       redirect: "manual"
     });
 
+    if (upstream.status === 402) {
+      edgeQuotaCircuitUntil = Date.now() + EDGE_QUOTA_RETRY_MS;
+      res.setHeader('retry-after', '60');
+      directJson(res, 503, {ok:false,error:'nexcontrol_edge_quota_blocked',retryAfterSeconds:60});
+      return;
+    }
     const raw = Buffer.from(await upstream.arrayBuffer());
     const preview = raw.subarray(0, 256).toString("utf8").trimStart().toLowerCase();
     const isHtml = preview.startsWith("<!doctype html") || preview.startsWith("<html");
