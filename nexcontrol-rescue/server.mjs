@@ -50,7 +50,7 @@ const admin = (req, res) => {
 };
 const routes = new Map([
   ["/", home], ["/bots", bots], ["/destinations", destinations],
-  ["/campaigns", campaigns], ["/campaigns/new", compose], ["/server", serverPage]
+  ["/campaigns", campaigns], ["/campaigns/new", compose], ["/server", serverPage], ["/infrastructure", serverPage]
 ]);
 async function handler(req, res) {
   res.setHeader("x-content-type-options", "nosniff");
