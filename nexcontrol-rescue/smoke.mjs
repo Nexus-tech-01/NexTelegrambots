@@ -1,5 +1,5 @@
 // Read-only smoke checks. Do not send real bot credentials or OTPs here.
-const root = String(process.env.RESCUE_BASE_URL || "http://127.0.0.1:8082").replace(/\\/$/,"");
+const root = String(process.env.RESCUE_BASE_URL || "http://127.0.0.1:8082").replace(/[/]$/,"");
 const cases = [
   ["/health/live",200],
   ["/health/ready",200],
