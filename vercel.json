@@ -27,6 +27,18 @@
   ],
   "rewrites": [
     {
+      "source": "/api/v1/agent/heartbeat",
+      "destination": "/api/nxc-agent-direct?op=heartbeat"
+    },
+    {
+      "source": "/api/v1/agent/jobs/claim",
+      "destination": "/api/nxc-agent-direct?op=claim"
+    },
+    {
+      "source": "/api/v1/agent/jobs/result",
+      "destination": "/api/nxc-agent-direct?op=result"
+    },
+    {
       "source": "/site.css",
       "destination": "/nextech-site/site.css",
       "has": [
