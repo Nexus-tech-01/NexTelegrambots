@@ -4,7 +4,7 @@ WORKDIR /app
 COPY nexcontrol/package.json /app/nexcontrol/package.json
 RUN cd /app/nexcontrol && npm install --omit=dev --no-audit --no-fund
 COPY nexcontrol /app/nexcontrol
-COPY nexcontrol-rescue /app/nexcontrol-rescue
+COPY nexcontrol-rescue/server.mjs /app/nexcontrol-rescue/server.mjs
 USER node
 EXPOSE 8080
 CMD ["node", "nexcontrol-rescue/server.mjs"]
