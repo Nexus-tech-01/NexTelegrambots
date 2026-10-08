@@ -1,6 +1,8 @@
 const TARGET = "https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol-ui";
 const SESSION_COOKIE = "nxc_proxy_session";
 const SESSION_MAX_AGE = 8 * 60 * 60;
+const DIRECT_SUPABASE_URL = "https://ojbyvjqurlamplmujmyu.supabase.co";
+const DIRECT_SUPABASE_KEY = "sb_publishable_EnV_q5ePfEOB1NxN3-gtpA_HdwjtPyu";
 
 const HOP = new Set([
   "host","content-length","connection","transfer-encoding","keep-alive","upgrade",
@@ -58,9 +60,77 @@ function clearSessionCookie() {
   return SESSION_COOKIE + "=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0";
 }
 
+async function directRpc(name, args) {
+  const r = await fetch(DIRECT_SUPABASE_URL + "/rest/v1/rpc/" + name, {
+    method: "POST",
+    headers: {
+      apikey: DIRECT_SUPABASE_KEY,
+      authorization: "Bearer " + DIRECT_SUPABASE_KEY,
+      "content-type": "application/json",
+      accept: "application/json"
+    },
+    body: JSON.stringify(args),
+    signal: AbortSignal.timeout(30000)
+  });
+  const text = await r.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch { data = { error: text || ("HTTP " + r.status) }; }
+  if (!r.ok) throw new Error(String(data?.message || data?.error || ("HTTP " + r.status)));
+  return data;
+}
+
+function directBody(req) {
+  if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) return req.body;
+  if (typeof req.body === "string") { try { return JSON.parse(req.body); } catch {} }
+  return {};
+}
+
+function directJson(res, status, data) {
+  res.statusCode = status;
+  res.setHeader("content-type", "application/json; charset=utf-8");
+  res.setHeader("cache-control", "no-store");
+  res.end(JSON.stringify(data));
+}
+
+async function handleDirectAgent(req, res, pathname) {
+  if (!pathname.startsWith("/api/v1/agent/")) return false;
+  if (req.method !== "POST") { directJson(res, 405, { error: "method_not_allowed" }); return true; }
+  const slug = String(req.headers["x-nexcontrol-agent"] || "").trim().toLowerCase();
+  const key = String(req.headers["x-nexcontrol-agent-key"] || "");
+  const q = directBody(req);
+  let d;
+  if (pathname === "/api/v1/agent/heartbeat") {
+    d = await directRpc("nxc_direct_agent_heartbeat", { p_slug: slug, p_key: key, p_body: q });
+    if (d?.ok !== true) { directJson(res, d?.error === "unauthorized" ? 401 : 400, { error: d?.error || "agent_error" }); return true; }
+    directJson(res, 200, { ok: true, agentId: d.agentId }); return true;
+  }
+  if (pathname === "/api/v1/agent/jobs/claim") {
+    d = await directRpc("nxc_direct_agent_claim", { p_slug: slug, p_key: key, p_limit: Number(q.limit || 3) });
+    if (d?.ok !== true) { directJson(res, d?.error === "unauthorized" ? 401 : 400, { error: d?.error || "agent_error" }); return true; }
+    directJson(res, 200, { jobs: Array.isArray(d.jobs) ? d.jobs : [] }); return true;
+  }
+  if (pathname === "/api/v1/agent/jobs/result") {
+    d = await directRpc("nxc_direct_agent_result", {
+      p_slug: slug,
+      p_key: key,
+      p_job_id: String(q.jobId || ""),
+      p_ok: q.ok === true,
+      p_result: q.result && typeof q.result === "object" ? q.result : {},
+      p_error: q.error == null ? null : String(q.error)
+    });
+    if (d?.ok !== true) {
+      directJson(res, d?.error === "unauthorized" ? 401 : d?.error === "not_found" ? 404 : 400, { error: d?.error || "agent_error" });
+      return true;
+    }
+    directJson(res, 200, { ok: true }); return true;
+  }
+  directJson(res, 404, { error: "not_found" }); return true;
+}
+
 export default async function handler(req, res) {
   try {
     const u = new URL(req.url || "/", "https://nexcontrol.local");
+    if (await handleDirectAgent(req, res, u.pathname)) return;
     const hasSession = !!cookieValue(req.headers?.cookie, SESSION_COOKIE);
     const route = (u.pathname === "/" && hasSession ? "/infrastructure" : u.pathname) + u.search;
     const headers = outboundHeaders(req);
