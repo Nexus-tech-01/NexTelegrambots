@@ -45,6 +45,11 @@ def initialize():
           status TEXT NOT NULL DEFAULT 'pending', created INTEGER NOT NULL,
           claimed INTEGER, completed INTEGER, result TEXT, error TEXT);
         CREATE INDEX IF NOT EXISTS host_jobs_claim ON host_jobs(agent_id,status,created);
+        CREATE TABLE IF NOT EXISTS assistant_keys (
+          id TEXT PRIMARY KEY, digest TEXT NOT NULL UNIQUE, label TEXT NOT NULL,
+          created INTEGER NOT NULL, expires INTEGER NOT NULL,
+          revoked INTEGER NOT NULL DEFAULT 0, last_used INTEGER);
+        CREATE INDEX IF NOT EXISTS assistant_keys_expiry ON assistant_keys(expires);
         CREATE TABLE IF NOT EXISTS host_agents (
           id TEXT PRIMARY KEY, last_seen INTEGER NOT NULL, details TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS audit (
@@ -121,6 +126,9 @@ def dashboard():
     <div class="panel">RAM disponible<div class="metric" id="memory">—</div></div><div class="panel">Agent principal<div class="metric" id="agent">—</div></div>
     <div class="panel">Agent hôte<div class="metric" id="host">—</div></div></div>
     <div class="panel"><h2>Services NexTech</h2><div class="scroll"><table><thead><tr><th>Service</th><th>État</th></tr></thead><tbody id="services"></tbody></table></div></div>
+    <div class="panel"><h2>Accès assistant · lecture seule</h2><p>Clé temporaire (6 heures), limitée aux diagnostics. Elle ne donne aucun accès SSH et ne permet pas de modifier les services. Ne partagez pas la clé dans une conversation.</p>
+    <button id="keyCreate">Créer une clé temporaire</button><p id="keyNotice"></p><pre id="keyOnce" hidden></pre>
+    <div class="scroll"><table><thead><tr><th>Clé</th><th>Expiration</th><th>Révoquer</th></tr></thead><tbody id="accessKeys"></tbody></table></div></div>
     <div class="panel"><h2>Diagnostic</h2><button id="diag">Diagnostic agent NexControl</button>
     <button id="hostDiag">Diagnostic agent hôte</button><button id="refresh">Actualiser</button><button id="logout">Déconnexion</button>
     <p id="notice"></p><pre id="result">Aucun diagnostic lancé.</pre><h2>Historique de l’agent hôte</h2><pre id="hostResult">Aucun diagnostic hôte lancé.</pre></div>
@@ -133,9 +141,18 @@ def dashboard():
     $('services').replaceChildren(...a.services.map(x=>{const row=document.createElement('tr'),name=document.createElement('td'),state=document.createElement('td');name.textContent=x.name;state.textContent=x.active+'/'+x.sub;state.className=x.active==='active'?'ok':'bad';row.append(name,state);return row}));
     const jobs=await req('/api/nxc/jobs');$('result').textContent=JSON.stringify(jobs.jobs,null,2);
     const hostJobs=await req('/api/nxc/host/jobs');$('hostResult').textContent=JSON.stringify(hostJobs.jobs,null,2);
+    const access=await req('/api/nxc/access');$('accessKeys').replaceChildren(...access.keys.map(x=>{
+       const row=document.createElement('tr'),name=document.createElement('td'),expiry=document.createElement('td'),action=document.createElement('td'),button=document.createElement('button');
+       name.textContent=x.label;expiry.textContent=new Date(x.expires*1000).toLocaleString();
+       button.textContent='Révoquer';button.onclick=async()=>{if(!confirm('Révoquer cette clé ?'))return;await req('/api/nxc/access/revoke',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:x.id})});await refresh()};
+       action.append(button);row.append(name,expiry,action);return row}));
     }catch(e){$('board').hidden=true;$('login').hidden=false;$('loginMsg').textContent=e.message}}
     $('loginForm').onsubmit=async e=>{e.preventDefault();try{await req('/api/nxc/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:e.target.password.value})});e.target.password.value='';await refresh()}catch(ex){$('loginMsg').textContent=ex.message}};
     $('refresh').onclick=refresh;
+    $('keyCreate').onclick=async()=>{try{const x=await req('/api/nxc/access/issue',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({label:'ChatGPT observer'})});
+       $('keyOnce').hidden=false;$('keyOnce').textContent=x.token;
+       $('keyNotice').textContent='Clé affichée une seule fois, expiration : '+new Date(x.expires*1000).toLocaleString();
+       await refresh()}catch(e){$('keyNotice').textContent=e.message}};
     $('hostDiag').onclick=async()=>{try{const x=await req('/api/nxc/host/job',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'system.info'})});$('notice').textContent='Diagnostic agent hôte envoyé : '+x.jobId;setTimeout(refresh,1500)}catch(ex){$('notice').textContent=ex.message}};
     $('diag').onclick=async()=>{try{const x=await req('/api/nxc/job',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'system.info'})});$('notice').textContent='Diagnostic envoyé à l’agent : '+x.jobId;setTimeout(refresh,1600)}catch(ex){$('notice').textContent=ex.message}};
     $('logout').onclick=async()=>{await req('/api/nxc/logout',{method:'POST'});await refresh()};
@@ -192,6 +209,20 @@ class Handler(BaseHTTPRequestHandler):
     def local_origin(self):
         origin=self.headers.get("Origin","")
         return not origin or origin==ORIGIN
+
+    def assistant(self):
+        """Time-limited observer keys; never grants shell or service mutations."""
+        token=self.headers.get("Authorization","")
+        match=re.fullmatch(r"Bearer ([A-Za-z0-9_-]{40,120})",token)
+        if not match or not allowed(self.ip(),"assistant",120,60): return False
+        digest=hashlib.sha256(match.group(1).encode()).hexdigest()
+        now=int(time.time())
+        with connection() as d:
+            row=d.execute("SELECT id FROM assistant_keys WHERE digest=? AND revoked=0 AND expires>?",
+                          (digest,now)).fetchone()
+            if row:
+                d.execute("UPDATE assistant_keys SET last_used=? WHERE id=?",(now,row["id"]))
+        return row is not None
 
     def pairing(self, method, q):
         action=q.get("api",[""])[0]
@@ -313,6 +344,17 @@ class Handler(BaseHTTPRequestHandler):
         u=urlsplit(self.path); path=u.path; q=parse_qs(u.query,keep_blank_values=True)
         if path in ("/api/nxc/health","/healthz"):
             return self.send(200,{"ok":True,"service":"nexcontrol-vps","version":"1.0"})
+        if path in ("/api/nxc/assistant/status","/api/nxc/assistant/health") and method=="GET":
+            if not self.assistant(): return self.send(401,{"ok":False,"error":"assistant_key_required"})
+            with connection() as d:
+                agents=d.execute("SELECT slug,last_seen FROM agents ORDER BY last_seen DESC").fetchall()
+                host=d.execute("SELECT id,last_seen FROM host_agents ORDER BY last_seen DESC LIMIT 5").fetchall()
+            now=int(time.time())
+            return self.send(200,{"ok":True,"service":"nexcontrol-vps","role":"observer",
+                "hostname":os.uname().nodename,
+                "agents":[{"slug":a["slug"],"ageSeconds":now-a["last_seen"]} for a in agents],
+                "hostAgents":[{"id":h["id"],"ageSeconds":now-h["last_seen"]} for h in host],
+                "services":shell_status()})
         if path=="/api/nexai-connect": return self.pairing(method,q)
         if path.startswith("/api/v1/agent/"): return self.agent_api(path)
         if path.startswith("/rest/v1/rpc/nxf_host_"): return self.host_rpc(path.removeprefix("/rest/v1/rpc/"))
@@ -340,6 +382,35 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/nxc/"):
             if not self.admin(): return self.send(401,{"error":"connexion_requise"})
             if method=="POST" and not self.local_origin(): return self.send(403,{"error":"invalid_origin"})
+            if path=="/api/nxc/access" and method=="GET":
+                with connection() as d:
+                    rows=d.execute("SELECT id,label,created,expires,last_used FROM assistant_keys WHERE revoked=0 AND expires>? ORDER BY created DESC",(int(time.time()),)).fetchall()
+                return self.send(200,{"keys":[dict(x) for x in rows]})
+            if path=="/api/nxc/access/issue" and method=="POST":
+                if not allowed(self.ip(),"assistant_issue",4,3600):
+                    return self.send(429,{"error":"issuance_rate_limited"})
+                p=self.read_json(450)
+                label=str(p.get("label") or "ChatGPT observer")[:60].strip()
+                if not re.fullmatch(r"[A-Za-z0-9À-ž ._-]{2,60}",label):
+                    return self.send(400,{"error":"invalid_label"})
+                token=secrets.token_urlsafe(36)
+                digest=hashlib.sha256(token.encode()).hexdigest()
+                key_id=str(__import__("uuid").uuid4())
+                now=int(time.time());expires=now+6*3600
+                with connection() as d:
+                    d.execute("DELETE FROM assistant_keys WHERE expires<?",(now-14*24*3600,))
+                    d.execute("INSERT INTO assistant_keys(id,digest,label,created,expires) VALUES(?,?,?,?,?)",(key_id,digest,label,now,expires))
+                audit("assistant.issue",key_id)
+                return self.send(201,{"ok":True,"id":key_id,"role":"observer","token":token,"expires":expires})
+            if path=="/api/nxc/access/revoke" and method=="POST":
+                p=self.read_json(300)
+                key_id=str(p.get("id") or "")
+                if not re.fullmatch(r"[0-9a-f-]{36}",key_id):
+                    return self.send(400,{"error":"invalid_key_id"})
+                with connection() as d:
+                    cur=d.execute("UPDATE assistant_keys SET revoked=1 WHERE id=? AND revoked=0",(key_id,))
+                audit("assistant.revoke",key_id)
+                return self.send(200,{"ok":cur.rowcount>0})
             if path=="/api/nxc/host/jobs" and method=="GET":
                 with connection() as d:
                     rows=d.execute("SELECT id,agent_id,kind,status,created,claimed,completed,result,error FROM host_jobs ORDER BY created DESC LIMIT 10").fetchall()
