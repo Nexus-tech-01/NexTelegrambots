@@ -99,6 +99,11 @@ fi
 echo "PASS: independent NexControl backend working on VPS localhost."
 echo "PASS: local SQLite data store (/var/lib/nxc-vps)."
 echo "PASS: NexAI and NexControl web files available."
+if [[ -f /opt/nex/apps/public/nexai/current/cli.mjs ]]; then
+  echo "PASS: NexAI pairing CLI exists at the expected VPS path."
+else
+  echo "WARNING: NexAI pairing CLI missing. NexAI pairing remains unavailable until its runtime is restored." >&2
+fi
 
 # Online SQLite backups while the gateway is serving traffic; keep protected
 # configuration together with the database for full disaster recovery.
@@ -155,7 +160,29 @@ echo "PASS: nightly online backups configured and initial snapshot created."
 # Provision HTTPS only if it doesn't impact existing frontends on ports 80/443.
 PUBLIC_READY=0
 if command -v caddy >/dev/null && [[ -f /etc/caddy/Caddyfile ]]; then
-  echo "Existing Caddy config detected; NOT overwriting it."
+  echo "Existing Caddy config detected: checking a safe, additive HTTPS site."
+  if grep -Fq "reverse_proxy 127.0.0.1:18731" /etc/caddy/Caddyfile; then
+    echo "NexControl reverse proxy appears present; leaving existing Caddy routes unchanged."
+  elif grep -Fq "${DOMAIN} {" /etc/caddy/Caddyfile; then
+    echo "Domain already configured for another Caddy route. Manual reconciliation required; preserving it."
+  else
+    CADDY_BACKUP="/etc/caddy/Caddyfile.nxc-backup-$(date +%s)"
+    cp -a /etc/caddy/Caddyfile "${CADDY_BACKUP}"
+    cat >> /etc/caddy/Caddyfile <<EOF
+
+${DOMAIN} {
+  encode zstd gzip
+  reverse_proxy 127.0.0.1:18731
+}
+EOF
+    if caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1 && systemctl reload caddy; then
+      echo "Added independent NexControl HTTPS route without replacing any existing site."
+    else
+      echo "Could not safely activate Caddy route: restoring original configuration." >&2
+      cp -a "${CADDY_BACKUP}" /etc/caddy/Caddyfile
+      systemctl reload caddy || true
+    fi
+  fi
 elif [[ -n "$(ss -H -ltn '( sport = :80 or sport = :443 )')" ]]; then
   echo "Ports 80/443 are in use. Existing web servers preserved; automatic proxy setup skipped."
 else
