@@ -100,6 +100,58 @@ echo "PASS: independent NexControl backend working on VPS localhost."
 echo "PASS: local SQLite data store (/var/lib/nxc-vps)."
 echo "PASS: NexAI and NexControl web files available."
 
+# Online SQLite backups while the gateway is serving traffic; keep protected
+# configuration together with the database for full disaster recovery.
+cat > "${ROOT}/backup.py" <<'PY'
+#!/usr/bin/env python3
+import datetime,os,shutil,sqlite3
+from pathlib import Path
+source=Path('/var/lib/nxc-vps/gateway.sqlite3')
+config=Path('/etc/nxc-vps/config.json')
+dest=Path('/var/backups/nxc-vps')
+dest.mkdir(parents=True,exist_ok=True)
+os.chmod(dest,0o700)
+stamp=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S')
+tmp=dest/('gateway-'+stamp+'.db.tmp')
+finished=dest/('gateway-'+stamp+'.db')
+src=sqlite3.connect(str(source),timeout=20)
+dst=sqlite3.connect(str(tmp))
+with dst: src.backup(dst)
+dst.close();src.close()
+os.chmod(tmp,0o600);tmp.rename(finished)
+config_backup=dest/('gateway-'+stamp+'.json')
+shutil.copyfile(config,config_backup);os.chmod(config_backup,0o600)
+for pattern in ('gateway-*.db','gateway-*.json'):
+    old=sorted(dest.glob(pattern),reverse=True)
+    for filename in old[14:]: filename.unlink()
+print('NexControl VPS daily SQLite online backup completed:',stamp,flush=True)
+PY
+chmod 0700 "${ROOT}/backup.py"
+python3 -m py_compile "${ROOT}/backup.py"
+cat >/etc/systemd/system/nxc-vps-backup.service <<'UNIT'
+[Unit]
+Description=NexControl VPS SQLite online snapshot (no bot interruption)
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/nxc-vps/backup.py
+User=root
+UMask=0077
+UNIT
+cat >/etc/systemd/system/nxc-vps-backup.timer <<'UNIT'
+[Unit]
+Description=Daily NexControl VPS disaster recovery backup
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=1800
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now nxc-vps-backup.timer
+systemctl start nxc-vps-backup.service
+echo "PASS: nightly online backups configured and initial snapshot created."
+
 # Provision HTTPS only if it doesn't impact existing frontends on ports 80/443.
 PUBLIC_READY=0
 if command -v caddy >/dev/null && [[ -f /etc/caddy/Caddyfile ]]; then
