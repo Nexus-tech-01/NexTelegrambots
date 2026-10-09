@@ -189,7 +189,14 @@ else
   echo "Installing isolated HTTPS reverse proxy (Caddy)."
   if ! command -v caddy >/dev/null; then
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq && apt-get install -y -qq caddy
+    echo "Installing Caddy with bounded APT timeouts (will not hang indefinitely)."
+    if command -v timeout >/dev/null; then
+      if ! (timeout 150 apt-get update -qq && timeout 150 apt-get install -y -qq caddy); then
+        echo "WARNING: timed-out or failed Caddy installation; gateway remains available locally." >&2
+      fi
+    elif ! (apt-get update -qq && apt-get install -y -qq caddy); then
+      echo "WARNING: Caddy unavailable; gateway remains available locally." >&2
+    fi
   fi
   if command -v caddy >/dev/null; then
     install -d -m 0755 /etc/caddy
