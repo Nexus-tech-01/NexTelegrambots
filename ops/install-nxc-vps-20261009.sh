@@ -223,8 +223,12 @@ if curl --connect-timeout 5 --max-time 20 --retry 2 --retry-delay 3 \
   -fsS "https://${DOMAIN}/healthz" >"${TMPDIR}/public_health.json"; then
   if python3 - "${TMPDIR}/public_health.json" <<'PY'
 import json,sys
-d=json.load(open(sys.argv[1]))
-assert d.get('ok') is True and d.get('service')=='nexcontrol-vps'
+try:
+    with open(sys.argv[1]) as f: d=json.load(f)
+    assert d.get('ok') is True and d.get('service')=='nexcontrol-vps'
+except (ValueError,AssertionError) as exc:
+    print('PUBLIC_HTTPS_NOT_GATEWAY_JSON:',type(exc).__name__,file=sys.stderr)
+    sys.exit(1)
 PY
   then
     PUBLIC_READY=1
@@ -232,8 +236,8 @@ PY
   fi
 fi
 
-if [[ "${PUBLIC_READY}" == 1 ]]; then
-  # Preserve original NexControl authentication; do NOT regenerate keys or copy them to git.
+echo "=== Local control-plane cutover, independent of public HTTPS ==="
+# Preserve original NexControl authentication; do NOT regenerate keys or copy them to git.
   MAIN_PID="$(systemctl show -p MainPID --value nexcontrol-agent.service 2>/dev/null || true)"
   if [[ "${MAIN_PID}" =~ ^[0-9]+$ && "${MAIN_PID}" -gt 1 ]]; then
     if python3 - "${MAIN_PID}" "${CONFIG}" <<'PY'
@@ -255,17 +259,16 @@ PY
     then
       # Existing EnvironmentFile entries override [Service] Environment=.
       # Patch only URL keys; leave all other credentials untouched.
-      python3 - "${DOMAIN}" <<'PY'
+      python3 - <<'PY'
 import subprocess,re,sys,shlex,time
 from pathlib import Path
-domain=sys.argv[1]
 p=subprocess.run(['systemctl','show','--value','-p','EnvironmentFiles','nexcontrol-agent.service'],capture_output=True,text=True)
 for filename in re.findall(r'(/etc/[A-Za-z0-9_.\-/]+)',p.stdout):
     path=Path(filename)
     if not path.is_file(): continue
     s=path.read_text()
     keep=[line for line in s.splitlines() if not re.match(r'^(NEXCONTROL_URLS|NEXCONTROL_URL|NEXCONTROL_BASE_URL)=',line)]
-    keep.append('NEXCONTROL_URLS='+shlex.quote('https://'+domain))
+    keep.append('NEXCONTROL_URLS='+shlex.quote('http://127.0.0.1:18731'))
     backup=path.with_name(path.name+'.nxc-backup-'+str(int(time.time())))
     backup.write_bytes(path.read_bytes())
     path.write_text('\n'.join(keep)+'\n')
@@ -274,7 +277,7 @@ PY
       mkdir -p /etc/systemd/system/nexcontrol-agent.service.d
       cat > /etc/systemd/system/nexcontrol-agent.service.d/90-nxc-vps-local.conf <<EOF
 [Service]
-Environment="NEXCONTROL_URLS=https://${DOMAIN}"
+Environment="NEXCONTROL_URLS=http://127.0.0.1:18731"
 EOF
       systemctl daemon-reload
       # Gateway loaded the initial generated key at startup. Reload the validated
@@ -285,7 +288,7 @@ EOF
         exit 1
       fi
       systemctl restart nexcontrol-agent.service
-      echo "NexControl agent redirected to its own VPS backend; Telegram bots untouched."
+      echo "NexControl agent redirected via VPS loopback; Telegram bots untouched."
     else
       echo "Could not read active NexControl agent key; preserving existing configuration."
     fi
@@ -296,23 +299,23 @@ EOF
   HOST_ENV=/etc/nexforge-host-agent.env
   if [[ -f "${HOST_ENV}" ]] && grep -q '^AGENT_ID=' "${HOST_ENV}" && grep -q '^AGENT_KEY=' "${HOST_ENV}"; then
     cp -a "${HOST_ENV}" "${HOST_ENV}.nxc-backup-$(date +%s)"
-    python3 - "${HOST_ENV}" "${DOMAIN}" <<'PY'
+    python3 - "${HOST_ENV}" <<'PY'
 from pathlib import Path
 import sys,shlex
-path=Path(sys.argv[1]);domain=sys.argv[2]
+path=Path(sys.argv[1])
 rows=[x for x in path.read_text().splitlines() if not x.startswith('SUPABASE_URL=')]
-rows.append('SUPABASE_URL='+shlex.quote('https://'+domain))
+rows.append('SUPABASE_URL='+shlex.quote('http://127.0.0.1:18731'))
 path.write_text('\n'.join(rows)+'\n')
 path.chmod(0o600)
 PY
     systemctl restart nexforge-host-agent.service
-    echo "Host agent redirected to local VPS RPC (no Supabase Edge)."
+    echo "Host agent redirected via VPS loopback (no Supabase Edge, no public TLS dependency)."
   else
     echo "Host agent not registered; existing configuration preserved."
   fi
-else
-  echo "HTTPS not verified. No existing agent redirected; bots and current services remain untouched."
-  echo "Check DNS, port 80/443 firewall, or the existing Nginx/Caddy reverse proxy."
+if [[ "${PUBLIC_READY}" != 1 ]]; then
+  echo "Public HTTPS remains unresolved; local agents can still reconnect using loopback."
+  echo "Existing ports 80/443 must be examined before changing web proxy configuration."
 fi
 
 echo
