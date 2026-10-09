@@ -5,12 +5,14 @@ on:
     paths:
       - 'ops/nxc-vps-gateway-20261009.py'
       - 'ops/install-nxc-vps-20261009.sh'
+      - 'ops/setup-nexcontrol-complete.sh'
       - '.github/workflows/nxc-vps-gateway-ci.yml'
   workflow_dispatch:
   pull_request:
     paths:
       - 'ops/nxc-vps-gateway-20261009.py'
       - 'ops/install-nxc-vps-20261009.sh'
+      - 'ops/setup-nexcontrol-complete.sh'
       - '.github/workflows/nxc-vps-gateway-ci.yml'
 permissions:
   contents: read
@@ -25,6 +27,7 @@ jobs:
           set -euo pipefail
           python3 -m py_compile ops/nxc-vps-gateway-20261009.py
           bash -n ops/install-nxc-vps-20261009.sh
+          bash -n ops/setup-nexcontrol-complete.sh
       - name: Local-only API and queue integration tests (no secrets)
         shell: bash
         run: |
@@ -92,8 +95,19 @@ jobs:
           _,_=api('/api/nxc/job',method='POST',data={'kind':'system.info'},headers=bearer,expected=401)
           keys,_=api('/api/nxc/access',headers=auth)
           assert len(keys['keys'])==1 and 'digest' not in keys['keys'][0]
+          _,_=api('/api/nxc/assistant/operate',method='POST',data={'action':'restart','service':'nexcontrol-agent.service'},headers=bearer,expected=403)
+          bad,_=api('/api/nxc/access/issue',method='POST',data={'label':'ChatGPT operator','role':'root'},headers=auth,expected=400)
+          assert bad['error']=='invalid_role'
+          operator,_=api('/api/nxc/access/issue',method='POST',data={'label':'ChatGPT operator','role':'operator'},headers=auth,expected=201)
+          assert operator['role']=='operator' and operator['expires']-created['expires']<0
+          op={'authorization':'Bearer '+operator['token']}
+          _,_=api('/api/nxc/assistant/operate',method='POST',data={'action':'exec','service':'nexcontrol-agent.service'},headers=op,expected=400)
+          _,_=api('/api/nxc/assistant/operate',method='POST',data={'action':'restart','service':'telegram.service'},headers=op,expected=400)
+          _,_=api('/api/nxc/status',headers=op,expected=401)
+          _,_=api('/api/nxc/access/revoke',method='POST',data={'id':operator['id']},headers=auth)
+          _,_=api('/api/nxc/assistant/operate',method='POST',data={'action':'restart','service':'nexcontrol-agent.service'},headers=op,expected=403)
           _,_=api('/api/nxc/access/revoke',method='POST',data={'id':created['id']},headers=auth)
           _,_=api('/api/nxc/assistant/status',headers=bearer,expected=401)
           _,_=api('/api/nexai-connect?api=pair-key',expected=503)
-          print('PASS: local health, agent queues, observer-key issuance/revocation and privilege isolation, NexAI failure isolation.')
+          print('PASS: local health, agent queues, observer/operator issuance, revocation, privilege isolation, NexAI failure isolation.')
           PY

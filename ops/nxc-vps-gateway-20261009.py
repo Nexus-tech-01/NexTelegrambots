@@ -57,6 +57,11 @@ def initialize():
           action TEXT NOT NULL, detail TEXT NOT NULL);
         """)
     os.chmod(DB, 0o600)
+    # Existing gateway databases predate role-scoped assistant keys.
+    with connection() as d:
+        columns={row["name"] for row in d.execute("PRAGMA table_info(assistant_keys)")}
+        if "role" not in columns:
+            d.execute("ALTER TABLE assistant_keys ADD COLUMN role TEXT NOT NULL DEFAULT 'observer'")
 
 def audit(action, detail=""):
     with connection() as d:
@@ -126,9 +131,9 @@ def dashboard():
     <div class="panel">RAM disponible<div class="metric" id="memory">—</div></div><div class="panel">Agent principal<div class="metric" id="agent">—</div></div>
     <div class="panel">Agent hôte<div class="metric" id="host">—</div></div></div>
     <div class="panel"><h2>Services NexTech</h2><div class="scroll"><table><thead><tr><th>Service</th><th>État</th></tr></thead><tbody id="services"></tbody></table></div></div>
-    <div class="panel"><h2>Accès assistant · lecture seule</h2><p>Clé temporaire (6 heures), limitée aux diagnostics. Elle ne donne aucun accès SSH et ne permet pas de modifier les services. Ne partagez pas la clé dans une conversation.</p>
-    <button id="keyCreate">Créer une clé temporaire</button><p id="keyNotice"></p><pre id="keyOnce" hidden></pre>
-    <div class="scroll"><table><thead><tr><th>Clé</th><th>Expiration</th><th>Révoquer</th></tr></thead><tbody id="accessKeys"></tbody></table></div></div>
+    <div class="panel"><h2>Accès assistant · permissions limitées</h2><p>Clés temporaires : consultation (6 heures) ou opérateur (30 minutes, redémarrage de deux agents de supervision seulement). Jamais d'accès SSH ni de commandes arbitraires. Ne partagez pas les clés dans une conversation.</p>
+    <button id="keyCreate">Créer une clé de lecture</button><button id="keyOperate">Autoriser l’opérateur (30 min)</button><p id="keyNotice"></p><pre id="keyOnce" hidden></pre>
+    <div class="scroll"><table><thead><tr><th>Clé</th><th>Rôle</th><th>Expiration</th><th>Révoquer</th></tr></thead><tbody id="accessKeys"></tbody></table></div></div>
     <div class="panel"><h2>Diagnostic</h2><button id="diag">Diagnostic agent NexControl</button>
     <button id="hostDiag">Diagnostic agent hôte</button><button id="refresh">Actualiser</button><button id="logout">Déconnexion</button>
     <p id="notice"></p><pre id="result">Aucun diagnostic lancé.</pre><h2>Historique de l’agent hôte</h2><pre id="hostResult">Aucun diagnostic hôte lancé.</pre></div>
@@ -142,17 +147,21 @@ def dashboard():
     const jobs=await req('/api/nxc/jobs');$('result').textContent=JSON.stringify(jobs.jobs,null,2);
     const hostJobs=await req('/api/nxc/host/jobs');$('hostResult').textContent=JSON.stringify(hostJobs.jobs,null,2);
     const access=await req('/api/nxc/access');$('accessKeys').replaceChildren(...access.keys.map(x=>{
-       const row=document.createElement('tr'),name=document.createElement('td'),expiry=document.createElement('td'),action=document.createElement('td'),button=document.createElement('button');
-       name.textContent=x.label;expiry.textContent=new Date(x.expires*1000).toLocaleString();
+       const row=document.createElement('tr'),name=document.createElement('td'),role=document.createElement('td'),expiry=document.createElement('td'),action=document.createElement('td'),button=document.createElement('button');
+       name.textContent=x.label;role.textContent=x.role;expiry.textContent=new Date(x.expires*1000).toLocaleString();
        button.textContent='Révoquer';button.onclick=async()=>{if(!confirm('Révoquer cette clé ?'))return;await req('/api/nxc/access/revoke',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:x.id})});await refresh()};
-       action.append(button);row.append(name,expiry,action);return row}));
+       action.append(button);row.append(name,role,expiry,action);return row}));
     }catch(e){$('board').hidden=true;$('login').hidden=false;$('loginMsg').textContent=e.message}}
     $('loginForm').onsubmit=async e=>{e.preventDefault();try{await req('/api/nxc/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:e.target.password.value})});e.target.password.value='';await refresh()}catch(ex){$('loginMsg').textContent=ex.message}};
     $('refresh').onclick=refresh;
-    $('keyCreate').onclick=async()=>{try{const x=await req('/api/nxc/access/issue',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({label:'ChatGPT observer'})});
+    async function issueKey(role){try{
+       if(role==='operator'&&!confirm('Autoriser pendant 30 min le redémarrage des deux agents de supervision NexControl/NexForge ? Aucun shell ni action sur les bots.'))return;
+       const x=await req('/api/nxc/access/issue',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({label:role==='operator'?'ChatGPT operator':'ChatGPT observer',role})});
        $('keyOnce').hidden=false;$('keyOnce').textContent=x.token;
-       $('keyNotice').textContent='Clé affichée une seule fois, expiration : '+new Date(x.expires*1000).toLocaleString();
-       await refresh()}catch(e){$('keyNotice').textContent=e.message}};
+       $('keyNotice').textContent='Clé '+x.role+' affichée une seule fois, expiration : '+new Date(x.expires*1000).toLocaleString();
+       await refresh()}catch(e){$('keyNotice').textContent=e.message}}
+    $('keyCreate').onclick=()=>issueKey('observer');
+    $('keyOperate').onclick=()=>issueKey('operator');
     $('hostDiag').onclick=async()=>{try{const x=await req('/api/nxc/host/job',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'system.info'})});$('notice').textContent='Diagnostic agent hôte envoyé : '+x.jobId;setTimeout(refresh,1500)}catch(ex){$('notice').textContent=ex.message}};
     $('diag').onclick=async()=>{try{const x=await req('/api/nxc/job',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'system.info'})});$('notice').textContent='Diagnostic envoyé à l’agent : '+x.jobId;setTimeout(refresh,1600)}catch(ex){$('notice').textContent=ex.message}};
     $('logout').onclick=async()=>{await req('/api/nxc/logout',{method:'POST'});await refresh()};
@@ -210,19 +219,20 @@ class Handler(BaseHTTPRequestHandler):
         origin=self.headers.get("Origin","")
         return not origin or origin==ORIGIN
 
-    def assistant(self):
-        """Time-limited observer keys; never grants shell or service mutations."""
+    def assistant(self, required="observer"):
+        """Return key ID only for a valid role-scoped token, never disclose the key."""
         token=self.headers.get("Authorization","")
         match=re.fullmatch(r"Bearer ([A-Za-z0-9_-]{40,120})",token)
-        if not match or not allowed(self.ip(),"assistant",120,60): return False
+        if not match or not allowed(self.ip(),"assistant",120,60): return None
         digest=hashlib.sha256(match.group(1).encode()).hexdigest()
         now=int(time.time())
         with connection() as d:
-            row=d.execute("SELECT id FROM assistant_keys WHERE digest=? AND revoked=0 AND expires>?",
+            row=d.execute("SELECT id,role FROM assistant_keys WHERE digest=? AND revoked=0 AND expires>?",
                           (digest,now)).fetchone()
-            if row:
+            if row and (required=="observer" or row["role"]==required):
                 d.execute("UPDATE assistant_keys SET last_used=? WHERE id=?",(now,row["id"]))
-        return row is not None
+                return row["id"]
+        return None
 
     def pairing(self, method, q):
         action=q.get("api",[""])[0]
@@ -355,6 +365,24 @@ class Handler(BaseHTTPRequestHandler):
                 "agents":[{"slug":a["slug"],"ageSeconds":now-a["last_seen"]} for a in agents],
                 "hostAgents":[{"id":h["id"],"ageSeconds":now-h["last_seen"]} for h in host],
                 "services":shell_status()})
+        if path=="/api/nxc/assistant/operate" and method=="POST":
+            key_id=self.assistant(required="operator")
+            if not key_id: return self.send(403,{"ok":False,"error":"operator_key_required"})
+            if not self.local_origin(): return self.send(403,{"ok":False,"error":"invalid_origin"})
+            if not allowed(self.ip(),"assistant_operate",4,300):
+                return self.send(429,{"ok":False,"error":"operation_rate_limited"})
+            p=self.read_json(512)
+            action=str(p.get("action") or "")
+            service=str(p.get("service") or "")
+            safe_services=("nexcontrol-agent.service","nexforge-host-agent.service")
+            if action not in ("status","restart") or service not in safe_services:
+                return self.send(400,{"ok":False,"error":"operation_not_allowed"})
+            r=subprocess.run(["systemctl","is-active" if action=="status" else "restart",
+                              service],capture_output=True,text=True,timeout=20)
+            audit("assistant.operation",key_id+":"+action+":"+service+":"+str(r.returncode))
+            return self.send(200 if r.returncode==0 else 503,
+              {"ok":r.returncode==0,"service":service,"action":action,
+               "state":r.stdout.strip()[:60] if action=="status" else "requested"})
         if path=="/api/nexai-connect": return self.pairing(method,q)
         if path.startswith("/api/v1/agent/"): return self.agent_api(path)
         if path.startswith("/rest/v1/rpc/nxf_host_"): return self.host_rpc(path.removeprefix("/rest/v1/rpc/"))
@@ -384,24 +412,27 @@ class Handler(BaseHTTPRequestHandler):
             if method=="POST" and not self.local_origin(): return self.send(403,{"error":"invalid_origin"})
             if path=="/api/nxc/access" and method=="GET":
                 with connection() as d:
-                    rows=d.execute("SELECT id,label,created,expires,last_used FROM assistant_keys WHERE revoked=0 AND expires>? ORDER BY created DESC",(int(time.time()),)).fetchall()
+                    rows=d.execute("SELECT id,label,role,created,expires,last_used FROM assistant_keys WHERE revoked=0 AND expires>? ORDER BY created DESC",(int(time.time()),)).fetchall()
                 return self.send(200,{"keys":[dict(x) for x in rows]})
             if path=="/api/nxc/access/issue" and method=="POST":
                 if not allowed(self.ip(),"assistant_issue",4,3600):
                     return self.send(429,{"error":"issuance_rate_limited"})
                 p=self.read_json(450)
                 label=str(p.get("label") or "ChatGPT observer")[:60].strip()
+                role=str(p.get("role") or "observer")
+                if role not in ("observer","operator"):
+                    return self.send(400,{"error":"invalid_role"})
                 if not re.fullmatch(r"[A-Za-z0-9À-ž ._-]{2,60}",label):
                     return self.send(400,{"error":"invalid_label"})
                 token=secrets.token_urlsafe(36)
                 digest=hashlib.sha256(token.encode()).hexdigest()
                 key_id=str(__import__("uuid").uuid4())
-                now=int(time.time());expires=now+6*3600
+                now=int(time.time());expires=now+(30*60 if role=="operator" else 6*3600)
                 with connection() as d:
                     d.execute("DELETE FROM assistant_keys WHERE expires<?",(now-14*24*3600,))
-                    d.execute("INSERT INTO assistant_keys(id,digest,label,created,expires) VALUES(?,?,?,?,?)",(key_id,digest,label,now,expires))
-                audit("assistant.issue",key_id)
-                return self.send(201,{"ok":True,"id":key_id,"role":"observer","token":token,"expires":expires})
+                    d.execute("INSERT INTO assistant_keys(id,digest,label,role,created,expires) VALUES(?,?,?,?,?,?)",(key_id,digest,label,role,now,expires))
+                audit("assistant.issue",key_id+":"+role)
+                return self.send(201,{"ok":True,"id":key_id,"role":role,"token":token,"expires":expires})
             if path=="/api/nxc/access/revoke" and method=="POST":
                 p=self.read_json(300)
                 key_id=str(p.get("id") or "")
