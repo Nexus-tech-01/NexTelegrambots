@@ -40,6 +40,11 @@ def initialize():
           status TEXT NOT NULL DEFAULT 'pending', created INTEGER NOT NULL,
           claimed INTEGER, result TEXT, error TEXT);
         CREATE INDEX IF NOT EXISTS jobs_claim ON jobs(slug,status,created);
+        CREATE TABLE IF NOT EXISTS host_jobs (
+          id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending', created INTEGER NOT NULL,
+          claimed INTEGER, completed INTEGER, result TEXT, error TEXT);
+        CREATE INDEX IF NOT EXISTS host_jobs_claim ON host_jobs(agent_id,status,created);
         CREATE TABLE IF NOT EXISTS host_agents (
           id TEXT PRIMARY KEY, last_seen INTEGER NOT NULL, details TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS audit (
@@ -116,9 +121,9 @@ def dashboard():
     <div class="panel">RAM disponible<div class="metric" id="memory">—</div></div><div class="panel">Agent principal<div class="metric" id="agent">—</div></div>
     <div class="panel">Agent hôte<div class="metric" id="host">—</div></div></div>
     <div class="panel"><h2>Services NexTech</h2><div class="scroll"><table><thead><tr><th>Service</th><th>État</th></tr></thead><tbody id="services"></tbody></table></div></div>
-    <div class="panel"><h2>Diagnostic</h2><button id="diag">Demander un diagnostic à l'agent</button>
-    <button id="refresh">Actualiser</button><button id="logout">Déconnexion</button>
-    <p id="notice"></p><pre id="result">Aucun diagnostic lancé.</pre></div>
+    <div class="panel"><h2>Diagnostic</h2><button id="diag">Diagnostic agent NexControl</button>
+    <button id="hostDiag">Diagnostic agent hôte</button><button id="refresh">Actualiser</button><button id="logout">Déconnexion</button>
+    <p id="notice"></p><pre id="result">Aucun diagnostic lancé.</pre><h2>Historique de l’agent hôte</h2><pre id="hostResult">Aucun diagnostic hôte lancé.</pre></div>
     </div></main><script>
     const $=id=>document.getElementById(id);
     async function req(path,options={}){const r=await fetch(path,{credentials:'same-origin',cache:'no-store',...options});let data=await r.json().catch(()=>({}));if(!r.ok)throw Error(data.error||'HTTP '+r.status);return data}
@@ -127,9 +132,11 @@ def dashboard():
     $('agent').textContent=a.agentAgeSeconds===null?'Non relié':a.agentAgeSeconds+'s';$('host').textContent=a.hostAgeSeconds===null?'Non relié':a.hostAgeSeconds+'s';
     $('services').replaceChildren(...a.services.map(x=>{const row=document.createElement('tr'),name=document.createElement('td'),state=document.createElement('td');name.textContent=x.name;state.textContent=x.active+'/'+x.sub;state.className=x.active==='active'?'ok':'bad';row.append(name,state);return row}));
     const jobs=await req('/api/nxc/jobs');$('result').textContent=JSON.stringify(jobs.jobs,null,2);
+    const hostJobs=await req('/api/nxc/host/jobs');$('hostResult').textContent=JSON.stringify(hostJobs.jobs,null,2);
     }catch(e){$('board').hidden=true;$('login').hidden=false;$('loginMsg').textContent=e.message}}
     $('loginForm').onsubmit=async e=>{e.preventDefault();try{await req('/api/nxc/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:e.target.password.value})});e.target.password.value='';await refresh()}catch(ex){$('loginMsg').textContent=ex.message}};
     $('refresh').onclick=refresh;
+    $('hostDiag').onclick=async()=>{try{const x=await req('/api/nxc/host/job',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'system.info'})});$('notice').textContent='Diagnostic agent hôte envoyé : '+x.jobId;setTimeout(refresh,1500)}catch(ex){$('notice').textContent=ex.message}};
     $('diag').onclick=async()=>{try{const x=await req('/api/nxc/job',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:'system.info'})});$('notice').textContent='Diagnostic envoyé à l’agent : '+x.jobId;setTimeout(refresh,1600)}catch(ex){$('notice').textContent=ex.message}};
     $('logout').onclick=async()=>{await req('/api/nxc/logout',{method:'POST'});await refresh()};
     refresh();setInterval(()=>{if(!$('board').hidden)refresh()},20000);
@@ -234,11 +241,28 @@ class Handler(BaseHTTPRequestHandler):
         if not host_auth(p): return self.send(401,{"error":"unauthorized"})
         agent=str(p["p_agent_id"])
         if path in ("nxf_host_heartbeat","nxf_host_poll"):
+            now=int(time.time())
             with connection() as d:
+                d.execute("BEGIN IMMEDIATE")
                 d.execute("INSERT INTO host_agents(id,last_seen,details) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET last_seen=excluded.last_seen,details=excluded.details",
-                    (agent,int(time.time()),json.dumps(p.get("p_meta") or {})[:4000]))
-            return self.send(200,{"ok":True,"jobs":[]} if path.endswith("poll") else {"ok":True})
-        if path=="nxf_host_result": return self.send(200,{"ok":True})
+                    (agent,now,json.dumps(p.get("p_meta") or {})[:4000]))
+                rows=[]
+                if path.endswith("poll"):
+                    rows=d.execute("SELECT id,kind,payload FROM host_jobs WHERE agent_id=? AND status='pending' ORDER BY created LIMIT 2",(agent,)).fetchall()
+                    for row in rows: d.execute("UPDATE host_jobs SET status='running',claimed=? WHERE id=?",(now,row["id"]))
+                d.execute("COMMIT")
+            if path.endswith("poll"):
+                return self.send(200,{"ok":True,"jobs":[{"id":row["id"],"kind":row["kind"],"payload":json.loads(row["payload"])} for row in rows]})
+            return self.send(200,{"ok":True})
+        if path=="nxf_host_result":
+            jid=str(p.get("p_job_id") or "")
+            if not re.fullmatch(r"[0-9a-f-]{36}",jid): return self.send(400,{"error":"invalid_job_id"})
+            success=p.get("p_ok") is True
+            result=json.dumps(p.get("p_result") or {},ensure_ascii=False)
+            with connection() as d:
+                cur=d.execute("UPDATE host_jobs SET status=?,completed=?,result=?,error=? WHERE id=? AND agent_id=? AND status='running'",
+                  ("done" if success else "failed",int(time.time()),result[:120000],str(p.get("p_error") or "")[:1600],jid,agent))
+            return self.send(200,{"ok":cur.rowcount>0})
         return self.send(404,{"error":"unknown_rpc"})
 
     def agent_api(self, path):
@@ -316,6 +340,24 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/nxc/"):
             if not self.admin(): return self.send(401,{"error":"connexion_requise"})
             if method=="POST" and not self.local_origin(): return self.send(403,{"error":"invalid_origin"})
+            if path=="/api/nxc/host/jobs" and method=="GET":
+                with connection() as d:
+                    rows=d.execute("SELECT id,agent_id,kind,status,created,claimed,completed,result,error FROM host_jobs ORDER BY created DESC LIMIT 10").fetchall()
+                return self.send(200,{"jobs":[dict(x) for x in rows]})
+            if path=="/api/nxc/host/job" and method=="POST":
+                p=self.read_json(1500);kind=str(p.get("kind") or "")
+                allowed_kinds=("system.info","process.list","disk.usage","net.info")
+                if kind not in allowed_kinds:
+                    return self.send(400,{"error":"host_job_kind_not_allowed"})
+                with connection() as d:
+                    row=d.execute("SELECT id,last_seen FROM host_agents ORDER BY last_seen DESC LIMIT 1").fetchone()
+                    if not row or row["last_seen"]<int(time.time())-120:
+                        return self.send(503,{"error":"host_agent_not_connected"})
+                    job_id=str(__import__("uuid").uuid4())
+                    d.execute("INSERT INTO host_jobs(id,agent_id,kind,payload,created) VALUES (?,?,?,?,?)",
+                        (job_id,row["id"],kind,"{}",int(time.time())))
+                audit("host.job",kind)
+                return self.send(202,{"ok":True,"jobId":job_id})
             if path=="/api/nxc/logout" and method=="POST":
                 return self.send(200,{"ok":True},{"Set-Cookie":"__Host-nxc_sid=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0"})
             if path=="/api/nxc/status" and method=="GET":
