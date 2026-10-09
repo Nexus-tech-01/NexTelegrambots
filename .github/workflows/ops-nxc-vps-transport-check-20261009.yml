@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths: [.github/workflows/ops-nxc-vps-transport-check-20261009.yml]
   workflow_dispatch:
+  pull_request:
+    paths: [.github/workflows/ops-nxc-vps-transport-check-20261009.yml]
 
 permissions:
   contents: read
