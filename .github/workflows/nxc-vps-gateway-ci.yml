@@ -82,6 +82,18 @@ jobs:
              'p_job_id':new_host['jobId'],'p_ok':True,'p_result':{'hostname':'ci-host'}})
           host_jobs,_=api('/api/nxc/host/jobs',headers=auth)
           assert host_jobs['jobs'][0]['status']=='done'
+          _,_=api('/api/nxc/assistant/status',expected=401)
+          created,_=api('/api/nxc/access/issue',method='POST',data={'label':'ChatGPT observer'},headers=auth,expected=201)
+          assert created['role']=='observer' and len(created['token'])>=40
+          bearer={'authorization':'Bearer '+created['token']}
+          state,_=api('/api/nxc/assistant/status',headers=bearer)
+          assert state['ok'] and state['role']=='observer' and state['hostname']
+          _,_=api('/api/nxc/status',headers=bearer,expected=401)
+          _,_=api('/api/nxc/job',method='POST',data={'kind':'system.info'},headers=bearer,expected=401)
+          keys,_=api('/api/nxc/access',headers=auth)
+          assert len(keys['keys'])==1 and 'digest' not in keys['keys'][0]
+          _,_=api('/api/nxc/access/revoke',method='POST',data={'id':created['id']},headers=auth)
+          _,_=api('/api/nxc/assistant/status',headers=bearer,expected=401)
           _,_=api('/api/nexai-connect?api=pair-key',expected=503)
-          print('PASS: local health, session auth, both agent queues, result, restricted host jobs and NexAI failure isolation.')
+          print('PASS: local health, agent queues, observer-key issuance/revocation and privilege isolation, NexAI failure isolation.')
           PY
