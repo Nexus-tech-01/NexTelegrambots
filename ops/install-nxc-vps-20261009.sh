@@ -191,6 +191,13 @@ PY
 Environment="NEXCONTROL_URLS=https://${DOMAIN}"
 EOF
       systemctl daemon-reload
+      # Gateway loaded the initial generated key at startup. Reload the validated
+      # existing key from config BEFORE restarting the agent that uses it.
+      systemctl restart nxc-vps-gateway.service
+      if ! curl -fsS --max-time 5 http://127.0.0.1:18731/healthz >/dev/null; then
+        echo "Gateway key reload failed; NexControl agent was NOT restarted." >&2
+        exit 1
+      fi
       systemctl restart nexcontrol-agent.service
       echo "NexControl agent redirected to its own VPS backend; Telegram bots untouched."
     else
