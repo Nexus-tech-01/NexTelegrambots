@@ -8,7 +8,7 @@ for bin in curl python3 systemctl openssl ss; do
 done
 DOMAIN="${NXC_VPS_DOMAIN:-31-56-85-53.sslip.io}"
 case "$DOMAIN" in *[!a-zA-Z0-9.-]*|"") echo "Invalid public domain" >&2; exit 2;; esac
-SOURCE_REF="980533297df1541a367e84b853fbc4107f9c515a"
+SOURCE_REF="9f70e90999b5e5d02a08ccb940494eaf1c77b9be"
 REMOTE="https://raw.githubusercontent.com/Nexus-tech-01/NexTelegrambots/${SOURCE_REF}"
 ROOT="/opt/nxc-vps"
 SITE="${ROOT}/site"
