@@ -16,6 +16,17 @@
       }
     },
     {
+      "name": "NexControl VPS host agent",
+      "type": "systemd",
+      "service": "nexforge-host-agent.service",
+      "intervalMs": 30000,
+      "repair": {
+        "type": "restartService",
+        "service": "nexforge-host-agent.service",
+        "verifyDelayMs": 5000
+      }
+    },
+    {
       "name": "NexAccount / NexAI service",
       "type": "systemd",
       "service": "nex-nexaccount.service",
