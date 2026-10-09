@@ -5,12 +5,14 @@ on:
     paths:
       - 'ops/nxc-vps-gateway-20261009.py'
       - 'ops/install-nxc-vps-20261009.sh'
+      - 'ops/setup-nexcontrol-complete.sh'
       - '.github/workflows/nxc-vps-gateway-ci.yml'
   workflow_dispatch:
   pull_request:
     paths:
       - 'ops/nxc-vps-gateway-20261009.py'
       - 'ops/install-nxc-vps-20261009.sh'
+      - 'ops/setup-nexcontrol-complete.sh'
       - '.github/workflows/nxc-vps-gateway-ci.yml'
 permissions:
   contents: read
@@ -25,6 +27,7 @@ jobs:
           set -euo pipefail
           python3 -m py_compile ops/nxc-vps-gateway-20261009.py
           bash -n ops/install-nxc-vps-20261009.sh
+          bash -n ops/setup-nexcontrol-complete.sh
       - name: Local-only API and queue integration tests (no secrets)
         shell: bash
         run: |
