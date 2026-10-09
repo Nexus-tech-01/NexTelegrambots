@@ -1,0 +1,71 @@
+name: NexControl VPS Gateway CI
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops/nxc-vps-gateway-20261009.py'
+      - 'ops/install-nxc-vps-20261009.sh'
+      - '.github/workflows/nxc-vps-gateway-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax checks
+        run: |
+          set -euo pipefail
+          python3 -m py_compile ops/nxc-vps-gateway-20261009.py
+          bash -n ops/install-nxc-vps-20261009.sh
+      - name: Local-only API and queue integration tests (no secrets)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /etc/nxc-vps /var/lib/nxc-vps /opt/nxc-vps/site
+          sudo cp ops/nxc-vps-gateway-20261009.py /opt/nxc-vps/gateway.py
+          python3 - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          salt=b'local-synthetic-ci-salt'
+          c={'domain':'local.test','salt':salt.hex(),
+             'password_hash':hashlib.pbkdf2_hmac('sha256',b'test-password-only',salt,260000).hex(),
+             'agent_key':'test-key-long-enough-for-test-only-1234'}
+          Path('/tmp/nxc-ci-config.json').write_text(json.dumps(c))
+          PY
+          sudo cp /tmp/nxc-ci-config.json /etc/nxc-vps/config.json
+          sudo python3 /opt/nxc-vps/gateway.py > /tmp/nxc-ci-gateway.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid 2>/dev/null || true; cat /tmp/nxc-ci-gateway.log' EXIT
+          sleep 2
+          python3 - <<'PY'
+          import json,urllib.request,urllib.error
+          origin='http://127.0.0.1:18731'
+          def api(path, method='GET', data=None, headers=None, expected=200):
+              b=json.dumps(data).encode() if data is not None else None
+              req=urllib.request.Request(origin+path,method=method,data=b,headers={'content-type':'application/json',**(headers or {})})
+              try:
+                  with urllib.request.urlopen(req,timeout=10) as r: code=r.status; h=r.headers; payload=json.loads(r.read())
+              except urllib.error.HTTPError as e: code=e.code;h=e.headers;payload=json.loads(e.read())
+              assert code==expected,(path,code,expected,payload)
+              return payload,h
+          health,_=api('/healthz');assert health['ok']
+          _,_=api('/api/nxc/status',expected=401)
+          login,h=api('/api/nxc/login',method='POST',data={'password':'test-password-only'})
+          cookie=h.get('set-cookie').split(';',1)[0]
+          auth={'cookie':cookie}
+          status,_=api('/api/nxc/status',headers=auth);assert status['ok']
+          key={'x-nexcontrol-agent':'nexus-main','x-nexcontrol-agent-key':'test-key-long-enough-for-test-only-1234'}
+          _,_=api('/api/v1/agent/heartbeat',method='POST',data={'hostname':'ci'},headers=key)
+          new,_=api('/api/nxc/job',method='POST',data={'kind':'system.info'},headers=auth,expected=202)
+          jobs,_=api('/api/v1/agent/jobs/claim',method='POST',data={'limit':3},headers=key)
+          assert len(jobs['jobs'])==1 and jobs['jobs'][0]['id']==new['jobId']
+          _,_=api('/api/v1/agent/jobs/result',method='POST',
+               data={'jobId':new['jobId'],'ok':True,'result':{'hostname':'ci'}},headers=key)
+          state,_=api('/api/nxc/jobs',headers=auth)
+          assert state['jobs'][0]['status']=='done'
+          _,_=api('/api/nexai-connect?api=pair-key',expected=503)
+          print('PASS: local health, session auth, agent heartbeat, queue, result, NexAI failure isolation.')
+          PY
