@@ -36,6 +36,7 @@ jobs:
           Path('/tmp/nxc-ci-config.json').write_text(json.dumps(c))
           PY
           sudo cp /tmp/nxc-ci-config.json /etc/nxc-vps/config.json
+          printf 'AGENT_ID=ci-host\nAGENT_KEY=ci-host-test-key-123456\n' | sudo tee /etc/nexforge-host-agent.env >/dev/null
           sudo python3 /opt/nxc-vps/gateway.py > /tmp/nxc-ci-gateway.log 2>&1 &
           server_pid=$!
           trap 'kill $server_pid 2>/dev/null || true; cat /tmp/nxc-ci-gateway.log' EXIT
@@ -66,6 +67,16 @@ jobs:
                data={'jobId':new['jobId'],'ok':True,'result':{'hostname':'ci'}},headers=key)
           state,_=api('/api/nxc/jobs',headers=auth)
           assert state['jobs'][0]['status']=='done'
+          host_key={'p_agent_id':'ci-host','p_agent_key':'ci-host-test-key-123456'}
+          _,_=api('/rest/v1/rpc/nxf_host_heartbeat',method='POST',data={**host_key,'p_meta':{'hostname':'ci-host'}})
+          _,_=api('/api/nxc/host/job',method='POST',data={'kind':'exec'},headers=auth,expected=400)
+          new_host,_=api('/api/nxc/host/job',method='POST',data={'kind':'system.info'},headers=auth,expected=202)
+          claimed,_=api('/rest/v1/rpc/nxf_host_poll',method='POST',data={**host_key,'p_meta':{'hostname':'ci-host'}})
+          assert len(claimed['jobs'])==1 and claimed['jobs'][0]['id']==new_host['jobId']
+          _,_=api('/rest/v1/rpc/nxf_host_result',method='POST',data={**host_key,
+             'p_job_id':new_host['jobId'],'p_ok':True,'p_result':{'hostname':'ci-host'}})
+          host_jobs,_=api('/api/nxc/host/jobs',headers=auth)
+          assert host_jobs['jobs'][0]['status']=='done'
           _,_=api('/api/nexai-connect?api=pair-key',expected=503)
-          print('PASS: local health, session auth, agent heartbeat, queue, result, NexAI failure isolation.')
+          print('PASS: local health, session auth, both agent queues, result, restricted host jobs and NexAI failure isolation.')
           PY
