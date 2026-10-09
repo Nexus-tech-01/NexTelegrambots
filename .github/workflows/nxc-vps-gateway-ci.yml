@@ -7,6 +7,11 @@ on:
       - 'ops/install-nxc-vps-20261009.sh'
       - '.github/workflows/nxc-vps-gateway-ci.yml'
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'ops/nxc-vps-gateway-20261009.py'
+      - 'ops/install-nxc-vps-20261009.sh'
+      - '.github/workflows/nxc-vps-gateway-ci.yml'
 permissions:
   contents: read
 jobs:
