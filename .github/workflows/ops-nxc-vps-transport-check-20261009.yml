@@ -1,0 +1,46 @@
+name: NexControl VPS Zero-Touch Transport Check
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/ops-nxc-vps-transport-check-20261009.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nxc-vps-transport-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      SSH_KEY_VPS: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+      SSH_KEY_DEPLOY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+      SSH_KEY_COMMON: ${{ secrets.SSH_PRIVATE_KEY }}
+      HOST_KEY_VPS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+      HOST_KEY_COMMON: ${{ secrets.SSH_KNOWN_HOSTS }}
+    steps:
+      - name: Determine whether a safe unattended connection is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          available=false
+          trusted=false
+          for v in SSH_KEY_VPS SSH_KEY_DEPLOY SSH_KEY_COMMON; do
+            if [[ -n "${!v:-}" ]]; then available=true; fi
+          done
+          for v in HOST_KEY_VPS HOST_KEY_COMMON; do
+            if [[ -n "${!v:-}" ]]; then trusted=true; fi
+          done
+          echo "VPS_SSH_CREDENTIAL_CONFIGURED=${available}"
+          echo "VPS_SSH_HOST_VERIFICATION_CONFIGURED=${trusted}"
+          if [[ "$available" == true && "$trusted" == true ]]; then
+            echo "RESULT=REMOTE_DEPLOY_CAN_BE_CONFIGURED"
+          else
+            echo "RESULT=NO_TRUSTED_AUTOMATIC_VPS_SSH_AVAILABLE"
+          fi
+          echo "CHECK_ONLY: no credentials printed, no external connection, no VPS changes."
