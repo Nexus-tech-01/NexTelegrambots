@@ -170,7 +170,22 @@ then
   fail "Config update failed; preserving existing identity"
 fi
 install -m 0700 "$TMP/gateway-new.py" "$GATEWAY_FILE"
-if ! systemctl restart nxc-vps-gateway.service || ! is_gateway >/dev/null 2>&1 || ! is_tls >/dev/null 2>&1; then
+# systemctl restart returns before the Python gateway is ready to accept HTTP.
+# Wait for actual readiness; an immediate curl can give connection refused
+# and cause a false-negative rollback despite a successful restart.
+gateway_ready=false
+if systemctl restart nxc-vps-gateway.service; then
+  for attempt in $(seq 1 24); do
+    if is_gateway >/dev/null 2>&1 && is_tls >/dev/null 2>&1; then
+      gateway_ready=true
+      break
+    fi
+    sleep 1
+  done
+fi
+if [[ "$gateway_ready" != true ]]; then
+  say "Gateway failed local/TLS readiness after 24 checks; rolling back."
+  systemctl show nxc-vps-gateway.service --no-pager -p ActiveState -p SubState -p Result -p ExecMainStatus || true
   cp -a "$TMP/old-auth.json" "$CFG"
   cp -a "$TMP/gateway-old.py" "$GATEWAY_FILE"
   systemctl restart nxc-vps-gateway.service || true
