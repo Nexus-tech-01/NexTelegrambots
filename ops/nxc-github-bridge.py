@@ -101,7 +101,7 @@ def execute(argv, timeout=45):
     env = {"HOME": "/root", "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8"}
     try:
         r = subprocess.run(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            timeout=max(1, min(120, int(timeout))), cwd="/root", env=env, errors="replace")
+            timeout=max(1, min(120, int(timeout))), cwd="/root" if os.geteuid()==0 else "/tmp", env=env, errors="replace")
         return {"ok":r.returncode == 0, "exit_code":r.returncode, "output":clean(r.stdout)}
     except subprocess.TimeoutExpired:
         return {"ok":False, "exit_code":124, "output":"Timed out"}
