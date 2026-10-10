@@ -83,7 +83,7 @@ if ! tls_ok >/dev/null 2>&1; then fail 'TLS local health check failed'; fi
 cp -a "$CONFIG" "$TMP/config-old"
 install -d -m 0700 /var/backups/nxc-vps
 cp -a "$CONFIG" "/var/backups/nxc-vps/config-pre-https-$(date -u +%Y%m%d%H%M%S).json"
-python3 - "$CONFIG" "$DOMAIN" <<'PY'
+if ! python3 - "$CONFIG" "$DOMAIN" <<'PY'
 import json,os,sys
 from pathlib import Path
 p=Path(sys.argv[1]);d=json.loads(p.read_text())
@@ -92,6 +92,10 @@ d['domain']=sys.argv[2]
 tmp=p.with_suffix('.tmp')
 tmp.write_text(json.dumps(d));os.chmod(tmp,0o600);os.replace(tmp,p)
 PY
+then
+  cp -a "$TMP/config-old" "$CONFIG"
+  fail 'Invalid gateway config; preserved existing authentication'
+fi
 if ! systemctl restart nxc-vps-gateway.service || ! local_ok >/dev/null 2>&1 || ! tls_ok >/dev/null 2>&1; then
   cp -a "$TMP/config-old" "$CONFIG"
   systemctl restart nxc-vps-gateway.service || true
