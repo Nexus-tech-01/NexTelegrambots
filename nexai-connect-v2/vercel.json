@@ -25,11 +25,10 @@
       ]
     }
   ],
-  "redirects": [
+  "rewrites": [
     {
-      "source": "/",
-      "destination": "https://nexcontrol-nexus-vps.vercel.app/nexai/",
-      "permanent": false
+      "source": "/api/nexai-connect",
+      "destination": "https://nxc.31-56-85-53.sslip.io/api/nexai-connect"
     }
   ]
 }
