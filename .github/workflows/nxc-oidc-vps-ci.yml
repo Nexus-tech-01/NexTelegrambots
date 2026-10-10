@@ -1,0 +1,32 @@
+name: NexControl Keyless GitHub OIDC VPS CI
+on:
+  pull_request:
+    paths:
+      - 'ops/nxc-oidc-vps-server.py'
+      - 'ops/install-nxc-oidc-keyless.sh'
+      - 'ops/test_nxc_oidc_vps.py'
+      - '.github/workflows/nxc-oidc-vps-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ops/nxc-oidc-vps-server.py'
+      - 'ops/install-nxc-oidc-keyless.sh'
+      - 'ops/test_nxc_oidc_vps.py'
+      - '.github/workflows/nxc-oidc-vps-ci.yml'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate shell and Python syntax
+        run: |
+          set -euo pipefail
+          bash -n ops/install-nxc-oidc-keyless.sh
+          python3 -m py_compile ops/nxc-oidc-vps-server.py
+      - name: Install local cryptographic verifier
+        run: python3 -m pip install --disable-pip-version-check -q cryptography
+      - name: Test synthetic signed OIDC identities and root operation boundaries
+        run: python3 -m unittest discover -s ops -p test_nxc_oidc_vps.py -v
