@@ -65,7 +65,12 @@ jobs:
               return payload,h
           health,_=api('/healthz');assert health['ok']
           _,_=api('/api/nxc/status',expected=401)
-          login,h=api('/api/nxc/login',method='POST',data={'password':'test-password-only'})
+          _,_=api('/api/nxc/login',method='POST',
+                  data={'password':'test-password-only'},
+                  headers={'origin':'https://evil.example'},expected=403)
+          login,h=api('/api/nxc/login',method='POST',
+                       data={'password':'test-password-only'},
+                       headers={'origin':'https://nexcontrol-nexus-vps.vercel.app'})
           cookie=h.get('set-cookie').split(';',1)[0]
           auth={'cookie':cookie}
           status,_=api('/api/nxc/status',headers=auth);assert status['ok']

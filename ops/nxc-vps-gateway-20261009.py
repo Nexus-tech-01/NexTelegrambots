@@ -216,8 +216,12 @@ class Handler(BaseHTTPRequestHandler):
         return bool(row and row["expires"]>time.time())
 
     def local_origin(self):
+        # Trust the dedicated, reviewed Vercel static UI without accepting
+        # arbitrary browser origins or a wildcard. The backend still performs
+        # credential checks and CSRF mitigation on state-changing requests.
         origin=self.headers.get("Origin","")
-        return not origin or origin==ORIGIN
+        allowed={ORIGIN,"https://nexcontrol-nexus-vps.vercel.app"}
+        return not origin or origin in allowed
 
     def assistant(self, required="observer"):
         """Return key ID only for a valid role-scoped token, never disclose the key."""
