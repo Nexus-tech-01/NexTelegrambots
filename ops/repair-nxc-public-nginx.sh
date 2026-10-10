@@ -34,9 +34,9 @@ nginx -T > "$TMP/nginx-before" 2>"$TMP/nginx-warnings" || { say 'Existing Nginx 
 if [[ -e "$CONF" ]] && ! grep -Fq "# configuration file $CONF:" "$TMP/nginx-before"; then
   say "Existing NexControl conf.d file is not loaded by active Nginx."
 fi
-if ! grep -Eq '^[[:space:]]*include[[:space:]]+/etc/nginx/conf[.]d/\\*([.]conf)?;' "$TMP/nginx-before"; then
-  if grep -Eq '^[[:space:]]*include[[:space:]]+/etc/nginx/sites-enabled/\\*([.]conf)?;' "$TMP/nginx-before"; then
-    if grep -Eq '^[[:space:]]*include[[:space:]]+/etc/nginx/sites-enabled/\\*[.]conf;' "$TMP/nginx-before"; then
+if ! grep -Eq '^[[:space:]]*include[[:space:]]+/etc/nginx/conf[.]d/\*([.]conf)?;' "$TMP/nginx-before"; then
+  if grep -Eq '^[[:space:]]*include[[:space:]]+/etc/nginx/sites-enabled/\*([.]conf)?;' "$TMP/nginx-before"; then
+    if grep -Eq '^[[:space:]]*include[[:space:]]+/etc/nginx/sites-enabled/\*[.]conf;' "$TMP/nginx-before"; then
       CONF="/etc/nginx/sites-enabled/99-nxc-exclusive.conf"
     else
       CONF="/etc/nginx/sites-enabled/99-nxc-exclusive"
