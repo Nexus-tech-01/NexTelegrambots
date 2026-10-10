@@ -499,11 +499,11 @@ async function nexAiGroupCardUi(){
   }
   const miniUrl=username
     ?'https://t.me/'+username+'?startapp=group'
-    :String(cfg.connectUrl||'https://nex-telegrambots.vercel.app/');
+    :String(cfg.connectUrl||'https://nexai-connect-v2.vercel.app/');
   let avatarUrl='';
   if(username){
     try{
-      const origin=new URL(String(cfg.connectUrl||'https://nex-telegrambots.vercel.app/')).origin;
+      const origin=new URL(String(cfg.connectUrl||'https://nexai-connect-v2.vercel.app/')).origin;
       avatarUrl=origin+'/api/telegram-avatar?u='+encodeURIComponent(username);
     }catch{}
   }
