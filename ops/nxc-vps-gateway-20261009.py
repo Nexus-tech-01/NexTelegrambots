@@ -267,6 +267,21 @@ class Handler(BaseHTTPRequestHandler):
                 cwd=str(Path(PAIR_CLI).parent),capture_output=True,text=True,
                 timeout=56 if action=="pair-secure" else 34,env=os.environ.copy())
             if proc.returncode:
+                # The CLI exits non-zero for both normal Telegram validation errors
+                # and actual backend failures. Never misreport a bad phone/code as
+                # "gateway unavailable"; only emit allowlisted, non-sensitive codes.
+                reason=(proc.stderr or "").upper()
+                if "INVALID TELEGRAM PHONE NUMBER" in reason or "PHONE_NUMBER_INVALID" in reason:
+                    return self.send(400,{"ok":False,"error":"PHONE_NUMBER_INVALID","errorCode":"PHONE_NUMBER_INVALID"})
+                for code in ("PHONE_CODE_INVALID","PHONE_CODE_EMPTY","PHONE_CODE_EXPIRED",
+                             "PASSWORD_HASH_INVALID","PASSWORD_EMPTY","SIGN_UP_REQUIRED",
+                             "EMAIL_VERIFICATION_REQUIRED","PHONE_NUMBER_BANNED"):
+                    if code in reason:
+                        return self.send(409,{"ok":False,"error":code,"errorCode":code})
+                if "FLOOD_WAIT" in reason:
+                    return self.send(429,{"ok":False,"error":"FLOOD_WAIT","errorCode":"FLOOD_WAIT"})
+                if "UNAUTHORIZED" in reason or "HTTP 401" in reason:
+                    return self.send(503,{"ok":False,"error":"pairing_gateway_authorization_failed"})
                 return self.send(503,{"ok":False,"error":"pairing_process_failed"})
             raw=proc.stdout.strip()
             try: data=json.loads(raw)
