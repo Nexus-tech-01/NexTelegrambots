@@ -1,4 +1,4 @@
-import QRCode from 'https://esm.sh/qrcode@1.5.4?bundle';
+import QRCode from 'qrcode';
 
 const API='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexai-connect';
 const $=id=>document.getElementById(id);
