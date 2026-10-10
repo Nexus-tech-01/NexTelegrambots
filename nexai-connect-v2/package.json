@@ -2,8 +2,12 @@
   "name": "nexai-connect",
   "version": "2.1.0",
   "private": true,
-  "scripts": {"build": "node build.mjs"},
-  "engines": {"node": "20.x"},
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "engines": {
+    "node": "24.x"
+  },
   "dependencies": {
     "esbuild": "^0.25.0",
     "qrcode": "^1.5.4"
