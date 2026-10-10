@@ -15,7 +15,16 @@ say(){ printf '[NXC] %s\n' "$*"; }
 for bin in nginx systemctl curl python3 timeout; do command -v "$bin" >/dev/null || { say "Missing $bin";exit 2; }; done
 systemctl is-active --quiet nginx || { say 'Nginx is not active'; exit 2; }
 local_ok(){ curl -fsS --max-time 5 http://127.0.0.1:18731/healthz | python3 -c 'import sys,json;d=json.load(sys.stdin);assert d.get("ok") and d.get("service")=="nexcontrol-vps"'; }
-tls_ok(){ curl -fsS --max-time 10 --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/healthz" | python3 -c 'import sys,json;d=json.load(sys.stdin);assert d.get("ok") and d.get("service")=="nexcontrol-vps"'; }
+tls_ok(){ curl --noproxy '*' -fsS --max-time 10 --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/healthz" | python3 -c 'import sys,json;d=json.load(sys.stdin);assert d.get("ok") and d.get("service")=="nexcontrol-vps"'; }
+tls_diagnostics(){
+  local state body_code
+  state="$(curl --noproxy '*' -ksS --resolve "$DOMAIN:443:127.0.0.1" --connect-timeout 3 --max-time 8 -o /dev/null -w '%{http_code}' "https://$DOMAIN/healthz" 2>/dev/null || echo unreachable)"
+  printf '[NXC] Local TLS HTTP status: %s (network bypasses external proxy)\n' "$state"
+  nginx -T >/dev/null 2>&1 || say 'Nginx config currently invalid'
+  if command -v openssl >/dev/null && [[ -r "$CERT" ]]; then
+    openssl x509 -in "$CERT" -noout -subject -dates 2>/dev/null | sed 's/^/[NXC] Certificate /' || true
+  fi
+}
 local_ok >/dev/null || { say 'LOCAL_GATEWAY=NOT_READY; no Nginx changes';exit 1; }
 [[ -s "$CONFIG" ]] || { say 'NexControl config missing'; exit 1; }
 nginx -T > "$TMP/nginx-before" 2>/dev/null || { say 'Existing Nginx config invalid';exit 1; }
@@ -79,7 +88,7 @@ server {
 }
 NGINX
 if ! nginx -t >/dev/null 2>&1 || ! systemctl reload nginx; then fail 'TLS Nginx validation failed'; fi
-if ! tls_ok >/dev/null 2>&1; then fail 'TLS local health check failed'; fi
+if ! tls_ok >/dev/null 2>&1; then tls_diagnostics; fail 'TLS local health check failed'; fi
 cp -a "$CONFIG" "$TMP/config-old"
 install -d -m 0700 /var/backups/nxc-vps
 cp -a "$CONFIG" "/var/backups/nxc-vps/config-pre-https-$(date -u +%Y%m%d%H%M%S).json"
@@ -108,7 +117,7 @@ nginx -t >/dev/null 2>&1 && systemctl reload nginx
 HOOK
 chmod 0755 /etc/letsencrypt/renewal-hooks/deploy/98-nxc-reload.sh
 say 'LOCAL_GATEWAY=READY; HTTPS_SNI=READY'
-if curl -fsS --max-time 15 "https://$DOMAIN/healthz" | python3 -c 'import sys,json;d=json.load(sys.stdin);assert d.get("service")=="nexcontrol-vps"' >/dev/null 2>&1; then
+if curl --noproxy '*' -fsS --max-time 15 "https://$DOMAIN/healthz" | python3 -c 'import sys,json;d=json.load(sys.stdin);assert d.get("service")=="nexcontrol-vps"' >/dev/null 2>&1; then
   say 'PUBLIC_TLS=READY'
 else
   say 'PUBLIC_TLS=NOT_VERIFIED_FROM_VPS (DNS/firewall may differ)'
