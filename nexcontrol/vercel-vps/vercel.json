@@ -1,0 +1,76 @@
+{
+  "version": 2,
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=()"
+        }
+      ]
+    },
+    {
+      "source": "/api/:path*",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "private, no-store"
+        }
+      ]
+    },
+    {
+      "source": "/healthz",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/healthz",
+      "destination": "https://nxc.31-56-85-53.sslip.io/healthz"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://nxc.31-56-85-53.sslip.io/api/:path*"
+    },
+    {
+      "source": "/nexcontrol",
+      "destination": "https://nxc.31-56-85-53.sslip.io/nexcontrol/"
+    },
+    {
+      "source": "/nexcontrol/:path*",
+      "destination": "https://nxc.31-56-85-53.sslip.io/nexcontrol/:path*"
+    },
+    {
+      "source": "/nexai",
+      "destination": "https://nxc.31-56-85-53.sslip.io/nexai/"
+    },
+    {
+      "source": "/nexai/:path*",
+      "destination": "https://nxc.31-56-85-53.sslip.io/nexai/:path*"
+    }
+  ]
+}
