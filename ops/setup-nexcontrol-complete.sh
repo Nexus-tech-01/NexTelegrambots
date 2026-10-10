@@ -16,7 +16,7 @@ DOMAIN="${NXC_VPS_DOMAIN:-31-56-85-53.sslip.io}"
 [[ "${DOMAIN}" =~ ^[a-zA-Z0-9.-]+$ ]] || { echo "Invalid domain" >&2; exit 2; }
 # Immutable source revisions: no unreviewed main-branch execution.
 INSTALL_SHA="3a5af61ef9ead57578df4c777970b16d6deb76da"
-GATEWAY_SHA="cd6f55de2eae4dc1f02f0f8a80a5becf2f98dfce"
+GATEWAY_SHA="3d35b8196d5e9157c05e242b5ca626ec89c6b0c1"
 BASE="https://raw.githubusercontent.com/Nexus-tech-01/NexTelegrambots"
 TMP="$(mktemp -d)"
 LOG_DIR="/var/log/nxc-vps"
