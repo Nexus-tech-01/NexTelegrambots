@@ -497,9 +497,7 @@ async function nexAiGroupCardUi(){
   if(!username){
     try{username=String((await sharedBotIdentity())?.username||'').trim().replace(/^@/,'')}catch{}
   }
-  const miniUrl=username
-    ?'https://t.me/'+username+'?startapp=group'
-    :String(cfg.connectUrl||'https://nexai-connect-v2.vercel.app/');
+  const miniUrl=String(cfg.connectUrl||'https://nexai-connect-v2.vercel.app/');
   let avatarUrl='';
   if(username){
     try{
