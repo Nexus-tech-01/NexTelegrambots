@@ -1,0 +1,32 @@
+name: NexControl Private GitHub Bridge CI
+on:
+  pull_request:
+    paths:
+      - 'ops/nxc-github-bridge.py'
+      - 'ops/install-nxc-github-bridge.sh'
+      - 'ops/test_nxc_github_bridge.py'
+      - '.github/workflows/nxc-github-bridge-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ops/nxc-github-bridge.py'
+      - 'ops/install-nxc-github-bridge.sh'
+      - 'ops/test_nxc_github_bridge.py'
+      - '.github/workflows/nxc-github-bridge-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate installer and Python
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/install-nxc-github-bridge.sh
+          python3 -m py_compile ops/nxc-github-bridge.py
+      - name: Run isolated security and queue tests
+        run: python3 -m unittest discover -s ops -p test_nxc_github_bridge.py -v
