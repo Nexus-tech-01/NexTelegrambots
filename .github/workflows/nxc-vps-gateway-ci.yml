@@ -33,6 +33,13 @@ jobs:
           bash -n ops/install-nxc-vps-20261009.sh
           bash -n ops/setup-nexcontrol-complete.sh
           bash -n ops/repair-nxc-public-nginx.sh
+          # Nginx deployment may load sites-enabled rather than conf.d.
+          # Catch incorrectly escaped wildcard matching before deployment.
+          pat_conf='^[[:space:]]*include[[:space:]]+/etc/nginx/conf[.]d/\*([.]conf)?;'
+          pat_sites='^[[:space:]]*include[[:space:]]+/etc/nginx/sites-enabled/\*([.]conf)?;'
+          printf 'include /etc/nginx/conf.d/*.conf;\n' | grep -Eq "$pat_conf"
+          printf 'include /etc/nginx/sites-enabled/*;\n' | grep -Eq "$pat_sites"
+          ! printf 'include /etc/nginx/sites-enabled/*;\n' | grep -Eq "$pat_conf"
           bash -n ops/repair-nxc-nginx-effective-vhost.sh
       - name: Local-only API and queue integration tests (no secrets)
         shell: bash
