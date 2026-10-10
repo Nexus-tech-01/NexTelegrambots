@@ -9,7 +9,7 @@ for bin in curl python3 systemctl install; do
   command -v "$bin" >/dev/null || { echo "Missing: $bin" >&2; exit 2; }
 done
 REPO='Tresor562/Nexus-lab'
-REV='439bc826acab59eefa9164679d28c91d8edc6e9d'
+REV='9c845e25078f3c673a6f891e56a7fe77e495cfcb'
 SOURCE="https://raw.githubusercontent.com/Nexus-tech-01/NexTelegrambots/$REV/ops/nxc-github-bridge.py"
 APP='/opt/nxc-github-bridge'
 ETC='/etc/nxc-github-bridge'
