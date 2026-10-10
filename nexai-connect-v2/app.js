@@ -1,6 +1,6 @@
 import QRCode from 'qrcode';
 
-const API='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexai-connect';
+const API='/api/nexai-connect';
 const $=id=>document.getElementById(id);
 let lang='fr';
 let activeMethod='phone';
