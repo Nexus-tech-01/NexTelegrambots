@@ -13,7 +13,7 @@ for x in curl python3 openssl systemctl; do
   command -v "$x" >/dev/null || { say "Missing executable: $x"; exit 2; }
 done
 HOST='nxc.31-56-85-53.sslip.io'
-REV='a48734be1882f9fbdcb5962cd64d5e2d13fed0b8'
+REV='5d6e8bf1a6e343c273350482fb8398483b5f6cdf'
 SOURCE="https://raw.githubusercontent.com/Nexus-tech-01/NexTelegrambots/$REV/ops/nxc-oidc-vps-server.py"
 DIR='/opt/nxc-oidc-vps'
 STATE='/var/lib/nxc-oidc-vps'
