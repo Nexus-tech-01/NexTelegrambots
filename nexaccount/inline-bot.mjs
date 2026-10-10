@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import { Bot, InputFile } from 'grammy';
 import { cfg, isOwnerId, isOwnerIdentity } from './config.mjs';
+// Stable HTTPS origin for Telegram Android WebView; VPS remains an independent backup.
+const NEXAI_MINIAPP_PRIMARY='https://nexai-connect-v2.vercel.app/?v=20261010-webview-2';
+const NEXAI_MINIAPP_BACKUP='https://nxc.31-56-85-53.sslip.io/nexai/?v=20261010-webview-2';
 import { loadBotToken } from './secrets.mjs';
 import { commandMap } from './commands.mjs';
 import { helpDocLink } from './help-docs.mjs';
@@ -120,8 +123,8 @@ function renderBotGreetingText(template,users,chatTitle){
 }
 
 function greetingMiniAppMarkup(){
-  const url=String(cfg.connectUrl||'https://nxc.31-56-85-53.sslip.io/nexai/');
-  const backup='https://nexai-connect-v2.vercel.app/';
+  const url=NEXAI_MINIAPP_PRIMARY;
+  const backup=NEXAI_MINIAPP_BACKUP;
   return {
     inline_keyboard:[
       [{text:'⚡ ᴏᴜᴠʀɪʀ ɴᴇxᴀɪ',url}],
@@ -642,11 +645,11 @@ function connectMarkup(lang){
     inline_keyboard:[
       [{
         text:lang==='en'?'Open Mini App':'Ouvrir la Mini App',
-        web_app:{url:'https://nxc.31-56-85-53.sslip.io/nexai/'}
+        web_app:{url:NEXAI_MINIAPP_PRIMARY}
       }],
       [{
         text:lang==='en'?'🌐 Backup connection':'🌐 Connexion de secours',
-        web_app:{url:'https://nexai-connect-v2.vercel.app/'}
+        web_app:{url:NEXAI_MINIAPP_BACKUP}
       }],
       [{
         text:lang==='en'?'🎬 View tutorial':'🎬 Voir le tuto',
@@ -670,11 +673,11 @@ async function sendConnectTutorial(ctx,lang){
           inline_keyboard:[[
             {
               text:lang==='en'?'Open Mini App':'Ouvrir la Mini App',
-              web_app:{url:'https://nxc.31-56-85-53.sslip.io/nexai/'}
+              web_app:{url:NEXAI_MINIAPP_PRIMARY}
             }],
             [{
               text:lang==='en'?'🌐 Backup connection':'🌐 Connexion de secours',
-              web_app:{url:'https://nexai-connect-v2.vercel.app/'}
+              web_app:{url:NEXAI_MINIAPP_BACKUP}
             }
           ]]
         }
@@ -1465,7 +1468,7 @@ async function syncTelegramCommandMenu(bot){
     menu_button:{
       type:'web_app',
       text:'Open',
-      web_app:{url:'https://nxc.31-56-85-53.sslip.io/nexai/'}
+      web_app:{url:NEXAI_MINIAPP_PRIMARY}
     }
   });
   console.log('[NexAI] Telegram command menu synced · '+rows.length+' commands · Mini App menu button active');

@@ -46,7 +46,7 @@ export const cfg={
   adminTelegramIds:[...new Set(pick('NEXAI_ADMIN_TELEGRAM_IDS').split(',').map(x=>x.trim()).filter(Boolean))],
   creatorDisplayName:pick('NEXAI_CREATOR_DISPLAY_NAME')||'⏤͟͟͞͞𝄞ᬼ⃟𝐌ꝛ⥔𝕿𝖗𝖊𝖘𝖔𝖗✧ ⃞.',
   creatorImagePath:pick('NEXAI_CREATOR_IMAGE_PATH')||path.join(HERE,'assets','creator.jpg'),
-  connectUrl:pick('NEXAI_CONNECT_URL')||'https://nxc.31-56-85-53.sslip.io/nexai/',
+  connectUrl:pick('NEXAI_CONNECT_URL')||'https://nexai-connect-v2.vercel.app/?v=20261010-webview-2',
   defaultMenuImage:pick('NEXAI_DEFAULT_MENU_IMAGE_URL'),
   workerCount:configuredWorkerCount,
   workerIndex:configuredWorkerIndex,

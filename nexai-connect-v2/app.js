@@ -11,6 +11,32 @@ let publicKey=null;
 let busy=false;
 let lastQr='';
 
+// A WebView may load a cached page on one host while Android blocks that
+// host's API requests. Route only *initial* failed requests to the alternate
+// first-party origin. The fallback marker prevents endless redirect loops.
+async function gatewayFetch(path,options={}){
+  try{
+    return await fetch(API+path,{...options,cache:'no-store'});
+  }catch(error){
+    const networkFailure=error instanceof TypeError||error?.name==='AbortError';
+    if(networkFailure&&!phonePairId&&!qrPairId&&!new URLSearchParams(window.location.search).has('fallback')){
+      const current=window.location.hostname;
+      const alternate=current==='nexai-connect-v2.vercel.app'
+        ?'https://nxc.31-56-85-53.sslip.io/nexai/?fallback=1&v=20261010-webview-2'
+        :'https://nexai-connect-v2.vercel.app/?fallback=1&v=20261010-webview-2';
+      window.location.replace(alternate);
+    }
+    if(networkFailure){
+      const message=lang==='fr'
+        ?'Telegram ne parvient pas à joindre la passerelle. Une autre adresse est essayée.'
+        :'Telegram cannot reach the connection gateway. Trying the backup address.';
+      throw Object.assign(new Error(message),{data:{errorCode:'NETWORK_ERROR'}});
+    }
+    throw error;
+  }
+}
+
+
 const i18n={
   fr:{
     secure:'Connexion sécurisée',eyebrow:'COMPTE TELEGRAM',title:'Connecter Telegram',
@@ -124,7 +150,7 @@ function pemToBuffer(pem){
 }
 async function getPublicKey(){
   if(publicKey)return publicKey;
-  const r=await fetch(API+'?api=pair-key',{cache:'no-store'});
+  const r=await gatewayFetch('?api=pair-key');
   const data=await r.json().catch(()=>({}));
   if(!r.ok||!data.publicKey)throw new Error(data.error||'pairing_key_unavailable');
   publicKey=await crypto.subtle.importKey('spki',pemToBuffer(data.publicKey),{name:'RSA-OAEP',hash:'SHA-256'},false,['encrypt']);
@@ -138,7 +164,7 @@ async function secure(payload){
   let raw='';
   for(const b of bytes)raw+=String.fromCharCode(b);
   const envelope=btoa(raw);
-  const r=await fetch(API+'?api=pair-secure',{
+  const r=await gatewayFetch('?api=pair-secure',{
     method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify({envelope}),cache:'no-store'
   });
@@ -147,7 +173,7 @@ async function secure(payload){
   return data;
 }
 async function api(path,options={}){
-  const r=await fetch(API+path,{...options,cache:'no-store'});
+  const r=await gatewayFetch(path,options);
   const data=await r.json().catch(()=>({}));
   if(!r.ok||data.ok===false)throw Object.assign(new Error(data.error||('HTTP '+r.status)),{data});
   return data;
@@ -160,6 +186,7 @@ function friendly(data,fallback){
   if(code.includes('PASSWORD_HASH_INVALID')||code.includes('PASSWORD_EMPTY'))return lang==='fr'?'Le mot de passe 2FA est incorrect.':'The 2FA password is incorrect.';
   if(code.includes('SIGN_UP_REQUIRED'))return lang==='fr'?'Ce numéro n’est pas encore associé à un compte Telegram.':'This number is not linked to a Telegram account yet.';
   if(code.includes('FLOOD'))return lang==='fr'?'Telegram demande d’attendre avant une nouvelle tentative.':'Telegram asked you to wait before trying again.';
+  if(code.includes('NETWORK_ERROR'))return lang==='fr'?'La connexion réseau est bloquée dans Telegram. Essaie le lien de secours ou ouvre la page dans ton navigateur.':'Telegram is blocking the network connection. Use the backup link or open it in your browser.';
   if(code.includes('AGENT_OFFLINE')||code.includes('SERVICE_FAILED')||code.includes('GATEWAY'))return lang==='fr'?'La passerelle de connexion est momentanément indisponible.':'The connection gateway is temporarily unavailable.';
   return fallback||(lang==='fr'?'La connexion n’a pas abouti. Réessaie.':'Connection failed. Try again.');
 }
