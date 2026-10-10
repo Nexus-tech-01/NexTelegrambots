@@ -7,7 +7,7 @@ on:
       - 'ops/install-nxc-vps-20261009.sh'
       - 'ops/setup-nexcontrol-complete.sh'
       - 'ops/repair-nxc-public-nginx.sh'
-      - 'ops/repair-nxc-public-nginx.sh'
+      - 'ops/repair-nxc-nginx-effective-vhost.sh'
       - '.github/workflows/nxc-vps-gateway-ci.yml'
   workflow_dispatch:
   pull_request:
@@ -16,7 +16,7 @@ on:
       - 'ops/install-nxc-vps-20261009.sh'
       - 'ops/setup-nexcontrol-complete.sh'
       - 'ops/repair-nxc-public-nginx.sh'
-      - 'ops/repair-nxc-public-nginx.sh'
+      - 'ops/repair-nxc-nginx-effective-vhost.sh'
       - '.github/workflows/nxc-vps-gateway-ci.yml'
 permissions:
   contents: read
@@ -33,7 +33,7 @@ jobs:
           bash -n ops/install-nxc-vps-20261009.sh
           bash -n ops/setup-nexcontrol-complete.sh
           bash -n ops/repair-nxc-public-nginx.sh
-          bash -n ops/repair-nxc-public-nginx.sh
+          bash -n ops/repair-nxc-nginx-effective-vhost.sh
       - name: Local-only API and queue integration tests (no secrets)
         shell: bash
         run: |
