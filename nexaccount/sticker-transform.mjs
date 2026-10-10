@@ -14,12 +14,26 @@ const tmp=ext=>path.join(
 );
 const cleanup=(...files)=>{for(const f of files.flat().filter(Boolean))try{fs.unlinkSync(f)}catch{}};
 
+const MAX_ACTIVE_TRANSFORMS=Math.max(1,Math.min(6,Number(process.env.NEXAI_STICKER_TRANSFORM_CONCURRENCY||2)));
+let activeTransforms=0;
+const transformWaiters=[];
+
 function exec(cmd,args,timeout=120000){
   return new Promise((resolve,reject)=>{
-    execFile(cmd,args,{timeout,maxBuffer:8*1024*1024},(err,stdout,stderr)=>{
-      if(err)return reject(new Error(String(stderr||err.message||err).trim().slice(0,1200)));
-      resolve({stdout,stderr});
-    });
+    const start=()=>{
+      activeTransforms++;
+      const ffmpegCmd=String(cmd).split('/').pop()==='ffmpeg';
+      const limitedArgs=ffmpegCmd?['-threads','1','-filter_threads','1',...args]:args;
+      execFile(cmd,limitedArgs,{timeout,maxBuffer:8*1024*1024},(err,stdout,stderr)=>{
+        activeTransforms--;
+        const next=transformWaiters.shift();
+        if(next)setImmediate(next);
+        if(err)return reject(new Error(String(stderr||err.message||err).trim().slice(0,1200)));
+        resolve({stdout,stderr});
+      });
+    };
+    if(activeTransforms<MAX_ACTIVE_TRANSFORMS)start();
+    else transformWaiters.push(start);
   });
 }
 
