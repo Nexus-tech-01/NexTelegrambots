@@ -27,7 +27,30 @@ tls_diagnostics(){
 }
 local_ok >/dev/null || { say 'LOCAL_GATEWAY=NOT_READY; no Nginx changes';exit 1; }
 [[ -s "$CONFIG" ]] || { say 'NexControl config missing'; exit 1; }
-nginx -T > "$TMP/nginx-before" 2>/dev/null || { say 'Existing Nginx config invalid';exit 1; }
+nginx -T > "$TMP/nginx-before" 2>"$TMP/nginx-warnings" || { say 'Existing Nginx config invalid';exit 1; }
+# Some VPS installations load sites-enabled/* but not conf.d/*. A file in an
+# inactive folder can pass nginx -t yet never serve a single request.
+# Check Nginx's *effective* config before choosing the dedicated vhost path.
+if [[ -e "$CONF" ]] && ! grep -Fq "# configuration file $CONF:" "$TMP/nginx-before"; then
+  say "Existing NexControl conf.d file is not loaded by active Nginx."
+fi
+if ! grep -Eq '^[[:space:]]*include[[:space:]]+/etc/nginx/conf[.]d/\\*([.]conf)?;' "$TMP/nginx-before"; then
+  if grep -Eq '^[[:space:]]*include[[:space:]]+/etc/nginx/sites-enabled/\\*([.]conf)?;' "$TMP/nginx-before"; then
+    if grep -Eq '^[[:space:]]*include[[:space:]]+/etc/nginx/sites-enabled/\\*[.]conf;' "$TMP/nginx-before"; then
+      CONF="/etc/nginx/sites-enabled/99-nxc-exclusive.conf"
+    else
+      CONF="/etc/nginx/sites-enabled/99-nxc-exclusive"
+    fi
+    say "Active Nginx uses sites-enabled; deploying only the dedicated NexControl vhost there."
+  else
+    say "No supported active conf.d/sites-enabled include; refusing to modify global nginx.conf."
+    exit 1
+  fi
+fi
+if grep -F 'conflicting server name' "$TMP/nginx-warnings" | grep -Fq "$DOMAIN"; then
+  say "Nginx already reports a duplicate virtual host for $DOMAIN; stopping before altering routing."
+  exit 1
+fi
 if [[ -e "$CONF" ]]; then
   grep -Fq '# managed: NexControl dedicated host' "$CONF" || { say 'Refusing to overwrite a foreign Nginx config'; exit 1; }
   cp -a "$CONF" "$TMP/previous.conf"
@@ -88,6 +111,16 @@ server {
 }
 NGINX
 if ! nginx -t >/dev/null 2>&1 || ! systemctl reload nginx; then fail 'TLS Nginx validation failed'; fi
+# Avoid claiming a deployment works if Nginx silently ignored the configuration.
+if ! nginx -T > "$TMP/nginx-after" 2>"$TMP/nginx-after-warnings"; then
+  fail 'Unable to inspect effective Nginx config after reload'
+fi
+if ! grep -Fq "# configuration file $CONF:" "$TMP/nginx-after"; then
+  fail 'Nginx did not load the dedicated NexControl virtual host'
+fi
+if grep -F 'conflicting server name' "$TMP/nginx-after-warnings" | grep -Fq "$DOMAIN"; then
+  fail 'Nginx reports another vhost overriding the NexControl hostname'
+fi
 if ! tls_ok >/dev/null 2>&1; then tls_diagnostics; fail 'TLS local health check failed'; fi
 cp -a "$CONFIG" "$TMP/config-old"
 install -d -m 0700 /var/backups/nxc-vps
