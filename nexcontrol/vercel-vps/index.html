@@ -21,6 +21,7 @@
 <a class="nav active" href="/" aria-current="page"><span aria-hidden="true">◫</span> Vue d’ensemble</a>
 <a class="nav" href="/nexcontrol/"><span aria-hidden="true">▤</span> Console VPS <span class="external" aria-hidden="true">↗</span></a>
 <a class="nav" href="/nexai/"><span aria-hidden="true">⌁</span> NexAI Connect <span class="external" aria-hidden="true">↗</span></a>
+<a class="nav" href="https://nxc.31-56-85-53.sslip.io/nexcontrol/" rel="noopener noreferrer"><span aria-hidden="true">↗</span> Accès direct au VPS</a>
 </nav>
 <div class="sidebar-note"><span class="indicator"></span> Interface statique sur Vercel<div class="sub">Aucune base de données ni bot sur Vercel</div></div>
 </aside>
@@ -47,6 +48,7 @@
 <a class="tool" href="/nexai/"><span class="tool-icon purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="4"/><path d="M8 12h8M12 8v8"/></svg></span><span><strong>Connexion NexAI</strong><small>Accéder à la passerelle Telegram</small></span><span class="arrow">↗</span></a>
 </div>
 </section>
+<section class="architecture"><h2>Accès de secours indépendant de Vercel</h2><p>En cas de panne du projet Vercel, cette page peut disparaître, mais le centre de contrôle et les services doivent rester sur le VPS. Les liens ci-dessous sont indépendants de ce projet. Ils nécessitent toujours une passerelle HTTPS opérationnelle et une authentification valide.</p><div class="tool-grid"><a class="tool" href="https://nxc.31-56-85-53.sslip.io/nexcontrol/" rel="noopener noreferrer"><strong>Console directe du VPS ↗</strong></a><a class="tool" href="https://tresor562.github.io/nexcontrol-emergency/" rel="noopener noreferrer"><strong>Page de secours GitHub Pages ↗</strong></a></div></section>
 <section class="architecture"><h2>Architecture</h2><div class="arch-rail"><div><small>Interface</small><strong>Vercel · statique</strong><span>Aucun serveur applicatif</span></div><div class="arch-arrow">→</div><div><small>Passerelle privée</small><strong>VPS · Nginx HTTPS</strong><span>Authentification, agents et données</span></div></div><p>Si le VPS est indisponible, la console affichera une erreur plutôt que des données fictives. Si Vercel suspend l’interface, les processus VPS restent indépendants.</p></section>
 <footer>© NexTech · NexControl <span>Interface de supervision</span></footer>
 </main></div>
