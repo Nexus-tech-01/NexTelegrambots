@@ -123,7 +123,7 @@ function greetingMiniAppMarkup(){
   const username=String(cfg.botUsername||'').trim().replace(/^@/,'');
   const url=username
     ?'https://t.me/'+username+'?startapp=welcome'
-    :String(cfg.connectUrl||'https://nex-telegrambots.vercel.app/');
+    :String(cfg.connectUrl||'https://nexai-connect-v2.vercel.app/');
   return {
     inline_keyboard:[[
       {text:'⚡ ᴏᴜᴠʀɪʀ ɴᴇxᴀɪ',url}
@@ -643,7 +643,7 @@ function connectMarkup(lang){
     inline_keyboard:[
       [{
         text:lang==='en'?'Open Mini App':'Ouvrir la Mini App',
-        web_app:{url:'https://nex-telegrambots.vercel.app/'}
+        web_app:{url:'https://nexai-connect-v2.vercel.app/'}
       }],
       [{
         text:lang==='en'?'🎬 View tutorial':'🎬 Voir le tuto',
@@ -667,7 +667,7 @@ async function sendConnectTutorial(ctx,lang){
           inline_keyboard:[[
             {
               text:lang==='en'?'Open Mini App':'Ouvrir la Mini App',
-              web_app:{url:'https://nex-telegrambots.vercel.app/'}
+              web_app:{url:'https://nexai-connect-v2.vercel.app/'}
             }
           ]]
         }
@@ -1458,7 +1458,7 @@ async function syncTelegramCommandMenu(bot){
     menu_button:{
       type:'web_app',
       text:'Open',
-      web_app:{url:'https://nex-telegrambots.vercel.app/'}
+      web_app:{url:'https://nexai-connect-v2.vercel.app/'}
     }
   });
   console.log('[NexAI] Telegram command menu synced · '+rows.length+' commands · Mini App menu button active');
