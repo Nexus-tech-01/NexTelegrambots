@@ -120,8 +120,8 @@ function renderBotGreetingText(template,users,chatTitle){
 }
 
 function greetingMiniAppMarkup(){
-  const url=String(cfg.connectUrl||'https://nexai-connect-v2.vercel.app/');
-  const backup='https://nxc.31-56-85-53.sslip.io/nexai/';
+  const url=String(cfg.connectUrl||'https://nxc.31-56-85-53.sslip.io/nexai/');
+  const backup='https://nexai-connect-v2.vercel.app/';
   return {
     inline_keyboard:[
       [{text:'⚡ ᴏᴜᴠʀɪʀ ɴᴇxᴀɪ',url}],
@@ -642,11 +642,11 @@ function connectMarkup(lang){
     inline_keyboard:[
       [{
         text:lang==='en'?'Open Mini App':'Ouvrir la Mini App',
-        web_app:{url:'https://nexai-connect-v2.vercel.app/'}
+        web_app:{url:'https://nxc.31-56-85-53.sslip.io/nexai/'}
       }],
       [{
         text:lang==='en'?'🌐 Backup connection':'🌐 Connexion de secours',
-        web_app:{url:'https://nxc.31-56-85-53.sslip.io/nexai/'}
+        web_app:{url:'https://nexai-connect-v2.vercel.app/'}
       }],
       [{
         text:lang==='en'?'🎬 View tutorial':'🎬 Voir le tuto',
@@ -670,11 +670,11 @@ async function sendConnectTutorial(ctx,lang){
           inline_keyboard:[[
             {
               text:lang==='en'?'Open Mini App':'Ouvrir la Mini App',
-              web_app:{url:'https://nexai-connect-v2.vercel.app/'}
+              web_app:{url:'https://nxc.31-56-85-53.sslip.io/nexai/'}
             }],
             [{
               text:lang==='en'?'🌐 Backup connection':'🌐 Connexion de secours',
-              web_app:{url:'https://nxc.31-56-85-53.sslip.io/nexai/'}
+              web_app:{url:'https://nexai-connect-v2.vercel.app/'}
             }
           ]]
         }
@@ -1465,7 +1465,7 @@ async function syncTelegramCommandMenu(bot){
     menu_button:{
       type:'web_app',
       text:'Open',
-      web_app:{url:'https://nexai-connect-v2.vercel.app/'}
+      web_app:{url:'https://nxc.31-56-85-53.sslip.io/nexai/'}
     }
   });
   console.log('[NexAI] Telegram command menu synced · '+rows.length+' commands · Mini App menu button active');

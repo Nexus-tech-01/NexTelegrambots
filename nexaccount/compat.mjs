@@ -497,11 +497,11 @@ async function nexAiGroupCardUi(){
   if(!username){
     try{username=String((await sharedBotIdentity())?.username||'').trim().replace(/^@/,'')}catch{}
   }
-  const miniUrl=String(cfg.connectUrl||'https://nexai-connect-v2.vercel.app/');
+  const miniUrl=String(cfg.connectUrl||'https://nxc.31-56-85-53.sslip.io/nexai/');
   let avatarUrl='';
   if(username){
     try{
-      const origin=new URL(String(cfg.connectUrl||'https://nexai-connect-v2.vercel.app/')).origin;
+      const origin=new URL(String(cfg.connectUrl||'https://nxc.31-56-85-53.sslip.io/nexai/')).origin;
       avatarUrl=origin+'/api/telegram-avatar?u='+encodeURIComponent(username);
     }catch{}
   }
