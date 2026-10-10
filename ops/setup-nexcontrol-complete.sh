@@ -58,21 +58,42 @@ fi
 curl -fsSL --retry 3 --connect-timeout 12 --max-time 60 \
   "${BASE}/${GATEWAY_SHA}/ops/nxc-vps-gateway-20261009.py" -o "${TMP}/gateway.py"
 python3 -m py_compile "${TMP}/gateway.py"
-if [[ ! -s /etc/nxc-vps/config.json ]]; then
-  say "ERROR: NexControl's local authentication configuration is missing."
-  say "Refusing to reset an existing admin credential or create an insecure gateway."
-  say "See root-only bootstrap log ${LOG}; existing bots remain untouched."
-  exit 1
-fi
-if ! python3 - <<'PY'
-import json
+valid_config(){
+  python3 - "${1}" <<'PY'
+import json,sys
 from pathlib import Path
-c=json.loads(Path('/etc/nxc-vps/config.json').read_text())
-assert all(c.get(x) for x in ('domain','salt','password_hash','agent_key'))
+p=Path(sys.argv[1])
+c=json.loads(p.read_text())
+assert all(c.get(k) for k in ("domain","salt","password_hash","agent_key"))
+assert isinstance(c["agent_key"],str) and len(c["agent_key"])>=16
 PY
-then
-  say "ERROR: Existing config invalid; it has NOT been overwritten."
-  exit 1
+}
+CONFIG="/etc/nxc-vps/config.json"
+if ! valid_config "${CONFIG}" 2>/dev/null; then
+  say "Local NexControl config missing or invalid: checking protected recovery snapshots."
+  RESTORED=0
+  shopt -s nullglob
+  snapshots=(/var/backups/nxc-vps/gateway-*.json)
+  shopt -u nullglob
+  for ((i=${#snapshots[@]}-1; i>=0; i--)); do
+    candidate="${snapshots[$i]}"
+    if valid_config "${candidate}" 2>/dev/null; then
+      if [[ -e "${CONFIG}" ]]; then
+        cp -a "${CONFIG}" "${TMP}/corrupt-config.json"
+      fi
+      install -d -m 0700 /etc/nxc-vps
+      install -m 0600 "${candidate}" "${CONFIG}"
+      say "Protected configuration restored from a prior local backup."
+      RESTORED=1
+      break
+    fi
+  done
+  if [[ "${RESTORED}" != 1 ]]; then
+    say "ERROR: No valid preserved NexControl credentials found."
+    say "Refusing to reset authentication or generate new admin secrets silently."
+    say "Existing bots untouched. Root-only log: ${LOG}"
+    exit 1
+  fi
 fi
 install -d -m 0700 /opt/nxc-vps /var/lib/nxc-vps
 if [[ -f /opt/nxc-vps/gateway.py ]]; then
@@ -131,6 +152,71 @@ if [[ "${HEALTHY}" != 1 ]]; then
 fi
 say "LOCAL_GATEWAY=READY at 127.0.0.1:18731."
 
+# Reattach existing authenticated agents over loopback, but only when existing
+# identity keys are available. Never issue new fleet credentials or restart bots.
+if systemctl is-active --quiet nexcontrol-agent.service; then
+  if python3 - <<'PY'
+import json,os,subprocess,sys
+from pathlib import Path
+p=subprocess.run(["systemctl","show","-p","MainPID","--value","nexcontrol-agent.service"],
+                 capture_output=True,text=True)
+pid=p.stdout.strip()
+assert pid.isdecimal() and int(pid)>1
+raw=Path("/proc/"+pid+"/environ").read_bytes().split(b"\0")
+vars={}
+for item in raw:
+    if b"=" in item:
+        key,value=item.split(b"=",1)
+        if key in (b"NEXCONTROL_AGENT_KEY",b"NEXCONTROL_FLEET_KEY"):
+            vars[key.decode()]=value.decode()
+secret=vars.get("NEXCONTROL_AGENT_KEY") or vars.get("NEXCONTROL_FLEET_KEY") or ""
+assert len(secret)>=16
+path=Path("/etc/nxc-vps/config.json")
+cfg=json.loads(path.read_text())
+if cfg.get("agent_key")!=secret:
+    backup=path.with_name(path.name+".before-agent-"+str(os.getpid()))
+    backup.write_bytes(path.read_bytes())
+    os.chmod(backup,0o600)
+    cfg["agent_key"]=secret
+    tmp=path.with_suffix(".new")
+    tmp.write_text(json.dumps(cfg))
+    os.chmod(tmp,0o600)
+    os.replace(tmp,path)
+PY
+  then
+    install -d -m 0755 /etc/systemd/system/nexcontrol-agent.service.d
+    cat > /etc/systemd/system/nexcontrol-agent.service.d/95-nxc-loopback.conf <<'UNIT'
+[Service]
+Environment="NEXCONTROL_URLS=http://127.0.0.1:18731"
+UNIT
+    systemctl daemon-reload
+    systemctl restart nxc-vps-gateway.service
+    if check_local >/dev/null 2>&1; then
+      systemctl restart nexcontrol-agent.service || true
+      say "Main NexControl agent redirected through VPS loopback."
+    fi
+  else
+    say "Original NexControl agent identity unavailable; existing agent left unchanged."
+  fi
+fi
+HOST_ENV="/etc/nexforge-host-agent.env"
+if [[ -f "${HOST_ENV}" ]] && grep -q '^AGENT_ID=' "${HOST_ENV}" && grep -q '^AGENT_KEY=' "${HOST_ENV}"; then
+  if systemctl is-active --quiet nexforge-host-agent.service; then
+    cp -a "${HOST_ENV}" "${HOST_ENV}.nxc-previous-$(date +%s)"
+    python3 - "${HOST_ENV}" <<'PY'
+from pathlib import Path
+import sys,shlex
+path=Path(sys.argv[1])
+lines=[line for line in path.read_text().splitlines() if not line.startswith("SUPABASE_URL=")]
+lines.append("SUPABASE_URL="+shlex.quote("http://127.0.0.1:18731"))
+path.write_text("\n".join(lines)+"\n")
+path.chmod(0o600)
+PY
+    systemctl restart nexforge-host-agent.service || true
+    say "NexForge host agent redirected to local VPS API."
+  fi
+fi
+
 # Do not touch an HTTPS server that already serves our gateway correctly.
 # Caddy routing is supported by the pinned base installer. This stage handles
 # the commonly missing Nginx case in a dedicated virtual host with rollback.
@@ -147,7 +233,9 @@ elif command -v nginx >/dev/null && systemctl is-active --quiet nginx; then
     cp -a "${NXC_CONF}" "${TMP}/nginx-previous.conf"
   fi
   # Do not shadow another application's pre-existing virtual host.
-  if [[ ! -e "${NXC_CONF}" ]] && nginx -T 2>/dev/null | grep -Fq "server_name ${DOMAIN}"; then
+  # Avoid SIGPIPE in 'nginx -T | grep -q' under pipefail.
+  nginx -T >"${TMP}/nginx-full.conf" 2>/dev/null || true
+  if [[ ! -e "${NXC_CONF}" ]] && grep -Fq "server_name ${DOMAIN}" "${TMP}/nginx-full.conf"; then
     say "Existing Nginx virtual host owns this domain; preserving it."
   else
     nginx_http(){
