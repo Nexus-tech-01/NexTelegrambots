@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0c111b">
+<meta name="robots" content="noindex,nofollow">
+<title>NexControl · Centre de contrôle VPS</title>
+<meta name="description" content="NexControl, supervision privée des services NexTech. Interface Vercel statique, infrastructure sur VPS.">
+<link rel="stylesheet" href="/style.css">
+<script defer src="/app.js"></script>
+</head>
+<body>
+<div class="shell">
+<aside class="sidebar">
+<div class="brand">
+ <div class="brand-icon" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none"><path d="M7 26V10L18 21L29 10V26" stroke="currentColor" stroke-width="3.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 29H28" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+ <div><strong>NexControl</strong><small>Infrastructure NexTech</small></div>
+</div>
+<nav aria-label="Navigation">
+<a class="nav active" href="/" aria-current="page"><span aria-hidden="true">◫</span> Vue d’ensemble</a>
+<a class="nav" href="/nexcontrol/"><span aria-hidden="true">▤</span> Console VPS <span class="external" aria-hidden="true">↗</span></a>
+<a class="nav" href="/nexai/"><span aria-hidden="true">⌁</span> NexAI Connect <span class="external" aria-hidden="true">↗</span></a>
+</nav>
+<div class="sidebar-note"><span class="indicator"></span> Interface statique sur Vercel<div class="sub">Aucune base de données ni bot sur Vercel</div></div>
+</aside>
+<main>
+<header class="top"><div class="crumb">Infrastructure <span>/</span> Aperçu</div><span class="env">Production · VPS</span></header>
+<section class="intro">
+<div class="eyebrow"><span class="tiny-dot"></span> Centre de contrôle</div>
+<h1>Votre infrastructure,<br><em>à un seul endroit.</em></h1>
+<p>L’interface est hébergée séparément. Les services, les données et les opérations restent sur le VPS NexTech.</p>
+</section>
+<section class="status-section" aria-labelledby="status-title">
+<div class="section-head"><h2 id="status-title">État de la passerelle</h2><button id="refresh" class="quiet" type="button">⟳ <span>Actualiser</span></button></div>
+<div class="status-strip">
+<div class="status-mark" id="status-mark" aria-hidden="true">···</div>
+<div class="status-copy"><strong id="status-name">Vérification en cours</strong><p id="status-detail">Test de connexion HTTPS à la passerelle NexControl du VPS.</p></div>
+<div id="status-chip" class="status-chip">Contrôle…</div>
+</div>
+<div class="status-meta"><span>Machine : <strong>vps-7373</strong></span><span>Réseau : <strong>HTTPS vers le VPS</strong></span><span>Dernière vérification : <strong id="last-check">—</strong></span></div>
+</section>
+<section class="tools" aria-label="Accès aux services">
+<div class="section-head"><h2>Espaces de travail</h2><span class="muted">Accès authentifié sur le VPS</span></div>
+<div class="tool-grid">
+<a class="tool" href="/nexcontrol/"><span class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="18" height="8" rx="2"/><rect x="3" y="13" width="18" height="8" rx="2"/><path d="M7 7h.01M7 17h.01M12 7h6M12 17h6"/></svg></span><span><strong>Console NexControl</strong><small>Surveiller les agents, services et tâches VPS</small></span><span class="arrow">↗</span></a>
+<a class="tool" href="/nexai/"><span class="tool-icon purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="4"/><path d="M8 12h8M12 8v8"/></svg></span><span><strong>Connexion NexAI</strong><small>Accéder à la passerelle Telegram</small></span><span class="arrow">↗</span></a>
+</div>
+</section>
+<section class="architecture"><h2>Architecture</h2><div class="arch-rail"><div><small>Interface</small><strong>Vercel · statique</strong><span>Aucun serveur applicatif</span></div><div class="arch-arrow">→</div><div><small>Passerelle privée</small><strong>VPS · Nginx HTTPS</strong><span>Authentification, agents et données</span></div></div><p>Si le VPS est indisponible, la console affichera une erreur plutôt que des données fictives. Si Vercel suspend l’interface, les processus VPS restent indépendants.</p></section>
+<footer>© NexTech · NexControl <span>Interface de supervision</span></footer>
+</main></div>
+</body></html>
