@@ -36,40 +36,100 @@ check_local(){
     'http://127.0.0.1:18731/healthz' | python3 -c 'import sys,json;x=json.load(sys.stdin);assert x.get("ok") and x.get("service")=="nexcontrol-vps"'
 }
 
-say "Installing verified VPS gateway without touching Telegram/WhatsApp units."
-curl -fsSL --retry 3 --connect-timeout 12 --max-time 60 \
-  "${BASE}/${INSTALL_SHA}/ops/install-nxc-vps-20261009.sh" -o "${TMP}/installer.sh"
-bash -n "${TMP}/installer.sh"
-# Installer may report an unavailable public HTTPS endpoint, but local control
-# plane remains useful. Logs may include a first-install admin password: mode 0600.
-if ! NXC_VPS_DOMAIN="${DOMAIN}" bash "${TMP}/installer.sh" >"${LOG}" 2>&1; then
-  say "Base installer did not finish; see the root-only log ${LOG}."
-  if ! check_local >/dev/null 2>&1; then
-    say "No healthy local gateway. Stopping safely; existing bots were not touched."
-    exit 1
+say "Recovering NexControl without touching Telegram/WhatsApp units."
+# A prior successful installer already created the config/site. Re-running that
+# installer during an outage can introduce unrelated failure modes, so skip it.
+if [[ -s /etc/nxc-vps/config.json && -f /etc/systemd/system/nxc-vps-gateway.service && -s /opt/nxc-vps/site/app.js ]]; then
+  say "Existing installation detected; updating supervisor in place."
+else
+  say "Base installation incomplete; attempting verified bootstrap."
+  curl -fsSL --retry 3 --connect-timeout 12 --max-time 60 \
+    "${BASE}/${INSTALL_SHA}/ops/install-nxc-vps-20261009.sh" -o "${TMP}/installer.sh"
+  bash -n "${TMP}/installer.sh"
+  # A failed base install must not prevent the independent supervisor recovery.
+  # Its full output may include a generated admin password, so store privately.
+  if ! NXC_VPS_DOMAIN="${DOMAIN}" bash "${TMP}/installer.sh" >"${LOG}" 2>&1; then
+    say "Bootstrap was incomplete; continuing with isolated gateway recovery."
+    say "Private bootstrap log: ${LOG}"
   fi
 fi
 
-# The prior installer is pinned to an older tested release. Replace only this
-# supervisor gateway, and roll it back if health or syntax fails.
+# Use the verified gateway release even if the old installer exited early.
 curl -fsSL --retry 3 --connect-timeout 12 --max-time 60 \
   "${BASE}/${GATEWAY_SHA}/ops/nxc-vps-gateway-20261009.py" -o "${TMP}/gateway.py"
 python3 -m py_compile "${TMP}/gateway.py"
+if [[ ! -s /etc/nxc-vps/config.json ]]; then
+  say "ERROR: NexControl's local authentication configuration is missing."
+  say "Refusing to reset an existing admin credential or create an insecure gateway."
+  say "See root-only bootstrap log ${LOG}; existing bots remain untouched."
+  exit 1
+fi
+if ! python3 - <<'PY'
+import json
+from pathlib import Path
+c=json.loads(Path('/etc/nxc-vps/config.json').read_text())
+assert all(c.get(x) for x in ('domain','salt','password_hash','agent_key'))
+PY
+then
+  say "ERROR: Existing config invalid; it has NOT been overwritten."
+  exit 1
+fi
+install -d -m 0700 /opt/nxc-vps /var/lib/nxc-vps
 if [[ -f /opt/nxc-vps/gateway.py ]]; then
   cp -a /opt/nxc-vps/gateway.py "${TMP}/gateway-previous.py"
 fi
 install -m 0700 "${TMP}/gateway.py" /opt/nxc-vps/gateway.py
-systemctl restart nxc-vps-gateway.service
-sleep 2
-if ! check_local >/dev/null 2>&1; then
-  say "New gateway failed health. Restoring old supervisor code."
+
+# Missing or failed service units are repaired without touching other units.
+if ! systemctl cat nxc-vps-gateway.service >/dev/null 2>&1; then
+  say "Installing missing dedicated NexControl systemd unit."
+  cat >/etc/systemd/system/nxc-vps-gateway.service <<'UNIT'
+[Unit]
+Description=NexControl autonomous VPS control plane
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0077
+WorkingDirectory=/opt/nxc-vps
+ExecStart=/usr/bin/python3 /opt/nxc-vps/gateway.py
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+[Install]
+WantedBy=multi-user.target
+UNIT
+fi
+systemctl daemon-reload
+systemctl reset-failed nxc-vps-gateway.service 2>/dev/null || true
+if ! systemctl restart nxc-vps-gateway.service; then
+  say "Systemd refused to restart the gateway; checking health before rollback."
+fi
+HEALTHY=0
+for attempt in 1 2 3 4 5 6; do
+  if check_local > /dev/null 2>&1; then HEALTHY=1; break; fi
+  sleep 2
+done
+if [[ "${HEALTHY}" != 1 ]]; then
+  say "ERROR: gateway did not become healthy after recovery."
+  say "Supervisor state:"
+  systemctl show nxc-vps-gateway.service --no-pager -p LoadState -p ActiveState -p SubState -p Result -p ExecMainStatus 2>/dev/null || true
+  say "Port 18731 ownership:"
+  if command -v ss >/dev/null; then ss -ltnp '( sport = :18731 )' || true; fi
+  say "Existing bots unchanged; full service log remains local to the VPS."
   if [[ -f "${TMP}/gateway-previous.py" ]]; then
     cp -a "${TMP}/gateway-previous.py" /opt/nxc-vps/gateway.py
-    systemctl restart nxc-vps-gateway.service || true
+    systemctl restart nxc-vps-gateway.service 2>/dev/null || true
+    say "Previous supervisor file restored."
   fi
   exit 1
 fi
-say "Gateway healthy at 127.0.0.1:18731."
+say "LOCAL_GATEWAY=READY at 127.0.0.1:18731."
 
 # Do not touch an HTTPS server that already serves our gateway correctly.
 # Caddy routing is supported by the pinned base installer. This stage handles
