@@ -138,6 +138,20 @@ say "HTTPS_SNI=READY: Nginx now routes the dedicated hostname to NexControl."
 
 # The gateway's allowed Origin is changed only after secure TLS is established.
 # Preserve the existing admin login hash and agent authentication key.
+# Upgrade only the NexControl gateway, to a version that recognizes the
+# dedicated Vercel frontend Origin, without altering its original credentials.
+# Download immutable, previously-tested gateway code before changing any config.
+GATEWAY_REV="3d35b8196d5e9157c05e242b5ca626ec89c6b0c1"
+GATEWAY_FILE="/opt/nxc-vps/gateway.py"
+GATEWAY_URL="https://raw.githubusercontent.com/Nexus-tech-01/NexTelegrambots/$GATEWAY_REV/ops/nxc-vps-gateway-20261009.py"
+if ! curl --fail --location --silent --show-error --connect-timeout 10 --max-time 60 "$GATEWAY_URL" -o "$TMP/gateway-new.py"; then
+  fail "Unable to download compatible NexControl gateway"
+fi
+if ! python3 -m py_compile "$TMP/gateway-new.py"; then
+  fail "Downloaded NexControl gateway failed Python syntax validation"
+fi
+[[ -s "$GATEWAY_FILE" ]] || fail "Existing gateway file unavailable, refusing to overwrite"
+cp -a "$GATEWAY_FILE" "$TMP/gateway-old.py"
 if ! python3 - "$CFG" "$DOMAIN" "$TMP/old-auth.json" <<'PY'
 import json,os,sys
 from pathlib import Path
@@ -152,15 +166,16 @@ os.chmod(temp,0o600)
 os.replace(temp,p)
 PY
 then
-  restore
-  say "Config domain update failed. Original Nginx vhost restored."
-  exit 1
+  if [[ -s "$TMP/old-auth.json" ]]; then cp -a "$TMP/old-auth.json" "$CFG"; fi
+  fail "Config update failed; preserving existing identity"
 fi
+install -m 0700 "$TMP/gateway-new.py" "$GATEWAY_FILE"
 if ! systemctl restart nxc-vps-gateway.service || ! is_gateway >/dev/null 2>&1 || ! is_tls >/dev/null 2>&1; then
   cp -a "$TMP/old-auth.json" "$CFG"
+  cp -a "$TMP/gateway-old.py" "$GATEWAY_FILE"
   systemctl restart nxc-vps-gateway.service || true
   restore
-  say "Gateway failed restart; old auth config and Nginx vhost restored."
+  say "Gateway update failed, old authenticated backend and Nginx vhost restored."
   exit 1
 fi
 
