@@ -1096,7 +1096,11 @@ async function handleCommand(runtime,event,parsed){
   await recordEvent(account,'command',{source:'nexaccount',command:canonicalCommand,chatType:eventIsGroup(event)?'group':'private'}).catch(()=>{});
   // Draft only, within the invoking private chat. Never report via other sessions or DM the target.
   if(isFrozeCommand(name)){
-    await sendText(client,peer,formatFrozeDossier(name,parsed.args));
+    await sendText(client,peer,formatFrozeDossier(name,parsed.args)+'\n\nEnvoi automatique et suivi : utilise cette commande en privé dans le bot @'+String(cfg.botUsername||'NexAi01_bot')+'.');
+    return true;
+  }
+  if(['froze_status','froze_list','froze_close'].includes(name)){
+    await sendText(client,peer,'Pour le suivi du dossier, ouvre le bot @'+String(cfg.botUsername||'NexAi01_bot')+' en privé et utilise /'+name+'.');
     return true;
   }
 
