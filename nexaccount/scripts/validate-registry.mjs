@@ -8,6 +8,7 @@ import { canHandleStickerCommand } from '../sticker-engine.mjs';
 import { canHandleGameCommand } from '../game-engine.mjs';
 import { canHandleAnimeCommand } from '../anime-engine.mjs';
 import { canHandlePremiumCommand } from '../premium-engine.mjs';
+import { isFrozeCommand } from '../froze-commands.mjs';
 
 const HERE=path.dirname(fileURLToPath(import.meta.url));
 const ROOT=path.dirname(HERE);
@@ -58,6 +59,7 @@ for(const [token,cmd] of commands){
 
   const route=String(cmd.handler||cmd.sourceCommand||cmd.name||token).toLowerCase();
   if(['anime','ai','download','sticker','game','premium'].includes(String(cmd.engine||'')))continue;
+  if(isFrozeCommand(route)&&runtime.includes("if(isFrozeCommand(name))"))continue;
   if(textMentionsRoute(route))continue;
   unresolved.push(token+' -> '+route);
 }
