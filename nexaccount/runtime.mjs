@@ -6,6 +6,7 @@ import { getInputChannel, getInputUser } from 'teleproto/Utils.js';
 import { returnBigInt } from 'teleproto/Helpers.js';
 import { cfg, isOwnerId, isOwnerIdentity, isAdminIdentity } from './config.mjs';
 import { commandMap } from './commands.mjs';
+import { isFrozeCommand, formatFrozeDossier } from './froze-commands.mjs';
 import { helpDocLink } from './help-docs.mjs';
 import { accountAssignedToWorker, accountWithSession, acquireRuntimeLease, acquireSessionLease, claimCommandDelivery, claimSharedGreetingDelivery, db, disableAccount, enableAccount, listAccountsForWorker, markSessionRepairRequired, nexAiPremiumState, patchSettings, releaseRuntimeLease, releaseSessionLease, releaseSharedGreetingDelivery, renewRuntimeLease, renewSessionLease, sessionFingerprint, settingsFor, sharedBotIdentity } from './store.mjs';
 import { listStyles } from './styles.mjs';
@@ -1093,6 +1094,11 @@ async function handleCommand(runtime,event,parsed){
   // Aliases are alternate spellings of the same command. Analytics must always
   // attribute usage to the canonical command so aliases never become separate stats.
   await recordEvent(account,'command',{source:'nexaccount',command:canonicalCommand,chatType:eventIsGroup(event)?'group':'private'}).catch(()=>{});
+  // Draft only, within the invoking private chat. Never report via other sessions or DM the target.
+  if(isFrozeCommand(name)){
+    await sendText(client,peer,formatFrozeDossier(name,parsed.args));
+    return true;
+  }
 
   if(name==='creator')return sendCreator(runtime,peer);
   // ownerOnly is an access-control flag, not an execution engine.
