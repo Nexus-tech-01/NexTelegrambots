@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import { FROZE_COMMANDS,isFrozeCommand,normalizeFrozeUsername,formatFrozeDossier } from '../froze-commands.mjs';
+assert.ok(FROZE_COMMANDS.includes('froze'));
+assert.ok(FROZE_COMMANDS.includes('froze_spam'));
+assert.ok(FROZE_COMMANDS.includes('froze_hate'));
+assert.equal(normalizeFrozeUsername('@Valid_User'),'@Valid_User');
+assert.equal(normalizeFrozeUsername('https://t.me/Valid_User'),'@Valid_User');
+for(const invalid of ['', '@bad', '@a username', 'https://example.com/profile', '@ok\nanother','@'])assert.equal(normalizeFrozeUsername(invalid),null);
+assert.equal(isFrozeCommand('froze_porn'),true);
+assert.equal(isFrozeCommand('report_everyone'),false);
+const result=formatFrozeDossier('froze_spam',['@Valid_User']);
+assert.ok(result.includes('@Valid_User'));
+assert.ok(result.includes('brouillon uniquement'));
+assert.ok(result.includes('Aucune demande envoyée'));
+assert.ok(!result.includes('100 comptes'));
+assert.ok(formatFrozeDossier('froze',[]).includes('Usage : /froze'));
+console.log('froze dossier tests passed');
