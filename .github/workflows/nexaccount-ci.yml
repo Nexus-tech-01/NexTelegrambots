@@ -74,6 +74,10 @@ jobs:
           node --check nexaccount/inline-response-store.mjs
       - name: Critical public routes regression
         run: node nexaccount/scripts/test-critical-routes.mjs
+      - name: Frozen account report workflow tests
+        run: |
+          node nexaccount/scripts/test-froze-commands.mjs
+          node nexaccount/scripts/test-froze-workflow.mjs
       - name: Core architecture regression
         run: node nexaccount/scripts/test-core-architecture.mjs
       - name: Premium separation regression
