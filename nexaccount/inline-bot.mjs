@@ -6,7 +6,8 @@ const NEXAI_MINIAPP_PRIMARY='https://nexai-connect-v2.vercel.app/?v=20261010-web
 const NEXAI_MINIAPP_BACKUP='https://nxc.31-56-85-53.sslip.io/nexai/?v=20261010-webview-2';
 import { loadBotToken } from './secrets.mjs';
 import { commandMap } from './commands.mjs';
-import { FROZE_COMMANDS, formatFrozeDossier } from './froze-commands.mjs';
+import { FROZE_COMMANDS } from './froze-commands.mjs';
+import { recordFrozeRequest, showFrozeCase, listFrozeCases, closeFrozeCase, reconcileFrozeCases } from './froze-workflow.mjs';
 import { helpDocLink } from './help-docs.mjs';
 import { db, accountRecord, listConnectedAccounts, settingsFor, patchSettings, saveSharedBotIdentity, nexAiPremiumState, grantNexAiPremium, acquireServiceLease, renewServiceLease, releaseServiceLease, sharedGreetingPolicy, claimSharedGreetingDelivery, releaseSharedGreetingDelivery } from './store.mjs';
 import { menuModel, stylesModel, customStyleModel } from './menu.mjs';
@@ -48,6 +49,7 @@ const NEXAI_POLLER_LEASE_RENEW_MS=Math.max(15_000,Math.min(45_000,Number(process
 const NEXAI_POLLER_CONFLICT_RETRIES=Math.max(3,Math.min(30,Number(process.env.NEXAI_POLLER_CONFLICT_RETRIES||12)));
 let pollerLeaseKey='';
 let pollerLeaseTimer=null;
+let frozeReconcileTimer=null;
 let pollerSupervisorTimer=null;
 let pollerSupervisorRunning=false;
 let pollerSupervisorStopping=true;
@@ -298,6 +300,11 @@ async function startPollingWithTakeover(target){
   }
 }
 
+function clearFrozeReconcileTimer(){
+  if(frozeReconcileTimer)clearInterval(frozeReconcileTimer);
+  frozeReconcileTimer=null;
+}
+
 function clearPollerLeaseTimer(){
   if(pollerLeaseTimer)clearInterval(pollerLeaseTimer);
   pollerLeaseTimer=null;
@@ -346,6 +353,13 @@ async function runPollerSupervisor(){
     pollerLeaseTimer.unref?.();
 
     pollerRestartAttempt=0;
+    clearFrozeReconcileTimer();
+    // Queue draining + mail delivery checks only. No repeated Telegram reports.
+    frozeReconcileTimer=setInterval(()=>{
+      reconcileFrozeCases().catch(e=>console.warn('[NexAi froze tracking]',String(e?.message||e).slice(0,180)));
+    },5*60_000);
+    frozeReconcileTimer.unref?.();
+    reconcileFrozeCases().catch(e=>console.warn('[NexAi froze tracking init]',String(e?.message||e).slice(0,180)));
     console.log('[NexAI poller] lease acquired · polling active');
     await startPollingWithTakeover(bot);
     if(!pollerSupervisorStopping){
@@ -356,6 +370,7 @@ async function runPollerSupervisor(){
     console.error('[NexAI poller] polling failed',String(error?.description||error?.message||error).slice(0,700));
     return false;
   }finally{
+    clearFrozeReconcileTimer();
     clearPollerLeaseTimer();
     if(ownsLease&&leaseKey){
       await releaseServiceLease(leaseKey,cfg.workerId).catch(()=>{});
@@ -1589,9 +1604,23 @@ export async function startInlineBot(){
         return ctx.reply('Cette commande est réservée au propriétaire de NexAi.');
       }
       const args=String(ctx.match||'').trim().split(/\s+/).filter(Boolean);
-      return monoReplyText(ctx,formatFrozeDossier(frozeName,args));
+      const status=await recordFrozeRequest({ownerId:ctx.from.id,command:frozeName,args});
+      return monoReplyText(ctx,status);
     });
   }
+
+  bot.command('froze_status',async ctx=>{
+    if(ctx.chat?.type!=='private'||!isOwnerIdentity(ctx.from.id,ctx.from.username))return;
+    return monoReplyText(ctx,await showFrozeCase(ctx.from.id,String(ctx.match||'').trim().split(/\s+/)[0]));
+  });
+  bot.command('froze_list',async ctx=>{
+    if(ctx.chat?.type!=='private'||!isOwnerIdentity(ctx.from.id,ctx.from.username))return;
+    return monoReplyText(ctx,await listFrozeCases(ctx.from.id));
+  });
+  bot.command('froze_close',async ctx=>{
+    if(ctx.chat?.type!=='private'||!isOwnerIdentity(ctx.from.id,ctx.from.username))return;
+    return monoReplyText(ctx,await closeFrozeCase(ctx.from.id,String(ctx.match||'').trim().split(/\s+/)[0]));
+  });
 
   bot.command('setstoragetoken',async ctx=>{
     if(ctx.chat?.type!=='private')return;
@@ -2038,6 +2067,7 @@ export async function startInlineBot(){
 
 export async function stopInlineBot(){
   pollerSupervisorStopping=true;
+  clearFrozeReconcileTimer();
   clearPollerSupervisorTimer();
   clearPollerLeaseTimer();
   try{await bot?.stop()}catch{}
