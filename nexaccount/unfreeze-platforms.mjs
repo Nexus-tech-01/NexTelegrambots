@@ -68,7 +68,8 @@ export function unfreezeUsage(){
     'Voir : /unfreeze_status <type> <identifiant>',
     'Lister : /unfreeze_list',
     'Confirmer un recours réellement déposé : /unfreeze_sent <type> <identifiant>',
-    'Résultat réellement reçu : /unfreeze_result <type> <identifiant> approved|rejected',
+    'Si recours accepté : /unfreeze_approved <type> <identifiant>',
+    'Si recours refusé : /unfreeze_rejected <type> <identifiant>',
     'Clôturer : /unfreeze_close <type> <identifiant>',
     'Aucun recours n’est envoyé automatiquement aux plateformes.'
   ].join('\n');
