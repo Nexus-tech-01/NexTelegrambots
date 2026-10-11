@@ -15,7 +15,7 @@ const STATES=Object.freeze({
   closed:'Dossier clôturé'
 });
 const VALID_TRANSITIONS=Object.freeze({
-  sent:new Set(['draft','followup_due']),
+  sent:new Set(['draft']),
   approved:new Set(['submitted','followup_due']),
   rejected:new Set(['submitted','followup_due']),
   closed:new Set(['draft','submitted','followup_due','rejected','approved'])
