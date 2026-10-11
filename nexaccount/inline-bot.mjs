@@ -6,6 +6,7 @@ const NEXAI_MINIAPP_PRIMARY='https://nexai-connect-v2.vercel.app/?v=20261010-web
 const NEXAI_MINIAPP_BACKUP='https://nxc.31-56-85-53.sslip.io/nexai/?v=20261010-webview-2';
 import { loadBotToken } from './secrets.mjs';
 import { commandMap } from './commands.mjs';
+import { FROZE_COMMANDS, formatFrozeDossier } from './froze-commands.mjs';
 import { helpDocLink } from './help-docs.mjs';
 import { db, accountRecord, listConnectedAccounts, settingsFor, patchSettings, saveSharedBotIdentity, nexAiPremiumState, grantNexAiPremium, acquireServiceLease, renewServiceLease, releaseServiceLease, sharedGreetingPolicy, claimSharedGreetingDelivery, releaseSharedGreetingDelivery } from './store.mjs';
 import { menuModel, stylesModel, customStyleModel } from './menu.mjs';
@@ -1579,6 +1580,18 @@ export async function startInlineBot(){
       language:lang
     }));
   });
+
+  // Owner-only dossier drafting in the existing NexAI private chat (never DM the target).
+  for(const frozeName of FROZE_COMMANDS){
+    bot.command(frozeName,async ctx=>{
+      if(ctx.chat?.type!=='private')return;
+      if(!isOwnerIdentity(ctx.from.id,ctx.from.username)){
+        return ctx.reply('Cette commande est réservée au propriétaire de NexAi.');
+      }
+      const args=String(ctx.match||'').trim().split(/\s+/).filter(Boolean);
+      return monoReplyText(ctx,formatFrozeDossier(frozeName,args));
+    });
+  }
 
   bot.command('setstoragetoken',async ctx=>{
     if(ctx.chat?.type!=='private')return;
