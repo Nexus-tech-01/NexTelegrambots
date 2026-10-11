@@ -8,6 +8,7 @@ import { canHandleDownloadCommand } from '../dipper-fallback.mjs';
 import { canHandleStickerCommand } from '../sticker-engine.mjs';
 import { canHandleGameCommand } from '../game-engine.mjs';
 import { canHandleAnimeCommand } from '../anime-engine.mjs';
+import { isFrozeCommand } from '../froze-commands.mjs';
 import { connectedSessionRows, sessionsText } from '../session-view.mjs';
 
 const HERE=path.dirname(fileURLToPath(import.meta.url));
@@ -235,6 +236,10 @@ if(inline.includes("from './runtime.mjs'"))errors.push('/sessions-must-not-coupl
 for(const visible of [...commands.values()].filter(c=>!c.hidden)){
   const route=String(visible.handler||visible.aliasFor||visible.name);
   if(visible.engine)continue;
+  if(isFrozeCommand(route)){
+    if(!runtime.includes('if(isFrozeCommand(name))'))errors.push('froze-owner-route-missing:'+route);
+    continue;
+  }
   if(['menu','ping','alive','account','help','join','leave','style'].includes(route))continue;
   if(!runtime.includes(route)&&!compat.includes(route)){
     errors.push('visible-command-without-local-route-marker:'+visible.name+'->'+route);
