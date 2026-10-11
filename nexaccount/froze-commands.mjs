@@ -11,6 +11,7 @@ const REASONS=Object.freeze({
   froze_evasion:{label:'contournement de restrictions',details:'Comportement suspect de contournement des limitations de Telegram ; expliquer les indices disponibles.'}
 });
 export const FROZE_COMMANDS=Object.freeze(Object.keys(REASONS));
+export function frozeReason(command){ return REASONS[String(command||'').toLowerCase()]||null; }
 export function isFrozeCommand(command){
   return Object.hasOwn(REASONS,String(command||'').toLowerCase());
 }
