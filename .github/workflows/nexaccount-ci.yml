@@ -78,6 +78,8 @@ jobs:
         run: |
           node nexaccount/scripts/test-froze-commands.mjs
           node nexaccount/scripts/test-froze-workflow.mjs
+      - name: Cross-platform recovery appeal tests
+        run: node nexaccount/scripts/test-unfreeze.mjs
       - name: Core architecture regression
         run: node nexaccount/scripts/test-core-architecture.mjs
       - name: Premium separation regression

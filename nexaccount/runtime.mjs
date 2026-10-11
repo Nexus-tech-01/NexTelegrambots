@@ -1104,6 +1104,11 @@ async function handleCommand(runtime,event,parsed){
     return true;
   }
 
+  if(['unfreeze','unfreeze_types','unfreeze_status','unfreeze_list','unfreeze_sent','unfreeze_approved','unfreeze_rejected','unfreeze_close'].includes(name)){
+    await sendText(client,peer,'Les recours sont disponibles dans le bot @'+String(cfg.botUsername||'NexAi01_bot')+' en privé. Utilise /'+name+' pour créer ou suivre un dossier.');
+    return true;
+  }
+
   if(name==='creator')return sendCreator(runtime,peer);
   // ownerOnly is an access-control flag, not an execution engine.
   // Only the native NexAI owner dashboard commands belong to handleOwner().

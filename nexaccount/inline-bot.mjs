@@ -7,6 +7,8 @@ const NEXAI_MINIAPP_BACKUP='https://nxc.31-56-85-53.sslip.io/nexai/?v=20261010-w
 import { loadBotToken } from './secrets.mjs';
 import { commandMap } from './commands.mjs';
 import { FROZE_COMMANDS } from './froze-commands.mjs';
+import { unfreezeUsage } from './unfreeze-platforms.mjs';
+import { createUnfreezeCase, statusUnfreezeCase, listUnfreezeCases, markUnfreezeCase, reconcileUnfreezeCases } from './unfreeze-workflow.mjs';
 import { recordFrozeRequest, showFrozeCase, listFrozeCases, closeFrozeCase, reconcileFrozeCases } from './froze-workflow.mjs';
 import { helpDocLink } from './help-docs.mjs';
 import { db, accountRecord, listConnectedAccounts, settingsFor, patchSettings, saveSharedBotIdentity, nexAiPremiumState, grantNexAiPremium, acquireServiceLease, renewServiceLease, releaseServiceLease, sharedGreetingPolicy, claimSharedGreetingDelivery, releaseSharedGreetingDelivery } from './store.mjs';
@@ -357,9 +359,11 @@ async function runPollerSupervisor(){
     // Queue draining + mail delivery checks only. No repeated Telegram reports.
     frozeReconcileTimer=setInterval(()=>{
       reconcileFrozeCases().catch(e=>console.warn('[NexAi froze tracking]',String(e?.message||e).slice(0,180)));
+      reconcileUnfreezeCases().catch(e=>console.warn('[NexAi unfreeze tracking]',String(e?.message||e).slice(0,180)));
     },5*60_000);
     frozeReconcileTimer.unref?.();
     reconcileFrozeCases().catch(e=>console.warn('[NexAi froze tracking init]',String(e?.message||e).slice(0,180)));
+    reconcileUnfreezeCases().catch(e=>console.warn('[NexAi unfreeze init]',String(e?.message||e).slice(0,180)));
     console.log('[NexAI poller] lease acquired · polling active');
     await startPollingWithTakeover(bot);
     if(!pollerSupervisorStopping){
@@ -1621,6 +1625,36 @@ export async function startInlineBot(){
     if(ctx.chat?.type!=='private'||!isOwnerIdentity(ctx.from.id,ctx.from.username))return;
     return monoReplyText(ctx,await closeFrozeCase(ctx.from.id,String(ctx.match||'').trim().split(/\s+/)[0]));
   });
+
+  // Recovery appeals are distinct from /froze abuse reports.
+  // All actions stay private and must be initiated by the NexAI owner.
+  const unfreezeAuth=ctx=>ctx.chat?.type==='private'&&isOwnerIdentity(ctx.from?.id,ctx.from?.username);
+  bot.command('unfreeze_types',async ctx=>{
+    if(!unfreezeAuth(ctx))return;
+    return monoReplyText(ctx,unfreezeUsage());
+  });
+  bot.command('unfreeze',async ctx=>{
+    if(!unfreezeAuth(ctx))return;
+    return monoReplyText(ctx,await createUnfreezeCase({ownerId:ctx.from.id,raw:String(ctx.match||'')}));
+  });
+  bot.command('unfreeze_status',async ctx=>{
+    if(!unfreezeAuth(ctx))return;
+    return monoReplyText(ctx,await statusUnfreezeCase(ctx.from.id,String(ctx.match||'')));
+  });
+  bot.command('unfreeze_list',async ctx=>{
+    if(!unfreezeAuth(ctx))return;
+    return monoReplyText(ctx,await listUnfreezeCases(ctx.from.id));
+  });
+  for(const action of ['sent','approved','rejected','close']){
+    bot.command('unfreeze_'+action,async ctx=>{
+      if(!unfreezeAuth(ctx))return;
+      return monoReplyText(ctx,await markUnfreezeCase({
+        ownerId:ctx.from.id,
+        raw:String(ctx.match||''),
+        action:action==='close'?'closed':action
+      }));
+    });
+  }
 
   bot.command('setstoragetoken',async ctx=>{
     if(ctx.chat?.type!=='private')return;
