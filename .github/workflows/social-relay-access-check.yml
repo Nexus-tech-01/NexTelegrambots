@@ -1,0 +1,41 @@
+name: Social relay trusted access check
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/social-relay-access-check.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+      SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
+      NEXCONTROL_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD }}
+      ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+      NEXCONTROL_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET }}
+      SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+      PTERODACTYL_API_KEY: ${{ secrets.PTERODACTYL_API_KEY }}
+      DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+    steps:
+      - name: Report available authorized transport only
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in VPS_SSH_PRIVATE_KEY DEPLOY_SSH_PRIVATE_KEY SSH_PRIVATE_KEY VPS_SSH_KNOWN_HOSTS SSH_KNOWN_HOSTS VPS_HOST VPS_SSH_HOST NEXCONTROL_ADMIN_PASSWORD ADMIN_PASSWORD NEXCONTROL_SESSION_SECRET SESSION_SECRET PTERODACTYL_API_KEY DEPLOY_TOKEN; do
+            value="${!name:-}"
+            if [ -n "$value" ]; then
+              echo "PRESENT $name"
+            else
+              echo "MISSING $name"
+            fi
+          done
+          echo "CHECK_ONLY=TRUE"
