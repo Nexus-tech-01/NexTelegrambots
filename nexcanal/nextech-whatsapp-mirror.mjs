@@ -3,10 +3,10 @@ import path from 'node:path';
 import { TelegramClient } from 'teleproto';
 import { StringSession } from 'teleproto/sessions/index.js';
 
-const DEFAULT_CHANNELS=['thenexusorigin','thenexnews','theotaku_nexus'];
+const DEFAULT_CHANNELS=['thenexusorigin','thenexnews'];
 const CHANNELS=[...new Set(
   String(process.env.NEX_WHATSAPP_MIRROR_CHANNELS||DEFAULT_CHANNELS.join(','))
-    .split(',').map(x=>x.trim().replace(/^@/,'').toLowerCase()).filter(x=>Boolean(x)&&x!=='tresor_universe')
+    .split(',').map(x=>x.trim().replace(/^@/,'').toLowerCase()).filter(x=>Boolean(x)&&x!=='tresor_universe'&&x!=='theotaku_nexus')
 )];
 const API_ID=Number(process.env.NEXCANAL__WATCHER_API_ID||process.env.NEXGROUP__TELEGRAM_API_ID||0);
 const API_HASH=String(process.env.NEXCANAL__WATCHER_API_HASH||process.env.NEXGROUP__TELEGRAM_API_HASH||'').trim();
@@ -154,7 +154,9 @@ async function enqueue(client,message,source){
     idempotencyKey:'telegram-channel:'+source+':'+String(id)+':v3',
     source:{platform:'telegram',name:source,messageId:String(id),accountRole:'system-channel-mirror'},
     content:{text,media,buttons:inlineButtons},
-    routes:[{platform:'whatsapp'}]
+    // NexTech and NexNews also relay to the NexTech Facebook page.
+    // The Meta publisher is handled by Interroute, separately from WhatsApp pairing.
+    routes:[{platform:'whatsapp'},{platform:'facebook'}]
   };
   const response=await fetch(INTERROUTE+'/events',{
     method:'POST',

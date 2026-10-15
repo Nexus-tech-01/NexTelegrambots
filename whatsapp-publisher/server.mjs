@@ -254,43 +254,24 @@ async function otakuRelayTargets(){
     return p?.admin==='admin'||p?.admin==='superadmin';
   }).map(m=>({jid:String(m.id),subject:String(m.subject||'Groupe WhatsApp')}));
 }
-async function queueOtakuRelay(raw={}){
-  const kind=String(raw.kind||'').toLowerCase();
-  if(!['text','image','pack'].includes(kind))return;
-  const id=String(raw.id||''); if(!id)return;
-  const q=readJson('otaku-relay-queue.json',[]);
-  if(q.some(x=>x.id===id&&['pending','done'].includes(x.status)))return;
-  const groups=await otakuRelayTargets(); if(!groups.length)return;
-  let media=null;
-  const src=kind==='pack'?raw.cover:(raw.image||{url:raw.imageUrl,localPath:raw.localPath});
-  if(src?.url)media={url:String(src.url)};
-  else if(src?.localPath&&fs.existsSync(src.localPath)){
-    const d='/var/lib/nex/tmp/shared-whatsapp/otaku-relay';fs.mkdirSync(d,{recursive:true});
-    const p=path.join(d,Date.now()+'-'+path.basename(src.localPath));fs.copyFileSync(src.localPath,p);media={localPath:p};
-  }
-  q.push({id,status:'pending',index:0,groups,text:String(raw.text||raw.caption||''),media,createdAt:Date.now(),nextAt:Date.now()+30000});
-  writeJson('otaku-relay-queue.json',q);
+// Owner routing policy: Otaku Nexus publications stay in the WhatsApp CHANNEL.
+// Never fan these posts out to WhatsApp groups. APK group delivery is independent.
+async function queueOtakuRelay(_raw={}){
+  return {skipped:true,reason:'otaku_group_sharing_disabled'};
 }
 async function processOtakuRelay(){
-  if(otakuRelayBusy||!socket||state.status!=='connected')return;
-  otakuRelayBusy=true;
-  try{
-    const q=readJson('otaku-relay-queue.json',[]),job=q.find(x=>x.status==='pending'&&Number(x.nextAt||0)<=Date.now());
-    if(!job)return;
-    if(job.index>=job.groups.length){job.status='done';job.completedAt=Date.now();writeJson('otaku-relay-queue.json',q);return}
-    const g=job.groups[job.index],ctx=state.otakuChannelJid?{forwardingScore:1,isForwarded:true,forwardedNewsletterMessageInfo:{newsletterJid:state.otakuChannelJid,newsletterName:state.otakuChannelTitle||'Otaku Nexus'}}:{};
-    try{
-      if(job.media){const src=await otakuMediaSource(job.media);await socket.sendMessage(g.jid,{image:src,caption:(job.text+'\n\n'+OTAKU_CHANNEL_INVITE_URL).slice(0,1024),contextInfo:ctx})}
-      else await socket.sendMessage(g.jid,{text:(job.text||'Nouvelle publication Otaku Nexus')+'\n\n'+OTAKU_CHANNEL_INVITE_URL,contextInfo:ctx});
-      job.index++;job.nextAt=Date.now()+OTAKU_RELAY_GAP_MS;job.attempts=0;
-    }catch(e){
-      job.attempts=Number(job.attempts||0)+1;
-      if(job.attempts>=2){job.index++;job.attempts=0}
-      job.nextAt=Date.now()+Math.max(OTAKU_RELAY_GAP_MS,300000);
-      job.lastError=String(e?.message||e).slice(0,300);
-    }
-    writeJson('otaku-relay-queue.json',q);
-  }finally{otakuRelayBusy=false}
+  // Disarm historical queued posts as well, so restarting the publisher cannot
+  // resume the old group-fanout backlog.
+  const queue=readJson('otaku-relay-queue.json',[]);
+  let modified=false;
+  for(const job of queue){
+    if(job.status!=='pending')continue;
+    job.status='skipped';
+    job.completedAt=Date.now();
+    job.lastError='otaku_group_sharing_disabled';
+    modified=true;
+  }
+  if(modified)writeJson('otaku-relay-queue.json',queue);
 }
 function extractIncomingText(msg){
   const m=msg?.message||{};
@@ -629,7 +610,7 @@ function inviteCode(url=''){ const m=String(url).match(/whatsapp\.com\/channel\/
 function groupInviteCode(url=''){ const m=String(url).match(/chat\.whatsapp\.com\/([A-Za-z0-9_-]+)/i); return m?.[1] || String(url).trim(); }
 function ext(name=''){ return path.extname(String(name).split('?')[0].toLowerCase()).replace('.',''); }
 function documentBlocked(item){ const e=ext(item?.fileName||''); const mime=String(item?.mimetype||'').toLowerCase(); return BLOCKED_DOC_EXT.has(e)||mime==='application/vnd.android.package-archive'; }
-function isOtakuSource(source=''){ const s=sourceName(source); return s==='tresor_universe'; }
+function isOtakuSource(source=''){ const s=sourceName(source); return s==='tresor_universe'||s==='theotaku_nexus'; }
 
 async function telegramFileUrl(fileId){
   if(!fileId) return null;
@@ -1567,6 +1548,16 @@ async function processQueue(){
   try{
     const q=readJson('queue.json',[]);
     for(const job of q){
+      // Defense in depth: old or externally queued Otaku posts must not reach groups.
+      if(job.status==='pending'&&job.destination==='group'&&isOtakuSource(job.pub?.source)){
+        job.status='skipped';
+        job.completedAt=new Date().toISOString();
+        job.lastError='otaku_group_sharing_disabled';
+        addHistory({type:'skipped',publicationId:job.pub?.id,source:job.pub?.source,destination:'group',reason:job.lastError});
+        mergeQueueWithLatest(q);
+        writeJson('queue.json',q);
+        continue;
+      }
       if(job.status!=='pending'||Number(job.nextAttemptAt||0)>Date.now()) continue;
       try{
         job.attempts=Number(job.attempts||0)+1;
