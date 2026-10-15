@@ -16,7 +16,7 @@ function section(source,from,to){
 const ctx=vm.createContext({
   GROUP_JID:'123@g.us',
   sourceName:(s)=>String(s||'').replace(/^@/,'').toLowerCase(),
-  documentBlocked:(m)=>/\\.(?:apk|xapk|apks|apkm)$/i.test(m?.fileName||''),
+  documentBlocked:(m)=>/\.(?:apk|xapk|apks|apkm)$/i.test(m?.fileName||''),
 });
 vm.runInContext(
   section(publisher,'function isOtakuSource(','async function telegramFileUrl(')+
@@ -38,7 +38,7 @@ test('NexTech APK files still go to the approved groups, not the newsletter',()=
   assert.equal(r.group,true);
   assert.equal(r.channel,false);
   assert.equal(r.channelBlocked,true);
-  assert.match(publisher,/if\\(route\\.channelBlocked&&SECONDARY_APK_GROUP_INVITE_URL\\) enqueue\\('group','__SECONDARY_APK_GROUP__',pub\\)/);
+  assert.match(publisher,/if\(route\.channelBlocked&&SECONDARY_APK_GROUP_INVITE_URL\) enqueue\('group','__SECONDARY_APK_GROUP__',pub\)/);
 });
 
 test('NexTech and NexNews ordinary posts keep group + channel routing',()=>{
@@ -70,10 +70,10 @@ test('Otaku historical group backlog is disarmed and no new group relay is enque
 });
 
 test('Queued standard Otaku group jobs are also blocked before WhatsApp delivery',()=>{
-  assert.match(publisher,/job\\.destination==='group'&&isOtakuSource\\(job\\.pub\\?\\.source\\)/);
+  assert.match(publisher,/job\.destination==='group'&&isOtakuSource\(job\.pub\?\.source\)/);
 });
 
 test('Generic Telegram mirror excludes Otaku group source even with env override',()=>{
   assert.match(mirror,/x!==['"]theotaku_nexus['"]/);
-  assert.match(mirror,/routes:\\[\\{platform:'whatsapp'\\},\\{platform:'facebook'\\}\\]/);
+  assert.match(mirror,/routes:\[\{platform:'whatsapp'\},\{platform:'facebook'\}\]/);
 });
