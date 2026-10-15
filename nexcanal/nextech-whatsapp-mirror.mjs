@@ -154,7 +154,9 @@ async function enqueue(client,message,source){
     idempotencyKey:'telegram-channel:'+source+':'+String(id)+':v3',
     source:{platform:'telegram',name:source,messageId:String(id),accountRole:'system-channel-mirror'},
     content:{text,media,buttons:inlineButtons},
-    routes:[{platform:'whatsapp'}]
+    // NexTech and NexNews also relay to the NexTech Facebook page.
+    // The Meta publisher is handled by Interroute, separately from WhatsApp pairing.
+    routes:[{platform:'whatsapp'},{platform:'facebook'}]
   };
   const response=await fetch(INTERROUTE+'/events',{
     method:'POST',
