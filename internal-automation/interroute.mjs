@@ -97,6 +97,10 @@ function normalizeEvent(raw){
   const sourceMessageId=raw?.source?.messageId??raw?.sourceMessageId??raw?.telegramMessageId??null;
   const idem=String(raw?.idempotencyKey||((source||'system')+':'+String(sourceMessageId??raw?.id??crypto.randomUUID()))).slice(0,500);
   const routes=(Array.isArray(raw?.routes)?raw.routes:[]).map(normalizeRoute);
+  // Facebook receives new NexTech and NexNews posts even when another
+  // Telegram producer forwards only to WhatsApp. Otaku group policy is untouched.
+  const relayFacebook=['thenexusorigin','thenexnews'].includes(source)&&routes.some(r=>r.platform==='whatsapp');
+  if(relayFacebook&&!routes.some(r=>r.platform==='facebook'))routes.push(normalizeRoute({platform:'facebook'}));
   if(!routes.length)throw new Error('routes_required');
   return {id:String(raw?.id||crypto.randomUUID()),schemaVersion:1,idempotencyKey:idem,ownerDomain:'system',source:{platform:String(raw?.source?.platform||'telegram'),name:source,messageId:sourceMessageId,accountRole:String(raw?.source?.accountRole||'system-scanner')},content:{text:textOf(raw?.content?.text??raw?.text??raw?.caption),media:normalizeMedia(raw?.content?.media??raw?.mediaItems??raw?.media),buttons:normalizeButtons(raw?.content?.buttons??raw?.buttons),telegramCopy:(raw?.content?.telegramCopy&&raw.content.telegramCopy.fromChatId&&Number(raw.content.telegramCopy.messageId)>0)?{fromChatId:String(raw.content.telegramCopy.fromChatId),messageId:Number(raw.content.telegramCopy.messageId)}:null},routes,dryRun:Boolean(raw?.dryRun),createdAt:iso(),updatedAt:iso(),status:'queued'};
 }
