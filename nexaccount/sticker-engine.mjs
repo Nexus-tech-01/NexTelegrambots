@@ -531,11 +531,17 @@ async function progressController(client,peer,messageId=0){
     async update(next){
       if(controller.finished)return;
       const text=String(next);
-      if(id&&inputPeer){
-        try{
-          await client.invoke(new Api.messages.EditMessage({peer:inputPeer,id,message:text}));
-          return;
-        }catch{}
+      if(id){
+        if(inputPeer){
+          try{
+            await client.invoke(new Api.messages.EditMessage({peer:inputPeer,id,message:text}));
+          }catch(error){
+            // Never send a new message when editing a durable progress message fails.
+            // The existing message may be too old, inaccessible or not editable.
+            console.warn('[NexAi sticker progress edit]',String(error?.message||error).slice(0,160));
+          }
+        }
+        return;
       }
       try{
         const sent=await client.sendMessage(peer,{message:text});
@@ -570,7 +576,8 @@ async function restoreDurableProgress(runtime,job,progress=null){
   if(!peer)return null;
   const id=Math.max(0,Number(job?.progressMessageId)||0);
   if(id)return progressController(runtime.client,peer,id);
-  return startProgress(runtime.client,peer,'⏳ '+jobLabel(job?.kind)+' · reprise automatique · '+Math.max(0,Number(job?.nextIndex)||0)+'/'+Math.max(0,Number(job?.total)||0));
+  // Restoring a historical job must never create unsolicited messages in Saved Messages.
+  return null;
 }
 
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,Math.max(0,Number(ms)||0)));
@@ -1415,13 +1422,20 @@ async function runDurablePackJob({runtime,job,progress=null}){
     const disconnected=error?.code==='STICKER_RUNTIME_DISCONNECTED'||runtime?.client?.connected===false;
     const reason=String(error?.message||error||'').replace(/\s+/g,' ').slice(0,400);
     console.warn('[NexAi sticker durable job]',id,disconnected?'paused':'requeue',reason);
+    const nextAttempts=Math.max(0,Number(claimed.attempts)||0)+1;
+    const retryLimitReached=nextAttempts>=Math.max(3,CLONE_RETRY_ATTEMPTS);
     await releaseStickerJob(id,{
-      status:disconnected?'queued':'retrying',
+      status:retryLimitReached?'paused':disconnected?'queued':'retrying',
+      attempts:nextAttempts,
       lastError:reason,
-      retryAt:new Date(Date.now()+STICKER_PERSISTENT_RETRY_MS)
+      retryAt:retryLimitReached?null:new Date(Date.now()+STICKER_PERSISTENT_RETRY_MS)
     }).catch(()=>{});
-    await safeProgress(progress,'⏸️ '+label+' · reprise automatique garantie au retour de la session · '+Math.max(0,Number(activeCloneJobs.get(id)?.nextIndex)||0)+'/'+Math.max(0,Number(claimed.total)||0));
-    if(!disconnected){
+    if(retryLimitReached){
+      console.warn('[NexAi sticker durable job]',id,'paused_after_retry_limit',nextAttempts);
+    }else{
+      await safeProgress(progress,'⏸️ '+label+' · reprise automatique garantie au retour de la session · '+Math.max(0,Number(activeCloneJobs.get(id)?.nextIndex)||0)+'/'+Math.max(0,Number(claimed.total)||0));
+    }
+    if(!disconnected&&!retryLimitReached){
       const timer=setTimeout(()=>resumeStickerJobs(runtime).catch(()=>{}),STICKER_PERSISTENT_RETRY_MS);
       timer.unref?.();
     }
