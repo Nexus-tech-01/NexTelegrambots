@@ -254,7 +254,7 @@ function pinterestCandidates(html=''){
 }
 async function validateImage(url){
   try{
-    const r=await fetch(url,{method:'GET',headers:{Range:'bytes=0-1023','User-Agent':'Mozilla/5.0'},signal:AbortSignal.timeout(8000)});
+    const r=await fetch(url,{method:'GET',headers:{'User-Agent':'Mozilla/5.0'},signal:AbortSignal.timeout(8000)});
     const type=String(r.headers.get('content-type')||'').toLowerCase();
     const len=Number(r.headers.get('content-length')||0);
     try{await r.body?.cancel();}catch{}
