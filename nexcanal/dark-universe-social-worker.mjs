@@ -37,7 +37,7 @@ if(firstBoot&&process.env.NEXSOCIAL__FIRST_POST==='true'){
   await feed.tick({force:true});
 }
 const timer=setInterval(()=>feed.tick().catch(err=>console.warn('[DarkUniverseSocial] tick error',String(err.message).slice(0,180))),60_000);
-timer.unref?.();
+// Keep the interval referenced so systemd supervises a live publisher.
 process.on('SIGINT',()=>process.exit(0));
 process.on('SIGTERM',()=>process.exit(0));
 await new Promise(()=>{});
