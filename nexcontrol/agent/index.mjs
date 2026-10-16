@@ -22,7 +22,7 @@ const configuredUrls=[
   cleanUrl(cfg.controlUrl),
   BUILTIN_FALLBACK,
 ].filter(Boolean);
-const CONTROL_URLS=[...new Set(configuredUrls)].filter(url=>{try{return new URL(url).protocol==='https:'}catch{return false}});
+const CONTROL_URLS=[...new Set(configuredUrls)].filter(url=>{try{const u=new URL(url);return u.protocol==='https:' || (u.protocol==='http:' && u.hostname==='127.0.0.1' && u.port==='18731' && !u.username && !u.password && !u.search && !u.hash && (u.pathname==='' || u.pathname==='/'));}catch{return false}});
 if(!CONTROL_URLS.length)throw new Error('NexControl URL missing');
 let activeControlIndex=0;
 let lastControlSwitchAt=0;
