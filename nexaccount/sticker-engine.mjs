@@ -122,7 +122,8 @@ async function listPendingStickerJobs(telegramUserId,{limit=25}={}){
   const collection=await stickerJobCollection();
   return collection.find({
     telegramUserId:String(telegramUserId||''),
-    status:{$in:STICKER_JOB_ACTIVE_STATUSES}
+    status:{$in:STICKER_JOB_ACTIVE_STATUSES},
+    $or:[{retryAt:{$exists:false}},{retryAt:null},{retryAt:{$lte:new Date()}}]
   }).sort({createdAt:1}).limit(Math.max(1,Math.min(100,Number(limit)||25))).toArray();
 }
 
@@ -135,6 +136,7 @@ async function claimStickerJob(id,telegramUserId){
       _id:String(id),
       telegramUserId:String(telegramUserId||''),
       status:{$in:STICKER_JOB_ACTIVE_STATUSES},
+      $and:[{$or:[{retryAt:{$exists:false}},{retryAt:null},{retryAt:{$lte:now}}]}],
       $or:[
         {leaseOwner:owner},
         {leaseExpiresAt:{$lte:now}},
@@ -1656,7 +1658,7 @@ async function launchTransformPackJob({
 
 export async function resumeStickerJobs(runtime){
   const accountId=String(runtime?.account?.telegramUserId||'');
-  if(!accountId||runtime?.client?.connected===false)return [];
+  if(!accountId||runtime?.client?.connected!==true)return [];
   const jobs=await listPendingStickerJobs(accountId,{limit:50});
   const started=[];
   for(const job of jobs){
