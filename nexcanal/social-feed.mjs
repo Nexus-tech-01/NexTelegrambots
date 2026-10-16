@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 const ENABLED=String(process.env.NEXSOCIAL__ENABLED||'true').toLowerCase()!=='false';
 const DEST=String(process.env.NEXSOCIAL__DESTINATION||process.env.NEXCANAL__LIFESTYLE_DESTINATION||'tresor_universe').replace(/^@/,'').trim();
 const WA_BRIDGE=String(process.env.NEXSOCIAL__WHATSAPP_BRIDGE||'http://127.0.0.1:18787/publish').trim();
+const WHATSAPP_ENABLED=!/^(?:0|false|no|off)$/i.test(String(process.env.NEXSOCIAL__WHATSAPP_ENABLED||'true').trim());
 const STATE_FILE=String(process.env.NEXSOCIAL__STATE_FILE||'/home/container/.nexcontrol/nexsocial-feed-state.json');
 const TZ=String(process.env.NEXSOCIAL__TIMEZONE||'Africa/Porto-Novo');
 const ACTIVE_START=Math.max(0,Math.min(23,Number(process.env.NEXSOCIAL__ACTIVE_START_HOUR||7)));
@@ -333,7 +334,7 @@ export function createSocialFeed({bot,log=console.log,warn=console.warn}={}){
     running=true;
     try{
       const state=await statePromise;
-      await retryWhatsApp(state);
+      if(WHATSAPP_ENABLED)await retryWhatsApp(state);
       const now=Date.now();
       if(!force){
         if(!isActiveHour()){await flush(state);return;}
@@ -368,8 +369,8 @@ export function createSocialFeed({bot,log=console.log,warn=console.warn}={}){
         status:'pending'
       };
       try{
-        await sendWhatsApp(waPayload(entry));
-        entry.status='done';
+        if(WHATSAPP_ENABLED){await sendWhatsApp(waPayload(entry));entry.status='done';}
+        else entry.status='skipped';
       }catch(error){
         entry.lastError=String(error?.message||error).slice(0,500);
         entry.attempts=1;
