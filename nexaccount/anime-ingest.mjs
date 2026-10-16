@@ -2369,7 +2369,7 @@ async function chooseActiveSeries(d,{excludeSeriesKeys=[]}={}){
     // Do not let normal candidate exclusions steal ownership while work remains.
     if(remaining>0)return current.activeSeriesKey;
 
-    const finishingSeriesKey=finishingSeriesKey;
+    const finishingSeriesKey=String(current.activeSeriesKey);
     let completionConfirmed=false;
     const completion=await seriesConfirmedComplete(d,finishingSeriesKey);
     if(completion.confirmed){
