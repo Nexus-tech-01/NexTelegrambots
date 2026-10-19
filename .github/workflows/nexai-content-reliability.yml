@@ -38,10 +38,11 @@ jobs:
           set -euo pipefail
           node --check internal-automation/lifestyle/tiktok-worker.mjs
           node --check internal-automation/lifestyle/tiktok-retry-policy.mjs
+          node --check internal-automation/lifestyle/tiktok-download-recovery.mjs
           node --check nexcanal/otaku-nexus-manager.mjs
           node --check nexcanal/otaku-editorial.mjs
           node --check whatsapp-publisher/server.mjs
           node --check whatsapp-publisher/queue-safety.mjs
           node --check whatsapp-publisher/otaku-relay-style.mjs
           node --check nexcanal/nextech-whatsapp-channel-post.mjs
-          node --test internal-automation/lifestyle/tiktok-retry-policy.test.mjs nexcanal/otaku-editorial.test.mjs whatsapp-publisher/queue-safety.test.mjs whatsapp-publisher/otaku-relay-style.test.mjs
+          node --test internal-automation/lifestyle/tiktok-retry-policy.test.mjs internal-automation/lifestyle/tiktok-download-recovery.test.mjs nexcanal/otaku-editorial.test.mjs whatsapp-publisher/queue-safety.test.mjs whatsapp-publisher/otaku-relay-style.test.mjs

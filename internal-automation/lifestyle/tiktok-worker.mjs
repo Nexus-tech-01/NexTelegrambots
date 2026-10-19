@@ -5,6 +5,7 @@ import {promisify} from 'node:util';
 import {analyzeTikTokVideo} from './tiktok-video-analyzer.mjs';
 import {buildStyledCaptions} from './tiktok-caption-style.mjs';
 import {candidateIsDue,registerCandidateFailure,queuedWhatsappRetry} from './tiktok-retry-policy.mjs';
+import {downloadPlayableTikTok} from './tiktok-download-recovery.mjs';
 
 const run=promisify(execFile);
 const token=String(process.env.NEXCANAL__BOT_TOKEN||'').trim();
@@ -132,20 +133,7 @@ async function chooseCandidate(sources,state){
 }
 
 async function downloadVideo(candidate,dir){
-  await fs.rm(dir,{recursive:true,force:true});
-  await fs.mkdir(dir,{recursive:true});
-  const tpl=path.join(dir,candidate.item.id+'.%(ext)s');
-  await run(ytdlp,[
-    '--impersonate',impersonate,
-    '--no-playlist','--no-progress','--restrict-filenames',
-    '--merge-output-format','mp4',
-    '-o',tpl,
-    candidate.item.url
-  ],{timeout:150000,maxBuffer:4*1024*1024});
-  const names=await fs.readdir(dir);
-  const name=names.find(x=>x.startsWith(candidate.item.id+'.')&&!x.endsWith('.part'));
-  if(!name)throw new Error('TikTok téléchargé sans fichier final');
-  return path.join(dir,name);
+  return downloadPlayableTikTok({candidate,dir,ytdlp,impersonate,run});
 }
 
 async function probe(video){
@@ -191,12 +179,18 @@ async function extractFrames(video,duration,dir){
   const frames=[];
   for(const [i,r] of [0.08,0.25,0.45,0.65,0.85].entries()){
     const f=path.join(dir,'frame-'+i+'.jpg');
-    await run('/usr/bin/ffmpeg',[
-      '-hide_banner','-loglevel','error','-ss',String(Math.max(0,duration*r)),'-i',video,
-      '-frames:v','1','-vf','scale=640:-2','-q:v','3','-y',f
-    ],{timeout:30000,maxBuffer:1024*1024});
-    frames.push(f);
+    try{
+      await run('/usr/bin/ffmpeg',[
+        '-hide_banner','-nostdin','-loglevel','error','-ss',String(Math.max(0,duration*r)),'-i',video,
+        '-frames:v','1','-vf','scale=640:-2','-q:v','3','-y',f
+      ],{timeout:20000,maxBuffer:1024*1024});
+      if((await fs.stat(f)).size>800)frames.push(f);
+    }catch(error){
+      console.warn('[Lifestyle/TikTok] invalid frame at '+i,clean(error?.message||error).slice(0,170));
+      await fs.rm(f,{force:true}).catch(()=>{});
+    }
   }
+  if(frames.length<2)throw new Error('TikTok video unreadable: fewer than two valid frames');
   return frames;
 }
 
