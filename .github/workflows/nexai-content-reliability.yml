@@ -6,6 +6,8 @@ on:
       - 'internal-automation/lifestyle/tiktok-*.mjs'
       - 'nexcanal/otaku-editorial*.mjs'
       - 'nexcanal/otaku-nexus-manager.mjs'
+      - 'nexcanal/nextech-whatsapp-channel-post.mjs'
+      - 'whatsapp-publisher/otaku-relay-style*.mjs'
       - 'whatsapp-publisher/queue-safety*.mjs'
       - 'whatsapp-publisher/server.mjs'
       - '.github/workflows/nexai-content-reliability.yml'
@@ -15,6 +17,8 @@ on:
       - 'internal-automation/lifestyle/tiktok-*.mjs'
       - 'nexcanal/otaku-editorial*.mjs'
       - 'nexcanal/otaku-nexus-manager.mjs'
+      - 'nexcanal/nextech-whatsapp-channel-post.mjs'
+      - 'whatsapp-publisher/otaku-relay-style*.mjs'
       - 'whatsapp-publisher/queue-safety*.mjs'
       - 'whatsapp-publisher/server.mjs'
       - '.github/workflows/nexai-content-reliability.yml'
@@ -38,4 +42,6 @@ jobs:
           node --check nexcanal/otaku-editorial.mjs
           node --check whatsapp-publisher/server.mjs
           node --check whatsapp-publisher/queue-safety.mjs
-          node --test internal-automation/lifestyle/tiktok-retry-policy.test.mjs nexcanal/otaku-editorial.test.mjs whatsapp-publisher/queue-safety.test.mjs
+          node --check whatsapp-publisher/otaku-relay-style.mjs
+          node --check nexcanal/nextech-whatsapp-channel-post.mjs
+          node --test internal-automation/lifestyle/tiktok-retry-policy.test.mjs nexcanal/otaku-editorial.test.mjs whatsapp-publisher/queue-safety.test.mjs whatsapp-publisher/otaku-relay-style.test.mjs
