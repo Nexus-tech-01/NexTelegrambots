@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import {
   generateWAMessageFromContent,
   jidNormalizedUser,
@@ -76,6 +77,7 @@ export async function sendGroupStory(sock,{groupJid,text='',media=null}) {
     throw new Error('Cette session Baileys ne permet pas les stories de groupe.');
   const author=jidNormalizedUser(sock.user?.id);
   if(!author) throw new Error('Identité WhatsApp non disponible.');
+  const secret=crypto.randomBytes(32);
   const contextInfo={
     forwardingScore:0,
     featureEligibilities:{canBeReshared:true,canReceiveMultiReact:true},
@@ -99,7 +101,11 @@ export async function sendGroupStory(sock,{groupJid,text='',media=null}) {
       contextInfo
     }};
   }
+  // WhatsApp group stories use an inner and outer message context secret.
+  // Standard group messages must never be substituted for this envelope.
+  inner.messageContextInfo={messageSecret:secret};
   const generated=generateWAMessageFromContent(groupJid,{
+    messageContextInfo:{messageSecret:secret},
     groupStatusMessageV2:{message:inner}
   },{userJid:author});
   if(!generated?.message || !generated?.key?.id) throw new Error('Impossible de construire la story de groupe.');
