@@ -4,6 +4,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {analyzeTikTokVideo} from './tiktok-video-analyzer.mjs';
 import {buildStyledCaptions} from './tiktok-caption-style.mjs';
+import {candidateIsDue,registerCandidateFailure,queuedWhatsappRetry} from './tiktok-retry-policy.mjs';
 
 const run=promisify(execFile);
 const token=String(process.env.NEXCANAL__BOT_TOKEN||'').trim();
@@ -38,7 +39,7 @@ async function loadState(){
       nextNotBefore:Number(s.nextNotBefore||0),
       lastPublishedAt:s.lastPublishedAt||null,
       lastVideoId:s.lastVideoId||null,
-      pendingWhatsApp:Array.isArray(s.pendingWhatsApp)?s.pendingWhatsApp.slice(-50):[]
+      pendingWhatsApp:Array.isArray(s.pendingWhatsApp)?s.pendingWhatsApp:[]
     };
   }catch{
     return {sourceIndex:0,lastCategory:null,seenIds:[],failedIds:{},nextNotBefore:0,lastPublishedAt:null,lastVideoId:null,pendingWhatsApp:[]};
@@ -113,7 +114,7 @@ async function chooseCandidate(sources,state){
     const source=pool[idx];
     try{
       const items=await scanSource(source);
-      const fresh=items.filter(x=>!seen.has(x.id));
+      const fresh=items.filter(x=>!seen.has(x.id)&&candidateIsDue(x.id,state.failedIds));
       if(fresh.length){
         state.sourceIndex=(idx+1)%total;
         return {source,item:fresh[0]};
@@ -288,31 +289,27 @@ async function mirrorWhatsApp(entry){
 
 async function retryWhatsApp(state){
   const keep=[];
+  let attempted=0;
   for(const entry of state.pendingWhatsApp||[]){
+    if(Number(entry.nextAttemptAt||0)>Date.now() || attempted>=5){keep.push(entry);continue;}
+    attempted++;
     try{
       await mirrorWhatsApp(entry);
       console.log('[Lifestyle/TikTok] WhatsApp retry succeeded Telegram #'+entry.telegramMessageId);
     }catch(error){
-      entry.attempts=Number(entry.attempts||0)+1;
-      entry.lastError=clean(error?.message||error).slice(0,500);
-      if(entry.attempts<20)keep.push(entry);
+      const row=queuedWhatsappRetry(entry);
+      row.lastError=clean(error?.message||error).slice(0,500);
+      keep.push(row);
     }
   }
-  state.pendingWhatsApp=keep.slice(-50);
+  // Never silently delete an unpublished WhatsApp relay after N failures.
+  state.pendingWhatsApp=keep;
 }
 
 function failCandidate(state,id,error){
-  const row=state.failedIds[id]||{count:0};
-  row.count=Number(row.count||0)+1;
-  row.lastError=clean(error?.message||error).slice(0,500);
-  row.updatedAt=new Date().toISOString();
-  state.failedIds[id]=row;
-  if(row.count>=3){
-    state.seenIds.push(id);
-    state.seenIds=state.seenIds.slice(-5000);
-    delete state.failedIds[id];
-    console.warn('[Lifestyle/TikTok] quarantined after 3 failures',id);
-  }
+  const row=registerCandidateFailure(state.failedIds,id,error);
+  console.warn('[Lifestyle/TikTok] failed, scheduled retry',id,'attempts='+row.count,'retryAt='+new Date(row.nextAttemptAt).toISOString());
+  // A failed item stays eligible for retry; seenIds means Telegram SUCCESS only.
 }
 
 if(!token&&!dryRun)throw new Error('NEXCANAL__BOT_TOKEN missing');
@@ -381,11 +378,10 @@ try{
       await mirrorWhatsApp(entry);
       console.log('[Lifestyle/TikTok] mirrored to WhatsApp');
     }catch(error){
-      entry.attempts=1;
-      entry.lastError=clean(error?.message||error).slice(0,500);
-      state.pendingWhatsApp.push(entry);
-      state.pendingWhatsApp=state.pendingWhatsApp.slice(-50);
-      console.warn('[Lifestyle/TikTok] WhatsApp mirror queued:',entry.lastError);
+      const failed=queuedWhatsappRetry(entry);
+      failed.lastError=clean(error?.message||error).slice(0,500);
+      state.pendingWhatsApp.push(failed);
+      console.warn('[Lifestyle/TikTok] WhatsApp mirror queued:',failed.lastError);
     }
   }
 
