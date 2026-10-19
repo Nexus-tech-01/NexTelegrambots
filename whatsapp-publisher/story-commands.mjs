@@ -3,6 +3,7 @@ import {
   jidNormalizedUser,
   prepareWAMessageMedia
 } from '@whiskeysockets/baileys';
+import {sendNativeChannelStatus} from './native-channel-status.mjs';
 
 // Channel statuses are not normal newsletter updates. Never substitute one for the other.
 const CHANNEL_KEYS = Object.freeze({
@@ -132,16 +133,17 @@ export async function runStoryCommand({sock,message,state,args='',readMedia,repl
     if(!stateKey) throw new Error('Chaîne inconnue. Choisis nextech, otaku ou stickgood.');
     const channelJid=state?.[stateKey];
     if(!isNewsletterJid(channelJid)) throw new Error('Cette chaîne WhatsApp n’est pas encore résolue.');
-    // Native Channel Status launched in 2026, but the project's upstream
-    // Baileys release lacks this method. Keep a strict capability gate.
-    if(typeof sock.newsletterSendStatus!=='function')
-      throw new Error('Story de chaîne indisponible avec cette version du connecteur. Aucun post classique envoyé.');
     const media=await readMedia(message);
     if(!media || !['image','video'].includes(media.type))
       throw new Error('Réponds à une image/vidéo pour la story de chaîne.');
     const content=storyContent(caption,media);
-    const result=await sock.newsletterSendStatus(channelJid,content);
-    if(!result) throw new Error('Story de chaîne non confirmée par le connecteur.');
+    // Prefer native SDK when available; otherwise use the scoped status
+    // protocol adapter. Neither path ever sends a regular channel update.
+    const result=typeof sock.newsletterSendStatus==='function'
+      ? await sock.newsletterSendStatus(channelJid,content)
+      : await sendNativeChannelStatus(sock,channelJid,content);
+    if(!result?.ack && !result?.newsletterStatusAck?.node && !result?.newsletterStatusServerId)
+      throw new Error('Story non confirmée par WhatsApp. Aucun post classique envoyé.');
     return answer('Story de chaîne transmise à WhatsApp · '+alias+'. Vérifie son affichage.');
   }
 
