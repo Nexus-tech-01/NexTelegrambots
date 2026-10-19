@@ -96,3 +96,26 @@ test('Native sender sends a status stanza, never a normal newsletter message',as
   assert.equal(nodes[0].tag,'status');
   assert.equal(nodes[0].attrs.media_id,'998877');
 });
+
+test('Pinned Baileys generates and encodes an actual image newsletter status without hitting WhatsApp',async()=>{
+  const nodes=[];
+  const sock={
+    user:{id:'111@s.whatsapp.net'},
+    refreshMediaConn:async()=>({}),
+    waUploadToServer:async()=>({}),
+    sendNode:async(node)=>{nodes.push(node)},
+    waitForMessage:async(id)=>({tag:'ack',attrs:{class:'status',id,from:jid,server_id:'123'}})
+  };
+  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL9GQAAAABJRU5ErkJggg==','base64');
+  const result=await sendNativeChannelStatus(sock,jid,{image:png,caption:'Integration test'},{
+    uploader:async(_sock,filePath,mediaOpts)=>{
+      assert.match(filePath,/./);
+      assert.equal(mediaOpts.mediaType,'image');
+      return {handle:'741258',mediaUrl:'https://mmg.whatsapp.net/path',directPath:'/path'};
+    }
+  });
+  assert.equal(result.ack,true);
+  assert.equal(nodes.length,1);
+  assert.equal(nodes[0].attrs.media_id,'741258');
+  assert.ok(nodes[0].content[0].content?.length);
+});
