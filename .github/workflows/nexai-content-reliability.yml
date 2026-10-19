@@ -1,0 +1,35 @@
+name: NexAi Lifestyle and Otaku Editorial Reliability
+
+on:
+  pull_request:
+    paths:
+      - 'internal-automation/lifestyle/tiktok-*.mjs'
+      - 'nexcanal/otaku-editorial*.mjs'
+      - 'nexcanal/otaku-nexus-manager.mjs'
+      - '.github/workflows/nexai-content-reliability.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'internal-automation/lifestyle/tiktok-*.mjs'
+      - 'nexcanal/otaku-editorial*.mjs'
+      - 'nexcanal/otaku-nexus-manager.mjs'
+      - '.github/workflows/nexai-content-reliability.yml'
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax and production regression checks
+        run: |
+          set -euo pipefail
+          node --check internal-automation/lifestyle/tiktok-worker.mjs
+          node --check internal-automation/lifestyle/tiktok-retry-policy.mjs
+          node --check nexcanal/otaku-nexus-manager.mjs
+          node --check nexcanal/otaku-editorial.mjs
+          node --test internal-automation/lifestyle/tiktok-retry-policy.test.mjs nexcanal/otaku-editorial.test.mjs
