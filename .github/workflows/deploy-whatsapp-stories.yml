@@ -1,0 +1,152 @@
+name: Deploy NexAI WhatsApp Stories (isolated)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/deploy-whatsapp-stories.yml'
+      - 'whatsapp-publisher/command-engine.mjs'
+      - 'whatsapp-publisher/story-commands.mjs'
+      - 'whatsapp-publisher/native-channel-status.mjs'
+      - 'whatsapp-publisher/test/story-commands.test.mjs'
+      - 'whatsapp-publisher/test/native-channel-status.test.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexai-whatsapp-stories-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NXC_BASE: https://nexcontrol-ochre.vercel.app
+      NXC_AGENT: nexus-main
+      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
+      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned publisher dependencies
+        working-directory: whatsapp-publisher
+        run: npm ci --ignore-scripts
+      - name: Check source and story regressions
+        run: |
+          set -euo pipefail
+          node --check whatsapp-publisher/command-engine.mjs
+          node --check whatsapp-publisher/story-commands.mjs
+          node --check whatsapp-publisher/native-channel-status.mjs
+          node --test whatsapp-publisher/test/story-commands.test.mjs whatsapp-publisher/test/native-channel-status.test.mjs whatsapp-publisher/test/routing-policy.test.mjs
+      - name: Deploy only story modules through NexControl with rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYDEPLOY'
+          import os,json,time,base64,urllib.request,urllib.error,urllib.parse,http.cookiejar,hmac,hashlib,posixpath,traceback
+          from pathlib import Path
+          BASE=os.environ['NXC_BASE'].rstrip('/')
+          AGENT=os.environ['NXC_AGENT']
+          SECRET=os.environ.get('NXC_SESSION_SECRET','')
+          ADMIN=os.environ.get('NXC_ADMIN_PASSWORD','')
+          jar=http.cookiejar.CookieJar()
+          opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          cookie=''
+          if SECRET:
+              expiry=int(time.time()*1000)+20*60*1000
+              payload=base64.urlsafe_b64encode(json.dumps({'exp':expiry},separators=(',',':')).encode()).decode().rstrip('=')
+              signature=base64.urlsafe_b64encode(hmac.new(SECRET.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
+              cookie=payload+'.'+signature
+          elif ADMIN:
+              values=urllib.parse.urlencode({'password':ADMIN}).encode()
+              opener.open(urllib.request.Request(BASE+'/api/admin/login',data=values,headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=30).read()
+          else:
+              raise RuntimeError('NexControl deployment credentials unavailable to GitHub Actions')
+          def http(method,path,data=None,timeout=30):
+              headers={'Accept':'application/json'}
+              if cookie: headers['Cookie']='nexcontrol_session='+cookie
+              body=None
+              if data is not None:
+                  body=json.dumps(data,separators=(',',':')).encode()
+                  headers['Content-Type']='application/json'
+              req=urllib.request.Request(BASE+path,data=body,headers=headers,method=method)
+              try:
+                  with opener.open(req,timeout=timeout) as response:
+                      raw=response.read().decode('utf-8','replace')
+                      return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  raise RuntimeError('NexControl endpoint HTTP '+str(e.code)+' during '+path.split('?')[0]) from e
+          def job(kind,payload,timeout=90):
+              created=http('POST','/api/admin/agent/jobs',{'agentSlug':AGENT,'kind':kind,'payload':payload})
+              jid=created.get('jobId')
+              if not jid: raise RuntimeError('Agent unavailable for '+kind)
+              until=time.time()+timeout
+              while time.time()<until:
+                  status=http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(jid),timeout=30)
+                  if status.get('status')=='succeeded': return status.get('result') or {}
+                  if status.get('status')=='failed': raise RuntimeError('Agent job failed: '+kind)
+                  time.sleep(2)
+              raise TimeoutError('Agent timed out during '+kind)
+          backups=[]
+          service_name=None
+          restarted=False
+          try:
+              health=job('http.check',{'url':'http://127.0.0.1:18787/healthz','timeoutMs':10000,'previewBytes':200})
+              if not health.get('ok'): raise RuntimeError('Existing publisher unhealthy; skipping deployment')
+              found=job('fs.search',{'root':'nexus','path':'.','query':'Nex WhatsApp Publisher bridge ready','maxResults':40})
+              matches=found.get('matches',[]) or []
+              valid=[str(m.get('path','')) for m in matches if
+                     str(m.get('path','')).endswith('server.mjs') and 'whatsapp' in str(m.get('path','')).lower()]
+              if not valid: raise RuntimeError('Live WhatsApp publisher path could not be verified')
+              server_path=sorted(valid,key=len)[0]
+              directory=posixpath.dirname(server_path)
+              old=job('fs.read',{'root':'nexus','path':server_path,'startLine':1,'endLine':35})
+              if "command-engine.mjs" not in str(old.get('content','')):
+                  raise RuntimeError('Live publisher does not have the expected command-engine integration')
+              names=['command-engine.mjs','native-channel-status.mjs','story-commands.mjs']
+              for name in names:
+                  path=posixpath.join(directory,name)
+                  source=Path('whatsapp-publisher')/name
+                  wr=job('fs.write',{'root':'nexus','path':path,'content':source.read_text(encoding='utf-8')})
+                  backups.append((path,wr.get('backupId'),bool(wr.get('created'))))
+                  check=job('check.run',{'check':'node-check','root':'nexus','file':path,'timeoutMs':45000})
+                  if not check.get('ok'): raise RuntimeError('Server rejected syntax for '+name)
+              services=job('service.list',{'includeHealth':False})
+              candidates=[x for x in services.get('items',[]) if
+                  'whatsapp' in (' '.join(str(x.get(k,'')) for k in ('name','unit','description'))).lower()]
+              if candidates:
+                  service_name=str(candidates[0]['name'])
+                  response=job('service.action',{'name':service_name,'action':'restart'})
+                  if not response.get('ok'): raise RuntimeError('WhatsApp service restart was refused')
+              else:
+                  # Only signal the exact current publisher process; never stop
+                  # unrelated bots or inspect credentials.
+                  procs=job('process.list',{'limit':500})
+                  hits=[p for p in procs.get('items',[]) if server_path in str(p.get('cmdline',''))]
+                  if not hits: raise RuntimeError('Publisher process not found, files will be rolled back')
+                  target=sorted(hits,key=lambda x:int(x.get('pid') or 0))[-1]
+                  job('runtime.signal',{'pid':int(target['pid']),'signal':'SIGTERM'})
+              restarted=True
+              time.sleep(6)
+              post=job('http.check',{'url':'http://127.0.0.1:18787/healthz','timeoutMs':10000,'previewBytes':200})
+              if not post.get('ok'): raise RuntimeError('WhatsApp publisher did not recover after deployment')
+              print('WHATSAPP_STORY_MODULES_DEPLOYED_AND_HEALTHY')
+              print('Story delivery still requires a connected WhatsApp account and native server acceptance.')
+          except Exception as e:
+              print('STORY_DEPLOYMENT_FAILED',type(e).__name__,str(e)[:250])
+              for path,backup_id,created in reversed(backups):
+                  try:
+                      if backup_id:job('fs.rollback',{'backupId':backup_id})
+                      elif created:job('fs.delete',{'root':'nexus','path':path,'allowDir':False})
+                  except Exception:
+                      print('STORY_ROLLBACK_WARNING',posixpath.basename(path))
+              if restarted and service_name:
+                  try:job('service.action',{'name':service_name,'action':'restart'})
+                  except Exception:print('STORY_RESTART_ROLLBACK_WARNING')
+              raise
+          PYDEPLOY
