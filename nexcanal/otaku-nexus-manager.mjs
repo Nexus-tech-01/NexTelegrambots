@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import {execFile,spawn} from 'node:child_process';
 import {promisify} from 'node:util';
 import {fileURLToPath} from 'node:url';
+import {editorialKind,fetchAniListEditorial,fetchLatestAnn,formatAnnNews} from './otaku-editorial.mjs';
 
 const run=promisify(execFile);
 const SELF=fileURLToPath(import.meta.url);
@@ -70,6 +71,8 @@ const DAILY_SLOTS=[
   {key:'morning',hour:7,minute:30,catchUpMinutes:90},
   {key:'programme',hour:9,minute:30,catchUpMinutes:720},
   {key:'recommendation',hour:12,minute:30,catchUpMinutes:600},
+  {key:'trending',hour:14,minute:0,catchUpMinutes:180},
+  {key:'news',hour:17,minute:0,catchUpMinutes:180},
   {key:'mystery',hour:15,minute:0,catchUpMinutes:180},
   {key:'wallpaper',hour:18,minute:0,catchUpMinutes:180},
   {key:'night',hour:22,minute:15,catchUpMinutes:120}
@@ -162,12 +165,14 @@ async function loadState(){
       mysteryRevealDay:clean(x.mysteryRevealDay),
       dailyDone:x.dailyDone&&typeof x.dailyDone==='object'?x.dailyDone:{},
       lastDailyPostAt:Number(x.lastDailyPostAt)||0,
+      editorialRecent:Array.isArray(x.editorialRecent)?x.editorialRecent.slice(-25):[],
+      newsSeen:Array.isArray(x.newsSeen)?x.newsSeen.slice(-100):[],
       choiceSession:x.choiceSession&&typeof x.choiceSession==='object'?x.choiceSession:null,
       mysterySession:x.mysterySession&&typeof x.mysterySession==='object'?x.mysterySession:null,
       history:Array.isArray(x.history)?x.history.slice(-250):[]
     };
   }catch{
-    return {nextPackAt:Date.now()+10*60_000,orderWindowUntil:0,autoPacks:0,queue:[],seen:[],recent:[],lastQuizDay:'',lastChoiceDay:'',mysteryInteractiveDay:'',mysteryRevealDay:'',dailyDone:{},lastDailyPostAt:0,choiceSession:null,mysterySession:null,history:[]};
+    return {nextPackAt:Date.now()+10*60_000,orderWindowUntil:0,autoPacks:0,queue:[],seen:[],recent:[],lastQuizDay:'',lastChoiceDay:'',mysteryInteractiveDay:'',mysteryRevealDay:'',dailyDone:{},lastDailyPostAt:0,editorialRecent:[],newsSeen:[],choiceSession:null,mysterySession:null,history:[]};
   }
 }
 async function saveState(s){
@@ -849,7 +854,9 @@ function programmeText(){
     '',
     '☁️ 07:30 · ᴍᴏʀɴɪɴɢ ᴠɪʙᴇ',
     '🎴 09:30 · programme du jour',
-    '🍿 12:30 · recommandation anime',
+    '🍿 12:30 · recommandation anime / manga / manhwa',
+    '📈 14:00 · tendances Otaku vérifiées',
+    '📰 17:00 · actualités animés et mangas',
     '🧩 15:00 · personnage mystère',
     '🖼️ 18:00 · wallpaper drop',
     '🎮 '+today,
@@ -870,6 +877,26 @@ async function runDailySlot(state,slot){
     await action({kind:'text',id:'daily:'+slotStamp(slot),text:programmeText()});
   }else if(slot.key==='recommendation'){
     const id='daily:'+slotStamp(slot);
+    const kind=editorialKind(dayKey(),'recommendation');
+    try{
+      const entry=await fetchAniListEditorial(kind,{day:dayKey(),recent:state.editorialRecent});
+      if(!entry.image)throw new Error('otaku_sourced_cover_missing');
+      const result=await action({kind:'image',id,imageUrl:entry.image,text:entry.text});
+      if(result?.ok===false&&!result?.duplicate)throw new Error('otaku_editorial_not_confirmed');
+      state.editorialRecent.push(Number(entry.id.split(':')[1]));
+      state.editorialRecent=state.editorialRecent.slice(-25);
+      markDaily(state,slot);
+      state.history.push({at:nowIso(),type:'daily-editorial',kind,source:entry.source});
+      state.history=state.history.slice(-250);
+      return true;
+    }catch(error){
+      console.warn('[Otaku/Editorial] verified recommendation unavailable:',clean(error?.message||error).slice(0,250));
+      if(kind!=='anime'){
+        // Never invent a manhwa or manga when upstream data is unavailable.
+        markDaily(state,slot);
+        return true;
+      }
+    }
     const r=stablePick(RECOMMENDATIONS,id);
     const text=[
       'ㅤ︵۪۪۪۪۪᷼͡⏜۪۪۪۪۪᷼͡︵᷼ㅤׄ💜ㅤ᷼︵۪۪۪۪۪᷼͡⏜۪۪۪۪۪᷼͡︵᷼ㅤ',
@@ -885,6 +912,28 @@ async function runDailySlot(state,slot){
     ].join('\n');
     try{await imagePost(id,r.query,text,{kind:'anime',name:r.title})}catch{}
     await action({kind:'poll',id:id+':poll',question:'💜 '+r.title+' — tu choisis quoi ?',options:['✅ Déjà vu','📌 Dans ma liste','👀 Pas encore'],quiz:false});
+  }else if(slot.key==='trending'){
+    const id='daily:'+slotStamp(slot);
+    const kind=editorialKind(dayKey(),'trending');
+    try{
+      const entry=await fetchAniListEditorial(kind,{day:dayKey(),recent:state.editorialRecent});
+      if(!entry.image)throw new Error('otaku_trending_cover_missing');
+      const result=await action({kind:'image',id,imageUrl:entry.image,text:entry.text});
+      if(result?.ok===false&&!result?.duplicate)throw new Error('otaku_trend_not_confirmed');
+      state.editorialRecent.push(Number(entry.id.split(':')[1]));
+      state.editorialRecent=state.editorialRecent.slice(-25);
+    }catch(error){console.warn('[Otaku/Editorial] trending skipped:',clean(error?.message||error).slice(0,250))}
+  }else if(slot.key==='news'){
+    const id='daily:'+slotStamp(slot);
+    try{
+      const article=await fetchLatestAnn({seen:state.newsSeen});
+      if(article){
+        const result=await action({kind:'image',id,imageUrl:article.image,text:formatAnnNews(article)});
+        if(result?.ok===false&&!result?.duplicate)throw new Error('otaku_news_not_confirmed');
+        state.newsSeen.push(article.url);
+        state.newsSeen=state.newsSeen.slice(-100);
+      }
+    }catch(error){console.warn('[Otaku/Editorial] news skipped:',clean(error?.message||error).slice(0,250))}
   }else if(slot.key==='mystery'){
     const {id,m}=mysteryPayload(dayKey());
     const text=[
