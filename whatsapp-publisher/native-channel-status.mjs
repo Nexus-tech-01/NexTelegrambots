@@ -135,7 +135,6 @@ export async function sendNativeChannelStatus(sock,jid,content,{
   const type=content?.image?'image':content?.video?'video':null;
   if(!type)throw new Error('Une story de chaîne nécessite une photo ou une vidéo.');
   const kind=proto?.StatusAttribution?.Type?.NEWSLETTER_STATUS;
-  if(typeof kind!=='number')throw new Error('Protocole des statuts de chaîne absent de cette version de Baileys.');
   let mediaHandle;
   const upload=async(filePath,opts)=>{
     const result=await uploader(sock,filePath,opts);
@@ -146,10 +145,9 @@ export async function sendNativeChannelStatus(sock,jid,content,{
   // when the target is a @newsletter address.
   const msg=await makeMessage(jid,{
     ...content,
-    contextInfo:{
-      ...content?.contextInfo,
-      statusAttributions:[{type:kind}]
-    }
+    ...(typeof kind==='number'?{
+      contextInfo:{...content?.contextInfo,statusAttributions:[{type:kind}]}
+    }:{}),
   },{
     userJid:userId,
     upload,
