@@ -50,14 +50,14 @@ test('a non-owner cannot publish to a WhatsApp channel',async()=>{
 
 test('channel story refuses normal messages if the connector lacks native status support',async()=>{
   const t=scenario();
-  await assert.rejects(t.run('channel otaku | Soon'),/Aucun post classique envoyé/);
+  await assert.rejects(t.run('channel otaku | Soon',async()=>({type:'image',buffer:Buffer.from('image')})),/ACK des stories|Transport natif|médias de chaîne/);
   assert.equal(t.calls.length,0);
 });
 
 test('native channel adapter uses a real story method when present',async()=>{
   const used=[];
   const t=scenario({extraSocket:{
-    newsletterSendStatus:async(jid,content)=>{used.push({jid,content});return {id:'status-1'}}
+    newsletterSendStatus:async(jid,content)=>{used.push({jid,content});return {newsletterStatusServerId:123}}
   }});
   await t.run('channel otaku | Nouvelle vidéo',async()=>({type:'image',buffer:Buffer.from('image'),mimetype:'image/jpeg'}));
   assert.equal(used.length,1);
