@@ -54,7 +54,15 @@ function visionProviders(){
   const openai=first('OPENAI_API_KEY','NEXAI_OPENAI_API_KEY');
   if(openai)p.push({kind:'openai',name:'openai',key:openai,base:'https://api.openai.com/v1',model:first('NEXAI_OPENAI_MODEL')||'gpt-4o-mini'});
   const openrouter=first('OPENROUTER_API_KEY','NEXAI_OPENROUTER_API_KEY');
-  if(openrouter)p.push({kind:'openai',name:'openrouter',key:openrouter,base:'https://openrouter.ai/api/v1',model:first('NEXAI_OPENROUTER_MODEL')||'openai/gpt-4o-mini',headers:{'HTTP-Referer':'https://t.me/NexAi01_bot','X-Title':'Nex Lifestyle'}});
+  if(openrouter){
+    const configured=first('NEXAI_OPENROUTER_MODEL');
+    const common={kind:'openai',key:openrouter,base:'https://openrouter.ai/api/v1',headers:{'HTTP-Referer':'https://t.me/NexAi01_bot','X-Title':'Nex Lifestyle'}};
+    // OpenRouter's free router filters for vision support and requires no
+    // paid credit balance when the key is eligible for free requests.
+    p.push({...common,name:'openrouter-free',model:'openrouter/free',maxTokens:900});
+    if(configured&&configured!=='openrouter/free')
+      p.push({...common,name:'openrouter-configured',model:configured,maxTokens:550});
+  }
   return p;
 }
 
@@ -101,7 +109,8 @@ async function callOpenAi(provider,{framePaths,prompt}){
       model:provider.model,
       messages:[{role:'user',content}],
       temperature:0.82,
-      max_tokens:1200
+      max_tokens:provider.maxTokens||1200,
+      ...(provider.name==='openrouter-free'?{response_format:{type:'json_object'}}:{})
     }),
     signal:AbortSignal.timeout(timeoutMs)
   });
