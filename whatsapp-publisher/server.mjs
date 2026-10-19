@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import pino from 'pino';
 import { Boom } from '@hapi/boom';
 import { attachWhatsAppCommandEngine } from './command-engine.mjs';
+import {formatOtakuTelegramRelay} from './otaku-relay-style.mjs';
 import {mayAttemptQueueJob,queuedBacklogStats} from './queue-safety.mjs';
 import makeWASocket, {
   Browsers,
@@ -140,7 +141,7 @@ const WEBHOOK_TOKEN = process.env.NEX_WHATSAPP_PUBLISHER_TOKEN || process.env.NE
 const DASHBOARD_PASSWORD = process.env.NEX_WHATSAPP_DASHBOARD_PASSWORD || '';
 const SESSION_SECRET = process.env.NEX_WHATSAPP_SESSION_SECRET || '';
 const TELEGRAM_BOT_TOKEN = process.env.NEXCANAL__BOT_TOKEN || '';
-const SOURCES = new Set(['thenexusorigin', 'thenexnews', 'tresor_universe']);
+const SOURCES = new Set(['thenexusorigin', 'thenexnews', 'tresor_universe', 'theotaku_nexus']);
 const BLOCKED_DOC_EXT = new Set(['apk','xapk','apks','apkm']);
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -696,10 +697,11 @@ function normalizePublication(raw={}){
   const id=String(raw.id||`${source}:${raw.sourceMessageId||raw.telegramMessageId||crypto.randomUUID()}`);
   const buttons=flatButtons(raw.buttons||raw.inlineButtons||raw.inline_buttons||[]);
   const media=normalizeMedia(raw.mediaItems||raw.media||[]);
+  const originalText=String(raw.text||raw.caption||'').trim();
   return {
     id, source,
     sourceMessageId: raw.sourceMessageId ?? raw.telegramMessageId ?? null,
-    text:String(raw.text||raw.caption||'').trim(),
+    text:formatOtakuTelegramRelay(originalText,{source,media}),
     buttons, media,
     createdAt:raw.createdAt||new Date().toISOString(),
   };
