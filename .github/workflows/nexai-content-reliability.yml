@@ -6,6 +6,8 @@ on:
       - 'internal-automation/lifestyle/tiktok-*.mjs'
       - 'nexcanal/otaku-editorial*.mjs'
       - 'nexcanal/otaku-nexus-manager.mjs'
+      - 'whatsapp-publisher/queue-safety*.mjs'
+      - 'whatsapp-publisher/server.mjs'
       - '.github/workflows/nexai-content-reliability.yml'
   push:
     branches: [main]
@@ -13,6 +15,8 @@ on:
       - 'internal-automation/lifestyle/tiktok-*.mjs'
       - 'nexcanal/otaku-editorial*.mjs'
       - 'nexcanal/otaku-nexus-manager.mjs'
+      - 'whatsapp-publisher/queue-safety*.mjs'
+      - 'whatsapp-publisher/server.mjs'
       - '.github/workflows/nexai-content-reliability.yml'
 permissions:
   contents: read
@@ -32,4 +36,6 @@ jobs:
           node --check internal-automation/lifestyle/tiktok-retry-policy.mjs
           node --check nexcanal/otaku-nexus-manager.mjs
           node --check nexcanal/otaku-editorial.mjs
-          node --test internal-automation/lifestyle/tiktok-retry-policy.test.mjs nexcanal/otaku-editorial.test.mjs
+          node --check whatsapp-publisher/server.mjs
+          node --check whatsapp-publisher/queue-safety.mjs
+          node --test internal-automation/lifestyle/tiktok-retry-policy.test.mjs nexcanal/otaku-editorial.test.mjs whatsapp-publisher/queue-safety.test.mjs
