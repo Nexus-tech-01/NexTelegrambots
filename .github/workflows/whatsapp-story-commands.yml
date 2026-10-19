@@ -4,16 +4,20 @@ on:
   pull_request:
     paths:
       - 'whatsapp-publisher/story-commands.mjs'
+      - 'whatsapp-publisher/native-channel-status.mjs'
       - 'whatsapp-publisher/command-engine.mjs'
       - 'whatsapp-publisher/test/story-commands.test.mjs'
+      - 'whatsapp-publisher/test/native-channel-status.test.mjs'
       - 'whatsapp-publisher/package*.json'
       - '.github/workflows/whatsapp-story-commands.yml'
   push:
     branches: [main]
     paths:
       - 'whatsapp-publisher/story-commands.mjs'
+      - 'whatsapp-publisher/native-channel-status.mjs'
       - 'whatsapp-publisher/command-engine.mjs'
       - 'whatsapp-publisher/test/story-commands.test.mjs'
+      - 'whatsapp-publisher/test/native-channel-status.test.mjs'
       - 'whatsapp-publisher/package*.json'
       - '.github/workflows/whatsapp-story-commands.yml'
 
@@ -36,4 +40,5 @@ jobs:
         run: |
           node --check whatsapp-publisher/command-engine.mjs
           node --check whatsapp-publisher/story-commands.mjs
-          node --test whatsapp-publisher/test/story-commands.test.mjs
+          node --check whatsapp-publisher/native-channel-status.mjs
+          node --test whatsapp-publisher/test/story-commands.test.mjs whatsapp-publisher/test/native-channel-status.test.mjs
