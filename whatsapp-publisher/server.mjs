@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import pino from 'pino';
 import { Boom } from '@hapi/boom';
 import { attachWhatsAppCommandEngine } from './command-engine.mjs';
+import {mayAttemptQueueJob,queuedBacklogStats} from './queue-safety.mjs';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
@@ -165,6 +166,9 @@ let socket = null;
 let socketGeneration = 0;
 let reconnectTimer = null;
 let processing = false;
+const WA_QUEUE_MIN_GAP_MS=Math.max(30_000,Number(process.env.WA_QUEUE_MIN_GAP_MS||60_000));
+let lastQueueAttemptAt=0;
+let replayBacklogUntil=0;
 let lastPairRequestAt = 0;
 let pairingResetInProgress = false;
 let commandEngine = null;
@@ -1559,6 +1563,11 @@ async function processQueue(){
         continue;
       }
       if(job.status!=='pending'||Number(job.nextAttemptAt||0)>Date.now()) continue;
+      // Keep old queued posts for an explicit admin replay instead of
+      // flooding thousands of stale announcements after reconnection.
+      if(!mayAttemptQueueJob(job,{allowStale:Date.now()<replayBacklogUntil}))continue;
+      if(Date.now()-lastQueueAttemptAt<WA_QUEUE_MIN_GAP_MS)break;
+      lastQueueAttemptAt=Date.now();
       try{
         job.attempts=Number(job.attempts||0)+1;
         job.inFlightAt=new Date().toISOString();
@@ -1683,7 +1692,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.app{position:re
 </section>
 
 <section id="p-queue" class="page">
-<div class="sectionHead"><div><h2>File & erreurs</h2><p>État réel des jobs, retries et échecs.</p></div><button id="retryFailed" class="btn ghost small">Relancer les échecs</button></div>
+<div class="sectionHead"><div><h2>File & erreurs</h2><p>État réel des jobs, retries et échecs.</p></div><button id="retryFailed" class="btn ghost small">Relancer les échecs</button><button id="resumeBacklog" class="btn ghost small">Reprendre les anciennes publications</button></div>
 <div class="grid3"><div class="stat"><span>Pending</span><b id="qPending">0</b></div><div class="stat"><span>Done</span><b id="qDone">0</b></div><div class="stat"><span>Failed</span><b id="qFailed">0</b></div></div>
 <div class="card" style="margin-top:14px"><div id="queueList"></div></div>
 </section>
@@ -1713,7 +1722,7 @@ async function refresh(){
   const connected=w.status==='connected';
   $('#statuspill').classList.toggle('on',connected);$('#statusText').textContent='WhatsApp · '+(w.status||'unknown');$('#homeWa').textContent=w.status||'—';$('#wa').textContent=w.status||'—';
   $('#statPending').textContent=s.pending||0;$('#statPublished').textContent=s.published||0;$('#statFailed').textContent=s.failed||0;
-  $('#qPending').textContent=s.pending||0;$('#qDone').textContent=s.done||0;$('#qFailed').textContent=s.failed||0;
+  $('#qPending').textContent=(s.pending||0)+' ('+(s.stale||0)+' archives en attente)';$('#qDone').textContent=s.done||0;$('#qFailed').textContent=s.failed||0;
   $('#routeChannel').textContent=w.channelJid||'À résoudre';$('#routeOtaku').textContent=w.otakuChannelJid||'À résoudre';$('#routeLast').textContent=when(w.lastPublishAt);
   $('#connectedAt').textContent=when(w.connectedAt);$('#lastError').textContent=w.lastError||'Aucune';
   const recent=h.slice(0,18).map(eventHtml).join('')||'<div class="empty">Aucune activité enregistrée.</div>';
@@ -1729,6 +1738,7 @@ $('#resolveOtaku').onclick=async function(){try{await api('/api/resolve-otaku-ch
 $('#reset').onclick=async function(){if(!confirm('Réinitialiser la session WhatsApp ?'))return;try{await api('/api/reset',{method:'POST'});toast('Session réinitialisée');setTimeout(refresh,1200)}catch(e){toast(e.message,true)}}
 async function retryFailed(){try{const d=await api('/api/retry-failed',{method:'POST'});toast((d.retried||0)+' job(s) relancé(s)');refresh()}catch(e){toast(e.message,true)}}
 $('#retryFailed').onclick=retryFailed;$('#homeRetry').onclick=retryFailed;$('#refreshHome').onclick=refresh;
+$('#resumeBacklog').onclick=async function(){if(!confirm('Les anciennes publications seront diffusées progressivement, environ une par minute. Confirmer ?'))return;try{const d=await api('/api/replay-stale',{method:'POST'});toast((d.stale||0)+' archives libérées progressivement');refresh()}catch(e){toast(e.message,true)}};
 $('#manualForm').onsubmit=async function(e){e.preventDefault();const url=$('#manualButtonUrl').value.trim(),label=$('#manualButtonText').value.trim();const payload={source:$('#manualSource').value,text:$('#manualText').value.trim(),buttonText:label,buttonUrl:url};try{const d=await api('/api/manual-publish',{method:'POST',body:JSON.stringify(payload)});toast(d.duplicate?'Publication déjà connue':'Publication mise en file');$('#manualText').value='';$('#manualButtonText').value='';$('#manualButtonUrl').value='';refresh()}catch(e){toast(e.message,true)}}
 refresh();setInterval(refresh,7000);
 </script></body></html>`;
@@ -1761,6 +1771,7 @@ const server=http.createServer(async(req,res)=>{
       const queue=readJson('queue.json',[]).slice().reverse().slice(0,120);
       const stats={
         pending:queue.filter(x=>x.status==='pending').length,
+        stale:queuedBacklogStats(readJson('queue.json',[])).stale,
         done:queue.filter(x=>x.status==='done').length,
         failed:queue.filter(x=>x.status==='failed').length,
         published:history.filter(x=>x.type==='published').length,
@@ -1776,6 +1787,13 @@ const server=http.createServer(async(req,res)=>{
       const buttons=buttonUrl?[{text:String(q.buttonText||'Ouvrir').trim()||'Ouvrir',url:buttonUrl}]:[];
       const out=plan({id:'manual:'+Date.now()+':'+crypto.randomUUID(),source,text,buttons,createdAt:new Date().toISOString()});
       return json(res,202,{ok:true,duplicate:out.duplicate,route:out.route});
+    }
+    if(req.method==='POST'&&url.pathname==='/api/replay-stale'){
+      const count=queuedBacklogStats(readJson('queue.json',[])).stale;
+      replayBacklogUntil=Date.now()+24*60*60_000;
+      addHistory({type:'backlog-replay-authorized',destination:'queue',textPreview:count+' ancien(s) message(s) : reprise progressive à intervalle sécurisé'});
+      processQueue().catch(()=>{});
+      return json(res,200,{ok:true,stale:count,replayUntil:new Date(replayBacklogUntil).toISOString()});
     }
     if(req.method==='POST'&&url.pathname==='/api/retry-failed'){
       const queue=readJson('queue.json',[]);
