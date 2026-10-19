@@ -1,0 +1,39 @@
+name: NexAI WhatsApp story commands
+
+on:
+  pull_request:
+    paths:
+      - 'whatsapp-publisher/story-commands.mjs'
+      - 'whatsapp-publisher/command-engine.mjs'
+      - 'whatsapp-publisher/test/story-commands.test.mjs'
+      - 'whatsapp-publisher/package*.json'
+      - '.github/workflows/whatsapp-story-commands.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'whatsapp-publisher/story-commands.mjs'
+      - 'whatsapp-publisher/command-engine.mjs'
+      - 'whatsapp-publisher/test/story-commands.test.mjs'
+      - 'whatsapp-publisher/package*.json'
+      - '.github/workflows/whatsapp-story-commands.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  stories:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install WhatsApp publisher dependencies
+        working-directory: whatsapp-publisher
+        run: npm ci --ignore-scripts
+      - name: Validate command syntax and story behavior
+        run: |
+          node --check whatsapp-publisher/command-engine.mjs
+          node --check whatsapp-publisher/story-commands.mjs
+          node --test whatsapp-publisher/test/story-commands.test.mjs
