@@ -9,7 +9,7 @@ import { Boom } from '@hapi/boom';
 import { attachWhatsAppCommandEngine } from './command-engine.mjs';
 import {formatOtakuTelegramRelay} from './otaku-relay-style.mjs';
 import {mayAttemptQueueJob,queuedBacklogStats} from './queue-safety.mjs';
-import {createTelegramOwnerOtp} from './telegram-owner-otp.mjs';
+import {createTelegramOwnerOtp, isExpectedTelegramOwnerChat} from './telegram-owner-otp.mjs';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
@@ -142,7 +142,8 @@ const WEBHOOK_TOKEN = process.env.NEX_WHATSAPP_PUBLISHER_TOKEN || process.env.NE
 const DASHBOARD_PASSWORD = process.env.NEX_WHATSAPP_DASHBOARD_PASSWORD || '';
 const SESSION_SECRET = process.env.NEX_WHATSAPP_SESSION_SECRET || process.env.NEX_WHATSAPP_PUBLISHER_TOKEN || process.env.NEXCANAL__WEBHOOK_SECRET || process.env.NEXCANAL__BOT_TOKEN || '';
 const TELEGRAM_BOT_TOKEN = process.env.NEXCANAL__BOT_TOKEN || '';
-const OWNER_TELEGRAM_CHAT_ID = process.env.NEX_WHATSAPP_OWNER_TELEGRAM_ID || process.env.NEXDOWNLOADER__OWNER_TELEGRAM_ID || '';
+const OWNER_TELEGRAM_CHAT_ID = process.env.NEX_WHATSAPP_OWNER_TELEGRAM_ID || process.env.NEXAI_OWNER_TELEGRAM_ID || process.env.NEXUS_OWNER_TELEGRAM_ID || process.env.NEXDOWNLOADER__OWNER_TELEGRAM_ID || '';
+const OWNER_TELEGRAM_USERNAME = 'tresor20001';
 const SOURCES = new Set(['thenexusorigin', 'thenexnews', 'tresor_universe', 'theotaku_nexus']);
 const BLOCKED_DOC_EXT = new Set(['apk','xapk','apks','apkm']);
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
@@ -567,14 +568,26 @@ function authed(req){ return Boolean(SESSION_SECRET && safeEq(cookies(req).nwp_o
 const telegramOwnerLogin = createTelegramOwnerOtp({
   telegramBotToken: TELEGRAM_BOT_TOKEN,
   ownerChatId: OWNER_TELEGRAM_CHAT_ID,
+  ownerUsername: OWNER_TELEGRAM_USERNAME,
   sessionSecret: SESSION_SECRET,
-  deliver: async ({ telegramBotToken, ownerChatId, code }) => {
+  deliver: async ({ telegramBotToken, ownerChatId, ownerUsername, code }) => {
+    const checkResponse = await fetch('https://api.telegram.org/bot' + telegramBotToken + '/getChat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chat_id: ownerChatId }),
+      signal: AbortSignal.timeout(12000),
+    });
+    const check = await checkResponse.json().catch(() => ({}));
+    if (!checkResponse.ok || check.ok !== true ||
+        !isExpectedTelegramOwnerChat(check.result, ownerChatId, ownerUsername)) {
+      throw new Error('Configured Telegram recipient does not match @tresor20001');
+    }
     const response = await fetch('https://api.telegram.org/bot' + telegramBotToken + '/sendMessage', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         chat_id: ownerChatId,
-        text: '🔐 NexAI WhatsApp — code de connexion : ' + code + '\\nValable 5 minutes, une seule utilisation. Ne partage pas ce code.',
+        text: '🔐 NexAI WhatsApp pour @tresor20001 — code de connexion : ' + code + '\\nValable 5 minutes, une seule utilisation. Ne partage pas ce code.',
       }),
       signal: AbortSignal.timeout(12000),
     });

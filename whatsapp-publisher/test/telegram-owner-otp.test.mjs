@@ -1,13 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTelegramOwnerOtp } from '../telegram-owner-otp.mjs';
+import { createTelegramOwnerOtp, isExpectedTelegramOwnerChat } from '../telegram-owner-otp.mjs';
 
 const defaults = {
   telegramBotToken: 'test-bot-token',
   ownerChatId: '123456789',
+  ownerUsername: 'tresor20001',
   sessionSecret: 'a-long-random-test-session-secret',
   generateCode: () => '12345678',
 };
+
+test('only @tresor20001 and its verified private Telegram chat can receive OTPs', async () => {
+  assert.equal(isExpectedTelegramOwnerChat({ type: 'private', id: 123456789, username: 'tresor20001' }, '123456789', 'tresor20001'), true);
+  assert.equal(isExpectedTelegramOwnerChat({ type: 'private', id: 123456789, username: 'tresor20009' }, '123456789', 'tresor20001'), false);
+  assert.equal(isExpectedTelegramOwnerChat({ type: 'supergroup', id: 123456789, username: 'tresor20001' }, '123456789', 'tresor20001'), false);
+  assert.equal(isExpectedTelegramOwnerChat({ type: 'private', id: 123456780, username: 'tresor20001' }, '123456789', 'tresor20001'), false);
+  assert.equal(isExpectedTelegramOwnerChat({ type: 'private', id: 123456789, username: 'tresor20001' }, '123456789', 'tresor20009'), false);
+  assert.equal(createTelegramOwnerOtp({ ...defaults, ownerUsername: 'tresor20009', deliver: async () => {} }).enabled, false);
+});
 
 test('passwordless authentication is disabled when the trusted owner is missing', async () => {
   const auth = createTelegramOwnerOtp({ ...defaults, ownerChatId: '', deliver: async () => {} });
