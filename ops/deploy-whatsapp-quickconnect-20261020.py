@@ -8,6 +8,7 @@ from pathlib import Path
 import datetime
 import os
 import shutil
+import stat
 import subprocess
 import time
 import urllib.request
@@ -133,7 +134,12 @@ def main():
             tmp=ROOT/(name+".new")
             tmp.write_bytes(blob); os.chmod(tmp,0o644); os.replace(tmp,dest)
         tmp=ROOT/"server.directpair-check.mjs"
+        original_stat = SERVER.stat()
         tmp.write_text(edited)
+        # The service runs as a non-root user. Atomic replace must preserve
+        # read permissions and ownership from the live entrypoint.
+        os.chmod(tmp, stat.S_IMODE(original_stat.st_mode))
+        os.chown(tmp, original_stat.st_uid, original_stat.st_gid)
         cmd("node","--check",str(tmp),timeout=15)
         tmp.replace(SERVER)
         cmd("systemctl","restart",UNIT,timeout=40)
