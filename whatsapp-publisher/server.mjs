@@ -1632,7 +1632,10 @@ async function processQueue(){
       if(job.status!=='pending'||Number(job.nextAttemptAt||0)>Date.now()) continue;
       // Keep old queued posts for an explicit admin replay instead of
       // flooding thousands of stale announcements after reconnection.
-      if(!mayAttemptQueueJob(job,{allowStale:Date.now()<replayBacklogUntil}))continue;
+      // APKs for the two approved groups resume after reconnect, while old
+       // channel/news posts still need explicit backlog replay.
+       const apkGroup=job.destination==='group'&&job.pub?.media?.some(documentBlocked);
+       if(!mayAttemptQueueJob(job,{allowStale:apkGroup||Date.now()<replayBacklogUntil}))continue;
       if(Date.now()-lastQueueAttemptAt<WA_QUEUE_MIN_GAP_MS)break;
       lastQueueAttemptAt=Date.now();
       try{
@@ -1688,17 +1691,21 @@ function plan(raw){
   if(!SOURCES.has(pub.source)) throw new Error(`source non autorisée: ${pub.source||'vide'}`);
   const bareApk=!pub.media.length&&/\.(?:apk|xapk|apks|apkm)(?:\s|$)/i.test(pub.text.trim());
   if(bareApk) throw new Error('APK sans fichier média: publication refusée pour éviter un nom de fichier vide');
-  if(dedupeSeen(pub)) return {duplicate:true,pub,route:routePublication(pub)};
   const route=routePublication(pub);
-  if(route.group) enqueue('group',GROUP_JID,pub);
-  if(route.channelBlocked&&SECONDARY_APK_GROUP_INVITE_URL) enqueue('group','__SECONDARY_APK_GROUP__',pub);
-  if(route.channel){
-    const lifestyle=isOtakuSource(pub.source);
-    enqueue('channel',lifestyle?(state.otakuChannelJid||'__OTAKU_CHANNEL__'):(state.channelJid||'__CHANNEL__'),pub);
-  }
-  addHistory({type:'planned',publicationId:pub.id,source:pub.source,sourceMessageId:pub.sourceMessageId,route,textPreview:pub.text.slice(0,180)});
-  processQueue().catch(()=>{});
-  return {duplicate:false,pub,route};
+   // Every WhatsApp destination has its own durable acknowledgement. A success
+   // in one group must never hide a missing or failed APK in the other group.
+   const jobs=[];
+   if(route.group)jobs.push(enqueue('group',GROUP_JID,pub));
+   if(route.channelBlocked&&SECONDARY_APK_GROUP_INVITE_URL)
+     jobs.push(enqueue('group','__SECONDARY_APK_GROUP__',pub));
+   if(route.channel){
+     const lifestyle=isOtakuSource(pub.source);
+     jobs.push(enqueue('channel',lifestyle?(state.otakuChannelJid||'__OTAKU_CHANNEL__'):(state.channelJid||'__CHANNEL__'),pub));
+   }
+   const duplicate=jobs.length>0&&jobs.every(x=>x.deduplicated===true);
+   if(!duplicate)addHistory({type:'planned',publicationId:pub.id,source:pub.source,sourceMessageId:pub.sourceMessageId,route,textPreview:pub.text.slice(0,180)});
+   processQueue().catch(()=>{});
+   return {duplicate,pub,route};
 }
 
 function publisherReadiness(){
