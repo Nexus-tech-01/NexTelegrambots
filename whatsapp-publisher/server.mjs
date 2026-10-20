@@ -803,7 +803,9 @@ function enqueue(destination,jid,pub){
   const q=readJson('queue.json',[]);
   const matches=q.filter(x=>
     String(x?.destination||'')===String(destination) &&
-    String(x?.jid||'')===String(jid) &&
+    // Keep the original target identity after __SECONDARY_APK_GROUP__ is
+    // resolved to a live JID, otherwise reconnect/replay sends a second APK.
+    String(x?.targetKey||x?.jid||'')===String(jid) &&
     ['pending','done'].includes(String(x?.status||'')) &&
     samePublication(x?.pub,pub)
   );
@@ -821,7 +823,7 @@ function enqueue(destination,jid,pub){
   }
   const existing=matches[0];
   if(existing&&!mediaUpgrade(existing,pub))return {...existing,deduplicated:true};
-  const item={id:crypto.randomUUID(),destination,jid,pub,status:'pending',attempts:0,nextAttemptAt:Date.now(),createdAt:new Date().toISOString(),upgradeOf:existing?.id||null};
+  const item={id:crypto.randomUUID(),destination,jid,targetKey:jid,pub,status:'pending',attempts:0,nextAttemptAt:Date.now(),createdAt:new Date().toISOString(),upgradeOf:existing?.id||null};
   q.push(item);
   writeJson('queue.json',q);
   return item;
