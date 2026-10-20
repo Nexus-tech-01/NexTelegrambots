@@ -77,3 +77,36 @@ test('Generic Telegram mirror excludes Otaku group source even with env override
   assert.match(mirror,/x!==['"]theotaku_nexus['"]/);
   assert.match(mirror,/routes:\[\{platform:'whatsapp'\},\{platform:'facebook'\}\]/);
 });
+
+test('One successful APK group does not suppress the second group',()=>{
+ const deliveries=[];
+ let secondaryAcknowledged=false;
+ const scope=vm.createContext({
+   normalizePublication:pub=>pub,
+   SOURCES:new Set(['thenexusorigin']),
+   routePublication:()=>({group:true,channel:false,channelBlocked:true}),
+   GROUP_JID:'first@g.us',
+   SECONDARY_APK_GROUP_INVITE_URL:'https://chat.whatsapp.com/valid',
+   enqueue:(destination,jid,pub)=>{
+     deliveries.push({destination,jid,id:pub.id});
+     return {deduplicated:jid==='first@g.us'||secondaryAcknowledged};
+   },
+   addHistory:()=>{},
+   processQueue:async()=>{}
+ });
+ vm.runInContext(section(publisher,'function plan(raw){','function publisherReadiness('),scope);
+ const raw={id:'telegram-channel:thenexusorigin:40',source:'thenexusorigin',media:[{fileName:'app.apk'}],text:'APK'};
+ assert.equal(vm.runInContext('plan('+JSON.stringify(raw)+').duplicate',scope),false);
+ assert.equal(deliveries.length,2);
+ assert.deepEqual(deliveries.map(x=>x.jid),['first@g.us','__SECONDARY_APK_GROUP__']);
+ secondaryAcknowledged=true;
+ assert.equal(vm.runInContext('plan('+JSON.stringify(raw)+').duplicate',scope),true);
+});
+test('Disconnected older APKs retry without forced bulk channel replay',()=>{
+ assert.match(publisher,/const apkGroup=job\.destination==='group'&&job\.pub\?\.media\?\.some\(documentBlocked\)/);
+ assert.match(publisher,/allowStale:apkGroup\|\|Date\.now\(\)<replayBacklogUntil/);
+});
+test('Telegram mirror never acknowledges media-only placeholder after failed download',()=>{
+ assert.match(mirror,/if\(mediaError\)throw new Error\('media unavailable: '\+mediaError\)/);
+ assert.match(mirror,/pendingMediaPaths/);
+});
