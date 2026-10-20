@@ -144,6 +144,9 @@ const SESSION_SECRET = process.env.NEX_WHATSAPP_SESSION_SECRET || process.env.NE
 const TELEGRAM_BOT_TOKEN = process.env.NEXCANAL__BOT_TOKEN || '';
 const OWNER_TELEGRAM_CHAT_ID = process.env.NEX_WHATSAPP_OWNER_TELEGRAM_ID || process.env.NEXAI_OWNER_TELEGRAM_ID || process.env.NEXUS_OWNER_TELEGRAM_ID || process.env.NEXDOWNLOADER__OWNER_TELEGRAM_ID || '';
 const OWNER_TELEGRAM_USERNAME = 'tresor20001';
+// Phone identity for the no-password *pairing-only* page; do not use this
+// endpoint to authorize publishing, resetting sessions or admin operations.
+const CONFIGURED_WHATSAPP_OWNER_PHONE = String(process.env.NEX_WHATSAPP_OWNER_PHONE || process.env.WHATSAPP_OWNER_PHONE || '').replace(/\D/g, '');
 const SOURCES = new Set(['thenexusorigin', 'thenexnews', 'tresor_universe', 'theotaku_nexus']);
 const BLOCKED_DOC_EXT = new Set(['apk','xapk','apks','apkm']);
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
@@ -595,6 +598,25 @@ const telegramOwnerLogin = createTelegramOwnerOtp({
     if (!response.ok || result.ok !== true) throw new Error('Telegram owner delivery failed');
   },
 });
+function trustedWhatsAppPhone() {
+  if (CONFIGURED_WHATSAPP_OWNER_PHONE) return CONFIGURED_WHATSAPP_OWNER_PHONE;
+  // Baileys records the phone's own JID after a previous successful pairing.
+  // If an owner was never enrolled, refuse public bootstrap rather than let
+  // an unauthenticated visitor claim control of the publisher.
+  try {
+    const creds = JSON.parse(fs.readFileSync(path.join(AUTH_DIR, 'creds.json'), 'utf8'));
+    const me = String(creds?.me?.id || '');
+    const phone = me.split('@')[0].split(':')[0].replace(/\D/g, '');
+    return /^\d{7,15}$/.test(phone) ? phone : '';
+  } catch { return ''; }
+}
+function checkPairingRequestOrigin(req) {
+  const origin = String(req.headers.origin || '');
+  const host = String(req.headers.host || '').toLowerCase();
+  try {
+    return Boolean(origin && host && new URL(origin).host.toLowerCase() === host);
+  } catch { return false; }
+}
 function json(res, status, obj, headers={}) { res.writeHead(status, {'content-type':'application/json; charset=utf-8','cache-control':'no-store',...headers}); res.end(JSON.stringify(obj)); }
 async function body(req){ const chunks=[]; for await(const c of req) chunks.push(c); if(!chunks.length)return{}; try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{return{};} }
 function sourceName(v=''){ return String(v).replace(/^@/,'').toLowerCase().trim(); }
@@ -1791,7 +1813,28 @@ const server=http.createServer(async(req,res)=>{
       const otaku=await newsletterSnapshot(state.otakuChannelJid||await resolveOtakuChannel());
       return json(res,200,{ok:true,nextech,otaku});
     }
-    if(req.method==='GET'&&(url.pathname==='/'||url.pathname==='/app')) { res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}); const ui=new URL('./nexai-ui.html',import.meta.url); return res.end(fs.existsSync(ui)?fs.readFileSync(ui,'utf8'):html); }
+    if(req.method==='GET'&&(url.pathname==='/'||url.pathname==='/connect')) {
+      res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'"});
+      return res.end(fs.readFileSync(new URL('./quick-connect.html',import.meta.url),'utf8'));
+    }
+    if(req.method==='GET'&&url.pathname==='/app') { res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}); const ui=new URL('./nexai-ui.html',import.meta.url); return res.end(fs.existsSync(ui)?fs.readFileSync(ui,'utf8'):html); }
+    if(req.method==='GET'&&url.pathname==='/api/quick-connect/status') {
+      return json(res,200,{status:state.status==='connected'?'connected':'disconnected'});
+    }
+    if(req.method==='POST'&&url.pathname==='/api/quick-connect/pair') {
+      if(!checkPairingRequestOrigin(req)||!String(req.headers['content-type']||'').includes('application/json'))
+        return json(res,403,{error:'Requête refusée.'});
+      const approved = trustedWhatsAppPhone();
+      if(!approved) return json(res,503,{error:'Numéro administrateur non encore enregistré sur le serveur.'});
+      const payload=await body(req);
+      const requested=String(payload.phone||'').replace(/\D/g,'');
+      if(!/^\d{7,15}$/.test(requested)||!safeEq(requested,approved))
+        return json(res,403,{error:'Ce numéro ne correspond pas au compte WhatsApp autorisé.'});
+      if(state.status==='connected')
+        return json(res,409,{error:'WhatsApp est déjà connecté.'});
+      const pair=await requestPairingCode(requested);
+      return json(res,200,{ok:true,formatted:pair.formatted,code:pair.raw});
+    }
     if(req.method==='GET'&&url.pathname==='/api/auth/options'){
       return json(res,200,{telegramOwnerCode:telegramOwnerLogin.enabled});
     }
