@@ -300,7 +300,7 @@ async function canonicalAutoChoice(state){
   const mood=rand(STICK_GOOD_MOODS);
   let j=null;
   try{j=await aiJson([
-    'Choisis UN personnage très célèbre avec beaucoup de fanarts/images carrées disponibles en ligne pour un pack de stickers.'
+    'Choisis UN personnage très célèbre avec beaucoup de fanarts/images carrées disponibles en ligne pour un pack de stickers.',
     'Il peut venir d un anime, film ou série. Évite ceux-ci récemment publiés: '+[...recent].join(', ')+'.',
     'Ambiance visuelle souhaitée: '+mood+'.',
     'JSON uniquement: {"character":"nom canonique exact","franchise":"oeuvre","medium":"anime|film|series","mood":"'+mood+'"}'
