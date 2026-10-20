@@ -9,6 +9,7 @@ import { Boom } from '@hapi/boom';
 import { attachWhatsAppCommandEngine } from './command-engine.mjs';
 import {formatOtakuTelegramRelay} from './otaku-relay-style.mjs';
 import {mayAttemptQueueJob,queuedBacklogStats} from './queue-safety.mjs';
+import {createTelegramOwnerOtp} from './telegram-owner-otp.mjs';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
@@ -141,6 +142,7 @@ const WEBHOOK_TOKEN = process.env.NEX_WHATSAPP_PUBLISHER_TOKEN || process.env.NE
 const DASHBOARD_PASSWORD = process.env.NEX_WHATSAPP_DASHBOARD_PASSWORD || '';
 const SESSION_SECRET = process.env.NEX_WHATSAPP_SESSION_SECRET || '';
 const TELEGRAM_BOT_TOKEN = process.env.NEXCANAL__BOT_TOKEN || '';
+const OWNER_TELEGRAM_CHAT_ID = process.env.NEX_WHATSAPP_OWNER_TELEGRAM_ID || '';
 const SOURCES = new Set(['thenexusorigin', 'thenexnews', 'tresor_universe', 'theotaku_nexus']);
 const BLOCKED_DOC_EXT = new Set(['apk','xapk','apks','apkm']);
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
@@ -562,6 +564,24 @@ function safeEq(a,b){ const aa=Buffer.from(String(a||'')),bb=Buffer.from(String(
 function sessionToken(){ return crypto.createHmac('sha256', SESSION_SECRET || 'unsafe').update('nex-whatsapp-owner').digest('hex'); }
 function cookies(req){ return Object.fromEntries(String(req.headers.cookie||'').split(';').map(x=>x.trim().split('=').map(decodeURIComponent)).filter(x=>x.length===2)); }
 function authed(req){ return Boolean(SESSION_SECRET && safeEq(cookies(req).nwp_owner, sessionToken())); }
+const telegramOwnerLogin = createTelegramOwnerOtp({
+  telegramBotToken: TELEGRAM_BOT_TOKEN,
+  ownerChatId: OWNER_TELEGRAM_CHAT_ID,
+  sessionSecret: SESSION_SECRET,
+  deliver: async ({ telegramBotToken, ownerChatId, code }) => {
+    const response = await fetch('https://api.telegram.org/bot' + telegramBotToken + '/sendMessage', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: ownerChatId,
+        text: '🔐 NexAI WhatsApp — code de connexion : ' + code + '\\nValable 5 minutes, une seule utilisation. Ne partage pas ce code.',
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.ok !== true) throw new Error('Telegram owner delivery failed');
+  },
+});
 function json(res, status, obj, headers={}) { res.writeHead(status, {'content-type':'application/json; charset=utf-8','cache-control':'no-store',...headers}); res.end(JSON.stringify(obj)); }
 async function body(req){ const chunks=[]; for await(const c of req) chunks.push(c); if(!chunks.length)return{}; try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{return{};} }
 function sourceName(v=''){ return String(v).replace(/^@/,'').toLowerCase().trim(); }
@@ -1759,8 +1779,19 @@ const server=http.createServer(async(req,res)=>{
       return json(res,200,{ok:true,nextech,otaku});
     }
     if(req.method==='GET'&&(url.pathname==='/'||url.pathname==='/app')) { res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}); const ui=new URL('./nexai-ui.html',import.meta.url); return res.end(fs.existsSync(ui)?fs.readFileSync(ui,'utf8'):html); }
+    if(req.method==='GET'&&url.pathname==='/api/auth/options'){
+      return json(res,200,{telegramOwnerCode:telegramOwnerLogin.enabled});
+    }
+    if(req.method==='POST'&&url.pathname==='/api/auth/request-code'){
+      const outcome=await telegramOwnerLogin.requestCode();
+      return json(res,outcome.ok?200:outcome.status,outcome);
+    }
     if(req.method==='POST'&&url.pathname==='/api/login'){
-      const q=await body(req); if(!DASHBOARD_PASSWORD||!safeEq(q.password,DASHBOARD_PASSWORD)) return json(res,401,{error:'Mot de passe incorrect'});
+      const q=await body(req);
+      // Keep existing sessions/password API functional while the Telegram sign-in rolls out.
+      const codeAccepted = typeof q.code==='string' && telegramOwnerLogin.verifyCode(q.code);
+      const legacyAccepted = typeof q.password==='string' && Boolean(DASHBOARD_PASSWORD) && safeEq(q.password,DASHBOARD_PASSWORD);
+      if(!SESSION_SECRET||!(codeAccepted||legacyAccepted)) return json(res,401,{error:'Code invalide ou expiré'});
       return json(res,200,{ok:true},{'set-cookie':`nwp_owner=${sessionToken()}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=604800`});
     }
     if(req.method==='POST'&&url.pathname==='/api/nexcanal/publish'){
