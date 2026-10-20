@@ -78,9 +78,10 @@ body:after{content:"";position:fixed;inset:0;pointer-events:none;opacity:.13;bac
   <form id="loginForm" class="loginBox">
     <div class="machine"><div class="frame">
       <div class="aiHead"><div class="avatar">N</div><div><b>NEXAI ACCESS</b><small>PRIVATE CONTROL LAYER</small></div><div class="signal"><i></i><i></i><i></i><i></i></div></div>
-      <h1>Control Deck</h1><p>Entre le mot de passe du panneau pour accéder à la mini-app WhatsApp.</p>
-      <div class="field"><label>Mot de passe</label><input id="password" class="input" type="password" autocomplete="current-password" required></div>
-      <button class="submit">ENTRER DANS NEXAI</button><div id="loginError" class="error"></div>
+      <h1>Control Deck</h1><p>Connexion sans mot de passe : reçois un code temporaire sur ton Telegram administrateur.</p>
+      <button type="button" id="requestLoginCode" class="submit" style="margin-top:16px">RECEVOIR UN CODE TELEGRAM</button>
+      <div class="field"><label>Code à 8 chiffres</label><input id="telegramCode" class="input" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{8}" maxlength="8" required></div>
+      <button class="submit">ENTRER DANS NEXAI</button><div id="loginError" class="error" role="status" aria-live="polite"></div>
     </div></div>
   </form>
 </div>
@@ -231,7 +232,9 @@ async function refresh(){
   const term=['<div class="terminalLine dim">$ nexai runtime --live</div>','<div class="terminalLine ok">whatsapp = '+esc(w.status||'unknown')+'</div>','<div class="terminalLine">pending = '+(s.pending||0)+' · done = '+(s.done||0)+' · failed = '+(s.failed||0)+'</div>','<div class="terminalLine">channel = '+esc(short(w.channelTitle||w.channelJid||'unresolved',42))+'</div>','<div class="terminalLine dim">events = '+h.length+'</div>'];$('#terminal').innerHTML=term.join('');$('#runtimeState').textContent=on?'ONLINE':'DEGRADED';
  }catch(e){if(e.status===401)$('#login').classList.remove('hide');else toast(e.message,true)}
 }
-$('#loginForm').onsubmit=async e=>{e.preventDefault();try{await api('/api/login',{method:'POST',body:JSON.stringify({password:$('#password').value})});$('#loginError').textContent='';await refresh()}catch(err){$('#loginError').textContent=err.message}}
+$('#requestLoginCode').onclick=async()=>{const btn=$('#requestLoginCode');btn.disabled=true;try{await api('/api/auth/request-code',{method:'POST'});$('#loginError').textContent='Code envoyé au Telegram administrateur (valable 5 minutes).'}catch(err){$('#loginError').textContent=err.message}finally{btn.disabled=false}};
+$('#loginForm').onsubmit=async e=>{e.preventDefault();try{await api('/api/login',{method:'POST',body:JSON.stringify({code:$('#telegramCode').value.trim()})});$('#telegramCode').value='';$('#loginError').textContent='';await refresh()}catch(err){$('#loginError').textContent=err.message}};
+api('/api/auth/options').then(o=>{if(!o.telegramOwnerCode)$('#loginError').textContent='Connexion Telegram non encore configurée par l’administrateur du serveur.'}).catch(()=>{});
 $('#publishForm').onsubmit=async e=>{e.preventDefault();try{const d=await api('/api/manual-publish',{method:'POST',body:JSON.stringify({source:$('#source').value,text:$('#caption').value.trim(),buttonText:$('#buttonText').value.trim(),buttonUrl:$('#buttonUrl').value.trim()})});toast(d.duplicate?'Déjà connue':'Publication mise en file');$('#caption').value='';refresh();page('ops')}catch(err){toast(err.message,true)}}
 $('#retryBtn').onclick=()=>modal('RETRY FAILED','Relancer maintenant tous les jobs en échec ?',{icon:'R',confirm:async()=>{try{const d=await api('/api/retry-failed',{method:'POST'});toast((d.retried||0)+' job(s) relancé(s)');refresh()}catch(e){toast(e.message,true)}},confirmText:'RETRY'});
 $('#pairBtn').onclick=async()=>{try{$('#pairBtn').disabled=true;const d=await api('/api/pair',{method:'POST',body:JSON.stringify({phone:$('#phone').value})});$('#code').textContent=d.formatted||d.code||'—';$('#pairCode').style.display='block';toast('Code généré')}catch(e){toast(e.message,true)}finally{$('#pairBtn').disabled=false}}

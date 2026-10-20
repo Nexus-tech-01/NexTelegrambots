@@ -1,0 +1,32 @@
+name: Test WhatsApp passwordless access
+
+on:
+  pull_request:
+    paths:
+      - 'whatsapp-publisher/**'
+      - '.github/workflows/test-whatsapp-owner-otp.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'whatsapp-publisher/telegram-owner-otp.mjs'
+      - 'whatsapp-publisher/test/telegram-owner-otp.test.mjs'
+      - '.github/workflows/test-whatsapp-owner-otp.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check server and OTP syntax
+        run: |
+          node --check whatsapp-publisher/server.mjs
+          node --check whatsapp-publisher/telegram-owner-otp.mjs
+      - name: Test OTP security
+        run: node --test whatsapp-publisher/test/telegram-owner-otp.test.mjs
