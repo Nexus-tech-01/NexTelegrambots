@@ -10,6 +10,7 @@ import { attachWhatsAppCommandEngine } from './command-engine.mjs';
 import {formatOtakuTelegramRelay} from './otaku-relay-style.mjs';
 import {mayAttemptQueueJob,queuedBacklogStats} from './queue-safety.mjs';
 import {createTelegramOwnerOtp, isExpectedTelegramOwnerChat} from './telegram-owner-otp.mjs';
+import {normalizePhone,phoneFromWhatsAppCredentials,isSameOriginPairingRequest,isAuthorizedWhatsAppPhone} from './quick-connect-guard.mjs';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
@@ -146,7 +147,7 @@ const OWNER_TELEGRAM_CHAT_ID = process.env.NEX_WHATSAPP_OWNER_TELEGRAM_ID || pro
 const OWNER_TELEGRAM_USERNAME = 'tresor20001';
 // Phone identity for the no-password *pairing-only* page; do not use this
 // endpoint to authorize publishing, resetting sessions or admin operations.
-const CONFIGURED_WHATSAPP_OWNER_PHONE = String(process.env.NEX_WHATSAPP_OWNER_PHONE || process.env.WHATSAPP_OWNER_PHONE || '').replace(/\D/g, '');
+const CONFIGURED_WHATSAPP_OWNER_PHONE = normalizePhone(process.env.NEX_WHATSAPP_OWNER_PHONE || process.env.WHATSAPP_OWNER_PHONE);
 const SOURCES = new Set(['thenexusorigin', 'thenexnews', 'tresor_universe', 'theotaku_nexus']);
 const BLOCKED_DOC_EXT = new Set(['apk','xapk','apks','apkm']);
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
@@ -605,17 +606,11 @@ function trustedWhatsAppPhone() {
   // an unauthenticated visitor claim control of the publisher.
   try {
     const creds = JSON.parse(fs.readFileSync(path.join(AUTH_DIR, 'creds.json'), 'utf8'));
-    const me = String(creds?.me?.id || '');
-    const phone = me.split('@')[0].split(':')[0].replace(/\D/g, '');
-    return /^\d{7,15}$/.test(phone) ? phone : '';
+    return phoneFromWhatsAppCredentials(creds);
   } catch { return ''; }
 }
 function checkPairingRequestOrigin(req) {
-  const origin = String(req.headers.origin || '');
-  const host = String(req.headers.host || '').toLowerCase();
-  try {
-    return Boolean(origin && host && new URL(origin).host.toLowerCase() === host);
-  } catch { return false; }
+  return isSameOriginPairingRequest(req.headers.origin, req.headers.host);
 }
 function json(res, status, obj, headers={}) { res.writeHead(status, {'content-type':'application/json; charset=utf-8','cache-control':'no-store',...headers}); res.end(JSON.stringify(obj)); }
 async function body(req){ const chunks=[]; for await(const c of req) chunks.push(c); if(!chunks.length)return{}; try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{return{};} }
@@ -1827,8 +1822,8 @@ const server=http.createServer(async(req,res)=>{
       const approved = trustedWhatsAppPhone();
       if(!approved) return json(res,503,{error:'Numéro administrateur non encore enregistré sur le serveur.'});
       const payload=await body(req);
-      const requested=String(payload.phone||'').replace(/\D/g,'');
-      if(!/^\d{7,15}$/.test(requested)||!safeEq(requested,approved))
+      const requested=normalizePhone(payload.phone);
+      if(!isAuthorizedWhatsAppPhone(requested,approved))
         return json(res,403,{error:'Ce numéro ne correspond pas au compte WhatsApp autorisé.'});
       if(state.status==='connected')
         return json(res,409,{error:'WhatsApp est déjà connecté.'});
