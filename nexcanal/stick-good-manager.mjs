@@ -204,7 +204,7 @@ async function visionJson(prompt,filePath){
     const r=await fetch(AI_BRIDGE,{
       method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify({
-        model:'openrouter/free',
+        model:String(process.env.STICK_GOOD_VISION_MODEL||'nvidia/nemotron-3.5-super-vl:free').trim(),
         messages:[{role:'user',content:[{type:'text',text:prompt},{type:'image_url',image_url:{url:data}}]}],
         response_format:{type:'json_object'},temperature:0,max_tokens:300
       }),signal:AbortSignal.timeout(60000)
