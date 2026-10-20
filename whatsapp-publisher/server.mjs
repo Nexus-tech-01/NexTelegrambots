@@ -979,7 +979,14 @@ async function connectWhatsApp({freshPairing=false}={}){
   });
   socket=sock;
 
-  sock.ev.on('creds.update',saveCreds);
+  // Serialize credential writes: a 515 restart must not load half-written auth.
+  let pendingCredentialSave=Promise.resolve();
+  sock.ev.on('creds.update',()=>{
+    pendingCredentialSave=pendingCredentialSave
+      .catch(error=>logger.warn({error:String(error?.message||error)},'Previous WhatsApp credential save failed'))
+      .then(()=>saveCreds());
+    return pendingCredentialSave;
+  });
   try{commandEngine?.detach?.();}catch{}
   commandEngine=attachWhatsAppCommandEngine(sock,{
     state,
@@ -1063,7 +1070,15 @@ async function connectWhatsApp({freshPairing=false}={}){
       if(code===DisconnectReason.restartRequired){
         state.status='restarting_after_pair';
         clearTimeout(reconnectTimer);
-        reconnectTimer=setTimeout(()=>connectWhatsApp().catch(e=>logger.error({err:e},'WhatsApp reconnect failed')),900);
+        reconnectTimer=setTimeout(()=>{
+          (async()=>{
+            // A 515 is an expected post-pair handshake. Persist all keys before
+            // loading them with a new socket; do not reset the session here.
+            await pendingCredentialSave;
+            await saveCreds();
+            await connectWhatsApp();
+          })().catch(e=>logger.error({err:e},'WhatsApp post-pair reconnect failed'));
+        },1500);
         reconnectTimer.unref?.();
         return;
       }
