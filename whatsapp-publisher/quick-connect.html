@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#071a13">
+<title>NexAI · Connecter WhatsApp</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:#071a13;color:#f1fff7}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:radial-gradient(circle at 15% 10%,#174f36 0,transparent 40%),#071a13}
+main{width:min(480px,100%);padding:26px;border:1px solid #24533d;border-radius:27px;background:linear-gradient(155deg,#142d21,#091910);box-shadow:0 16px 50px #0007}
+.logo{width:52px;height:52px;border-radius:19px;background:#1a5e39;display:grid;place-items:center;color:#a7ffc9;font-weight:900;font-size:28px}
+h1{font-size:27px;letter-spacing:-.025em;margin:19px 0 10px}p{color:#b0c8b9;line-height:1.6;font-size:14px}
+.status{padding:13px 15px;margin:22px 0;border:1px solid #2b4e3b;border-radius:15px;font-size:14px;background:#10261b}
+label{display:block;font-size:12px;color:#afd0bc;margin-bottom:8px;font-weight:700}
+input{width:100%;padding:14px;border:1px solid #376649;border-radius:14px;background:#09170f;color:#fff;font-size:17px;outline:0}
+button{width:100%;padding:14px;margin-top:12px;background:#25d366;color:#042414;border:0;border-radius:14px;font-size:15px;font-weight:850;cursor:pointer;min-height:47px}
+button:disabled{opacity:.5;cursor:not-allowed}
+.code{margin:17px 0;padding:15px;border-radius:14px;border:1px solid #409466;background:#0e3420;text-align:center}
+.code strong{font-size:27px;letter-spacing:.16em;display:block;margin-top:7px}
+.error{color:#ffb3b3;font-size:13px;min-height:18px;margin-top:12px}
+.hidden{display:none}small{display:block;color:#89aa93;font-size:12px;line-height:1.5;margin-top:17px}
+a{color:#83ebb1}
+</style>
+</head>
+<body>
+<main>
+  <div class="logo">N</div>
+  <h1>Connecter WhatsApp</h1>
+  <p>Associe ton compte à NexAI pour les automatisations. Aucun mot de passe du tableau de bord n'est nécessaire.</p>
+  <div class="status" id="status" role="status" aria-live="polite">Vérification de la connexion…</div>
+  <form id="form" class="hidden">
+    <label for="phone">Ton numéro WhatsApp avec indicatif</label>
+    <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+229…" required>
+    <button id="send" type="submit">Générer mon code de connexion</button>
+  </form>
+  <div id="result" class="code hidden" aria-live="polite">
+    <span>Code de jumelage</span>
+    <strong id="code"></strong>
+    <p>Dans WhatsApp : Appareils connectés → Connecter un appareil → Connecter avec un numéro de téléphone.</p>
+  </div>
+  <div id="error" class="error" role="alert"></div>
+  <small>Seul le numéro WhatsApp déjà autorisé sur le serveur peut être associé. Les commandes d'administration restent protégées.</small>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+async function api(path,options={}){
+  const response=await fetch(path,{...options,headers:{'content-type':'application/json',...(options.headers||{})},cache:'no-store'});
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(data.error||('Erreur HTTP '+response.status));
+  return data;
+}
+async function refresh(){
+  try{
+    const data=await api('/api/quick-connect/status');
+    const connected=data.status==='connected';
+    $('status').textContent=connected?'WhatsApp est déjà connecté. Aucune action nécessaire.':'WhatsApp non connecté — jumelage possible.';
+    $('form').classList.toggle('hidden',connected);
+  }catch(e){$('status').textContent='Connexion au serveur indisponible.';$('error').textContent=e.message}
+}
+$('form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  $('error').textContent='';
+  $('result').classList.add('hidden');
+  $('send').disabled=true;
+  try{
+    const data=await api('/api/quick-connect/pair',{method:'POST',body:JSON.stringify({phone:$('phone').value})});
+    $('code').textContent=data.formatted||data.code||'';
+    $('result').classList.remove('hidden');
+    $('status').textContent='Code prêt. Valide le jumelage dans WhatsApp.';
+  }catch(e){$('error').textContent=e.message}finally{$('send').disabled=false}
+});
+refresh();
+</script>
+</body></html>

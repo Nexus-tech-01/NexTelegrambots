@@ -28,5 +28,6 @@ jobs:
         run: |
           node --check whatsapp-publisher/server.mjs
           node --check whatsapp-publisher/telegram-owner-otp.mjs
+          node --check whatsapp-publisher/quick-connect-guard.mjs
       - name: Test OTP security
-        run: node --test whatsapp-publisher/test/telegram-owner-otp.test.mjs
+        run: node --test whatsapp-publisher/test/telegram-owner-otp.test.mjs whatsapp-publisher/test/quick-connect-guard.test.mjs
