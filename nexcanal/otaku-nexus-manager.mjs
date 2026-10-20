@@ -909,8 +909,13 @@ async function runDailySlot(state,slot){
       '',
       '✨ Vote juste en dessous — pas de question laissée sans choix.'
     ].join('\n');
-    await imagePost(id,r.query,text,{kind:'anime',name:r.title});
+    let recommendationImageSent=false;
+    // Polls stay available even when image discovery is temporarily down.
+    // Keep the editorial slot retryable until the actual image is delivered.
+    try{await imagePost(id,r.query,text,{kind:'anime',name:r.title});recommendationImageSent=true}
+    catch(error){console.warn('[Otaku/Editorial] recommendation image retry:',clean(error?.message||error).slice(0,250))}
     await action({kind:'poll',id:id+':poll',question:'💜 '+r.title+' — tu choisis quoi ?',options:['✅ Déjà vu','📌 Dans ma liste','👀 Pas encore'],quiz:false});
+    if(!recommendationImageSent)return false;
   }else if(slot.key==='trending'){
     const id='daily:'+slotStamp(slot);
     const kind=editorialKind(dayKey(),'trending');
