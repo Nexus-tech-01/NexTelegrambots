@@ -59,7 +59,7 @@ function documentName(message){
   // Telegram sometimes provides an octet-stream APK without filename metadata.
   // Only infer the extension from an explicit package filename in its caption.
   const caption=String(message?.message||'');
-  const named=caption.match(/(?:^|[\s(])([^\s\\/:*?"<>|]{2,120}\.(?:apk|xapk|apks|apkm))(?![A-Za-z0-9])/i)?.[1];
+  const named=caption.match(/(?:^|\s)([A-Za-z0-9][A-Za-z0-9._-]{1,119}\.(?:apk|xapk|apks|apkm))\b/i)?.[1];
   if(named)return safeName(named);
   const ext=mime==='application/vnd.android.package-archive'?'.apk':
     mime==='application/zip'?'.zip':
