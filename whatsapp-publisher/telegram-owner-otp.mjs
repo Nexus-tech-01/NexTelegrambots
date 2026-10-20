@@ -1,16 +1,29 @@
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 
+export function isExpectedTelegramOwnerChat(chat, ownerChatId, ownerUsername) {
+  const normalized = String(ownerUsername || '').replace(/^@/, '').toLowerCase().trim();
+  return Boolean(
+    chat && chat.type === 'private' &&
+    /^\d+$/.test(String(ownerChatId || '')) &&
+    String(chat.id) === String(ownerChatId) &&
+    String(chat.username || '').toLowerCase() === normalized &&
+    normalized === 'tresor20001'
+  );
+}
+
+
 // A passwordless owner sign-in. Only the configured Telegram chat receives codes.
 // Never return a code to the requesting browser or write it to application logs.
 export function createTelegramOwnerOtp({
   telegramBotToken,
   ownerChatId,
+  ownerUsername,
   sessionSecret,
   deliver,
   now = () => Date.now(),
   generateCode = () => String(randomInt(0, 100_000_000)).padStart(8, '0'),
 }) {
-  const enabled = Boolean(telegramBotToken && /^-?\d+$/.test(String(ownerChatId || '')) && sessionSecret);
+  const enabled = Boolean(telegramBotToken && /^\d+$/.test(String(ownerChatId || '')) && ownerUsername === 'tresor20001' && sessionSecret);
   const lifetimeMs = 5 * 60_000;
   const cooldownMs = 60_000;
   let challenge = null;
@@ -34,7 +47,7 @@ export function createTelegramOwnerOtp({
     if (!/^\d{8}$/.test(code)) throw new Error('Invalid OTP generator');
     challenge = { hash: digest(code), expiresAt: current + lifetimeMs, remainingAttempts: 5 };
     try {
-      await deliver({ telegramBotToken, ownerChatId, code });
+      await deliver({ telegramBotToken, ownerChatId, ownerUsername, code });
     } catch {
       challenge = null;
       return { ok: false, status: 503, error: 'Impossible de transmettre le code au compte Telegram administrateur.' };
