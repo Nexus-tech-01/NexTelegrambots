@@ -892,10 +892,9 @@ async function runDailySlot(state,slot){
     }catch(error){
       console.warn('[Otaku/Editorial] verified recommendation unavailable:',clean(error?.message||error).slice(0,250));
       if(kind!=='anime'){
-        // Never invent a manhwa or manga when upstream data is unavailable.
-        markDaily(state,slot);
-        return true;
-      }
+         // Keep unverified Manga/Manhwa/Webtoon recommendations eligible for retry.
+         return false;
+       }
     }
     const r=stablePick(RECOMMENDATIONS,id);
     const text=[
@@ -910,8 +909,13 @@ async function runDailySlot(state,slot){
       '',
       '✨ Vote juste en dessous — pas de question laissée sans choix.'
     ].join('\n');
-    try{await imagePost(id,r.query,text,{kind:'anime',name:r.title})}catch{}
+    let recommendationImageSent=false;
+    // Polls stay available even when image discovery is temporarily down.
+    // Keep the editorial slot retryable until the actual image is delivered.
+    try{await imagePost(id,r.query,text,{kind:'anime',name:r.title});recommendationImageSent=true}
+    catch(error){console.warn('[Otaku/Editorial] recommendation image retry:',clean(error?.message||error).slice(0,250))}
     await action({kind:'poll',id:id+':poll',question:'💜 '+r.title+' — tu choisis quoi ?',options:['✅ Déjà vu','📌 Dans ma liste','👀 Pas encore'],quiz:false});
+    if(!recommendationImageSent)return false;
   }else if(slot.key==='trending'){
     const id='daily:'+slotStamp(slot);
     const kind=editorialKind(dayKey(),'trending');
@@ -922,18 +926,22 @@ async function runDailySlot(state,slot){
       if(result?.ok===false&&!result?.duplicate)throw new Error('otaku_trend_not_confirmed');
       state.editorialRecent.push(Number(entry.id.split(':')[1]));
       state.editorialRecent=state.editorialRecent.slice(-25);
-    }catch(error){console.warn('[Otaku/Editorial] trending skipped:',clean(error?.message||error).slice(0,250))}
+    }catch(error){console.warn('[Otaku/Editorial] trending retry:',clean(error?.message||error).slice(0,250));return false}
   }else if(slot.key==='news'){
     const id='daily:'+slotStamp(slot);
     try{
       const article=await fetchLatestAnn({seen:state.newsSeen});
-      if(article){
-        const result=await action({kind:'image',id,imageUrl:article.image,text:formatAnnNews(article)});
-        if(result?.ok===false&&!result?.duplicate)throw new Error('otaku_news_not_confirmed');
-        state.newsSeen.push(article.url);
-        state.newsSeen=state.newsSeen.slice(-100);
-      }
-    }catch(error){console.warn('[Otaku/Editorial] news skipped:',clean(error?.message||error).slice(0,250))}
+      if(!article)return false;
+       // Some verified Anime News Network entries have no RSS thumbnail.
+       // Send the cited story as text instead of silently skipping it.
+       const payload=article.image
+         ?{kind:'image',id,imageUrl:article.image,text:formatAnnNews(article)}
+         :{kind:'text',id,text:formatAnnNews(article)};
+       const result=await action(payload);
+       if(result?.ok===false&&!result?.duplicate)throw new Error('otaku_news_not_confirmed');
+       state.newsSeen.push(article.url);
+       state.newsSeen=state.newsSeen.slice(-100);
+     }catch(error){console.warn('[Otaku/Editorial] news retry:',clean(error?.message||error).slice(0,250));return false}
   }else if(slot.key==='mystery'){
     const {id,m}=mysteryPayload(dayKey());
     const text=[
@@ -985,8 +993,13 @@ async function maybeDaily(state){
     if(pa!==pb)return pa-pb;
     return (b.hour*60+b.minute)-(a.hour*60+a.minute);
   });
-  await runDailySlot(state,due[0]);
-  return true;
+  // One publication per tick respects the WhatsApp cadence; unsuccessful slots
+   // remain retryable without blocking other scheduled editorial content.
+   for(const slot of due){
+     try{if(await runDailySlot(state,slot))return true}
+     catch(error){console.warn('[Otaku/Daily] retry:',slot.key,clean(error?.message||error).slice(0,250))}
+   }
+   return false;
 }
 function autoCharacter(state){
   const recent=new Set(state.recent.slice(-8));

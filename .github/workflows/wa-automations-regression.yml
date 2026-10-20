@@ -1,0 +1,32 @@
+name: WhatsApp automation recovery regression tests
+
+on:
+  push:
+    branches: [fix/wa-automations-recovery-20261020]
+  pull_request:
+    paths:
+      - 'nexcanal/**'
+      - 'whatsapp-publisher/**'
+      - '.github/workflows/wa-automations-regression.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate JavaScript syntax
+        run: |
+          node --check nexcanal/nextech-whatsapp-mirror.mjs
+          node --check nexcanal/otaku-editorial.mjs
+          node --check nexcanal/otaku-nexus-manager.mjs
+          node --check nexcanal/stick-good-manager.mjs
+          node --check whatsapp-publisher/server.mjs
+      - name: Verify editorial routing and publication contracts
+        run: |
+          node --test nexcanal/otaku-editorial.test.mjs whatsapp-publisher/test/routing-policy.test.mjs
+          node nexcanal/otaku-nexus-manager.contract.test.mjs
+          node nexcanal/stick-good-manager.contract.test.mjs

@@ -17,7 +17,9 @@ const STATE_FILE=String(process.env.NEXTECH_WHATSAPP_MIRROR_STATE_FILE||'/var/li
 const TMP_DIR=String(process.env.NEXTECH_WHATSAPP_MIRROR_TMP||'/var/lib/nex/tmp/internal-automation/nextech-channel-mirror');
 const POLL_MS=Math.max(5000,Number(process.env.NEXTECH_WHATSAPP_MIRROR_POLL_MS||15000));
 const BACKFILL_MS=Math.max(60*60*1000,Number(process.env.NEXTECH_WHATSAPP_MIRROR_BACKFILL_MS||24*60*60*1000));
-const TMP_RETENTION_MS=Math.max(60*60*1000,Number(process.env.NEXTECH_WHATSAPP_MIRROR_RETENTION_MS||24*60*60*1000));
+const TMP_RETENTION_MS=Math.max(60*60*1000,Number(process.env.NEXTECH_WHATSAPP_MIRROR_RETENTION_MS||72*60*60*1000));
+const INTERROUTE_STATE=String(process.env.NEX_INTERROUTE_STATE_FILE||'/var/lib/nex/queue/interroute/state.json');
+const WA_QUEUE_FILE=path.join(String(process.env.WA_PUBLISHER_DATA_DIR||'/var/lib/nex/data/internal/whatsapp-publisher'),'queue.json');
 const CLEANUP_MS=Math.max(60*1000,Number(process.env.NEXTECH_WHATSAPP_MIRROR_CLEANUP_MS||15*60*1000));
 const ENTITY_RETRY_MS=Math.max(60*1000,Number(process.env.NEXTECH_WHATSAPP_MIRROR_ENTITY_RETRY_MS||5*60*1000));
 
@@ -54,6 +56,11 @@ function documentName(message){
     if(typeof attr?.fileName==='string'&&attr.fileName.trim())return safeName(attr.fileName);
   }
   const mime=String(message?.document?.mimeType||'').toLowerCase();
+  // Telegram sometimes provides an octet-stream APK without filename metadata.
+  // Only infer the extension from an explicit package filename in its caption.
+  const caption=String(message?.message||'');
+  const named=caption.match(/(?:^|\s)([A-Za-z0-9][A-Za-z0-9._-]{1,119}\.(?:apk|xapk|apks|apkm))\b/i)?.[1];
+  if(named)return safeName(named);
   const ext=mime==='application/vnd.android.package-archive'?'.apk':
     mime==='application/zip'?'.zip':
     mime.startsWith('video/')?'.mp4':
@@ -145,8 +152,10 @@ async function enqueue(client,message,source){
       warn('media degraded','@'+source,'#'+String(id),mediaError);
     }
   }
+  // Never advance the Telegram cursor or publish a text-only placeholder when
+  // an attached APK, document or image failed to download.
+  if(mediaError)throw new Error('media unavailable: '+mediaError);
   if(!text&&!media.length&&!inlineButtons.length){
-    if(mediaError)throw new Error('media unavailable: '+mediaError);
     return {skipped:true};
   }
   const body={
@@ -168,13 +177,40 @@ async function enqueue(client,message,source){
   if(!response.ok)throw new Error('interroute '+response.status+': '+String(result?.error||'enqueue failed'));
   return result;
 }
+// Media files belong to both durable delivery queues until they are acknowledged.
+// Never evict an APK that is still waiting for WhatsApp (or a relay retry).
+async function pendingMediaPaths(){
+  const protectedPaths=new Set();
+  let interroute,waQueue;
+  try{
+    interroute=JSON.parse(await fs.readFile(INTERROUTE_STATE,'utf8'));
+    waQueue=JSON.parse(await fs.readFile(WA_QUEUE_FILE,'utf8'));
+  }catch{return null;} // Fail closed if either queue cannot be inspected.
+  if(!Array.isArray(interroute?.events)||!Array.isArray(waQueue))return null;
+  const protect=media=>{
+    for(const m of Array.isArray(media)?media:[]){
+      if(m?.localPath)protectedPaths.add(path.resolve(String(m.localPath)));
+    }
+  };
+  for(const event of interroute.events){
+    if((event?.routes||[]).some(r=>!['succeeded','skipped'].includes(r.status)))
+      protect(event?.content?.media);
+  }
+  for(const job of waQueue){
+    if(!['done','skipped'].includes(job?.status))protect(job?.pub?.media);
+  }
+  return protectedPaths;
+}
 async function cleanup(){
+  const protectedPaths=await pendingMediaPaths();
+  if(!protectedPaths)return; // Avoid losing files when the publisher is down.
   let entries=[];
   try{entries=await fs.readdir(TMP_DIR,{withFileTypes:true});}catch{return;}
   const cutoff=Date.now()-TMP_RETENTION_MS;
   for(const entry of entries){
     if(!entry.isFile())continue;
     const file=path.join(TMP_DIR,entry.name);
+    if(protectedPaths.has(path.resolve(file)))continue;
     try{const stat=await fs.stat(file);if(stat.mtimeMs<cutoff)await fs.rm(file,{force:true});}catch{}
   }
 }

@@ -10,7 +10,7 @@ const cap=(text,n=530)=>Array.from(safe(text)).slice(0,n).join('').trim();
 const norm=v=>safe(v).replace(/\s+/g,' ');
 const decode=v=>String(v).replace(/&amp;/gi,'&').replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'").replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/&#(\d+);/g,(_,n)=>String.fromCodePoint(Math.min(0x10ffff,Number(n))));
 export const stripMarkup=html=>norm(decode(String(html||'').replace(/<br\s*\/?\s*>/gi,' ').replace(/<[^>]*>/g,' ')));
-export const EDITORIAL_KINDS=['anime','manga','manhwa','trend_anime','trend_manga'];
+export const EDITORIAL_KINDS=['anime','manga','manhwa','webtoon','trend_anime','trend_manga'];
 
 const QUERY=`query($type:MediaType,$sort:[MediaSort]) {
   Page(page:1,perPage:50) {
@@ -18,7 +18,7 @@ const QUERY=`query($type:MediaType,$sort:[MediaSort]) {
       id title { romaji english native }
       description(asHtml:false)
       countryOfOrigin
-      genres
+      genres tags { name }
       episodes chapters
       status seasonYear
       coverImage { large extraLarge }
@@ -30,13 +30,14 @@ const QUERY=`query($type:MediaType,$sort:[MediaSort]) {
 export function editorialKind(day,mode='recommendation'){
   const n=Math.floor(new Date(day+'T12:00:00Z').getTime()/86400000);
   if(!Number.isFinite(n))throw new Error('Date éditoriale invalide.');
-  const order=mode==='trending'?['trend_anime','trend_manga']:['anime','manga','manhwa'];
+  const order=mode==='trending'?['trend_anime','trend_manga']:['anime','manga','manhwa','webtoon'];
   return order[((n%order.length)+order.length)%order.length];
 }
 
 export function chooseEditorial(rows,kind,{day='2026-10-19',recent=[]}={}){
   const input=(Array.isArray(rows)?rows:[]).filter(x=>x&&Number.isInteger(x.id)&&!x.isAdult&&
-    (kind==='manhwa'?x.countryOfOrigin==='KR':true));
+    (kind==='manhwa'?x.countryOfOrigin==='KR':
+      kind==='webtoon'?x.countryOfOrigin==='KR'&&(x.tags||[]).some(t=>/webtoon/i.test(String(t?.name||''))):true));
   if(!input.length)return null;
   const blocked=new Set(recent.map(Number));
   const fresh=input.filter(x=>!blocked.has(x.id));
@@ -56,12 +57,13 @@ export function formatOtakuEditorial(media,kind){
     anime:'🌸🔥 UNE PÉPITE ANIME À DÉCOUVRIR ! 🎬✨',
     manga:'📚💥 CE MANGA MÉRITE TON ATTENTION ! 📖🔥',
     manhwa:'👑⚔️ UNE PÉPITE CORÉENNE À DÉCOUVRIR ! 🇰🇷🔥',
+    webtoon:'📱🌈 UN WEBTOON À DÉCOUVRIR ! 🇰🇷📚',
     trend_anime:'📈🔥 ANIME EN TENDANCE SUR ANILIST ! 🎌👀',
     trend_manga:'📈📚 MANGA EN TENDANCE SUR ANILIST ! 🔥'
   };
   const genre=(Array.isArray(media.genres)?media.genres:[]).slice(0,4).join(' • ');
-  const isManga=kind==='manga'||kind==='manhwa'||kind==='trend_manga';
-  const where=kind==='manhwa'?'#Manhwa #OtakuNexus':isManga?'#Manga #OtakuNexus':'#Anime #OtakuNexus';
+  const isManga=kind==='manga'||kind==='manhwa'||kind==='webtoon'||kind==='trend_manga';
+  const where=kind==='webtoon'?'#Webtoon #Manhwa #OtakuNexus':kind==='manhwa'?'#Manhwa #OtakuNexus':isManga?'#Manga #OtakuNexus':'#Anime #OtakuNexus';
   const facts=[genre?'🎭 Genres : '+genre:'',!isManga&&media.episodes?'🎞️ Épisodes : '+media.episodes:'',isManga&&media.chapters?'📖 Chapitres : '+media.chapters:'',media.status?'📌 Statut : '+media.status:''].filter(Boolean);
   const url=String(media.siteUrl||'');
   if(!/^https:\/\/anilist\.co\/(anime|manga)\/\d+/.test(url))throw new Error('Lien AniList non fiable.');
@@ -86,7 +88,7 @@ export function formatOtakuEditorial(media,kind){
 }
 
 export async function fetchAniListEditorial(kind,{day='2026-10-19',recent=[],fetcher=fetch}={}){
-  const mediaType=['manga','manhwa','trend_manga'].includes(kind)?'MANGA':'ANIME';
+  const mediaType=['manga','manhwa','webtoon','trend_manga'].includes(kind)?'MANGA':'ANIME';
   const sort=kind.startsWith('trend')?'TRENDING_DESC':'POPULARITY_DESC';
   const response=await fetcher(ANILIST,{
     method:'POST',headers:{'content-type':'application/json','accept':'application/json','user-agent':'OtakuNexusBot/1.0'},
@@ -141,5 +143,5 @@ export async function fetchLatestAnn({seen=[],fetcher=fetch,now=Date.now()}={}){
   const r=await fetcher(RSS,{headers:{'user-agent':'OtakuNexusBot/1.0'},signal:AbortSignal.timeout(16000)});
   if(!r.ok)throw new Error('ANN RSS HTTP '+r.status);
   const articles=parseAnnFeed(await r.text(),{now});
-  return articles.find(x=>!seen.includes(x.url) && /^https:\/\//.test(x.image))||null;
+  return articles.find(x=>!seen.includes(x.url))||null;
 }

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import vm from 'node:vm';
 import {
   fallbackWishlistCandidate,
   isMixedPackMeta,
@@ -53,3 +54,24 @@ assert.match(manager,/if\(!\(await visuallyMatches\(character,target\)\)\)contin
 assert.doesNotMatch(manager,/Do not make a whole valid Telegram pack depend on the external vision service/);
 
 console.log('STICK_GOOD_CONTRACT_OK');
+
+const autoStart=manager.indexOf('async function canonicalAutoChoice(state){');
+const autoEnd=manager.indexOf('async function botApi(',autoStart);
+assert.ok(autoStart>=0&&autoEnd>autoStart);
+const autoChoice=vm.runInNewContext(
+ manager.slice(autoStart,autoEnd)+'\ncanonicalAutoChoice',
+ {
+  aiJson:async()=>{throw new Error('AI temporarily offline')},
+  clean:v=>String(v??'').trim(),
+  rand:rows=>rows[0],
+  STICK_GOOD_MOODS:['friendly'],
+  AUTO_CHARACTERS:[{name:'Gojo Satoru',medium:'anime'}],
+  canonicalDisplayName:v=>String(v),
+  console:{warn:()=>{}}
+ }
+);
+const recovered=await autoChoice({recent:[]});
+assert.equal(recovered.character,'Gojo Satoru');
+assert.equal(recovered.medium,'anime');
+assert.match(manager,/job\.nextAttemptAt=Date\.now\(\)/);
+assert.match(manager,/type:'wishlist-error'/);

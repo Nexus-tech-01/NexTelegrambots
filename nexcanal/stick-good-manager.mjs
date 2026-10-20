@@ -298,12 +298,15 @@ async function classifyWishlist(text){
 async function canonicalAutoChoice(state){
   const recent=new Set(state.recent.slice(-18).map(x=>String(x).toLowerCase()));
   const mood=rand(STICK_GOOD_MOODS);
-  const j=await aiJson([
+  let j=null;
+  try{j=await aiJson([
     'Choisis UN personnage très célèbre avec beaucoup de fanarts/images carrées disponibles en ligne pour un pack de stickers.',
     'Il peut venir d un anime, film ou série. Évite ceux-ci récemment publiés: '+[...recent].join(', ')+'.',
     'Ambiance visuelle souhaitée: '+mood+'.',
     'JSON uniquement: {"character":"nom canonique exact","franchise":"oeuvre","medium":"anime|film|series","mood":"'+mood+'"}'
-  ].join(' '));
+  ].join(' '))}catch(error){
+    console.warn('[StickGood] AI choice unavailable, using verified local character list:',clean(error?.message||error).slice(0,180));
+  }
   if(j&&clean(j.character)&&!recent.has(clean(j.character).toLowerCase())){
     return {character:canonicalDisplayName(j.character),franchise:canonicalDisplayName(j.franchise),medium:clean(j.medium)||'unknown',mood};
   }
@@ -651,7 +654,7 @@ async function tick(state){
     return;
   }
 
-  const job=state.queue.find(x=>x.status==='pending');
+  const job=state.queue.find(x=>x.status==='pending'&&Number(x.nextAttemptAt||0)<=Date.now());
 
   const choice=job?{
     character:job.character,franchise:job.franchise||'',medium:job.medium||'unknown',mood:job.mood||rand(STICK_GOOD_MOODS)
@@ -662,12 +665,19 @@ async function tick(state){
     if(job){job.status='done';job.completedAt=nowIso();job.count=result.count;job.nativePack=result.nativePack}
     else if(!state.activeWishlist)state.autoPacks++;
     state.nextPackAt=Date.now()+PACK_INTERVAL;
-    if(!job&&!state.activeWishlist&&state.autoPacks>=AUTOS_BEFORE_WISHLIST)await openWishlist(state,result?.wishlistImageLocal||'');
+    if(!job&&!state.activeWishlist&&state.autoPacks>=AUTOS_BEFORE_WISHLIST){
+      // A failed Wishlist question must not mark a successfully sent pack as
+      // failed and publish those preview stickers again on the next tick.
+      try{await openWishlist(state,result?.wishlistImageLocal||'')}
+      catch(error){state.history.push({at:nowIso(),type:'wishlist-error',error:clean(error?.message||error).slice(0,300)})}
+    }
   }catch(error){
     const msg=clean(error?.message||error).slice(0,400);
     if(job){
       job.attempts=Number(job.attempts||0)+1;job.lastError=msg;
-      if(job.attempts>=4)job.status='failed';
+      // Keep legitimate requests recoverable after an AI/Telegram outage.
+      // Back off failed requests so they do not starve the next pack.
+      job.nextAttemptAt=Date.now()+Math.min(6*60*60_000,5*60_000*(2**Math.min(6,job.attempts-1)));
     }
     state.history.push({at:nowIso(),type:'pack-error',character:choice.character,error:msg});
     state.history=state.history.slice(-500);
