@@ -1,3 +1,4 @@
+// CI validation branch
 import assert from 'node:assert/strict';
 import { __test } from '../anime-ingest.mjs';
 
