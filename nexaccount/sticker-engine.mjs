@@ -28,7 +28,7 @@ const CLONE_PREPARE_CONCURRENCY=Math.max(2,Math.min(32,Number(process.env.NEXAI_
 const CLONE_PREPARE_AHEAD=Math.max(2,Math.min(32,Number(process.env.NEXAI_STICKER_PREPARE_AHEAD||10)));
 const CLONE_TRANSFORM_CONCURRENCY=Math.max(
   1,
-  Math.min(32,Number(process.env.NEXAI_STICKER_TRANSFORM_CONCURRENCY||Math.max(4,Math.min(12,(os.cpus()?.length||4)*2))))
+  Math.min(32,Number(process.env.NEXAI_STICKER_TRANSFORM_CONCURRENCY||2))
 );
 const CLONE_JOB_CONCURRENCY=Math.max(4,Math.min(256,Number(process.env.NEXAI_STICKER_JOB_CONCURRENCY||64)));
 const CLONE_STICKER_UPLOAD_CONCURRENCY=Math.max(4,Math.min(128,Number(process.env.NEXAI_STICKER_UPLOAD_CONCURRENCY||24)));
@@ -217,7 +217,9 @@ const cleanup=(...files)=>{for(const f of files.flat().filter(Boolean))try{fs.un
 
 function exec(cmd,args,timeout=90000){
   return new Promise((resolve,reject)=>{
-    execFile(cmd,args,{timeout,maxBuffer:8*1024*1024},(err,stdout,stderr)=>{
+    const ffmpegCmd=String(cmd).split('/').pop()==='ffmpeg';
+    const limitedArgs=ffmpegCmd?['-threads','1','-filter_threads','1',...args]:args;
+    execFile(cmd,limitedArgs,{timeout,maxBuffer:8*1024*1024},(err,stdout,stderr)=>{
       if(err)return reject(new Error(String(stderr||err.message||err).trim().slice(0,900)));
       resolve({stdout,stderr});
     });
@@ -1730,18 +1732,38 @@ async function whatsappStickerWebp(source){
 }
 
 async function whatsappTray(webp){
-  const input=tmp('webp'),output=tmp('png');
-  fs.writeFileSync(input,webp);
+  const b=await trayFromAnimatedWebp(webp);
+  if(!b.length||b.length>50*1024)throw new Error('icône WhatsApp invalide');
+  return b;
+}
+
+// ffmpeg's webp decoder only handles still images: an animated webp (VP8X/ANIM/ANMF)
+// fails with "image data not found" even when the file is valid. Decode the first
+// frame through libwebp instead.
+async function trayFromAnimatedWebp(webp){
   try{
-    await exec(FFMPEG,[
-      '-hide_banner','-loglevel','error','-y','-i',input,
-      '-vf',"scale=96:96:force_original_aspect_ratio=decrease,pad=96:96:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba",
-      '-frames:v','1','-compression_level','9',output
-    ]);
-    const b=fs.readFileSync(output);
-    if(!b.length||b.length>50*1024)throw new Error('icône WhatsApp invalide');
-    return b;
-  }finally{cleanup(input,output)}
+    const { createCanvas, loadImage }=await import('@napi-rs/canvas');
+    const image=await loadImage(Buffer.from(webp));
+    const canvas=createCanvas(96,96);
+    const ctx=canvas.getContext('2d');
+    const ratio=Math.min(96/image.width,96/image.height);
+    const width=Math.max(1,Math.round(image.width*ratio));
+    const height=Math.max(1,Math.round(image.height*ratio));
+    ctx.clearRect(0,0,96,96);
+    ctx.drawImage(image,Math.round((96-width)/2),Math.round((96-height)/2),width,height);
+    return await canvas.encode('png');
+  }catch(error){
+    const input=tmp('webp'),output=tmp('png');
+    fs.writeFileSync(input,webp);
+    try{
+      await exec(FFMPEG,[
+        '-hide_banner','-loglevel','error','-y','-i',input,
+        '-vf',"scale=96:96:force_original_aspect_ratio=decrease,pad=96:96:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba",
+        '-frames:v','1','-compression_level','9',output
+      ]);
+      return fs.readFileSync(output);
+    }finally{cleanup(input,output)}
+  }
 }
 async function packExists(name){
   try{return await botApi('getStickerSet',{name})}catch{return null}
