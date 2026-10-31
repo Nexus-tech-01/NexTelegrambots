@@ -1,0 +1,113 @@
+name: Sync NexAI connected accounts to managed Telegram channels
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/nexaccount-channel-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexaccount-channel-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NXC_BASE: https://nexcontrol-ochre.vercel.app
+      NXC_AGENT: nexus-main
+      NXC_ADMIN_PASSWORD: ${{ secrets.NEXCONTROL_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
+      NXC_SESSION_SECRET: ${{ secrets.NEXCONTROL_SESSION_SECRET || secrets.SESSION_SECRET }}
+    steps:
+      - name: Trigger existing NexAccount auto-join control command (no service restart)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, json, time, urllib.request, urllib.error, urllib.parse
+          import http.cookiejar, hmac, hashlib, base64
+
+          BASE = os.environ['NXC_BASE'].rstrip('/')
+          AGENT = os.environ['NXC_AGENT']
+          secret = os.environ.get('NXC_SESSION_SECRET', '')
+          password = os.environ.get('NXC_ADMIN_PASSWORD', '')
+          jar = http.cookiejar.CookieJar()
+          opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          cookie = ''
+
+          if secret:
+              expiration = int(time.time()*1000) + 20*60*1000
+              payload = base64.urlsafe_b64encode(json.dumps({'exp': expiration},separators=(',',':')).encode()).decode().rstrip('=')
+              signature = base64.urlsafe_b64encode(hmac.new(secret.encode(),payload.encode(),hashlib.sha256).digest()).decode().rstrip('=')
+              cookie = payload + '.' + signature
+          elif password:
+              form = urllib.parse.urlencode({'password': password}).encode()
+              opener.open(urllib.request.Request(BASE+'/api/admin/login',data=form,
+                  headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),timeout=30).read()
+          else:
+              raise RuntimeError('Missing NexControl authentication in repository Actions secrets')
+
+          def http(method, path, data=None):
+              headers = {'Accept':'application/json'}
+              if cookie: headers['Cookie'] = 'nexcontrol_session=' + cookie
+              encoded = None
+              if data is not None:
+                  encoded = json.dumps(data,separators=(',',':')).encode()
+                  headers['Content-Type'] = 'application/json'
+              request = urllib.request.Request(BASE + path, data=encoded, headers=headers, method=method)
+              try:
+                  with opener.open(request, timeout=45) as response:
+                      raw = response.read().decode('utf-8','replace')
+                  return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as error:
+                  raise RuntimeError('NexControl request failed HTTP '+str(error.code)+' '+path+
+                      ': '+error.read().decode('utf-8','replace')[:350])
+
+          command = {'root':'nexus','command':'node',
+              'args':['bots/nexaccount/cli.mjs','auto-join-all'],'timeoutMs':300000}
+          created = http('POST','/api/admin/agent/jobs',
+              {'agentSlug':AGENT,'kind':'runtime.exec','payload':command})
+          job_id = created.get('jobId')
+          if not job_id: raise RuntimeError('NexControl did not return a jobId')
+
+          deadline = time.monotonic()+420
+          while time.monotonic()<deadline:
+              job = http('GET','/api/admin/agent/jobs?id='+urllib.parse.quote(job_id))
+              state = job.get('status')
+              if state=='failed': raise RuntimeError('VPS job failed: '+str(job.get('error','unknown'))[:500])
+              if state=='succeeded':
+                  result = job.get('result') or {}
+                  if result.get('ok') is False:
+                      raise RuntimeError('VPS command failed: '+str(result.get('stderr',''))[-700:])
+                  raw = str(result.get('stdout') or '').strip()
+                  try: report = json.loads(raw)
+                  except ValueError: raise RuntimeError('Invalid CLI response: '+raw[-700:])
+                  accounts = report.get('accounts') or []
+                  print('Active accounts checked:',len(accounts))
+                  if not accounts: raise RuntimeError('No active account was synchronized')
+                  target = 'voldigone_yuiiki'
+                  errors = []
+                  for account in accounts:
+                      rows = [row for row in account.get('results',[])
+                          if target in str(row.get('target','')).lower()]
+                      if len(rows)!=1:
+                          errors.append('Target missing for account '+str(account.get('username','unknown')))
+                          continue
+                      row = rows[0]
+                      ok = row.get('ok') is True
+                      print('Account',str(account.get('username') or account.get('telegramUserId') or 'unknown'),
+                            'channel_sync', 'ok' if ok else 'failed',
+                            'already',bool(row.get('already')), 'verification',row.get('verification',''))
+                      if not ok: errors.append(str(account.get('username') or account.get('telegramUserId'))+': '+str(row.get('error','join_failed'))[:200])
+                  if errors: raise RuntimeError('Channel synchronization incomplete: '+'; '.join(errors))
+                  print('NEXAI_VOLDIGONE_CHANNEL_SYNC_OK',len(accounts))
+                  break
+              time.sleep(3)
+          else:
+              raise TimeoutError('NexControl job did not complete within seven minutes')
+          PY
