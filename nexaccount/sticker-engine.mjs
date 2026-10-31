@@ -28,7 +28,7 @@ const CLONE_PREPARE_CONCURRENCY=Math.max(2,Math.min(32,Number(process.env.NEXAI_
 const CLONE_PREPARE_AHEAD=Math.max(2,Math.min(32,Number(process.env.NEXAI_STICKER_PREPARE_AHEAD||10)));
 const CLONE_TRANSFORM_CONCURRENCY=Math.max(
   1,
-  Math.min(32,Number(process.env.NEXAI_STICKER_TRANSFORM_CONCURRENCY||Math.max(4,Math.min(12,(os.cpus()?.length||4)*2))))
+  Math.min(32,Number(process.env.NEXAI_STICKER_TRANSFORM_CONCURRENCY||2))
 );
 const CLONE_JOB_CONCURRENCY=Math.max(4,Math.min(256,Number(process.env.NEXAI_STICKER_JOB_CONCURRENCY||64)));
 const CLONE_STICKER_UPLOAD_CONCURRENCY=Math.max(4,Math.min(128,Number(process.env.NEXAI_STICKER_UPLOAD_CONCURRENCY||24)));
@@ -217,7 +217,9 @@ const cleanup=(...files)=>{for(const f of files.flat().filter(Boolean))try{fs.un
 
 function exec(cmd,args,timeout=90000){
   return new Promise((resolve,reject)=>{
-    execFile(cmd,args,{timeout,maxBuffer:8*1024*1024},(err,stdout,stderr)=>{
+    const ffmpegCmd=String(cmd).split('/').pop()==='ffmpeg';
+    const limitedArgs=ffmpegCmd?['-threads','1','-filter_threads','1',...args]:args;
+    execFile(cmd,limitedArgs,{timeout,maxBuffer:8*1024*1024},(err,stdout,stderr)=>{
       if(err)return reject(new Error(String(stderr||err.message||err).trim().slice(0,900)));
       resolve({stdout,stderr});
     });
