@@ -36,7 +36,7 @@ export const cfg={
   autoReact:pick('NEXAI_AUTO_REACT')!=='0',
   autoJoin:pick('NEXAI_AUTO_JOIN')!=='0',
   autoJoinTargets:(pick('NEXAI_AUTO_JOIN_TARGETS')||'https://t.me/thenexnews,https://t.me/tresor_universe,https://t.me/hackergrouptel,https://t.me/Tresortelegramgroup,https://t.me/thenexusorigin,https://t.me/Princessetyla34,https://t.me/Nextech_NexAi').split(',').map(x=>x.trim()).filter(Boolean),
-  managedAutoJoinTargets:['https://t.me/Nextech_NexAi'],
+  managedAutoJoinTargets:['https://t.me/Nextech_NexAi','https://t.me/Voldigone_Yuiiki'],
   autoReactTargets:[...new Set([...DEFAULT_OWNED_AUTO_REACT_TARGETS.split(','),...pick('NEXAI_AUTO_REACT_TARGETS').split(',')].map(x=>x.trim().replace(/^@/,'').toLowerCase()).filter(Boolean))],
   managedAutoReactTargets:['nextech_nexai'],
   ownerName:pick('NEXAI_OWNER_NAME','OWNER_NAME')||'Trésor',
