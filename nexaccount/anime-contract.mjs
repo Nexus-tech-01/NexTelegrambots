@@ -4,7 +4,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
-const PINNED_ANIME_SHA256='46e5685819eb0ffd47a43b8d2cedee462222bd58e4c7af61aee9e44565ae0abf';
+// Re-pinned at d6a7bcf (2026-10-16): that commit fixed a TDZ crash in
+// chooseActiveSeries (finishingSeriesKey referenced itself) but did not move
+// this pin, so the gate has been red on main since. The 45 behavioural
+// markers in CONTRACT below were re-verified against the new file.
+const PINNED_ANIME_SHA256='8cdf26d9261b6b8500b66972eb7b7cad30ae6960276fedcb240177d9c8dd29b4';
 
 const CONTRACT={
   'anime-ingest.mjs':[
