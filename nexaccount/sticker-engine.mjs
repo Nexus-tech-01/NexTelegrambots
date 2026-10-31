@@ -1732,18 +1732,38 @@ async function whatsappStickerWebp(source){
 }
 
 async function whatsappTray(webp){
-  const input=tmp('webp'),output=tmp('png');
-  fs.writeFileSync(input,webp);
+  const b=await trayFromAnimatedWebp(webp);
+  if(!b.length||b.length>50*1024)throw new Error('icône WhatsApp invalide');
+  return b;
+}
+
+// ffmpeg's webp decoder only handles still images: an animated webp (VP8X/ANIM/ANMF)
+// fails with "image data not found" even when the file is valid. Decode the first
+// frame through libwebp instead.
+async function trayFromAnimatedWebp(webp){
   try{
-    await exec(FFMPEG,[
-      '-hide_banner','-loglevel','error','-y','-i',input,
-      '-vf',"scale=96:96:force_original_aspect_ratio=decrease,pad=96:96:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba",
-      '-frames:v','1','-compression_level','9',output
-    ]);
-    const b=fs.readFileSync(output);
-    if(!b.length||b.length>50*1024)throw new Error('icône WhatsApp invalide');
-    return b;
-  }finally{cleanup(input,output)}
+    const { createCanvas, loadImage }=await import('@napi-rs/canvas');
+    const image=await loadImage(Buffer.from(webp));
+    const canvas=createCanvas(96,96);
+    const ctx=canvas.getContext('2d');
+    const ratio=Math.min(96/image.width,96/image.height);
+    const width=Math.max(1,Math.round(image.width*ratio));
+    const height=Math.max(1,Math.round(image.height*ratio));
+    ctx.clearRect(0,0,96,96);
+    ctx.drawImage(image,Math.round((96-width)/2),Math.round((96-height)/2),width,height);
+    return await canvas.encode('png');
+  }catch(error){
+    const input=tmp('webp'),output=tmp('png');
+    fs.writeFileSync(input,webp);
+    try{
+      await exec(FFMPEG,[
+        '-hide_banner','-loglevel','error','-y','-i',input,
+        '-vf',"scale=96:96:force_original_aspect_ratio=decrease,pad=96:96:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba",
+        '-frames:v','1','-compression_level','9',output
+      ]);
+      return fs.readFileSync(output);
+    }finally{cleanup(input,output)}
+  }
 }
 async function packExists(name){
   try{return await botApi('getStickerSet',{name})}catch{return null}
