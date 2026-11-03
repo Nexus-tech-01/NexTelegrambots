@@ -1,0 +1,27 @@
+name: NexControl Direct SSH Recovery CI
+on:
+  push:
+    paths:
+      - 'nexcontrol/vercel-vps/**'
+      - '.github/workflows/nxc-ssh-recovery-ci.yml'
+  pull_request:
+    paths:
+      - 'nexcontrol/vercel-vps/**'
+      - '.github/workflows/nxc-ssh-recovery-ci.yml'
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Syntax
+        run: |
+          node --check api/ssh.js
+          node --check ssh/client.js
+      - name: Authentication and allowlist regression tests
+        run: node --test tests/ssh.test.js
+        working-directory: nexcontrol/vercel-vps
