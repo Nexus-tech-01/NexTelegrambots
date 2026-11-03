@@ -30,3 +30,9 @@ jobs:
               except (OSError,TimeoutError) as err:
                   print('PORT_%d_STATUS=%s' % (port,type(err).__name__))
           PY
+      - name: Read public SSH host-key fingerprint from independent runner
+        run: |
+          set -euo pipefail
+          keys=$(ssh-keyscan -T 6 -p 22 31.56.85.53 2>/dev/null || true)
+          if [ -z "$keys" ]; then echo "SSH_PUBLIC_KEY_UNAVAILABLE"; exit 0; fi
+          printf '%s\n' "$keys" | ssh-keygen -lf - -E sha256
