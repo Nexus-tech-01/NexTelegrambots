@@ -231,7 +231,7 @@ class Handler(BaseHTTPRequestHandler):
         return x
 
     def current_device(self):
-        match=re.search(r"(?:^|;\\s*)__Host-nxc_device=([a-f0-9]{32})\\.([a-f0-9]{64})(?:;|$)",self.headers.get("Cookie",""))
+        match=re.search(r"(?:^|;\s*)__Host-nxc_device=([a-f0-9]{32})\.([a-f0-9]{64})(?:;|$)",self.headers.get("Cookie",""))
         if not match: return None
         dev_id,secret=match.group(1),match.group(2)
         with connection() as d:
@@ -241,7 +241,7 @@ class Handler(BaseHTTPRequestHandler):
         return dev_id
 
     def admin(self):
-        m=re.search(r"(?:^|;\\s*)__Host-nxc_sid=([a-f0-9]{64})(?:;|$)",self.headers.get("Cookie",""))
+        m=re.search(r"(?:^|;\s*)__Host-nxc_sid=([a-f0-9]{64})(?:;|$)",self.headers.get("Cookie",""))
         if not m: return False
         digest=hashlib.sha256(m.group(1).encode()).hexdigest()
         with connection() as d:
