@@ -19,6 +19,7 @@ jobs:
         with:
           node-version: '22'
       - name: Syntax
+        working-directory: nexcontrol/vercel-vps
         run: |
           node --check api/ssh.js
           node --check ssh/client.js
