@@ -74,8 +74,30 @@ jobs:
           login,h=api('/api/nxc/login',method='POST',
                        data={'password':'test-password-only'},
                        headers={'origin':'https://nexcontrol-nexus-vps.vercel.app'})
-          cookie=h.get('set-cookie').split(';',1)[0]
+          cookies=h.get_all('set-cookie')
+          assert len(cookies)==2,('two distinct secure cookies required',cookies)
+          cookie='; '.join(c.split(';',1)[0] for c in cookies)
           auth={'cookie':cookie}
+          status,_=api('/api/nxc/status',headers=auth);assert status['ok']
+          devices,_=api('/api/nxc/devices',headers=auth)
+          assert len(devices['devices'])==1
+          pc=devices['devices'][0]
+          assert pc['current'] and pc['kind']=='web'
+          # Session cookie alone must never authenticate a paired device.
+          _,_=api('/api/nxc/status',headers={'cookie':cookies[0].split(';',1)[0]},expected=401)
+          # The same account may identify a second device without sharing its session.
+          mobile,h2=api('/api/nxc/login',method='POST',
+               data={'password':'test-password-only','deviceName':'Téléphone HONTYX','deviceType':'mobile'},
+               headers={'origin':'https://nexcontrol-nexus-vps.vercel.app'})
+          phone_auth={'cookie':'; '.join(c.split(';',1)[0] for c in h2.get_all('set-cookie'))}
+          assert mobile['deviceId']!=pc['id']
+          devices,_=api('/api/nxc/devices',headers=auth)
+          assert len(devices['devices'])==2 and devices['devices'][0]['kind']=='mobile'
+          _,_=api('/api/nxc/status',headers=phone_auth)
+          # Revoking only the phone must not revoke the PC.
+          revoked,_=api('/api/nxc/devices/revoke',method='POST',data={'id':mobile['deviceId']},headers=auth)
+          assert revoked['ok']
+          _,_=api('/api/nxc/status',headers=phone_auth,expected=401)
           status,_=api('/api/nxc/status',headers=auth);assert status['ok']
           key={'x-nexcontrol-agent':'nexus-main','x-nexcontrol-agent-key':'test-key-long-enough-for-test-only-1234'}
           _,_=api('/api/v1/agent/heartbeat',method='POST',data={'hostname':'ci'},headers=key)
@@ -120,5 +142,5 @@ jobs:
           _,_=api('/api/nxc/access/revoke',method='POST',data={'id':created['id']},headers=auth)
           _,_=api('/api/nxc/assistant/status',headers=bearer,expected=401)
           _,_=api('/api/nexai-connect?api=pair-key',expected=503)
-          print('PASS: local health, agent queues, observer/operator issuance, revocation, privilege isolation, NexAI failure isolation.')
+          print('PASS: per-device identity isolation, selective revocation, local agent queues, roles and NexAI failure isolation.')
           PY
