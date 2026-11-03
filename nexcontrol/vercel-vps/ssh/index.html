@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#0c111b">
+<title>NexControl — Connexion SSH de secours</title>
+<style>
+:root{color-scheme:dark;font:15px system-ui,sans-serif;background:#0c111b;color:#e9f4fa}
+*{box-sizing:border-box}body{margin:0;padding:20px}main{max-width:840px;margin:20px auto 60px}
+a{color:#7fe2d1;text-decoration:none}h1{font-size:clamp(28px,5vw,42px);margin:25px 0 10px}
+p{color:#9baec0;line-height:1.65}
+.top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.brand{font-weight:800;letter-spacing:.04em}
+.badge{font-size:12px;background:#173f38;color:#79e5ce;padding:7px 10px;border-radius:12px}
+.panel{background:#121d2b;border:1px solid #2c4351;border-radius:20px;padding:22px;margin:20px 0}
+.row{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+.row.user{grid-template-columns:1fr 2fr}
+label{display:block;font-size:12px;font-weight:650;letter-spacing:.02em;color:#b0cbd7;margin:16px 0 8px}
+input,textarea{display:block;width:100%;background:#0a141f;border:1px solid #354655;border-radius:10px;color:#eef9fc;font:inherit;padding:12px;outline:none}
+input:focus,textarea:focus{border-color:#60dacb}
+input[type=checkbox]{display:inline;width:auto;margin:0 10px 0 0;accent-color:#6ce0c8}
+input[type=password]{font-family:system-ui}
+button{background:#6bdec7;color:#06231e;border:0;border-radius:11px;padding:12px 15px;font:inherit;font-weight:750;cursor:pointer}
+button.secondary{background:#1b3540;color:#92eee2}
+button:disabled{opacity:.5;cursor:wait}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+.hint{font-size:12px}
+.status{padding:13px 15px;background:#1e303d;border-radius:12px;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}
+.status.error{background:#39242c;color:#ffb8be}
+.status.good{background:#173e35;color:#9cedce}
+#fingerprint-panel{display:none}
+code,.mono,pre,textarea{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;min-height:120px;max-height:460px;overflow:auto;color:#d7f6e8;margin:0;font-size:12px;line-height:1.55}
+textarea{min-height:82px;resize:vertical}
+footer{font-size:12px;color:#7990a4}
+@media(max-width:540px){body{padding:12px}.panel{padding:16px}.row,.row.user{grid-template-columns:1fr}.top{flex-wrap:wrap}}
+</style>
+<script defer src="/ssh/client.js"></script>
+</head>
+<body>
+<main>
+<div class="top"><a class="brand" href="/">◈ NEXCONTROL</a><span class="badge">SSH DIRECT · SANS SUPABASE</span></div>
+<h1>Récupérer mon VPS</h1>
+<p>Accès direct au port SSH de ton serveur, même si l'ancien agent NexControl est hors ligne. Ce formulaire exécute une commande par requête et n'est <strong>pas</strong> une session de terminal interactif persistante.</p>
+<div class="panel">
+<h2>1. Connexion administrateur</h2>
+<label for="admin">Code d'accès NexControl SSH</label>
+<input id="admin" type="password" autocomplete="off" spellcheck="false" placeholder="Code défini dans les variables Vercel">
+<p class="hint">Code séparé du mot de passe Linux, configuré dans <code>NXC_SSH_ADMIN_TOKEN</code>. Aucune donnée de connexion n'est enregistrée dans le navigateur.</p>
+<div class="row">
+<div><label for="host">Adresse IPv4 du VPS</label><input id="host" inputmode="decimal" value="31.56.85.53" autocomplete="off" spellcheck="false"></div>
+<div><label for="port">Port SSH</label><input id="port" type="number" min="1" max="65535" value="22"></div>
+</div>
+<div class="row user">
+<div><label for="username">Utilisateur</label><input id="username" value="root" autocomplete="username" spellcheck="false"></div>
+<div><label for="password">Mot de passe SSH du serveur</label><input id="password" type="password" autocomplete="off" spellcheck="false" placeholder="Saisir directement ici"></div>
+</div>
+<div class="actions"><button id="probe" type="button" class="secondary">1 · Vérifier l'identité SSH</button><button id="connect" type="button" disabled>2 · Tester la connexion</button></div>
+<div id="fingerprint-panel">
+<p><strong>Empreinte publique du serveur</strong></p>
+<p class="mono" id="fingerprint"></p>
+<label><input id="confirm-fingerprint" type="checkbox">J'ai comparé cette empreinte à celle fournie par mon hébergeur et je confirme qu'elle appartient à mon VPS.</label>
+<p class="hint">Une empreinte non vérifiée peut permettre à un serveur imposteur de récupérer le mot de passe. Vérifie-la auprès du fournisseur, par exemple via la console ou les informations SSH officielles.</p>
+</div>
+<p id="status" class="status" aria-live="polite">Prêt. Vérifie d'abord l'identité SSH du VPS.</p>
+</div>
+<div class="panel">
+<h2>2. Terminal de commandes</h2>
+<p class="hint">Les commandes s'exécutent individuellement. Le répertoire courant et les variables de session ne sont pas conservés entre deux commandes. Utilise <code>cd /dossier && commande</code> lorsque nécessaire.</p>
+<label for="command">Commande Linux</label>
+<textarea id="command" spellcheck="false" autocapitalize="off" autocomplete="off">whoami && hostname && uptime</textarea>
+<div class="actions"><button id="run" type="button" disabled>Exécuter sur le VPS</button><button id="clear" type="button" class="secondary">Effacer le résultat</button></div>
+<label>Résultat</label><pre id="output" aria-live="polite">Aucune commande exécutée.</pre>
+</div>
+<footer>Accès réservé au propriétaire du serveur. N'entre jamais ton mot de passe dans un chat, une capture ou un dépôt GitHub. Connexion HTTPS vers Vercel puis SSH vers le VPS ; les identifiants restent en mémoire le temps de la requête.</footer>
+</main>
+</body>
+</html>
