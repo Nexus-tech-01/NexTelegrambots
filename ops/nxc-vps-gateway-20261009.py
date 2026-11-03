@@ -445,18 +445,62 @@ class Handler(BaseHTTPRequestHandler):
         if path=="/api/nxc/login" and method=="POST":
             if not self.local_origin(): return self.send(403,{"error":"invalid_origin"})
             if not allowed(self.ip(),"login",6,300): return self.send(429,{"error":"too_many_attempts"})
-            p=self.read_json(600)
+            p=self.read_json(1000)
             if not validate_password(p.get("password")): return self.send(401,{"error":"identifiants_invalides"})
+            label=str(p.get("deviceName") or "Appareil NexControl").strip()
+            kind=str(p.get("deviceType") or "web").strip()
+            if not 2<=len(label)<=55 or any(ord(c)<32 for c in label):
+                return self.send(400,{"error":"invalid_device_name"})
+            if kind not in ("desktop","mobile","tablet","web"):
+                return self.send(400,{"error":"invalid_device_type"})
+            now=int(time.time());existing=self.current_device()
             token=secrets.token_hex(32)
+            cookies=[("Set-Cookie","__Host-nxc_sid="+token+"; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800")]
             with connection() as d:
-                d.execute("DELETE FROM sessions WHERE expires<?",(int(time.time()),))
-                d.execute("INSERT INTO sessions(hash,expires) VALUES (?,?)",
-                    (hashlib.sha256(token.encode()).hexdigest(),int(time.time())+8*3600))
-            audit("admin.login")
-            return self.send(200,{"ok":True},{"Set-Cookie":"__Host-nxc_sid="+token+"; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800"})
+                d.execute("BEGIN IMMEDIATE")
+                if existing:
+                    device_id=existing
+                    d.execute("UPDATE devices SET label=?,kind=?,last_seen=?,last_ip=?,user_agent=? WHERE id=?",
+                        (label,kind,now,self.ip(),self.headers.get("User-Agent","")[:180],device_id))
+                else:
+                    if d.execute("SELECT count(*) FROM devices WHERE revoked=0").fetchone()[0]>=32:
+                        return self.send(409,{"error":"device_limit_reached"})
+                    device_id=secrets.token_hex(16)
+                    device_secret=secrets.token_hex(32)
+                    d.execute("INSERT INTO devices(id,token_hash,label,kind,created,last_seen,last_ip,user_agent) VALUES (?,?,?,?,?,?,?,?)",
+                      (device_id,hashlib.sha256(device_secret.encode()).hexdigest(),label,kind,now,now,self.ip(),self.headers.get("User-Agent","")[:180]))
+                    cookies.append(("Set-Cookie","__Host-nxc_device="+device_id+"."+device_secret+"; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=7776000"))
+                d.execute("DELETE FROM sessions WHERE expires<?",(now,))
+                d.execute("INSERT INTO sessions(hash,expires,device_id) VALUES (?,?,?)",
+                    (hashlib.sha256(token.encode()).hexdigest(),now+8*3600,device_id))
+                d.execute("COMMIT")
+            audit("admin.login.device",device_id+":"+kind)
+            return self.send(200,{"ok":True,"deviceId":device_id},cookies)
         if path.startswith("/api/nxc/"):
             if not self.admin(): return self.send(401,{"error":"connexion_requise"})
             if method=="POST" and not self.local_origin(): return self.send(403,{"error":"invalid_origin"})
+            if path=="/api/nxc/devices" and method=="GET":
+                current=self.current_device()
+                with connection() as d:
+                    rows=d.execute("SELECT id,label,kind,created,last_seen FROM devices WHERE revoked=0 ORDER BY last_seen DESC").fetchall()
+                return self.send(200,{"devices":[{"id":x["id"],"label":x["label"],"kind":x["kind"],"created":x["created"],
+                    "lastSeen":x["last_seen"],"current":x["id"]==current} for x in rows]})
+            if path=="/api/nxc/devices/revoke" and method=="POST":
+                p=self.read_json(256)
+                device_id=str(p.get("id") or "")
+                if not re.fullmatch(r"[0-9a-f]{32}",device_id): return self.send(400,{"error":"invalid_device_id"})
+                is_current=device_id==self.current_device()
+                with connection() as d:
+                    d.execute("BEGIN IMMEDIATE")
+                    cur=d.execute("UPDATE devices SET revoked=1 WHERE id=? AND revoked=0",(device_id,))
+                    d.execute("DELETE FROM sessions WHERE device_id=?",(device_id,))
+                    d.execute("COMMIT")
+                audit("device.revoke",device_id)
+                headers=[]
+                if is_current:
+                    headers=[("Set-Cookie","__Host-nxc_sid=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0"),
+                        ("Set-Cookie","__Host-nxc_device=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0")]
+                return self.send(200,{"ok":cur.rowcount>0},headers)
             if path=="/api/nxc/access" and method=="GET":
                 with connection() as d:
                     rows=d.execute("SELECT id,label,role,created,expires,last_used FROM assistant_keys WHERE revoked=0 AND expires>? ORDER BY created DESC",(int(time.time()),)).fetchall()
@@ -508,6 +552,10 @@ class Handler(BaseHTTPRequestHandler):
                 audit("host.job",kind)
                 return self.send(202,{"ok":True,"jobId":job_id})
             if path=="/api/nxc/logout" and method=="POST":
+                m=re.search(r"(?:^|;\\s*)__Host-nxc_sid=([a-f0-9]{64})(?:;|$)",self.headers.get("Cookie",""))
+                if m:
+                    with connection() as d:
+                        d.execute("DELETE FROM sessions WHERE hash=?",(hashlib.sha256(m.group(1).encode()).hexdigest(),))
                 return self.send(200,{"ok":True},{"Set-Cookie":"__Host-nxc_sid=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0"})
             if path=="/api/nxc/status" and method=="GET":
                 with connection() as d:
