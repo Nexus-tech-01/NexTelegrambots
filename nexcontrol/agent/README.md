@@ -35,7 +35,8 @@ Priority order:
 3. `NEXCONTROL_BASE_URL`
 4. `controlUrls` from the agent config
 5. legacy `controlUrl`
-6. built-in Supabase NexControl fallback
+
+The agent **does not** include or call a built-in Supabase fallback. URLs ending in `.supabase.co` are ignored. Set `NEXCONTROL_VPS_ONLY=1` on the VPS to force an exclusive connection to `http://127.0.0.1:18731`, regardless of previously configured URLs. This makes the agent independent of Supabase and Vercel.
 
 Every agent request also sends `x-nexcontrol-path`, so the same runtime works both behind the Vercel proxy and directly against the Supabase Edge Function. After failover, the agent periodically retries the primary endpoint (default: 5 minutes; override with `NEXCONTROL_PRIMARY_REPROBE_MS`).
 
