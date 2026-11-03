@@ -1,0 +1,32 @@
+name: NexControl external VPS SSH reachability diagnostic
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/nxc-vps-ssh-reachability.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check SSH banner and recovery service from GitHub-hosted runner
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import socket
+          host = '31.56.85.53'
+          for port in (22, 443, 9090):
+              try:
+                  with socket.create_connection((host,port), timeout=6) as sock:
+                      sock.settimeout(5)
+                      if port == 22:
+                          banner = sock.recv(100).decode('ascii','replace').strip()
+                          print('PORT_22_STATUS=' + ('SSH_BANNER_OK' if banner.startswith('SSH-2.0-') else 'OPEN_UNEXPECTED_BANNER'))
+                      else:
+                          print('PORT_%d_STATUS=TCP_OPEN' % port)
+              except (OSError,TimeoutError) as err:
+                  print('PORT_%d_STATUS=%s' % (port,type(err).__name__))
+          PY
