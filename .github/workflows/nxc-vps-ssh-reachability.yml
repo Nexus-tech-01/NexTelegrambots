@@ -30,6 +30,11 @@ jobs:
               except (OSError,TimeoutError) as err:
                   print('PORT_%d_STATUS=%s' % (port,type(err).__name__))
           PY
+      - name: Show public SSH host key fingerprints without authenticating
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh-keyscan -T 8 -p 22 31.56.85.53 2>/dev/null | ssh-keygen -lf -
       - name: Read public SSH host-key fingerprint from independent runner
         run: |
           set -euo pipefail
