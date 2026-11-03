@@ -33,6 +33,13 @@ def initialize():
     with connection() as d:
         d.executescript("""
         CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, expires INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS devices (
+          id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE,
+          label TEXT NOT NULL, kind TEXT NOT NULL,
+          created INTEGER NOT NULL, last_seen INTEGER NOT NULL,
+          last_ip TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '',
+          revoked INTEGER NOT NULL DEFAULT 0);
+        CREATE INDEX IF NOT EXISTS devices_active ON devices(revoked,last_seen);
         CREATE TABLE IF NOT EXISTS agents (
           slug TEXT PRIMARY KEY, last_seen INTEGER NOT NULL, details TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS jobs (
@@ -62,6 +69,10 @@ def initialize():
         columns={row["name"] for row in d.execute("PRAGMA table_info(assistant_keys)")}
         if "role" not in columns:
             d.execute("ALTER TABLE assistant_keys ADD COLUMN role TEXT NOT NULL DEFAULT 'observer'")
+        session_cols={row["name"] for row in d.execute("PRAGMA table_info(sessions)")}
+        if "device_id" not in session_cols:
+            d.execute("ALTER TABLE sessions ADD COLUMN device_id TEXT")
+        d.execute("CREATE INDEX IF NOT EXISTS sessions_device_id ON sessions(device_id)")
 
 def audit(action, detail=""):
     with connection() as d:
@@ -184,7 +195,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control","no-store")
         self.send_header("X-Content-Type-Options","nosniff")
         if headers:
-            for k,v in headers.items(): self.send_header(k,v)
+            for k,v in (headers.items() if isinstance(headers,dict) else headers): self.send_header(k,v)
         self.send_header("Content-Length",str(len(out)))
         self.end_headers()
         self.wfile.write(out)
@@ -207,13 +218,30 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(x,dict): raise ValueError("invalid_json")
         return x
 
+    def current_device(self):
+        match=re.search(r"(?:^|;\\s*)__Host-nxc_device=([a-f0-9]{32})\\.([a-f0-9]{64})(?:;|$)",self.headers.get("Cookie",""))
+        if not match: return None
+        dev_id,secret=match.group(1),match.group(2)
+        with connection() as d:
+            record=d.execute("SELECT token_hash FROM devices WHERE id=? AND revoked=0",(dev_id,)).fetchone()
+        if not record or not hmac.compare_digest(record["token_hash"],hashlib.sha256(secret.encode()).hexdigest()):
+            return None
+        return dev_id
+
     def admin(self):
-        m=re.search(r"(?:^|;\s*)__Host-nxc_sid=([a-f0-9]{64})(?:;|$)",self.headers.get("Cookie",""))
+        m=re.search(r"(?:^|;\\s*)__Host-nxc_sid=([a-f0-9]{64})(?:;|$)",self.headers.get("Cookie",""))
         if not m: return False
         digest=hashlib.sha256(m.group(1).encode()).hexdigest()
         with connection() as d:
-            row=d.execute("SELECT expires FROM sessions WHERE hash=?",(digest,)).fetchone()
-        return bool(row and row["expires"]>time.time())
+            row=d.execute("SELECT expires,device_id FROM sessions WHERE hash=?",(digest,)).fetchone()
+        if not row or row["expires"]<=time.time(): return False
+        # Older eight-hour sessions remain valid until their natural expiry.
+        if row["device_id"] is not None:
+            if row["device_id"]!=self.current_device(): return False
+            with connection() as d:
+                d.execute("UPDATE devices SET last_seen=?,last_ip=? WHERE id=? AND last_seen<?",
+                          (int(time.time()),self.ip(),row["device_id"],int(time.time())-60))
+        return True
 
     def local_origin(self):
         # Trust the dedicated, reviewed Vercel static UI without accepting
