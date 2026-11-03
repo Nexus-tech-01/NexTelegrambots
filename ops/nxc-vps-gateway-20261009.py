@@ -33,6 +33,13 @@ def initialize():
     with connection() as d:
         d.executescript("""
         CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, expires INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS devices (
+          id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE,
+          label TEXT NOT NULL, kind TEXT NOT NULL,
+          created INTEGER NOT NULL, last_seen INTEGER NOT NULL,
+          last_ip TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '',
+          revoked INTEGER NOT NULL DEFAULT 0);
+        CREATE INDEX IF NOT EXISTS devices_active ON devices(revoked,last_seen);
         CREATE TABLE IF NOT EXISTS agents (
           slug TEXT PRIMARY KEY, last_seen INTEGER NOT NULL, details TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS jobs (
@@ -62,6 +69,10 @@ def initialize():
         columns={row["name"] for row in d.execute("PRAGMA table_info(assistant_keys)")}
         if "role" not in columns:
             d.execute("ALTER TABLE assistant_keys ADD COLUMN role TEXT NOT NULL DEFAULT 'observer'")
+        session_cols={row["name"] for row in d.execute("PRAGMA table_info(sessions)")}
+        if "device_id" not in session_cols:
+            d.execute("ALTER TABLE sessions ADD COLUMN device_id TEXT")
+        d.execute("CREATE INDEX IF NOT EXISTS sessions_device_id ON sessions(device_id)")
 
 def audit(action, detail=""):
     with connection() as d:
@@ -126,11 +137,12 @@ def dashboard():
     .scroll{overflow:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#0b1422;padding:16px;border-radius:14px;font:12px ui-monospace,monospace}
     .ok{color:#77e6ba}.bad{color:#ffac93}small{color:var(--muted)}
     </style></head><body><main><header><div><small>VPS FIRST · AUCUNE EDGE FUNCTION</small><h1>NexControl</h1><p>Console autonome · supervision et diagnostics</p></div><a href="/nexai/">NexAI Connect ↗</a></header>
-    <div id="login" class="panel" style="max-width:440px"><h2>Accès administrateur</h2><form id="loginForm"><label>Mot de passe</label><input name="password" type="password" autocomplete="current-password" required><button>Se connecter</button></form><p id="loginMsg"></p></div>
+    <div id="login" class="panel" style="max-width:440px"><h2>Accès administrateur</h2><form id="loginForm"><label>Mot de passe NexControl</label><input name="password" type="password" autocomplete="current-password" required><label>Nom de cet appareil</label><input name="deviceName" placeholder="Mon PC ou Mon téléphone" maxlength="55" required><label>Type d'appareil</label><select name="deviceType"><option value="desktop">Ordinateur</option><option value="mobile">Téléphone</option><option value="tablet">Tablette</option><option value="web">Navigateur</option></select><button>Se connecter et identifier cet appareil</button></form><p id="loginMsg"></p></div>
     <div id="board" hidden><div class="grid"><div class="panel">Serveur<div class="metric" id="server">—</div></div>
     <div class="panel">RAM disponible<div class="metric" id="memory">—</div></div><div class="panel">Agent principal<div class="metric" id="agent">—</div></div>
     <div class="panel">Agent hôte<div class="metric" id="host">—</div></div></div>
     <div class="panel"><h2>Services NexTech</h2><div class="scroll"><table><thead><tr><th>Service</th><th>État</th></tr></thead><tbody id="services"></tbody></table></div></div>
+    <div class="panel"><h2>Appareils autorisés</h2><p>Chaque appareil possède une identité unique. Révoquer l'un d'eux n'interrompt pas les autres.</p><div class="scroll"><table><thead><tr><th>Appareil</th><th>Type</th><th>Dernière activité</th><th>Action</th></tr></thead><tbody id="devices"></tbody></table></div></div>
     <div class="panel"><h2>Accès assistant · permissions limitées</h2><p>Clés temporaires : consultation (6 heures) ou opérateur (30 minutes, redémarrage de deux agents de supervision seulement). Jamais d'accès SSH ni de commandes arbitraires. Ne partagez pas les clés dans une conversation.</p>
     <button id="keyCreate">Créer une clé de lecture</button><button id="keyOperate">Autoriser l’opérateur (30 min)</button><p id="keyNotice"></p><pre id="keyOnce" hidden></pre>
     <div class="scroll"><table><thead><tr><th>Clé</th><th>Rôle</th><th>Expiration</th><th>Révoquer</th></tr></thead><tbody id="accessKeys"></tbody></table></div></div>
@@ -146,14 +158,25 @@ def dashboard():
     $('services').replaceChildren(...a.services.map(x=>{const row=document.createElement('tr'),name=document.createElement('td'),state=document.createElement('td');name.textContent=x.name;state.textContent=x.active+'/'+x.sub;state.className=x.active==='active'?'ok':'bad';row.append(name,state);return row}));
     const jobs=await req('/api/nxc/jobs');$('result').textContent=JSON.stringify(jobs.jobs,null,2);
     const hostJobs=await req('/api/nxc/host/jobs');$('hostResult').textContent=JSON.stringify(hostJobs.jobs,null,2);
+    const registered=await req('/api/nxc/devices');
+    $('devices').replaceChildren(...registered.devices.map(x=>{
+       const row=document.createElement('tr'),label=document.createElement('td'),kind=document.createElement('td'),activity=document.createElement('td'),actions=document.createElement('td'),revoke=document.createElement('button');
+       label.textContent=x.label+(x.current?' (cet appareil)':'');kind.textContent=x.kind;
+       activity.textContent=new Date(x.lastSeen*1000).toLocaleString();
+       revoke.textContent='Révoquer';revoke.onclick=async()=>{if(!confirm('Révoquer '+x.label+' ? Ses sessions seront désactivées immédiatement.'))return;
+         await req('/api/nxc/devices/revoke',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:x.id})});await refresh()};
+       actions.append(revoke);row.append(label,kind,activity,actions);return row}));
     const access=await req('/api/nxc/access');$('accessKeys').replaceChildren(...access.keys.map(x=>{
        const row=document.createElement('tr'),name=document.createElement('td'),role=document.createElement('td'),expiry=document.createElement('td'),action=document.createElement('td'),button=document.createElement('button');
        name.textContent=x.label;role.textContent=x.role;expiry.textContent=new Date(x.expires*1000).toLocaleString();
        button.textContent='Révoquer';button.onclick=async()=>{if(!confirm('Révoquer cette clé ?'))return;await req('/api/nxc/access/revoke',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:x.id})});await refresh()};
        action.append(button);row.append(name,role,expiry,action);return row}));
     }catch(e){$('board').hidden=true;$('login').hidden=false;$('loginMsg').textContent=e.message}}
-    $('loginForm').onsubmit=async e=>{e.preventDefault();try{await req('/api/nxc/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:e.target.password.value})});e.target.password.value='';await refresh()}catch(ex){$('loginMsg').textContent=ex.message}};
+    $('loginForm').onsubmit=async e=>{e.preventDefault();try{await req('/api/nxc/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:e.target.elements.password.value,deviceName:e.target.elements.deviceName.value,deviceType:e.target.elements.deviceType.value})});e.target.password.value='';await refresh()}catch(ex){$('loginMsg').textContent=ex.message}};
     $('refresh').onclick=refresh;
+    {const form=$('loginForm'),mobile=/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+     form.elements.deviceType.value=mobile?'mobile':'desktop';
+     form.elements.deviceName.value=mobile?'Téléphone HONTYX':'PC HONTYX';}
     async function issueKey(role){try{
        if(role==='operator'&&!confirm('Autoriser pendant 30 min le redémarrage des deux agents de supervision NexControl/NexForge ? Aucun shell ni action sur les bots.'))return;
        const x=await req('/api/nxc/access/issue',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({label:role==='operator'?'ChatGPT operator':'ChatGPT observer',role})});
@@ -184,7 +207,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control","no-store")
         self.send_header("X-Content-Type-Options","nosniff")
         if headers:
-            for k,v in headers.items(): self.send_header(k,v)
+            for k,v in (headers.items() if isinstance(headers,dict) else headers): self.send_header(k,v)
         self.send_header("Content-Length",str(len(out)))
         self.end_headers()
         self.wfile.write(out)
@@ -207,13 +230,30 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(x,dict): raise ValueError("invalid_json")
         return x
 
+    def current_device(self):
+        match=re.search(r"(?:^|;\s*)__Host-nxc_device=([a-f0-9]{32})\.([a-f0-9]{64})(?:;|$)",self.headers.get("Cookie",""))
+        if not match: return None
+        dev_id,secret=match.group(1),match.group(2)
+        with connection() as d:
+            record=d.execute("SELECT token_hash FROM devices WHERE id=? AND revoked=0",(dev_id,)).fetchone()
+        if not record or not hmac.compare_digest(record["token_hash"],hashlib.sha256(secret.encode()).hexdigest()):
+            return None
+        return dev_id
+
     def admin(self):
         m=re.search(r"(?:^|;\s*)__Host-nxc_sid=([a-f0-9]{64})(?:;|$)",self.headers.get("Cookie",""))
         if not m: return False
         digest=hashlib.sha256(m.group(1).encode()).hexdigest()
         with connection() as d:
-            row=d.execute("SELECT expires FROM sessions WHERE hash=?",(digest,)).fetchone()
-        return bool(row and row["expires"]>time.time())
+            row=d.execute("SELECT expires,device_id FROM sessions WHERE hash=?",(digest,)).fetchone()
+        if not row or row["expires"]<=time.time(): return False
+        # Older eight-hour sessions remain valid until their natural expiry.
+        if row["device_id"] is not None:
+            if row["device_id"]!=self.current_device(): return False
+            with connection() as d:
+                d.execute("UPDATE devices SET last_seen=?,last_ip=? WHERE id=? AND last_seen<?",
+                          (int(time.time()),self.ip(),row["device_id"],int(time.time())-60))
+        return True
 
     def local_origin(self):
         # Trust the dedicated, reviewed Vercel static UI without accepting
@@ -417,18 +457,62 @@ class Handler(BaseHTTPRequestHandler):
         if path=="/api/nxc/login" and method=="POST":
             if not self.local_origin(): return self.send(403,{"error":"invalid_origin"})
             if not allowed(self.ip(),"login",6,300): return self.send(429,{"error":"too_many_attempts"})
-            p=self.read_json(600)
+            p=self.read_json(1000)
             if not validate_password(p.get("password")): return self.send(401,{"error":"identifiants_invalides"})
+            label=str(p.get("deviceName") or "Appareil NexControl").strip()
+            kind=str(p.get("deviceType") or "web").strip()
+            if not 2<=len(label)<=55 or any(ord(c)<32 for c in label):
+                return self.send(400,{"error":"invalid_device_name"})
+            if kind not in ("desktop","mobile","tablet","web"):
+                return self.send(400,{"error":"invalid_device_type"})
+            now=int(time.time());existing=self.current_device()
             token=secrets.token_hex(32)
+            cookies=[("Set-Cookie","__Host-nxc_sid="+token+"; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800")]
             with connection() as d:
-                d.execute("DELETE FROM sessions WHERE expires<?",(int(time.time()),))
-                d.execute("INSERT INTO sessions(hash,expires) VALUES (?,?)",
-                    (hashlib.sha256(token.encode()).hexdigest(),int(time.time())+8*3600))
-            audit("admin.login")
-            return self.send(200,{"ok":True},{"Set-Cookie":"__Host-nxc_sid="+token+"; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800"})
+                d.execute("BEGIN IMMEDIATE")
+                if existing:
+                    device_id=existing
+                    d.execute("UPDATE devices SET label=?,kind=?,last_seen=?,last_ip=?,user_agent=? WHERE id=?",
+                        (label,kind,now,self.ip(),self.headers.get("User-Agent","")[:180],device_id))
+                else:
+                    if d.execute("SELECT count(*) FROM devices WHERE revoked=0").fetchone()[0]>=32:
+                        return self.send(409,{"error":"device_limit_reached"})
+                    device_id=secrets.token_hex(16)
+                    device_secret=secrets.token_hex(32)
+                    d.execute("INSERT INTO devices(id,token_hash,label,kind,created,last_seen,last_ip,user_agent) VALUES (?,?,?,?,?,?,?,?)",
+                      (device_id,hashlib.sha256(device_secret.encode()).hexdigest(),label,kind,now,now,self.ip(),self.headers.get("User-Agent","")[:180]))
+                    cookies.append(("Set-Cookie","__Host-nxc_device="+device_id+"."+device_secret+"; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=7776000"))
+                d.execute("DELETE FROM sessions WHERE expires<?",(now,))
+                d.execute("INSERT INTO sessions(hash,expires,device_id) VALUES (?,?,?)",
+                    (hashlib.sha256(token.encode()).hexdigest(),now+8*3600,device_id))
+                d.execute("COMMIT")
+            audit("admin.login.device",device_id+":"+kind)
+            return self.send(200,{"ok":True,"deviceId":device_id},cookies)
         if path.startswith("/api/nxc/"):
             if not self.admin(): return self.send(401,{"error":"connexion_requise"})
             if method=="POST" and not self.local_origin(): return self.send(403,{"error":"invalid_origin"})
+            if path=="/api/nxc/devices" and method=="GET":
+                current=self.current_device()
+                with connection() as d:
+                    rows=d.execute("SELECT id,label,kind,created,last_seen FROM devices WHERE revoked=0 ORDER BY last_seen DESC").fetchall()
+                return self.send(200,{"devices":[{"id":x["id"],"label":x["label"],"kind":x["kind"],"created":x["created"],
+                    "lastSeen":x["last_seen"],"current":x["id"]==current} for x in rows]})
+            if path=="/api/nxc/devices/revoke" and method=="POST":
+                p=self.read_json(256)
+                device_id=str(p.get("id") or "")
+                if not re.fullmatch(r"[0-9a-f]{32}",device_id): return self.send(400,{"error":"invalid_device_id"})
+                is_current=device_id==self.current_device()
+                with connection() as d:
+                    d.execute("BEGIN IMMEDIATE")
+                    cur=d.execute("UPDATE devices SET revoked=1 WHERE id=? AND revoked=0",(device_id,))
+                    d.execute("DELETE FROM sessions WHERE device_id=?",(device_id,))
+                    d.execute("COMMIT")
+                audit("device.revoke",device_id)
+                headers=[]
+                if is_current:
+                    headers=[("Set-Cookie","__Host-nxc_sid=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0"),
+                        ("Set-Cookie","__Host-nxc_device=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0")]
+                return self.send(200,{"ok":cur.rowcount>0},headers)
             if path=="/api/nxc/access" and method=="GET":
                 with connection() as d:
                     rows=d.execute("SELECT id,label,role,created,expires,last_used FROM assistant_keys WHERE revoked=0 AND expires>? ORDER BY created DESC",(int(time.time()),)).fetchall()
@@ -480,6 +564,10 @@ class Handler(BaseHTTPRequestHandler):
                 audit("host.job",kind)
                 return self.send(202,{"ok":True,"jobId":job_id})
             if path=="/api/nxc/logout" and method=="POST":
+                m=re.search(r"(?:^|;\\s*)__Host-nxc_sid=([a-f0-9]{64})(?:;|$)",self.headers.get("Cookie",""))
+                if m:
+                    with connection() as d:
+                        d.execute("DELETE FROM sessions WHERE hash=?",(hashlib.sha256(m.group(1).encode()).hexdigest(),))
                 return self.send(200,{"ok":True},{"Set-Cookie":"__Host-nxc_sid=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0"})
             if path=="/api/nxc/status" and method=="GET":
                 with connection() as d:
