@@ -137,11 +137,12 @@ def dashboard():
     .scroll{overflow:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#0b1422;padding:16px;border-radius:14px;font:12px ui-monospace,monospace}
     .ok{color:#77e6ba}.bad{color:#ffac93}small{color:var(--muted)}
     </style></head><body><main><header><div><small>VPS FIRST · AUCUNE EDGE FUNCTION</small><h1>NexControl</h1><p>Console autonome · supervision et diagnostics</p></div><a href="/nexai/">NexAI Connect ↗</a></header>
-    <div id="login" class="panel" style="max-width:440px"><h2>Accès administrateur</h2><form id="loginForm"><label>Mot de passe</label><input name="password" type="password" autocomplete="current-password" required><button>Se connecter</button></form><p id="loginMsg"></p></div>
+    <div id="login" class="panel" style="max-width:440px"><h2>Accès administrateur</h2><form id="loginForm"><label>Mot de passe NexControl</label><input name="password" type="password" autocomplete="current-password" required><label>Nom de cet appareil</label><input name="deviceName" placeholder="Mon PC ou Mon téléphone" maxlength="55" required><label>Type d'appareil</label><select name="deviceType"><option value="desktop">Ordinateur</option><option value="mobile">Téléphone</option><option value="tablet">Tablette</option><option value="web">Navigateur</option></select><button>Se connecter et identifier cet appareil</button></form><p id="loginMsg"></p></div>
     <div id="board" hidden><div class="grid"><div class="panel">Serveur<div class="metric" id="server">—</div></div>
     <div class="panel">RAM disponible<div class="metric" id="memory">—</div></div><div class="panel">Agent principal<div class="metric" id="agent">—</div></div>
     <div class="panel">Agent hôte<div class="metric" id="host">—</div></div></div>
     <div class="panel"><h2>Services NexTech</h2><div class="scroll"><table><thead><tr><th>Service</th><th>État</th></tr></thead><tbody id="services"></tbody></table></div></div>
+    <div class="panel"><h2>Appareils autorisés</h2><p>Chaque appareil possède une identité unique. Révoquer l'un d'eux n'interrompt pas les autres.</p><div class="scroll"><table><thead><tr><th>Appareil</th><th>Type</th><th>Dernière activité</th><th>Action</th></tr></thead><tbody id="devices"></tbody></table></div></div>
     <div class="panel"><h2>Accès assistant · permissions limitées</h2><p>Clés temporaires : consultation (6 heures) ou opérateur (30 minutes, redémarrage de deux agents de supervision seulement). Jamais d'accès SSH ni de commandes arbitraires. Ne partagez pas les clés dans une conversation.</p>
     <button id="keyCreate">Créer une clé de lecture</button><button id="keyOperate">Autoriser l’opérateur (30 min)</button><p id="keyNotice"></p><pre id="keyOnce" hidden></pre>
     <div class="scroll"><table><thead><tr><th>Clé</th><th>Rôle</th><th>Expiration</th><th>Révoquer</th></tr></thead><tbody id="accessKeys"></tbody></table></div></div>
@@ -157,14 +158,25 @@ def dashboard():
     $('services').replaceChildren(...a.services.map(x=>{const row=document.createElement('tr'),name=document.createElement('td'),state=document.createElement('td');name.textContent=x.name;state.textContent=x.active+'/'+x.sub;state.className=x.active==='active'?'ok':'bad';row.append(name,state);return row}));
     const jobs=await req('/api/nxc/jobs');$('result').textContent=JSON.stringify(jobs.jobs,null,2);
     const hostJobs=await req('/api/nxc/host/jobs');$('hostResult').textContent=JSON.stringify(hostJobs.jobs,null,2);
+    const registered=await req('/api/nxc/devices');
+    $('devices').replaceChildren(...registered.devices.map(x=>{
+       const row=document.createElement('tr'),label=document.createElement('td'),kind=document.createElement('td'),activity=document.createElement('td'),actions=document.createElement('td'),revoke=document.createElement('button');
+       label.textContent=x.label+(x.current?' (cet appareil)':'');kind.textContent=x.kind;
+       activity.textContent=new Date(x.lastSeen*1000).toLocaleString();
+       revoke.textContent='Révoquer';revoke.onclick=async()=>{if(!confirm('Révoquer '+x.label+' ? Ses sessions seront désactivées immédiatement.'))return;
+         await req('/api/nxc/devices/revoke',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:x.id})});await refresh()};
+       actions.append(revoke);row.append(label,kind,activity,actions);return row}));
     const access=await req('/api/nxc/access');$('accessKeys').replaceChildren(...access.keys.map(x=>{
        const row=document.createElement('tr'),name=document.createElement('td'),role=document.createElement('td'),expiry=document.createElement('td'),action=document.createElement('td'),button=document.createElement('button');
        name.textContent=x.label;role.textContent=x.role;expiry.textContent=new Date(x.expires*1000).toLocaleString();
        button.textContent='Révoquer';button.onclick=async()=>{if(!confirm('Révoquer cette clé ?'))return;await req('/api/nxc/access/revoke',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:x.id})});await refresh()};
        action.append(button);row.append(name,role,expiry,action);return row}));
     }catch(e){$('board').hidden=true;$('login').hidden=false;$('loginMsg').textContent=e.message}}
-    $('loginForm').onsubmit=async e=>{e.preventDefault();try{await req('/api/nxc/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:e.target.password.value})});e.target.password.value='';await refresh()}catch(ex){$('loginMsg').textContent=ex.message}};
+    $('loginForm').onsubmit=async e=>{e.preventDefault();try{await req('/api/nxc/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:e.target.elements.password.value,deviceName:e.target.elements.deviceName.value,deviceType:e.target.elements.deviceType.value})});e.target.password.value='';await refresh()}catch(ex){$('loginMsg').textContent=ex.message}};
     $('refresh').onclick=refresh;
+    {const form=$('loginForm'),mobile=/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+     form.elements.deviceType.value=mobile?'mobile':'desktop';
+     form.elements.deviceName.value=mobile?'Téléphone HONTYX':'PC HONTYX';}
     async function issueKey(role){try{
        if(role==='operator'&&!confirm('Autoriser pendant 30 min le redémarrage des deux agents de supervision NexControl/NexForge ? Aucun shell ni action sur les bots.'))return;
        const x=await req('/api/nxc/access/issue',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({label:role==='operator'?'ChatGPT operator':'ChatGPT observer',role})});
