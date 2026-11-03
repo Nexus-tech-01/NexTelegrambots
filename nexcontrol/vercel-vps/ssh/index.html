@@ -45,6 +45,16 @@ footer{font-size:12px;color:#7990a4}
 <div class="top"><a class="brand" href="/">◈ NEXCONTROL</a><span class="badge">SSH DIRECT · SANS SUPABASE</span></div>
 <h1>Récupérer mon VPS</h1>
 <p>Accès direct au port SSH de ton serveur, même si l'ancien agent NexControl est hors ligne. Ce formulaire exécute une commande par requête et n'est <strong>pas</strong> une session de terminal interactif persistante.</p>
+<section class="panel" aria-labelledby="setup-title">
+<h2 id="setup-title">Activer l’accès SSH sécurisé</h2>
+<p class="hint">Cette étape se fait <strong>une seule fois dans Vercel</strong>, sans connexion préalable au VPS. Le nouveau code administrateur n'est pas ton mot de passe Linux.</p>
+<div class="actions"><button id="generate-admin" type="button" class="secondary">Générer un code sécurisé</button><button id="copy-admin" type="button" disabled>Copier le code</button></div>
+<label for="new-admin">Code généré sur ton appareil</label>
+<input id="new-admin" type="password" readonly autocomplete="off" spellcheck="false" placeholder="Clique sur « Générer »">
+<p class="hint">1. Copie ce code. 2. Dans les variables de production de Vercel, ajoute <code>NXC_SSH_ADMIN_TOKEN</code> avec cette valeur (type Sensitive). 3. Redéploie le projet. 4. Reviens ici et utilise le code dans le champ « Connexion administrateur ».</p>
+<a href="https://vercel.com/tresordev33-1344s-projects/nexcontrol-nexus-vps/settings/environment-variables" target="_blank" rel="noopener noreferrer">Ouvrir les variables NexControl sur Vercel ↗</a>
+<p id="generate-status" class="hint" aria-live="polite">Le code n'est pas envoyé au serveur tant que tu ne testes pas la connexion. Aucun code n'est conservé après fermeture de cette page.</p>
+</section>
 <div class="panel">
 <h2>1. Connexion administrateur</h2>
 <label for="admin">Code d'accès NexControl SSH</label>

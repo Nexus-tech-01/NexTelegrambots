@@ -9,7 +9,7 @@ La fonction est **désactivée** tant que les deux variables d'environnement
 suivantes ne sont pas renseignées sur le **projet Vercel `nexcontrol-nexus-vps`** :
 
 - `NXC_SSH_ADMIN_TOKEN` : secret aléatoire unique (au moins 32 caractères).
-  Générer localement avec `openssl rand -hex 32`, le mettre dans Vercel comme
+  Générer directement via le bouton de la page `/ssh/` (32 octets cryptographiquement aléatoires) ou localement avec `openssl rand -hex 32`, puis le mettre dans Vercel comme
   variable sensible pour les environnements concernés. Ne pas le coller dans
   des conversations, dépôts, captures ou journaux.
 - `NXC_SSH_ALLOWED_HOSTS` : adresses IPv4 autorisées, séparées par des virgules,
@@ -18,7 +18,7 @@ suivantes ne sont pas renseignées sur le **projet Vercel `nexcontrol-nexus-vps`
 
 **Redéployer le projet Vercel après la configuration.** Vérifier que sa racine
 de déploiement est `nexcontrol/vercel-vps` et qu'il installe `ssh2`.
-Le code doit être revu et testé avant fusion de la branche.
+Après fusion, vérifier le fonctionnement réel avec les identifiants du propriétaire et une empreinte SSH indépendante ; ne pas confondre la validation CI avec un accès fonctionnel au VPS.
 
 Étapes utilisateur :
 1. Ouvrir `https://nexcontrol-nexus-vps.vercel.app/ssh/`.

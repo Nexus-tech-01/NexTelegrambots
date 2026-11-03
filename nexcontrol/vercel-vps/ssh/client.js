@@ -74,4 +74,32 @@
   $('connect').addEventListener('click',()=>exec('whoami && hostname && uptime'));
   $('run').addEventListener('click',()=>exec($('command').value));
   $('clear').addEventListener('click',()=>{$('output').textContent='';});
+  // Secrets are generated locally using the browser CSPRNG, not stored in cookies or localStorage.
+  $('generate-admin').addEventListener('click', () => {
+    if (!globalThis.crypto || typeof globalThis.crypto.getRandomValues !== 'function') {
+      $('generate-status').textContent='Impossible de générer un secret sécurisé : ouvre cette page en HTTPS.';
+      return;
+    }
+    const bytes = new Uint8Array(32);
+    globalThis.crypto.getRandomValues(bytes);
+    const value = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    $('new-admin').value = value;
+    $('admin').value = value;
+    reset();
+    $('copy-admin').disabled = false;
+    $('generate-status').textContent='Code généré uniquement sur ton appareil. Copie-le dans NXC_SSH_ADMIN_TOKEN sur Vercel, puis redéploie.';
+  });
+  $('copy-admin').addEventListener('click', async () => {
+    const value = $('new-admin').value;
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      $('generate-status').textContent='Code copié. Colle-le uniquement dans les variables d’environnement de Vercel.';
+    } catch {
+      $('new-admin').type = 'text';
+      $('new-admin').focus();
+      $('new-admin').select();
+      $('generate-status').textContent='Copie manuellement le code sélectionné, uniquement dans Vercel.';
+    }
+  });
 })();
