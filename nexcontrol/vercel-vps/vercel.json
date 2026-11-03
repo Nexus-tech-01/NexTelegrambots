@@ -49,6 +49,10 @@
   ],
   "rewrites": [
     {
+      "source": "/ssh-connect",
+      "destination": "/api/ssh"
+    },
+    {
       "source": "/healthz",
       "destination": "https://nxc.31-56-85-53.sslip.io/healthz"
     },
