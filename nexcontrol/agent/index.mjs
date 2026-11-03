@@ -11,7 +11,6 @@ const cfgPath=path.resolve(process.env.NEXCONTROL_AGENT_CONFIG||'./nexcontrol/ag
 const cfg=JSON.parse(await fs.readFile(cfgPath,'utf8'));
 const KEY=String(process.env.NEXCONTROL_AGENT_KEY||process.env.NEXCONTROL_FLEET_KEY||'').trim();
 if(!KEY)throw new Error('NEXCONTROL_AGENT_KEY/NEXCONTROL_FLEET_KEY missing');
-const BUILTIN_FALLBACK='https://ojbyvjqurlamplmujmyu.supabase.co/functions/v1/nexcontrol';
 const cleanUrl=value=>String(value||'').trim().replace(/\/$/,'');
 const splitUrls=value=>String(value||'').split(/[\s,;]+/).map(cleanUrl).filter(Boolean);
 const configuredUrls=[
@@ -20,9 +19,9 @@ const configuredUrls=[
   cleanUrl(process.env.NEXCONTROL_BASE_URL),
   ...(Array.isArray(cfg.controlUrls)?cfg.controlUrls.map(cleanUrl):[]),
   cleanUrl(cfg.controlUrl),
-  BUILTIN_FALLBACK,
 ].filter(Boolean);
-const CONTROL_URLS=[...new Set(configuredUrls)].filter(url=>{try{const u=new URL(url);return u.protocol==='https:' || (u.protocol==='http:' && u.hostname==='127.0.0.1' && u.port==='18731' && !u.username && !u.password && !u.search && !u.hash && (u.pathname==='' || u.pathname==='/'));}catch{return false}});
+const VPS_ONLY=process.env.NEXCONTROL_VPS_ONLY==='1';
+const CONTROL_URLS=(VPS_ONLY?['http://127.0.0.1:18731']:[...new Set(configuredUrls)]).filter(url=>{try{const u=new URL(url);if(u.hostname.endsWith('.supabase.co'))return false;return u.protocol==='https:' || (u.protocol==='http:' && u.hostname==='127.0.0.1' && u.port==='18731' && !u.username && !u.password && !u.search && !u.hash && (u.pathname==='' || u.pathname==='/'));}catch{return false}});
 if(!CONTROL_URLS.length)throw new Error('NexControl URL missing');
 let activeControlIndex=0;
 let lastControlSwitchAt=0;
