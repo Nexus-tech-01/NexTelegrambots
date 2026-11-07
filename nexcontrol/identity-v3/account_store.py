@@ -120,7 +120,7 @@ class AccountStore:
                     )
                 for username, role in (("tresor","owner"),("chatgpt","service_root")):
                     row = c.execute("SELECT kind,role,status FROM principals WHERE username=?",(username,)).fetchone()
-                    if row["role"] != role or row["status"] != "active":
+                    if row["role"] != role or row["status"] != "active" or row["kind"] != ("human" if username == "tresor" else "service"):
                         raise IdentityError("reserved_principal_conflict")
         return self.list_principals()
 
@@ -293,11 +293,12 @@ class AccountStore:
                 "SELECT * FROM events ORDER BY timestamp DESC,id DESC LIMIT ?",
                 (max(1,min(int(limit),500)),)).fetchall()]
 
-    def authorize(self, principal_id, capability):
+    def authorize(self, principal_id, capability, *, verified_service_context=False):
         """Service roots must still be authenticated by the independent OIDC boundary."""
         with closing(self._connect()) as c:
             p=c.execute("SELECT kind,role,status FROM principals WHERE id=?",(principal_id,)).fetchone()
         if not p or p["status"]!="active": return False
+        if p["kind"] == "service" and not verified_service_context: return False
         if p["role"] in ("owner","service_root"): return True
         if p["role"]=="admin": return capability not in ("owner.manage","assistant.root","identity.owner")
         if p["role"]=="operator": return capability in ("dashboard.read","service.read","service.restart")
