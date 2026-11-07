@@ -1,0 +1,19 @@
+[Unit]
+Description=NexControl V3: import verified GitHub OIDC root operation metadata into identity audit
+After=nxc-oidc-vps.service
+Wants=nxc-oidc-vps.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/nexcontrol-identity
+ExecStart=/usr/bin/python3 /opt/nexcontrol-identity/sync_oidc_audit.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/nexcontrol-identity
+ReadOnlyPaths=/var/lib/nxc-oidc-vps
+UMask=0077
+TimeoutStartSec=30
