@@ -218,6 +218,32 @@ class _HomeState extends State<Home> {
     finally{_busySet(false);}
   }
 
+  Future<void> _fullAccessInventory() async {
+    if(connected==null || _busy)return;
+    final sudoPassword=TextEditingController();
+    final accepted=await showDialog<bool>(context:context,builder:(dialog)=>AlertDialog(
+      title:const Text('Inventaire complet des accès'),
+      content:SizedBox(width:420,child:Column(mainAxisSize:MainAxisSize.min,children:[
+        const Text('Le VPS demandera une authentification sudo. '
+          'Le mot de passe sera transmis sur la connexion SSH chiffrée, sans être enregistré.'),
+        const SizedBox(height:16),
+        TextField(controller:sudoPassword,obscureText:true,
+          decoration:const InputDecoration(labelText:'Mot de passe sudo')),
+      ])),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(dialog,false),child:const Text('Annuler')),
+        FilledButton(onPressed:()=>Navigator.pop(dialog,true),child:const Text('Afficher les accès')),
+      ],
+    ));
+    if(accepted!=true){sudoPassword.dispose();return;}
+    _busySet(true);
+    try{
+      final report=await connected!.fullAccessInventory(sudoPassword.text);
+      if(mounted)setState(()=>_result=report);
+    }catch(e){_report('Inventaire protégé indisponible : $e');}
+    finally{sudoPassword.clear();sudoPassword.dispose();_busySet(false);}
+  }
+
   Future<void> _addServer() async {
     labelController.text='Mon VPS';
     hostController.clear();portController.text='22';
@@ -427,6 +453,13 @@ class _HomeState extends State<Home> {
         child:Text('Comptes Linux, sessions et relais techniques visibles selon tes droits. '
           'Cette vue ne couvre pas nécessairement tous les accès de l’hébergeur.',
           style:TextStyle(color:Colors.amber.shade200,fontSize:12))),
+      if(_tab==3 && connected!=null)Padding(
+        padding:const EdgeInsets.symmetric(horizontal:18,vertical:8),
+        child:Align(alignment:Alignment.centerLeft,child:FilledButton.icon(
+          onPressed:_busy?null:_fullAccessInventory,
+          icon:const Icon(Icons.admin_panel_settings_outlined),
+          label:const Text('Inventaire complet (sudo)'),
+        ))),
       if(_tab==1 && connected!=null)Padding(padding:const EdgeInsets.all(18),child:Row(children:[
         Expanded(child:TextField(controller:shellCommand,
           decoration:const InputDecoration(labelText:'Commande Linux',hintText:'pwd, ls -lah, systemctl status…'),
