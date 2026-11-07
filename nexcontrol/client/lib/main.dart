@@ -70,7 +70,6 @@ class _HomeState extends State<Home> {
   String _message='';
   bool _busy=false;
   bool _remember=false;
-  bool _serverEditor=false;
   bool _obscure=true;
   bool _initializing=true;
   int _tab=0;
@@ -188,7 +187,7 @@ class _HomeState extends State<Home> {
     _busySet(true);
     try{
       final out=await c.run(command);
-      if(mounted)setState(()=>_result='$ '+command+'\n'+out);
+      if(mounted)setState(()=>_result=r'$ '+command+'\n'+out);
     }catch(e){_report('Commande échouée : $e');}
     finally{_busySet(false);}
   }
@@ -385,7 +384,7 @@ class _HomeState extends State<Home> {
           child:SelectableText(_message,textAlign:TextAlign.center,
             style:const TextStyle(color:Color(0xFFF7C991)))),
       ]))),
-  ));
+  );
 
   Widget _dashboard() {
     final width=MediaQuery.sizeOf(context).width;
