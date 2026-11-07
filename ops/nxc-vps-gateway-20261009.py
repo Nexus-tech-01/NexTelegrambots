@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """NexControl VPS local control plane. No Supabase or Vercel runtime dependency."""
 import hashlib, hmac, html, json, os, re, secrets, shlex, shutil, sqlite3
-import subprocess, sys, threading, time
+import subprocess, sys, threading, time, pwd, grp
 from collections import defaultdict, deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -134,6 +134,73 @@ def account_audit_snapshot():
     finally:
         c.close()
 
+def access_inventory():
+    """Enumerate visible access paths. Authenticated admin route only.
+
+    Metadata, not secrets. Cloud provider consoles, external IAM and delegated
+    credentials outside this host cannot be enumerated here.
+    """
+    now=int(time.time())
+    accounts=[]
+    try:
+        sudo_members=set(grp.getgrnam("sudo").gr_mem)
+    except KeyError:
+        sudo_members=set()
+    try:
+        docker_members=set(grp.getgrnam("docker").gr_mem)
+    except KeyError:
+        docker_members=set()
+    for u in pwd.getpwall():
+        if u.pw_uid!=0 and not (1000<=u.pw_uid<65534):
+            continue
+        auth=Path(u.pw_dir) / ".ssh" / "authorized_keys"
+        count=0
+        if auth.is_file() and not auth.is_symlink():
+            try:
+                count=sum(1 for line in auth.read_text(errors="replace").splitlines()
+                          if line.strip() and not line.lstrip().startswith("#"))
+            except (PermissionError,OSError):
+                count=-1
+        accounts.append({"username":u.pw_name,"uid":u.pw_uid,
+            "sudoMember":u.pw_uid==0 or u.pw_name in sudo_members,
+            "dockerMember":u.pw_name in docker_members,
+            "shell":u.pw_shell,"authorizedKeyEntries":count})
+    accounts.sort(key=lambda item:(item["uid"],item["username"]))
+
+    def rows(path,query,args=()):
+        if not path.is_file(): return []
+        c=sqlite3.connect("file:"+str(path)+"?mode=ro",uri=True,timeout=5)
+        c.row_factory=sqlite3.Row
+        try: return [dict(r) for r in c.execute(query,args).fetchall()]
+        finally:c.close()
+
+    mobile=rows(Path("/var/lib/nexcontrol-mobile/access.sqlite3"),
+      "SELECT k.id,k.label,k.scopes,k.created,k.expires,s.last AS lastSeen "
+      "FROM keys k LEFT JOIN seen s ON s.id=k.id ORDER BY k.created DESC LIMIT 200")
+    for item in mobile:
+        item["active"]=item["expires"]>now
+        try:item["scopes"]=json.loads(item["scopes"])
+        except (ValueError,TypeError):item["scopes"]=[]
+    devices=rows(DB,"SELECT id,label,kind,created,last_seen AS lastSeen,revoked "
+                    "FROM devices ORDER BY last_seen DESC LIMIT 200")
+    assistants=rows(DB,"SELECT id,label,role,created,expires,last_used AS lastUsed,revoked "
+                    "FROM assistant_keys ORDER BY created DESC LIMIT 200")
+    principals=rows(IDENTITY_V3,"SELECT username,kind,role,status,created "
+                    "FROM principals ORDER BY username LIMIT 200")
+    oidc=rows(Path("/var/lib/nxc-oidc-vps/audit.sqlite3"),
+               "SELECT issue,created,action,state FROM operations "
+               "ORDER BY created DESC LIMIT 20")
+    try:
+        who=subprocess.run(["who"],capture_output=True,text=True,timeout=4).stdout.splitlines()[:40]
+    except (OSError,subprocess.TimeoutExpired):
+        who=[]
+    return {"generatedAt":now,"linuxAccounts":accounts,"mobileApiKeys":mobile,
+            "webDevices":devices,"assistantKeys":assistants,
+            "principals":principals,"recentOidcOperations":oidc,
+            "activeLinuxSessions":who,
+            "coverageNote":"Inventaire local : des accès via panneau hébergeur, IAM externe, "
+              "certificats SSH ou autres contrôleurs peuvent exister sans apparaître ici."}
+
 def shell_status():
     r = subprocess.run(["systemctl","list-units","--type=service","--all",
         "--no-pager","--plain","--no-legend"],capture_output=True,text=True,timeout=8)
@@ -172,6 +239,10 @@ def dashboard():
     <p class="muted">Horodatage, auteur technique, canal et résultat. Les secrets et sorties de commandes sont exclus.</p>
     <div class="scroll"><table><thead><tr><th>Heure</th><th>Compte</th><th>Canal</th><th>Action</th><th>Résultat</th></tr></thead>
     <tbody id="identityAuditRows"></tbody></table></div></div>
+    <div class="panel"><h2>Qui a accès au VPS ?</h2><p id="inventoryNotice">Inventaire des comptes Linux, clés API, appareils et relais root…</p>
+    <button id="inventoryRefresh">Actualiser l’inventaire</button>
+    <div class="scroll"><table><thead><tr><th>Identité / accès</th><th>Type</th><th>Autorisation</th><th>État</th></tr></thead><tbody id="inventoryRows"></tbody></table></div>
+    <small>Les accès externes de l’hébergeur et les identités IAM externes nécessitent un audit séparé.</small></div>
     <div class="panel"><h2>Services NexTech</h2><div class="scroll"><table><thead><tr><th>Service</th><th>État</th></tr></thead><tbody id="services"></tbody></table></div></div>
     <div class="panel"><h2>Appareils autorisés</h2><p>Chaque appareil possède une identité unique. Révoquer l'un d'eux n'interrompt pas les autres.</p><div class="scroll"><table><thead><tr><th>Appareil</th><th>Type</th><th>Dernière activité</th><th>Action</th></tr></thead><tbody id="devices"></tbody></table></div></div>
     <div class="panel"><h2>Accès assistant · permissions limitées</h2><p>Clés temporaires : consultation (6 heures) ou opérateur (30 minutes, redémarrage de deux agents de supervision seulement). Jamais d'accès SSH ni de commandes arbitraires. Ne partagez pas les clés dans une conversation.</p>
@@ -193,6 +264,18 @@ def dashboard():
        $('identityRows').replaceChildren(...ident.accounts.map(x=>{const row=document.createElement('tr');for(const v of [x.username,x.kind,x.role,x.status]){const c=document.createElement('td');c.textContent=v;row.append(c)}return row}));
        $('identityAuditRows').replaceChildren(...ident.events.map(x=>{const row=document.createElement('tr');for(const v of [new Date(x.timestamp*1000).toLocaleString(),x.actor,x.channel,x.action,x.outcome]){const c=document.createElement('td');c.textContent=v;row.append(c)}return row}));
     }catch(ex){$('identityState').textContent='Journal momentanément indisponible ('+ex.message+'). Les autres fonctions restent accessibles.';}
+    try{const all=await req('/api/nxc/access/inventory'),rows=[];
+      const add=(who,kind,grant,state)=>{const tr=document.createElement('tr');for(const val of [who,kind,grant,state]){const td=document.createElement('td');td.textContent=String(val);tr.append(td)}rows.push(tr)};
+      for(const x of all.linuxAccounts)add(x.username,'Linux · UID '+x.uid,
+        (x.sudoMember?'sudo · ':'')+(x.dockerMember?'docker · ':'')+x.authorizedKeyEntries+' clé(s) autorisée(s)',x.shell);
+      for(const x of all.principals)add(x.username,'Compte NexControl V3',x.role,x.status);
+      for(const x of all.mobileApiKeys)add(x.label,'Clé API mobile',x.scopes.join(', '),x.active?'active':'expirée');
+      for(const x of all.webDevices)add(x.label,'Appareil web',x.kind,x.revoked?'révoqué':'enregistré');
+      for(const x of all.assistantKeys)add(x.label,'Clé technique',x.role,x.revoked?'révoquée':'enregistrée');
+      add('GitHub OIDC','Relais technique root','Identité de workflow vérifiée',all.recentOidcOperations.length+' opération(s) récentes');
+      $('inventoryRows').replaceChildren(...rows);
+      $('inventoryNotice').textContent=rows.length+' accès et identités observés dans les registres locaux.';
+    }catch(ex){$('inventoryNotice').textContent='Inventaire indisponible : '+ex.message;}
     const jobs=await req('/api/nxc/jobs');$('result').textContent=JSON.stringify(jobs.jobs,null,2);
     const hostJobs=await req('/api/nxc/host/jobs');$('hostResult').textContent=JSON.stringify(hostJobs.jobs,null,2);
     const registered=await req('/api/nxc/devices');
@@ -211,6 +294,7 @@ def dashboard():
     }catch(e){if(e.status===401){$('board').hidden=true;$('login').hidden=false;$('loginMsg').textContent='Session expirée, appareil révoqué ou accès modifié. Reconnecte cet appareil pour rétablir la session.';}else{$('connectionPanel').textContent='Connexion au VPS interrompue ('+e.message+'). Les données affichées peuvent être anciennes. Nouvel essai automatique.';if($('board').hidden)$('loginMsg').textContent='Le VPS est temporairement indisponible. Réessai automatique sans effacer ton appareil.';}}}
     $('loginForm').onsubmit=async e=>{e.preventDefault();try{await req('/api/nxc/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:e.target.elements.password.value,deviceName:e.target.elements.deviceName.value,deviceType:e.target.elements.deviceType.value})});e.target.password.value='';await refresh()}catch(ex){$('loginMsg').textContent=ex.message}};
     $('refresh').onclick=refresh;
+    $('inventoryRefresh').onclick=refresh;
     {const form=$('loginForm'),mobile=/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
      form.elements.deviceType.value=mobile?'mobile':'desktop';
      form.elements.deviceName.value=mobile?'Mon téléphone':'Mon ordinateur';}
@@ -531,6 +615,9 @@ class Handler(BaseHTTPRequestHandler):
             if path=="/api/nxc/identity/v3" and method=="GET":
                 try: return self.send(200,account_audit_snapshot())
                 except sqlite3.Error: return self.send(503,{"error":"identity_audit_temporarily_unavailable"})
+            if path=="/api/nxc/access/inventory" and method=="GET":
+                try:return self.send(200,access_inventory())
+                except (sqlite3.Error,OSError):return self.send(503,{"error":"inventory_unavailable"})
             if path=="/api/nxc/devices" and method=="GET":
                 current=self.current_device()
                 with connection() as d:
