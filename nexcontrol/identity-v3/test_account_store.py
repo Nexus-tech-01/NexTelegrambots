@@ -34,6 +34,12 @@ class IdentityTests(unittest.TestCase):
         self.assertTrue(self.store.authorize(self.owner["id"],"root.shell"))
         self.store.bootstrap()
         self.assertEqual(len(self.store.list_principals()),2)
+        binding=self.store.resolve_external(
+            "github-oidc-workflow",
+            "Tresor562/Nexus-lab/.github/workflows/nxc-vps-commands.yml@refs/heads/main#actor_id=232972883")
+        self.assertEqual(binding["id"],self.service["id"])
+        self.assertIsNone(self.store.resolve_external("github-oidc-workflow","unverified-actor"))
+
 
     def test_owner_password_and_human_roles(self):
         self.store.set_owner_password(PASS)
