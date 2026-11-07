@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'nexcontrol/identity-v3/**'
+      - 'ops/nxc-vps-gateway-20261009.py'
       - '.github/workflows/nexcontrol-identity-v3-ci.yml'
   workflow_dispatch:
 permissions:
@@ -17,5 +18,19 @@ jobs:
           persist-credentials: false
       - name: Python syntax check
         run: python3 -m py_compile nexcontrol/identity-v3/account_store.py nexcontrol/identity-v3/test_account_store.py
+      - name: Audit dashboard Python and browser JavaScript syntax
+        run: |
+          python3 -m py_compile ops/nxc-vps-gateway-20261009.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          src=Path('ops/nxc-vps-gateway-20261009.py').read_text()
+          scripts=re.findall(r'<script>\s*(.*?)\s*</script>',src,re.S)
+          assert len(scripts)==1
+          assert 'identityRows' in scripts[0]
+          assert 'identityAuditRows' in scripts[0]
+          Path('/tmp/nxc-dashboard-audit.js').write_text(scripts[0])
+          PY
+          node --check /tmp/nxc-dashboard-audit.js
       - name: Account, device, session and audit tests
         run: python3 -m unittest discover -s nexcontrol/identity-v3 -p 'test_*.py' -v
