@@ -1,0 +1,56 @@
+name: Publish NexControl V3 direct downloads
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/nexcontrol-public-download-release.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Obtain successful NexControl Android Windows build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p files/android files/windows files/public
+          gh run download 42376108251 --repo "$GH_REPO" --name NexControl-V3-Android --dir files/android
+          gh run download 42376108251 --repo "$GH_REPO" --name NexControl-V3-Windows --dir files/windows
+          find files -maxdepth 3 -type f -printf '%p %s bytes\n'
+          for name in NexControl-HONTAVYR-v3-debug.apk NexControl-MultiVPS-v3-debug.apk; do
+            file=$(find files/android -type f -name "$name" -print -quit)
+            test -n "$file" && test -s "$file"
+            cp "$file" files/public/"$name"
+          done
+          for name in NexControl-HONTAVYR-Windows-v3.zip NexControl-MultiVPS-Windows-v3.zip; do
+            file=$(find files/windows -type f -name "$name" -print -quit)
+            test -n "$file" && test -s "$file"
+            cp "$file" files/public/"$name"
+          done
+          (cd files/public && sha256sum *.apk *.zip > SHA256SUMS.txt)
+      - name: Publish permanent public release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag=nexcontrol-v3-test-20261107
+          if gh release view "$tag" --repo "$GH_REPO" >/dev/null 2>&1; then
+            gh release upload "$tag" files/public/* --repo "$GH_REPO" --clobber
+          else
+            gh release create "$tag" files/public/* --repo "$GH_REPO" \
+              --title "NexControl V3 — Android et Windows (versions de test)" \
+              --notes "Téléchargements directs pour Android et Windows. Les variantes HONTAVYR et MultiVPS sont disponibles. Les APK sont des versions debug volumineuses, pour test uniquement. Les applications Windows ne sont pas signées. Les anciens accès NexControl restent actifs. Vérifier la clé d'hôte SSH au premier accès." \
+              --latest=false
+          fi
+          gh release view "$tag" --repo "$GH_REPO" --json url,assets --jq '{url:url,assets:[.assets[].name]}'
