@@ -71,6 +71,22 @@ class IdentityTests(unittest.TestCase):
         with self.assertRaises(IdentityError):
             self.store.register_device(self.service["id"],"ChatGPT laptop","linux",hashlib.sha256(b"other").hexdigest())
 
+    def test_owner_controls_delegated_accounts_and_session_inventory(self):
+        user_id=self.store.create_human("operator7","very-secure-operator-pass-2026",role="viewer")
+        self.assertEqual(self.store.get("operator7")["role"],"viewer")
+        self.store.change_role(self.owner["id"],user_id,"operator")
+        self.assertEqual(self.store.get("operator7")["role"],"operator")
+        with self.assertRaises(IdentityError):
+            self.store.change_role(user_id,self.owner["id"],"viewer")
+        dev=self.store.register_device(user_id,"Android app","android",hashlib.sha256(b"operator-public-key").hexdigest())
+        self.store.issue_tokens(user_id,dev)
+        self.assertEqual(len(self.store.list_devices(user_id)),1)
+        self.assertEqual(len(self.store.list_sessions(user_id)),2)
+        self.assertNotIn("token_hash",self.store.list_sessions(user_id)[0])
+        self.store.suspend_human(self.owner["id"],user_id)
+        self.assertEqual(self.store.get("operator7")["status"],"suspended")
+        self.assertTrue(all(x["revoked"] for x in self.store.list_sessions(user_id)))
+
     def test_audit_is_append_only(self):
         self.store.record(self.service["id"],"github-oidc","root.shell","ok",correlation_id="private-issue-123")
         entries=self.store.recent_events()
