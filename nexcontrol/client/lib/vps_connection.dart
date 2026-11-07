@@ -140,7 +140,7 @@ print(json.dumps(out,ensure_ascii=False,indent=2))
     final stdoutDone=session.stdout.listen((x)=>stdout.add(x)).asFuture<void>();
     final stderrDone=session.stderr.listen((x)=>stderr.add(x)).asFuture<void>();
     try {
-      session.write(utf8.encode(sudoPassword+'\n'));
+      session.write(Uint8List.fromList(utf8.encode(sudoPassword+'\n')));
       await session.stdin.close();
       await session.done.timeout(const Duration(seconds:50));
       await Future.wait([stdoutDone,stderrDone]);
