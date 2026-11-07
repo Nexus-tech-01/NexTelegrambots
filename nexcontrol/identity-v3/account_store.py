@@ -276,6 +276,55 @@ class AccountStore:
                 c.execute("UPDATE sessions SET revoked=1,revoke_reason=? WHERE device_id=?",(reason[:100],device_id))
         self.record(row["principal_id"],"trusted-controller","device.revoke","ok",reason,device_id)
 
+    def list_devices(self, principal_id=None):
+        """Return device metadata, never private keys or session tokens."""
+        with closing(self._connect()) as c:
+            if principal_id:
+                rows=c.execute(
+                    "SELECT id,principal_id,label,platform,created,last_seen,revoked,revoked_reason FROM devices WHERE principal_id=? ORDER BY last_seen DESC",
+                    (principal_id,)
+                ).fetchall()
+            else:
+                rows=c.execute(
+                    "SELECT id,principal_id,label,platform,created,last_seen,revoked,revoked_reason FROM devices ORDER BY last_seen DESC"
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_sessions(self, principal_id=None):
+        """List non-sensitive session metadata for owner dashboard."""
+        with closing(self._connect()) as c:
+            sql="SELECT s.principal_id,s.device_id,s.kind,s.issued,s.expires,s.last_seen,s.revoked,s.revoke_reason FROM sessions s"
+            if principal_id:
+                rows=c.execute(sql+" WHERE s.principal_id=? ORDER BY s.issued DESC LIMIT 500",(principal_id,)).fetchall()
+            else:
+                rows=c.execute(sql+" ORDER BY s.issued DESC LIMIT 500").fetchall()
+        return [dict(row) for row in rows]
+
+    def change_role(self, owner_id, target_id, new_role):
+        """A human owner may change another human user's permissions."""
+        if new_role not in ("admin","operator","viewer"):
+            raise IdentityError("invalid_delegated_role")
+        if not self.authorize(owner_id,"identity.owner"):
+            raise IdentityError("owner_required")
+        with closing(self._connect()) as c:
+            with c:
+                row=c.execute("SELECT username,kind FROM principals WHERE id=?",(target_id,)).fetchone()
+                if not row or row["username"] in ("tresor","chatgpt") or row["kind"]!="human":
+                    raise IdentityError("reserved_principal")
+                c.execute("UPDATE principals SET role=? WHERE id=?",(new_role,target_id))
+        self.record(owner_id,"owner-dashboard","principal.role","ok",correlation_id=target_id)
+
+    def suspend_human(self, owner_id, target_id, reason="owner_suspended"):
+        if not self.authorize(owner_id,"identity.owner"): raise IdentityError("owner_required")
+        with closing(self._connect()) as c:
+            with c:
+                row=c.execute("SELECT username,kind FROM principals WHERE id=?",(target_id,)).fetchone()
+                if not row or row["username"] in ("tresor","chatgpt") or row["kind"]!="human":
+                    raise IdentityError("reserved_principal")
+                c.execute("UPDATE principals SET status='suspended' WHERE id=?",(target_id,))
+                c.execute("UPDATE sessions SET revoked=1,revoke_reason=? WHERE principal_id=?",(reason[:100],target_id))
+        self.record(owner_id,"owner-dashboard","principal.suspend","ok",reason,correlation_id=target_id)
+
     def record(self, actor, channel, action, outcome, reason="", device_id=None, correlation_id=""):
         """No secrets, command bodies, tokens, session content or network addresses."""
         for value,max_len in ((str(actor),100),(channel,60),(action,100),(outcome,40),(reason,160),(correlation_id,100)):
