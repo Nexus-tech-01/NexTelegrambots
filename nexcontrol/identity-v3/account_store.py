@@ -122,6 +122,19 @@ class AccountStore:
                     row = c.execute("SELECT kind,role,status FROM principals WHERE username=?",(username,)).fetchone()
                     if row["role"] != role or row["status"] != "active" or row["kind"] != ("human" if username == "tresor" else "service"):
                         raise IdentityError("reserved_principal_conflict")
+                service=c.execute("SELECT id FROM principals WHERE username='chatgpt'").fetchone()
+                c.execute(
+                    "INSERT OR IGNORE INTO external_bindings(provider,subject,principal_id,created) VALUES(?,?,?,?)",
+                    ("github-oidc-workflow",
+                     "Tresor562/Nexus-lab/.github/workflows/nxc-vps-commands.yml@refs/heads/main#actor_id=232972883",
+                     service["id"], now)
+                )
+                binding=c.execute("SELECT principal_id FROM external_bindings WHERE provider=? AND subject=?",(
+                    "github-oidc-workflow",
+                    "Tresor562/Nexus-lab/.github/workflows/nxc-vps-commands.yml@refs/heads/main#actor_id=232972883"
+                )).fetchone()
+                if binding["principal_id"]!=service["id"]:
+                    raise IdentityError("service_binding_conflict")
         return self.list_principals()
 
     def list_principals(self):
@@ -192,6 +205,16 @@ class AccountStore:
                 c.execute("INSERT INTO external_bindings VALUES(?,?,?,?)",
                           (provider,subject,principal_id,int(time.time())))
         self.record(principal_id,"trusted-controller","identity.link","ok")
+
+    def resolve_external(self, provider, subject):
+        """Use only after trusted controller verifies provider identity externally."""
+        with closing(self._connect()) as c:
+            row=c.execute("""
+                SELECT p.id,p.username,p.kind,p.role
+                  FROM external_bindings e JOIN principals p ON p.id=e.principal_id
+                 WHERE e.provider=? AND e.subject=? AND p.status='active'
+            """,(provider,subject)).fetchone()
+        return dict(row) if row else None
 
     def register_device(self, principal_id, label, platform, public_key_sha256):
         """Only after client proves possession of its public/private key pair."""
