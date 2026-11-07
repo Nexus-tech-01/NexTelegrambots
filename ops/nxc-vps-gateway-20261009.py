@@ -138,7 +138,7 @@ def dashboard():
     .ok{color:#77e6ba}.bad{color:#ffac93}small{color:var(--muted)}
     </style></head><body><main><header><div><small>VPS FIRST · AUCUNE EDGE FUNCTION</small><h1>NexControl</h1><p>Console autonome · supervision et diagnostics</p></div><a href="/nexai/">NexAI Connect ↗</a></header>
     <div id="login" class="panel" style="max-width:440px"><h2>Accès administrateur</h2><form id="loginForm"><label>Mot de passe NexControl</label><input name="password" type="password" autocomplete="current-password" required><label>Nom de cet appareil</label><input name="deviceName" placeholder="Mon PC ou Mon téléphone" maxlength="55" required><label>Type d'appareil</label><select name="deviceType"><option value="desktop">Ordinateur</option><option value="mobile">Téléphone</option><option value="tablet">Tablette</option><option value="web">Navigateur</option></select><button>Se connecter et identifier cet appareil</button></form><p id="loginMsg"></p></div>
-    <div id="board" hidden><div class="grid"><div class="panel">Serveur<div class="metric" id="server">—</div></div>
+    <div id="board" hidden><div class="panel" id="connectionPanel" role="status" aria-live="polite">Connexion au VPS en cours…</div><div class="grid"><div class="panel">Serveur<div class="metric" id="server">—</div></div>
     <div class="panel">RAM disponible<div class="metric" id="memory">—</div></div><div class="panel">Agent principal<div class="metric" id="agent">—</div></div>
     <div class="panel">Agent hôte<div class="metric" id="host">—</div></div></div>
     <div class="panel"><h2>Services NexTech</h2><div class="scroll"><table><thead><tr><th>Service</th><th>État</th></tr></thead><tbody id="services"></tbody></table></div></div>
@@ -151,8 +151,8 @@ def dashboard():
     <p id="notice"></p><pre id="result">Aucun diagnostic lancé.</pre><h2>Historique de l’agent hôte</h2><pre id="hostResult">Aucun diagnostic hôte lancé.</pre></div>
     </div></main><script>
     const $=id=>document.getElementById(id);
-    async function req(path,options={}){const r=await fetch(path,{credentials:'same-origin',cache:'no-store',...options});let data=await r.json().catch(()=>({}));if(!r.ok)throw Error(data.error||'HTTP '+r.status);return data}
-    async function refresh(){try{const a=await req('/api/nxc/status');$('login').hidden=true;$('board').hidden=false;
+    async function req(path,options={}){const r=await fetch(path,{credentials:'same-origin',cache:'no-store',...options});let data=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(data.error||'HTTP '+r.status);e.status=r.status;throw e}return data}
+    async function refresh(){try{const a=await req('/api/nxc/status');$('login').hidden=true;$('board').hidden=false;$('connectionPanel').textContent='VPS connecté · Dernière synchronisation '+new Date().toLocaleTimeString('fr-FR');
     $('server').textContent=a.hostname+' · '+a.uptimeHours+'h';$('memory').textContent=a.memoryAvailableMiB+' MiB';
     $('agent').textContent=a.agentAgeSeconds===null?'Non relié':a.agentAgeSeconds+'s';$('host').textContent=a.hostAgeSeconds===null?'Non relié':a.hostAgeSeconds+'s';
     $('services').replaceChildren(...a.services.map(x=>{const row=document.createElement('tr'),name=document.createElement('td'),state=document.createElement('td');name.textContent=x.name;state.textContent=x.active+'/'+x.sub;state.className=x.active==='active'?'ok':'bad';row.append(name,state);return row}));
@@ -171,12 +171,12 @@ def dashboard():
        name.textContent=x.label;role.textContent=x.role;expiry.textContent=new Date(x.expires*1000).toLocaleString();
        button.textContent='Révoquer';button.onclick=async()=>{if(!confirm('Révoquer cette clé ?'))return;await req('/api/nxc/access/revoke',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:x.id})});await refresh()};
        action.append(button);row.append(name,role,expiry,action);return row}));
-    }catch(e){$('board').hidden=true;$('login').hidden=false;$('loginMsg').textContent=e.message}}
+    }catch(e){if(e.status===401){$('board').hidden=true;$('login').hidden=false;$('loginMsg').textContent='Session expirée, appareil révoqué ou accès modifié. Reconnecte cet appareil pour rétablir la session.';}else{$('connectionPanel').textContent='Connexion au VPS interrompue ('+e.message+'). Les données affichées peuvent être anciennes. Nouvel essai automatique.';if($('board').hidden)$('loginMsg').textContent='Le VPS est temporairement indisponible. Réessai automatique sans effacer ton appareil.';}}}
     $('loginForm').onsubmit=async e=>{e.preventDefault();try{await req('/api/nxc/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:e.target.elements.password.value,deviceName:e.target.elements.deviceName.value,deviceType:e.target.elements.deviceType.value})});e.target.password.value='';await refresh()}catch(ex){$('loginMsg').textContent=ex.message}};
     $('refresh').onclick=refresh;
     {const form=$('loginForm'),mobile=/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
      form.elements.deviceType.value=mobile?'mobile':'desktop';
-     form.elements.deviceName.value=mobile?'Téléphone HONTYX':'PC HONTYX';}
+     form.elements.deviceName.value=mobile?'Mon téléphone':'Mon ordinateur';}
     async function issueKey(role){try{
        if(role==='operator'&&!confirm('Autoriser pendant 30 min le redémarrage des deux agents de supervision NexControl/NexForge ? Aucun shell ni action sur les bots.'))return;
        const x=await req('/api/nxc/access/issue',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({label:role==='operator'?'ChatGPT operator':'ChatGPT observer',role})});
