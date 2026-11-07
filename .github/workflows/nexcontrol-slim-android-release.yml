@@ -1,0 +1,72 @@
+name: Build lighter NexControl Android APK downloads
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/nexcontrol-slim-android-release.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  slim-arm64:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Android project with Internet permissions
+        working-directory: nexcontrol/client
+        run: |
+          set -euo pipefail
+          flutter create --org dev.hontavyr --project-name nexcontrol_v3 --platforms android --no-pub .
+          python3 - <<'PY'
+          from pathlib import Path
+          f=Path('android/app/src/main/AndroidManifest.xml')
+          s=f.read_text()
+          if '<uses-permission android:name="android.permission.INTERNET"' not in s:
+              s=s.replace('<application','<uses-permission android:name="android.permission.INTERNET"/>\n    <application',1)
+          f.write_text(s)
+          assert 'android.permission.INTERNET' in f.read_text()
+          PY
+          rm -f test/widget_test.dart
+          flutter pub get
+          flutter test test/connectivity_test.dart
+      - name: Build arm64 HONTAVYR APK (smaller than debug)
+        working-directory: nexcontrol/client
+        run: |
+          set -euo pipefail
+          flutter build apk --release --target-platform android-arm64 \
+            --dart-define=NXC_DEFAULT_HOST=31.56.85.53
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/NexControl-HONTAVYR-arm64-preview.apk
+      - name: Build arm64 MultiVPS APK
+        working-directory: nexcontrol/client
+        run: |
+          set -euo pipefail
+          flutter build apk --release --target-platform android-arm64 \
+            --dart-define=NXC_DEFAULT_HOST=example.invalid
+          cp build/app/outputs/flutter-apk/app-release.apk dist/NexControl-MultiVPS-arm64-preview.apk
+          for file in dist/*.apk; do unzip -t "$file" | tail -1; done
+          sha256sum dist/*.apk | tee dist/SHA256-ARM64.txt
+          du -h dist/*.apk
+      - name: Publish small APK as public GitHub Release assets
+        working-directory: nexcontrol/client
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release upload nexcontrol-v3-test-20261107 dist/* \
+             --repo "$GH_REPO" --clobber
+          gh release view nexcontrol-v3-test-20261107 --repo "$GH_REPO" \
+            --json assets --jq '[.assets[].name]'
