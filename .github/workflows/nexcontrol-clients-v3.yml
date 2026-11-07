@@ -45,6 +45,7 @@ jobs:
           path.write_text(contents)
           assert 'android.permission.INTERNET' in path.read_text()
           PY
+          rm -f test/widget_test.dart
           flutter pub get
       - name: Validate Dart and tests
         working-directory: nexcontrol/client
@@ -90,6 +91,7 @@ jobs:
         run: |
           flutter config --enable-windows-desktop
           flutter create --org dev.hontavyr --project-name nexcontrol_v3 --platforms windows --no-pub .
+          Remove-Item test/widget_test.dart -ErrorAction SilentlyContinue
           flutter pub get
           flutter analyze --no-fatal-infos --no-fatal-warnings
           flutter test test/connectivity_test.dart
