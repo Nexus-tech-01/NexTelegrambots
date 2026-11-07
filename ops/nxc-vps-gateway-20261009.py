@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 HOME = Path("/var/lib/nxc-vps")
+IDENTITY_V3 = Path("/var/lib/nexcontrol-identity/accounts.sqlite3")
 CONFIG_PATH = Path("/etc/nxc-vps/config.json")
 CONFIG = json.loads(CONFIG_PATH.read_text())
 DOMAIN = CONFIG["domain"]
@@ -111,6 +112,28 @@ def host_auth(p):
        hmac.compare_digest(str(p.get("p_agent_id") or ""), vals["AGENT_ID"]) and
        hmac.compare_digest(str(p.get("p_agent_key") or ""), vals["AGENT_KEY"]))
 
+def account_audit_snapshot():
+    """Read-only owner dashboard view; never return token hashes or credentials."""
+    if not IDENTITY_V3.is_file():
+        return {"ready":False,"accounts":[],"events":[],"devices":0,"sessions":0}
+    c=sqlite3.connect("file:"+str(IDENTITY_V3)+"?mode=ro",uri=True,timeout=6)
+    c.row_factory=sqlite3.Row
+    try:
+        accounts=[dict(r) for r in c.execute(
+            "SELECT username,kind,role,status FROM principals ORDER BY username LIMIT 200"
+        ).fetchall()]
+        events=[dict(r) for r in c.execute("""
+            SELECT e.timestamp,COALESCE(p.username,'service') actor,e.channel,e.action,
+                   e.outcome,e.reason,e.correlation_id
+              FROM events e LEFT JOIN principals p ON e.actor=p.id
+             ORDER BY e.timestamp DESC,e.id DESC LIMIT 60
+        """).fetchall()]
+        devices=c.execute("SELECT count(*) FROM devices WHERE revoked=0").fetchone()[0]
+        sessions=c.execute("SELECT count(*) FROM sessions WHERE revoked=0 AND expires>?",(int(time.time()),)).fetchone()[0]
+        return {"ready":True,"accounts":accounts,"events":events,"devices":devices,"sessions":sessions}
+    finally:
+        c.close()
+
 def shell_status():
     r = subprocess.run(["systemctl","list-units","--type=service","--all",
         "--no-pager","--plain","--no-legend"],capture_output=True,text=True,timeout=8)
@@ -141,6 +164,14 @@ def dashboard():
     <div id="board" hidden><div class="panel" id="connectionPanel" role="status" aria-live="polite">Connexion au VPS en cours…</div><div class="grid"><div class="panel">Serveur<div class="metric" id="server">—</div></div>
     <div class="panel">RAM disponible<div class="metric" id="memory">—</div></div><div class="panel">Agent principal<div class="metric" id="agent">—</div></div>
     <div class="panel">Agent hôte<div class="metric" id="host">—</div></div></div>
+    <div class="panel"><h2>Comptes NexControl · identités V3</h2>
+    <p id="identityState">Chargement des identités et du journal…</p>
+    <div class="scroll"><table><thead><tr><th>Utilisateur / service</th><th>Type</th><th>Rôle</th><th>État</th></tr></thead>
+    <tbody id="identityRows"></tbody></table></div>
+    <h2 style="margin-top:22px">Historique des opérations root et services</h2>
+    <p class="muted">Horodatage, auteur technique, canal et résultat. Les secrets et sorties de commandes sont exclus.</p>
+    <div class="scroll"><table><thead><tr><th>Heure</th><th>Compte</th><th>Canal</th><th>Action</th><th>Résultat</th></tr></thead>
+    <tbody id="identityAuditRows"></tbody></table></div></div>
     <div class="panel"><h2>Services NexTech</h2><div class="scroll"><table><thead><tr><th>Service</th><th>État</th></tr></thead><tbody id="services"></tbody></table></div></div>
     <div class="panel"><h2>Appareils autorisés</h2><p>Chaque appareil possède une identité unique. Révoquer l'un d'eux n'interrompt pas les autres.</p><div class="scroll"><table><thead><tr><th>Appareil</th><th>Type</th><th>Dernière activité</th><th>Action</th></tr></thead><tbody id="devices"></tbody></table></div></div>
     <div class="panel"><h2>Accès assistant · permissions limitées</h2><p>Clés temporaires : consultation (6 heures) ou opérateur (30 minutes, redémarrage de deux agents de supervision seulement). Jamais d'accès SSH ni de commandes arbitraires. Ne partagez pas les clés dans une conversation.</p>
@@ -156,6 +187,12 @@ def dashboard():
     $('server').textContent=a.hostname+' · '+a.uptimeHours+'h';$('memory').textContent=a.memoryAvailableMiB+' MiB';
     $('agent').textContent=a.agentAgeSeconds===null?'Non relié':a.agentAgeSeconds+'s';$('host').textContent=a.hostAgeSeconds===null?'Non relié':a.hostAgeSeconds+'s';
     $('services').replaceChildren(...a.services.map(x=>{const row=document.createElement('tr'),name=document.createElement('td'),state=document.createElement('td');name.textContent=x.name;state.textContent=x.active+'/'+x.sub;state.className=x.active==='active'?'ok':'bad';row.append(name,state);return row}));
+    try{const ident=await req('/api/nxc/identity/v3');$('identityState').textContent=ident.ready
+       ?ident.accounts.length+' identité(s) · '+ident.devices+' appareil(s) · '+ident.sessions+' session(s) · '+ident.events.length+' événements récents'
+       :'Registre V3 non initialisé';
+       $('identityRows').replaceChildren(...ident.accounts.map(x=>{const row=document.createElement('tr');for(const v of [x.username,x.kind,x.role,x.status]){const c=document.createElement('td');c.textContent=v;row.append(c)}return row}));
+       $('identityAuditRows').replaceChildren(...ident.events.map(x=>{const row=document.createElement('tr');for(const v of [new Date(x.timestamp*1000).toLocaleString(),x.actor,x.channel,x.action,x.outcome]){const c=document.createElement('td');c.textContent=v;row.append(c)}return row}));
+    }catch(ex){$('identityState').textContent='Journal momentanément indisponible ('+ex.message+'). Les autres fonctions restent accessibles.';}
     const jobs=await req('/api/nxc/jobs');$('result').textContent=JSON.stringify(jobs.jobs,null,2);
     const hostJobs=await req('/api/nxc/host/jobs');$('hostResult').textContent=JSON.stringify(hostJobs.jobs,null,2);
     const registered=await req('/api/nxc/devices');
@@ -491,6 +528,9 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/nxc/"):
             if not self.admin(): return self.send(401,{"error":"connexion_requise"})
             if method=="POST" and not self.local_origin(): return self.send(403,{"error":"invalid_origin"})
+            if path=="/api/nxc/identity/v3" and method=="GET":
+                try: return self.send(200,account_audit_snapshot())
+                except sqlite3.Error: return self.send(503,{"error":"identity_audit_temporarily_unavailable"})
             if path=="/api/nxc/devices" and method=="GET":
                 current=self.current_device()
                 with connection() as d:
