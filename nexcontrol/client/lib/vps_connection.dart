@@ -89,7 +89,7 @@ class ConnectedVps {
   Future<String> accessReport()=>run(
     "printf 'COMPTE CONNECTÉ\\n'; id; "
     "printf '\\nCOMPTES LINUX\\n'; "
-    r"getent passwd | awk -F: '($3==0 || ($3>=1000 && $3<65534)){print $1, \"UID=\" $3, \"shell=\" $7}'"
+    r'''getent passwd | awk -F: '($3==0 || ($3>=1000 && $3<65534)){print $1, "UID=" $3, "shell=" $7}' '''
     "; printf '\\nGROUPES ADMIN\\n'; getent group sudo docker | cut -d: -f1,4; "
     "printf '\\nSESSIONS SSH ACTIVES\\n'; who; "
     "printf '\\nPONTS NEXCONTROL\\n'; "
