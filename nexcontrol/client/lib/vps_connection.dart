@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -99,6 +100,57 @@ class ConnectedVps {
     "python3 -c 'import sqlite3; c=sqlite3.connect(\"file:/var/lib/nexcontrol-identity/accounts.sqlite3?mode=ro\",uri=True); "
     "print(list(c.execute(\"select username,kind,role from principals\")))'; "
     "else printf 'Registre protégé : consulter avec les droits propriétaire.\\n'; fi");
+  Future<String> fullAccessInventory(String sudoPassword) async {
+    // The sudo password is transmitted only through SSH process stdin,
+    // never a command argument, URL, repository issue or application log.
+    const py = r'''
+import grp,json,os,pathlib,pwd,sqlite3,time
+out={'generatedAt':int(time.time()),'linuxAccounts':[],'mobileApiKeys':[],
+     'webDevices':[],'technicalKeys':[],'principals':[],'recentOidc':[]}
+try: sudo=set(grp.getgrnam('sudo').gr_mem)
+except KeyError: sudo=set()
+for u in pwd.getpwall():
+    if u.pw_uid!=0 and not (1000<=u.pw_uid<65534): continue
+    key=pathlib.Path(u.pw_dir)/'.ssh'/'authorized_keys'
+    try: count=sum(1 for ln in key.read_text().splitlines() if ln.strip() and not ln.lstrip().startswith('#')) if key.is_file() and not key.is_symlink() else 0
+    except OSError: count=-1
+    out['linuxAccounts'].append({'user':u.pw_name,'uid':u.pw_uid,'sudo':u.pw_uid==0 or u.pw_name in sudo,'sshKeys':count,'shell':u.pw_shell})
+def read(path,sql):
+    if not os.path.isfile(path):return []
+    con=sqlite3.connect('file:'+path+'?mode=ro',uri=True,timeout=4)
+    con.row_factory=sqlite3.Row
+    try:return [dict(row) for row in con.execute(sql).fetchall()]
+    except sqlite3.Error:return []
+    finally:con.close()
+out['mobileApiKeys']=read('/var/lib/nexcontrol-mobile/access.sqlite3','select id,label,scopes,created,expires from keys')
+out['webDevices']=read('/var/lib/nxc-vps/gateway.sqlite3','select id,label,kind,last_seen,revoked from devices')
+out['technicalKeys']=read('/var/lib/nxc-vps/gateway.sqlite3','select id,label,role,expires,revoked from assistant_keys')
+out['principals']=read('/var/lib/nexcontrol-identity/accounts.sqlite3','select username,kind,role,status from principals')
+out['recentOidc']=read('/var/lib/nxc-oidc-vps/audit.sqlite3','select issue,created,action,state from operations order by created desc limit 20')
+out['coverage']='Le panneau VPS externe et les délégations non enregistrées ne peuvent pas être inventoriés ici.'
+print(json.dumps(out,ensure_ascii=False,indent=2))
+''';
+    if (sudoPassword.isEmpty) {
+      throw const FormatException('Mot de passe sudo nécessaire.');
+    }
+    final encoded=base64Encode(utf8.encode(py));
+    final command="sudo -S -p '' python3 -c 'import base64;exec(base64.b64decode(\"$encoded\"))'";
+    final session=await ssh.execute(command);
+    final stdout=BytesBuilder(),stderr=BytesBuilder();
+    final stdoutDone=session.stdout.listen((x)=>stdout.add(x)).asFuture<void>();
+    final stderrDone=session.stderr.listen((x)=>stderr.add(x)).asFuture<void>();
+    try {
+      session.write(utf8.encode(sudoPassword+'\n'));
+      await session.stdin.close();
+      await session.done.timeout(const Duration(seconds:50));
+      await Future.wait([stdoutDone,stderrDone]);
+      if(session.exitCode!=0)throw StateError(
+        'Lecture avec sudo refusée : '+utf8.decode(stderr.takeBytes(),allowMalformed:true));
+      return utf8.decode(stdout.takeBytes(),allowMalformed:true);
+    } finally {
+      // Do not retain the password, token, or SSH command output in persistent storage.
+    }
+  }
   Future<String> services() => run(
     'systemctl list-units --type=service --state=running --no-pager --plain | head -65');
   Future<List<String>> listFiles(String path) async {
