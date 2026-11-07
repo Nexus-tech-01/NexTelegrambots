@@ -1,0 +1,12 @@
+[Unit]
+Description=NexControl V3: periodic root operation audit mirror
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=1min
+AccuracySec=10s
+Persistent=true
+Unit=nxc-identity-audit-v3.service
+
+[Install]
+WantedBy=timers.target

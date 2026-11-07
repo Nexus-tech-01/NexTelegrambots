@@ -348,14 +348,17 @@ class AccountStore:
                 c.execute("UPDATE sessions SET revoked=1,revoke_reason=? WHERE principal_id=?",(reason[:100],target_id))
         self.record(owner_id,"owner-dashboard","principal.suspend","ok",reason,correlation_id=target_id)
 
-    def record(self, actor, channel, action, outcome, reason="", device_id=None, correlation_id=""):
+    def record(self, actor, channel, action, outcome, reason="", device_id=None, correlation_id="", timestamp=None):
         """No secrets, command bodies, tokens, session content or network addresses."""
         for value,max_len in ((str(actor),100),(channel,60),(action,100),(outcome,40),(reason,160),(correlation_id,100)):
             if len(value)>max_len: raise IdentityError("audit_field_too_long")
+        occurred=int(time.time()) if timestamp is None else int(timestamp)
+        if occurred<946684800 or occurred>int(time.time())+300:
+            raise IdentityError("audit_timestamp_invalid")
         with closing(self._connect()) as c:
             with c:
                 c.execute("INSERT INTO events VALUES(?,?,?,?,?,?,?,?,?)",(
-                    str(uuid.uuid4()),int(time.time()),str(actor),device_id,channel,
+                    str(uuid.uuid4()),occurred,str(actor),device_id,channel,
                     action,outcome,reason,correlation_id
                 ))
 
