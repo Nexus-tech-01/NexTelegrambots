@@ -160,7 +160,8 @@ class VpsConnector {
 class LegacyVps {
   static Future<String> check(VpsProfile profile,String key) async {
     if(!validVpsHost(profile.host))throw const FormatException('Serveur invalide');
-    final uri=Uri.https(profile.host,'/nexcontrol-mobile/status');
+    final domain=profile.host=='31.56.85.53'?'nxc.31-56-85-53.sslip.io':profile.host;
+    final uri=Uri.https(domain,'/nexcontrol-mobile/status');
     final response=await http.get(uri,headers:{
       'Authorization':'Bearer $key','Accept':'application/json'
     }).timeout(const Duration(seconds:15));
