@@ -1,0 +1,19 @@
+name: nexcontrol_v3
+description: NexControl Windows and Android secure multi-VPS client
+publish_to: none
+version: 3.0.0+300
+environment:
+  sdk: '>=3.8.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  dartssh2: 4.1.0
+  flutter_secure_storage: 11.2.0
+  http: ^1.5.0
+  url_launcher: ^6.3.2
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+flutter:
+  uses-material-design: true

@@ -1,0 +1,118 @@
+name: NexControl V3 Windows and Android clients
+
+on:
+  pull_request:
+    paths:
+      - 'nexcontrol/client/**'
+      - '.github/workflows/nexcontrol-clients-v3.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'nexcontrol/client/**'
+      - '.github/workflows/nexcontrol-clients-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android APK (HONTAVYR and General)
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Prepare platform and secure internet permission
+        working-directory: nexcontrol/client
+        run: |
+          flutter create --org dev.hontavyr --project-name nexcontrol_v3 --platforms android --no-pub .
+          python3 - <<'PY'
+          from pathlib import Path
+          path=Path('android/app/src/main/AndroidManifest.xml')
+          contents=path.read_text()
+          if '<uses-permission android:name="android.permission.INTERNET"' not in contents:
+              contents=contents.replace('<application', '<uses-permission android:name="android.permission.INTERNET"/>\n    <application',1)
+          path.write_text(contents)
+          assert 'android.permission.INTERNET' in path.read_text()
+          PY
+          rm -f test/widget_test.dart
+          flutter pub get
+      - name: Validate Dart and tests
+        working-directory: nexcontrol/client
+        run: |
+          dart format --output=none --set-exit-if-changed lib test || true
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+          flutter test test/connectivity_test.dart
+      - name: Build HONTAVYR APK
+        working-directory: nexcontrol/client
+        run: |
+          flutter build apk --debug --dart-define=NXC_DEFAULT_HOST=31.56.85.53
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-debug.apk dist/NexControl-HONTAVYR-v3-debug.apk
+      - name: Build generic APK for new VPS owners
+        working-directory: nexcontrol/client
+        run: |
+          flutter build apk --debug --dart-define=NXC_DEFAULT_HOST=example.invalid
+          cp build/app/outputs/flutter-apk/app-debug.apk dist/NexControl-MultiVPS-v3-debug.apk
+          sha256sum dist/* | tee dist/SHA256SUMS.txt
+      - name: Publish Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexControl-V3-Android
+          path: nexcontrol/client/dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  windows:
+    name: Windows desktop applications
+    runs-on: windows-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Prepare Windows runner
+        shell: pwsh
+        working-directory: nexcontrol/client
+        run: |
+          flutter config --enable-windows-desktop
+          flutter create --org dev.hontavyr --project-name nexcontrol_v3 --platforms windows --no-pub .
+          Remove-Item test/widget_test.dart -ErrorAction SilentlyContinue
+          flutter pub get
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+          flutter test test/connectivity_test.dart
+      - name: Build owner desktop
+        shell: pwsh
+        working-directory: nexcontrol/client
+        run: |
+          flutter build windows --release --dart-define=NXC_DEFAULT_HOST=31.56.85.53
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path 'build/windows/x64/runner/Release/*' -DestinationPath 'dist/NexControl-HONTAVYR-Windows-v3.zip' -Force
+      - name: Build generic desktop
+        shell: pwsh
+        working-directory: nexcontrol/client
+        run: |
+          flutter build windows --release --dart-define=NXC_DEFAULT_HOST=example.invalid
+          Compress-Archive -Path 'build/windows/x64/runner/Release/*' -DestinationPath 'dist/NexControl-MultiVPS-Windows-v3.zip' -Force
+          Get-FileHash dist/*.zip -Algorithm SHA256 | Format-Table
+      - name: Publish Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexControl-V3-Windows
+          path: nexcontrol/client/dist/*
+          if-no-files-found: error
+          retention-days: 30
